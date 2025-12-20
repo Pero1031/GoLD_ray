@@ -1,0 +1,20 @@
+﻿#pragma once
+
+#include "Core.hpp"
+#include "Ray.hpp"
+#include "Interaction.hpp"
+
+namespace rayt {
+
+    // Abstract base class for any object that a ray can intersect.
+    class Hittable {
+    public:
+        virtual ~Hittable() = default;
+
+        // Determines if a ray hits this object.
+        // The valid interval is now strictly controlled by r.tMin and r.tMax.
+        // rec: Output structure to store intersection details.
+        virtual bool hit(const Ray& r, SurfaceInteraction& rec) const = 0;
+    };
+
+}
