@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "Hittable.hpp"
+#include "Geometry/Hittable.hpp"
 
 #include <memory>
 #include <vector>

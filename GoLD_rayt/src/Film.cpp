@@ -1,6 +1,7 @@
 #include "pch.h"
-#include "Film.hpp"
-#include "Utils.hpp" // For linearToGamma, saturate, etc.
+
+#include "Renderer/Film.hpp"
+#include "Core/Utils.hpp" // For linearToGamma, saturate, etc.
 
 // Assuming STB_IMAGE_WRITE_IMPLEMENTATION is defined in ImageIO.cpp
 #include "stb_image_write.h"

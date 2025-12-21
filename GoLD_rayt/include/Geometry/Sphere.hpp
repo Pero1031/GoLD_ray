@@ -1,7 +1,7 @@
 ﻿#pragma once
 
-#include "Hittable.hpp"
-#include "Interaction.hpp"
+#include "Geometry/Hittable.hpp"
+#include "Core/Interaction.hpp"
 
 #include <memory>
 #include <vector>

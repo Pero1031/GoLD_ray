@@ -10,22 +10,34 @@
 
 // 自作ヘッダー
 // 2. Project Headers
-#include "IORInterpolator.hpp"
-#include "Constants.hpp"
-#include "Utils.hpp"
-#include "Core.hpp"
-#include "Film.hpp"
-#include "Camera.hpp"
-#include "Hittable.hpp"
-#include "HittableList.hpp"
-#include "Interaction.hpp"
-#include "Material.hpp"
-#include "Sphere.hpp"
-#include "SpectralMetal.hpp"
-#include "Scene.hpp"
-#include "Integrator.hpp"
-#include "Lambertian.hpp"
-#include "DiffuseLight.hpp"
+// Core
+#include "Core/Constants.hpp"
+#include "Core/Utils.hpp"
+#include "Core/Core.hpp"
+#include "Core/Interaction.hpp"
+
+// Geometry
+#include "Geometry/Hittable.hpp"
+#include "Geometry/HittableList.hpp"
+#include "Geometry/Sphere.hpp"
+
+// IO
+#include "IO/IORInterpolator.hpp"
+
+// Renderer
+#include "Renderer/Film.hpp"
+#include "Renderer/Camera.hpp"
+#include "Renderer/Scene.hpp"
+#include "Renderer/Integrator.hpp"
+
+// Materials
+#include "Materials/Material.hpp"
+//#include "Materials/SpectralMetal.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Materials/DiffuseLight.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Materials/MirrorConductor.hpp"
+#include "Materials/Mirror.hpp"
 // Note: "Lambertian" or other materials can be added here in the future.
 
 // 画像生成のためのヘッダー
@@ -39,50 +51,8 @@ using namespace rayt;
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
+const int SAMPLES_PER_PIXEL = 1000; // Higher = less noise, slower
 const int MAX_DEPTH = 50;          // Max recursion depth for rays
-
-// -----------------------------------------------------------------------------
-// The "Integrator" Function
-// -----------------------------------------------------------------------------
-// Recursively traces rays into the scene to calculate color.
-// r: The current ray
-// world: The list of all objects in the scene
-// depth: Remaining bounce count
-/*Spectrum ray_color(const Ray& r, const Hittable& world, int depth) {
-    SurfaceInteraction rec;
-
-    // 0. Base case: If ray bounces too many times, no more light is gathered.
-    if (depth <= 0) {
-        return Spectrum(0.0);
-    }
-
-    // 1. Intersection Check
-    // tMin is 0.001 to avoid "Shadow Acne" (self-intersection due to float precision)
-    if (world.hit(r, 0.001, Constants::INFINITY_VAL, rec)) {
-        Ray scattered;
-        Spectrum attenuation;
-
-        // 2. Material Scattering
-        // If the material scatters the ray (reflects/refracts), trace the new ray.
-        if (rec.matPtr->scatter(r, rec, attenuation, scattered)) {
-            // Recursive call: Multiply current attenuation by the light from the next bounce.
-            return attenuation * ray_color(scattered, world, depth - 1);
-        }
-
-        // If the ray is absorbed (e.g., hit a black body), return black.
-        return Spectrum(0.0);
-    }
-
-    // 3. Background (Sky)
-    // If no object is hit, draw a simple gradient sky.
-    Vector3 unit_direction = glm::normalize(r.d);
-    auto t = 0.5 * (unit_direction.y + 1.0);
-
-    // Linear interpolation: White -> Blue
-    // (1.0-t)*White + t*Blue
-    return (1.0 - t) * Spectrum(1.0, 1.0, 1.0) + t * Spectrum(0.5, 0.7, 1.0);
-}*/
 
 // -----------------------------------------------------------------------------
 // Main Entry Point
@@ -244,8 +214,8 @@ int main() {
     // Save as Raw Linear HDR (For analysis)
     film.save("render_gold.hdr");*/
 
-    const int samples_per_pixel = 100; // ← これが samples_per_pixel の定義
-    const int max_depth = 50;          // ← これが max_depth の定義
+    //const int samples_per_pixel = 100; // ← これが samples_per_pixel の定義
+    //const int max_depth = 50;          // ← これが max_depth の定義
     // -------------------------------------------------------------------------
     // 2. マテリアル作成 (Materials)
     // -------------------------------------------------------------------------
@@ -269,6 +239,9 @@ int main() {
     // ※ 現在は金属マテリアルしかないので、床も金になります！
     worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matPolishedGold));*/
 
+
+
+    /*
     // 金 (Roughness 0.2)
     auto matGold = std::make_shared<SpectralMetal>("Johnson.csv", 0.2);
 
@@ -343,8 +316,96 @@ int main() {
     film.save("render_gold_pbrt.png");
 
     // HDR (生データ・研究解析用)
-    film.save("render_gold_pbrt.hdr");
-    
+    film.save("render_gold_pbrt.hdr");*/
+
+
+
+
+
+    std::cout << "[System] Initializing..." << std::endl;
+
+    // -------------------------------------------------------------------------
+    // 1. マテリアルの作成
+    // -------------------------------------------------------------------------
+
+    // --- 床用: グレーの拡散反射 ---
+    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5f, 0.5f, 0.5f));
+
+    // --- 光源: 明るい白 (DiffuseLightを使用) ---
+    // 値が1.0を超えると発光体として機能します
+    auto matLight = std::make_shared<DiffuseLight>(Spectrum(15.0f, 15.0f, 15.0f));
+
+    // --- 主役: 金 (MirrorConductor) ---
+    // 波長ごとの屈折率データ (RGB近似値)
+    // Red(650nm), Green(550nm), Blue(450nm) 付近の値を設定
+    // Au (Gold):
+    // n: R=0.16, G=0.42, B=1.45
+    // k: R=3.48, G=2.45, B=1.77
+    Spectrum n_Au(0.16f, 0.42f, 1.45f);
+    Spectrum k_Au(3.48f, 2.45f, 1.77f);
+
+    auto matGold = std::make_shared<MirrorConductor>(n_Au, k_Au);
+
+    // -------------------------------------------------------------------------
+    // 2. 物体の配置 (Scene)
+    // -------------------------------------------------------------------------
+    auto worldObjects = std::make_shared<HittableList>();
+
+    // 床 (巨大な球)
+    worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+
+    // 中央の球 (金)
+    worldObjects->add(std::make_shared<Sphere>(Point3(0, 0, -1), 0.5, matGold));
+
+    // 光源 (右上・手前)
+    worldObjects->add(std::make_shared<Sphere>(Point3(1.5, 2.0, 1.0), 0.5, matLight));
+
+    // 補助光源（左側・遠く）
+    //worldObjects->add(std::make_shared<Sphere>(Point3(-2.0, 1.0, -2.0), 0.3, matLight));
+
+    Scene scene(worldObjects);
+
+    // -------------------------------------------------------------------------
+    // 3. カメラ設定
+    // -------------------------------------------------------------------------
+    Point3 lookFrom(0, 0.5, 2.5); // 少し高い位置から見下ろす
+    Point3 lookAt(0, 0, -1);
+    Vector3 vUp(0, 1, 0);
+
+    Real distToFocus = glm::length(lookFrom - lookAt);
+    Real aperture = 0.0; // ピンホールカメラ（ボケなし）でテスト
+
+    auto camera = std::make_shared<Camera>(
+        lookFrom, lookAt, vUp,
+        35.0, // FOV
+        double(IMAGE_WIDTH) / IMAGE_HEIGHT,
+        aperture,
+        distToFocus
+    );
+
+    // -------------------------------------------------------------------------
+    // 4. レンダリング準備
+    // -------------------------------------------------------------------------
+    Film film(IMAGE_WIDTH, IMAGE_HEIGHT);
+
+    // 新しいIntegratorを使用
+    // max_depth, spp を渡す
+    auto integrator = std::make_unique<PathIntegrator>(camera, MAX_DEPTH, SAMPLES_PER_PIXEL);
+
+    // -------------------------------------------------------------------------
+    // 5. レンダリング実行
+    // -------------------------------------------------------------------------
+    std::cout << "[Render] Start PBR rendering..." << std::endl;
+    integrator->render(scene, film);
+
+    // -------------------------------------------------------------------------
+    // 6. 保存
+    // -------------------------------------------------------------------------
+    std::cout << "[Output] Saving images..." << std::endl;
+    film.save("result_gold_pbr.png");
+    film.save("result_gold_pbr.hdr");
+
+    std::cout << "[System] Finished." << std::endl;
     
 
     return 0;

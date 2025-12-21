@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include "Material.hpp"
-#include "IORInterpolator.hpp"
-#include "Utils.hpp"
+#include "Materials/Material.hpp"
+#include "IO/IORInterpolator.hpp"
+#include "Core/Utils.hpp"
 
 namespace rayt {
 

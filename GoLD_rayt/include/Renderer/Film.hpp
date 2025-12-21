@@ -5,7 +5,7 @@
 #include <memory>
 #include <algorithm>
 
-#include "Core.hpp"  // Include core definitions (Spectrum, Real, etc.)
+#include "Core/Core.hpp"  // Include core definitions (Spectrum, Real, etc.)
 
 namespace rayt {
 

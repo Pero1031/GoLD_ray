@@ -9,8 +9,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "Constants.hpp"   // Include the constants header if available
-#include "Core.hpp"
+#include "Core/Constants.hpp"   // Include the constants header if available
+#include "Core/Core.hpp"
 
 // template <typename>は型に依存しない関数を作るという宣言
 // Use std::sqrt for scalar, glm::sqrt for vector.
@@ -274,7 +274,7 @@ namespace Utils {
         cosThetaI = Utils::saturate(cosThetaI);
 
         // Check for total internal reflection
-        Real sinThetaI = std::sqrt(std::max(Real(0.0), Real(1.0) - cosThetaI * cosThetaI));
+        Real sinThetaI = glm::sqrt(std::max(Real(0.0), Real(1.0) - cosThetaI * cosThetaI));
         Real sinThetaT = (etaI / etaT) * sinThetaI;
 
         if (sinThetaT >= Real(1.0)) {
@@ -340,4 +340,69 @@ namespace Utils {
         return true;
     }
 
+    //--------------------------------------------------------------------------
+   // 10. sampling helper
+   // -------------------------------------------------------------------------
+   // 
+    inline rayt::Vector3 randomCosineDirection() {
+        auto r1 = Utils::Random();
+        auto r2 = Utils::Random();
+        auto z = std::sqrt(1.0 - r2);
+        auto phi = 2.0 * Constants::PI * r1;
+        auto x = std::cos(phi) * std::sqrt(r2);
+        auto y = std::sin(phi) * std::sqrt(r2);
+        return rayt::Vector3(x, y, z);
+    }
+
+    // 外部から乱数(u)を受け取ってサンプリングするバージョン（PBRに必須）
+    inline rayt::Vector3 randomCosineDirection(const rayt::Point2& u) {
+        Real r1 = u.x;
+        Real r2 = u.y;
+        Real z = std::sqrt(std::max(Real(0.0), Real(1.0) - r2)); // cos(theta)
+        Real phi = Real(2.0) * Constants::PI * r1;
+        Real x = std::cos(phi) * std::sqrt(r2); // sin(theta)*cos(phi)
+        Real y = std::sin(phi) * std::sqrt(r2); // sin(theta)*sin(phi)
+        return rayt::Vector3(x, y, z);
+    }
+
+    // 法線 n を基準に、ローカルベクトル v をワールド座標へ変換
+    inline rayt::Vector3 localToWorld(const rayt::Vector3& n, const rayt::Vector3& v) {
+        // 簡易的なONB生成 (Frisvad's methodなど)
+        rayt::Vector3 a = (std::abs(n.x) > 0.9) ? rayt::Vector3(0, 1, 0) : rayt::Vector3(1, 0, 0);
+        rayt::Vector3 b = glm::normalize(glm::cross(n, a)); // 接線
+        rayt::Vector3 c = glm::cross(n, b);                 // 従法線
+        return v.x * b + v.y * c + v.z * n;
+    }
+
 } // namespace Utils
+
+namespace rayt {
+
+    struct Onb {
+        rayt::Vector3 u, v, w;
+
+        Onb() {}
+
+        // 法線 n から基底を作るコンストラクタ
+        Onb(const rayt::Vector3& n) {
+            buildFromW(n);
+        }
+
+        void buildFromW(const rayt::Vector3& n) {
+            w = glm::normalize(n);
+            // Utilsにある既存のロジックを再利用
+            Utils::makeOrthonormalBasis(w, u, v);
+        }
+
+        // ローカル座標 (v) を ワールド座標に変換
+        rayt::Vector3 localToWorld(const rayt::Vector3& a) const {
+            return a.x * u + a.y * v + a.z * w;
+        }
+
+        // ワールド座標 (a) を ローカル座標に変換
+        rayt::Vector3 worldToLocal(const rayt::Vector3& a) const {
+            return rayt::Vector3(glm::dot(a, u), glm::dot(a, v), glm::dot(a, w));
+        }
+    };
+
+} // namespace rayt

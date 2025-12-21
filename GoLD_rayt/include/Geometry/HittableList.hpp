@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 // #include "pch.h"
-#include "Hittable.hpp"
+#include "Geometry/Hittable.hpp"
 #include <vector>
 #include <memory>
 

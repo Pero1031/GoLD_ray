@@ -28,24 +28,28 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\Camera.hpp" />
-    <ClInclude Include="include\Constants.hpp" />
-    <ClInclude Include="include\Core.hpp" />
-    <ClInclude Include="include\DiffuseLight.hpp" />
-    <ClInclude Include="include\Film.hpp" />
-    <ClInclude Include="include\Hittable.hpp" />
-    <ClInclude Include="include\HittableList.hpp" />
-    <ClInclude Include="include\Integrator.hpp" />
-    <ClInclude Include="include\Interaction.hpp" />
-    <ClInclude Include="include\IORInterpolator.hpp" />
-    <ClInclude Include="include\Lambertian.hpp" />
-    <ClInclude Include="include\Material.hpp" />
+    <ClInclude Include="include\Core\Constants.hpp" />
+    <ClInclude Include="include\Core\Core.hpp" />
+    <ClInclude Include="include\Core\Interaction.hpp" />
+    <ClInclude Include="include\Core\Ray.hpp" />
+    <ClInclude Include="include\Core\Utils.hpp" />
+    <ClInclude Include="include\Geometry\Hittable.hpp" />
+    <ClInclude Include="include\Geometry\HittableList.hpp" />
+    <ClInclude Include="include\Geometry\Sphere.hpp" />
+    <ClInclude Include="include\IO\IORInterpolator.hpp" />
+    <ClInclude Include="include\Materials\DiffuseLight.hpp" />
+    <ClInclude Include="include\Materials\Lambertian.hpp" />
+    <ClInclude Include="include\Materials\Material.hpp" />
+    <ClInclude Include="include\Materials\Mirror.hpp" />
+    <ClInclude Include="include\Materials\MirrorConductor.hpp" />
+    <ClInclude Include="include\Materials\SpectralMetal.hpp" />
     <ClInclude Include="include\pch.h" />
-    <ClInclude Include="include\Ray.hpp" />
-    <ClInclude Include="include\Scene.hpp" />
-    <ClInclude Include="include\SpectralMetal.hpp" />
-    <ClInclude Include="include\Sphere.hpp" />
-    <ClInclude Include="include\Utils.hpp" />
+    <ClInclude Include="include\Renderer\Camera.hpp" />
+    <ClInclude Include="include\Renderer\Film.hpp" />
+    <ClInclude Include="include\Renderer\Integrator.hpp" />
+    <ClInclude Include="include\Renderer\Scene.hpp" />
+    <ClInclude Include="include\stb\stb_image.h" />
+    <ClInclude Include="include\stb\stb_image_write.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

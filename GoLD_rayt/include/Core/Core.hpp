@@ -19,7 +19,7 @@
 // -------------------------------------------------------------------------
 // 1. Global Constants & Configuration
 // -------------------------------------------------------------------------
-#include "Constants.hpp" // custom constants (PI, etc.)
+#include "Core/Constants.hpp" // custom constants (PI, etc.)
 
 namespace rayt {
 
@@ -52,6 +52,26 @@ namespace rayt {
     // TODO: Replace this with a 'SampledSpectrum' class later for full spectral rendering.
     // e.g., class SampledSpectrum { std::array<Real, 60> values; ... };
     using Spectrum = glm::vec<3, Real, glm::defaultp>;
+
+    // メンバ関数 beta.isBlack() の代わりに、 isBlack(beta) と呼ぶ形になります
+    inline bool isBlack(const Spectrum& s) {
+        // glm::vec3 は通常 x, y, z でアクセスします
+        // (ごく小さい値を許容するためのイプシロン判定を入れても良いです)
+        return s.x <= 0.0 && s.y <= 0.0 && s.z <= 0.0;
+    }
+
+    inline bool hasNaNs(const Spectrum& s) {
+        return std::isnan(s.x) || std::isnan(s.y) || std::isnan(s.z) ||
+            std::isinf(s.x) || std::isinf(s.y) || std::isinf(s.z);
+    }
+
+    // 必要であれば、値を安全な範囲に丸める関数
+    inline Spectrum sanitize(const Spectrum& s) {
+        if (hasNaNs(s)) {
+            return Spectrum(0.0);
+        }
+        return glm::max(s, Spectrum(0.0));
+    }
 
 
     // ---------------------------------------------------------------------
