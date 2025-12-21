@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include "Core.hpp"
-#include "Interaction.hpp"
-#include "Ray.hpp"
+#include "Core/Core.hpp"
+#include "Core/Interaction.hpp"
+#include "Core/Ray.hpp"
 
 #include <optional>
 
