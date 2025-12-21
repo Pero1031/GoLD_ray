@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-#include "Core.hpp"
-#include "Ray.hpp"
-#include "Utils.hpp"
+#include "Core/Core.hpp"
+#include "Core/Ray.hpp"
+#include "Core/Utils.hpp"
 
 namespace rayt {
 
