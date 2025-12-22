@@ -1,7 +1,9 @@
 #include "pch.h"
 
 #include "Renderer/Film.hpp"
-#include "Core/Utils.hpp" // For linearToGamma, saturate, etc.
+//#include "Core/Utils.hpp" // For linearToGamma, saturate, etc.
+#include "Renderer/ColorTransform.hpp"
+#include "Core/Math.hpp"
 
 // Assuming STB_IMAGE_WRITE_IMPLEMENTATION is defined in ImageIO.cpp
 #include "stb_image_write.h"
@@ -57,14 +59,14 @@ namespace rayt {
 
                 // 2. Gamma Correction (Linear -> sRGB)
                 // Monitors expect sRGB data (approx. gamma 2.2).
-                pixel.r = Utils::linearToGamma(pixel.r);
-                pixel.g = Utils::linearToGamma(pixel.g);
-                pixel.b = Utils::linearToGamma(pixel.b);
+                pixel.r = renderer::linearToGamma(pixel.r);
+                pixel.g = renderer::linearToGamma(pixel.g);
+                pixel.b = renderer::linearToGamma(pixel.b);
 
                 // 3. Quantization (0.0-1.0 -> 0-255)
-                outputData[i * 3 + 0] = static_cast<unsigned char>(255.99 * Utils::saturate(pixel.r));
-                outputData[i * 3 + 1] = static_cast<unsigned char>(255.99 * Utils::saturate(pixel.g));
-                outputData[i * 3 + 2] = static_cast<unsigned char>(255.99 * Utils::saturate(pixel.b));
+                outputData[i * 3 + 0] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.r));
+                outputData[i * 3 + 1] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.g));
+                outputData[i * 3 + 2] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.b));
             }
 
             if (ext == "png") {

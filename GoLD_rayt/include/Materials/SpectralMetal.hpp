@@ -2,7 +2,8 @@
 
 #include "Materials/Material.hpp"
 #include "IO/IORInterpolator.hpp"
-#include "Core/Utils.hpp"
+//#include "Core/Utils.hpp"
+#include "Core/Sampling.hpp"
 
 namespace rayt {
 
@@ -38,31 +39,72 @@ namespace rayt {
             }
         }
 
-        virtual bool scatter(const Ray& r_in, const SurfaceInteraction& rec,
-            Spectrum& attenuation, Ray& scattered) const override {
+        // ---------------------------------------------------------------------
+        // 1. eval: BSDFの評価
+        // ---------------------------------------------------------------------
+        // ラフネスがある場合、本当はマイクロファセット分布を評価すべきですが、
+        // 簡易実装として「ラフネスがある導体も特異点に近い」とみなして 0 を返すか、
+        // あるいは完全鏡面として振る舞わせます。
+        // ※今回は「sample」ですべて処理するタイプ（Delta分布扱い）として実装します。
+        Spectrum eval(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, TransportMode mode) const override {
+            return Spectrum(0.0);
+        }
 
-            // 1. 反射ベクトルの計算
-            Vector3 reflected = glm::reflect(glm::normalize(r_in.d), rec.n);
+        // ---------------------------------------------------------------------
+        // 2. pdf: 確率密度関数
+        // ---------------------------------------------------------------------
+        // Delta分布扱いなので 0
+        Real pdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const override {
+            return 0.0;
+        }
 
-            // 2. 粗さ(Roughness)の適用
-            // 表面を少し乱れさせることで「ぼやけた反射」を作る
+        // ---------------------------------------------------------------------
+        // 3. sample: 次の方向を決定し、重みを計算
+        // ---------------------------------------------------------------------
+        std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
+            const Vector3& wo,
+            const Point2& u,
+            TransportMode mode) const override {
+
+            BSDFSample bsdfSample;
+
+            // (A) 反射方向の計算
+            // 完全鏡面反射ベクトル
+            Vector3 reflected = glm::reflect(-wo, rec.n);
+
+            // (B) ラフネスの適用 (旧scatterのロジックを移植)
+            // 表面を乱数で揺らす
             if (m_roughness > 0) {
-                reflected += m_roughness * Utils::randomInUnitSphere();
+                Vector3 fuzz = rayt::sampling::randomInUnitSphere() * m_roughness;
+                reflected = glm::normalize(reflected + fuzz);
             }
 
-            // 3. 散乱後のレイを生成
-            scattered = Ray(rec.p, glm::normalize(reflected));
+            // (C) 幾何チェック (表面の内側に入ってしまったら吸収)
+            Real cosTheta = glm::dot(reflected, rec.n);
+            if (cosTheta <= 0) return std::nullopt;
 
-            // 4. フレネル反射率の計算 (導体/金属用)
-            // Schlick近似ではなく、n, k を使った厳密な式を使用する
-            // cosTheta = (Ray_in dot Normal)
-            // ただし反射計算なので、視線ベクトルと法線の内積を見る
-            Real cosTheta = std::min(glm::dot(-glm::normalize(r_in.d), rec.n), (Real)1.0);
+            // (D) 結果の格納
+            bsdfSample.wi = reflected;
 
-            attenuation = conductorFresnel(cosTheta, m_eta, m_k);
+            // フラグ設定:
+            // ラフネスがあっても、この簡易実装では「確率的に1方向を選ぶ」ので
+            // 数学的には SPECULAR (デルタ分布) として扱ったほうがIntegratorとの相性が良いです。
+            // (GLOSSYにすると pdf の計算が必要になるため)
+            bsdfSample.sampledType = BxDFType(BSDF_SPECULAR | BSDF_REFLECTION);
+            bsdfSample.pdf = 1.0;
 
-            // 反射方向が表面の内側に入り込んでいないかチェック
-            return (glm::dot(scattered.d, rec.n) > 0);
+            // (E) フレネル反射率の計算 (複素数)
+            // 視線ベクトル wo と法線 n の角度を使います (厳密にはハーフベクトルですが、ここでは wo・n で近似)
+            Real cosThetaI = std::clamp(glm::dot(wo, rec.n), (Real)0.0, (Real)1.0);
+
+            Spectrum F;
+            F.r = fresnelConductorExact(cosThetaI, m_eta.r, m_k.r);
+            F.g = fresnelConductorExact(cosThetaI, m_eta.g, m_k.g);
+            F.b = fresnelConductorExact(cosThetaI, m_eta.b, m_k.b);
+
+            bsdfSample.f = F;
+
+            return bsdfSample;
         }
 
     private:

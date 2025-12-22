@@ -3,10 +3,13 @@
 #include <limits>
 #include <numbers>
 
+#include "Core/Types.hpp"  // to use Real = double
+
 /*
-* @brief 計算で使う定数
+* @brief Constants for calculations
+* @note Define Real as double consistently throughout the project.
 */
-namespace Constants {
+namespace rayt::constants {
 
     // -------------------------------------------------------------------------
     // 1. Mathematical Constants
@@ -14,7 +17,7 @@ namespace Constants {
 
     // Using alias 'Real' allows easy switching between double and float precision.
     // For scientific research and spectral rendering, 'double' is recommended.
-    using Real = double;
+    using Real = rayt::Real;
 
 #if defined(__cpp_lib_math_constants)
     // C++20: Use standard library constants for maximum precision and portability.
@@ -29,14 +32,14 @@ namespace Constants {
 #endif
 
     // Derived constants frequently used in ray tracing equations.
-    constexpr Real TWO_PI = 2.0 * PI;             // Full circle (360 deg) in radians
-    constexpr Real FOUR_PI = 4.0 * PI;            // Solid angle of a sphere
-    constexpr Real INV_TWO_PI = 1.0 / TWO_PI;
-    constexpr Real INV_FOUR_PI = 1.0 / FOUR_PI;   // Normalization factor for isotropic phase functions 1/4π
+    constexpr Real TWO_PI = Real(2) * PI;             // Full circle (360 deg) in radians
+    constexpr Real FOUR_PI = Real(4) * PI;            // Solid angle of a sphere
+    constexpr Real INV_TWO_PI = Real(1) / TWO_PI;
+    constexpr Real INV_FOUR_PI = Real(1) / FOUR_PI;   // Normalization factor for isotropic phase functions 1/4π
 
     // Angle conversions
-    constexpr Real DEG_TO_RAD = PI / 180.0;
-    constexpr Real RAD_TO_DEG = 180.0 / PI;
+    constexpr Real DEG_TO_RAD = PI / Real(180.0);
+    constexpr Real RAD_TO_DEG = Real(180.0) / PI;
 
 
     // -------------------------------------------------------------------------
@@ -47,7 +50,8 @@ namespace Constants {
     constexpr Real INFINITY_VAL = std::numeric_limits<Real>::infinity();
 
     // Small epsilon to prevent self-intersection artifacts (Shadow Acne).
-    // The optimal value depends on the scene scale; 1e-4 to 1e-6 is typical.
+    // CAUTION: Depends on scene scale. 1e-5 is good for meter-scale scenes.
+    // For microscopic/millimeter scale, consider 1e-7.
     constexpr Real RAY_EPSILON = 1e-5;
 
     // Tolerance for intersection tests.
@@ -62,6 +66,7 @@ namespace Constants {
     // ※ 単位は SI系 (m, kg, s, J, K) に準拠
     // Essential for spectral rendering and blackbody radiation calculations.
     // Units: meter (m), kilogram (kg), second (s), Joule (J), Kelvin (K)
+    // Values based on 2019 SI redefinition.
 
     // Speed of light in vacuum c [m/s]
     constexpr Real SPEED_OF_LIGHT = 299792458.0;
@@ -72,25 +77,17 @@ namespace Constants {
     // Boltzmann constant k_B [J/K]
     constexpr Real BOLTZMANN_CONSTANT = 1.380649e-23;
 
+    // Unit conversions
+    constexpr Real NM_TO_M = 1e-9; // Nanometers to Meters
+    constexpr Real M_TO_NM = 1e9;  // Meters to Nanometers
+
     // -------------------------------------------------------------------------
     // 4. Spectral Constants
     // -------------------------------------------------------------------------
 
     // Visible light range definition (Unit: nm)
+    // Covers the full CIE 1931 standard observer range.
     constexpr Real LAMBDA_MIN = 360.0;
     constexpr Real LAMBDA_MAX = 830.0;
 
-    // -------------------------------------------------------------------------
-    // 5. Utility Functions (Compile-time)
-    // -------------------------------------------------------------------------
-    // 便利なヘルパー関数（度数法 <-> 弧度法）
-    // Converts degrees to radians.
-    /*constexpr Real toRadians(Real degrees) {
-        return degrees * DEG_TO_RAD;
-    }
-
-    // Converts radians to degrees.
-    constexpr Real toDegrees(Real radians) {
-        return radians * RAD_TO_DEG;
-    }*/
-}
+} // namespace constants

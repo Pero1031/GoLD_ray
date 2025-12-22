@@ -5,16 +5,18 @@
 /// 
 
 // C++20を仮定している
-// 1. Precompiled Header (Must be first)
+// Precompiled Header (Must be first)
 #include "pch.h"    
 
 // 自作ヘッダー
-// 2. Project Headers
+// Project Headers
 // Core
 #include "Core/Constants.hpp"
-#include "Core/Utils.hpp"
+//#include "Core/Utils.hpp"
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
+#include "Core/Math.hpp"
+#include "Core/Sampling.hpp"
 
 // Geometry
 #include "Geometry/Hittable.hpp"
@@ -51,7 +53,7 @@ using namespace rayt;
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 1000; // Higher = less noise, slower
+const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
 const int MAX_DEPTH = 50;          // Max recursion depth for rays
 
 // -----------------------------------------------------------------------------

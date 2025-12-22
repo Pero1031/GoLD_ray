@@ -21,7 +21,7 @@
 */
 namespace Utils {
 
-    using Real = Constants::Real;
+    using Real = constants::Real;
 
     // -------------------------------------------------------------------------
     // 1. Math Helpers
@@ -174,13 +174,13 @@ namespace Utils {
     // Convert degrees to radians
     template <typename T>
     inline T toRadians(T degrees) {
-        return degrees * (Constants::PI / static_cast<T>(180.0));
+        return degrees * (constants::PI / static_cast<T>(180.0));
     }
 
     // Convert radians to degrees
     template <typename T>
     inline T toDegrees(T radians) {
-        return radians * (static_cast<T>(180.0) / Constants::PI);
+        return radians * (static_cast<T>(180.0) / constants::PI);
     }
 
     // -------------------------------------------------------------------------
@@ -348,7 +348,7 @@ namespace Utils {
         auto r1 = Utils::Random();
         auto r2 = Utils::Random();
         auto z = std::sqrt(1.0 - r2);
-        auto phi = 2.0 * Constants::PI * r1;
+        auto phi = 2.0 * constants::PI * r1;
         auto x = std::cos(phi) * std::sqrt(r2);
         auto y = std::sin(phi) * std::sqrt(r2);
         return rayt::Vector3(x, y, z);
@@ -359,7 +359,7 @@ namespace Utils {
         Real r1 = u.x;
         Real r2 = u.y;
         Real z = std::sqrt(std::max(Real(0.0), Real(1.0) - r2)); // cos(theta)
-        Real phi = Real(2.0) * Constants::PI * r1;
+        Real phi = Real(2.0) * constants::PI * r1;
         Real x = std::cos(phi) * std::sqrt(r2); // sin(theta)*cos(phi)
         Real y = std::sin(phi) * std::sqrt(r2); // sin(theta)*sin(phi)
         return rayt::Vector3(x, y, z);
