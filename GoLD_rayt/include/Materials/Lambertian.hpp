@@ -2,7 +2,9 @@
 
 #include "Core/Core.hpp"
 #include "Materials/Material.hpp"
-#include "Core/Utils.hpp"
+//#include "Core/Utils.hpp"
+#include "Geometry/Frame.hpp"
+#include "Core/Sampling.hpp"
 
 namespace rayt {
 
@@ -20,7 +22,7 @@ namespace rayt {
             Real cosTheta = glm::dot(rec.n, wi);
             if (cosTheta <= 0) return Spectrum(0.0);
 
-            return albedo * (1.0f / Constants::PI);
+            return albedo * (1.0f / constants::PI);
         }
 
         // 2. 確率密度の評価 (pdf = cos(theta) / PI)
@@ -29,7 +31,7 @@ namespace rayt {
             Real cosTheta = glm::dot(rec.n, wi);
             if (cosTheta <= 0) return 0.0;
 
-            return cosTheta * (1.0f / Constants::PI);
+            return cosTheta * (1.0f / constants::PI);
         }
 
         // 3. サンプリング
@@ -42,8 +44,8 @@ namespace rayt {
 
             // 1. ローカル座標で方向を生成し、ワールド座標へ変換
             //    法線 rec.n を基準にした接空間を作る
-            Onb onb(rec.n);
-            Vector3 localDir = Utils::randomCosineDirection(u); // ランダムな方向
+            rayt::frame::Onb onb(rec.n);
+            Vector3 localDir = rayt::sampling::CosineSampleHemisphere(u); // ランダムな方向
             bsdfSample.wi = onb.localToWorld(localDir);
 
             // 2. 幾何学的整合性のチェック（裏面に行っていないか）
@@ -51,10 +53,10 @@ namespace rayt {
 
             // 3. PDF計算: cos(theta) / PI
             //    Integrator側で (f * cos / pdf) を計算するので、正しいPDFを返す
-            bsdfSample.pdf = localDir.z / Constants::PI; // localDir.z は cosTheta と同じ
+            bsdfSample.pdf = localDir.z / constants::PI; // localDir.z は cosTheta と同じ
 
             // 4. BSDF値: albedo / PI
-            bsdfSample.f = albedo / Constants::PI;
+            bsdfSample.f = albedo / constants::PI;
 
             // 5. フラグ設定
             bsdfSample.sampledType = BxDFType(BSDF_DIFFUSE | BSDF_REFLECTION);
