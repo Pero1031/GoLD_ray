@@ -3,6 +3,7 @@
 #include "Core/Core.hpp"
 #include "Core/Ray.hpp"
 #include "Core/Interaction.hpp"
+#include "Core/AABB.hpp"
 
 namespace rayt {
 
@@ -15,6 +16,10 @@ namespace rayt {
         // The valid interval is now strictly controlled by r.tMin and r.tMax.
         // rec: Output structure to store intersection details.
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const = 0;
+
+        // Abstract base class for BVH nodes/objects.
+        // Returns the Axis-Aligned Bounding Box (AABB) of the object.
+        virtual AABB bounds() const = 0;
     };
 
 }

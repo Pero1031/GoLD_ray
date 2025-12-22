@@ -13,8 +13,6 @@
 // Include GLM here so all files have access to vector math.
 #include <glm/glm.hpp>
 
-// Global Constants & Configuration
-//#include "Core/Constants.hpp" // custom constants (PI, etc.)
 #include "Core/Types.hpp"  // Defines 'Real'
 
 namespace rayt {

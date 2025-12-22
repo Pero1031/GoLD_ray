@@ -24,9 +24,10 @@ namespace rayt {
             Vector3 oc = r.o - m_center;
 
             // Quadratic coefficients (using half-b form)
-            Real a = glm::length2(r.d); // requires <glm/gtx/norm.hpp> or dot(d, d)
+            Real a = glm::dot(r.d, r.d); // requires <glm/gtx/norm.hpp> or dot(d, d)
+            if (a == Real(0)) return false;
             Real half_b = glm::dot(oc, r.d);
-            Real c = glm::length2(oc) - m_radius * m_radius;
+            Real c = glm::dot(oc, oc) - m_radius * m_radius;
             
             // Discriminant check
             Real discriminant = half_b * half_b - a * c;
@@ -57,7 +58,7 @@ namespace rayt {
             // TODO: Calculate UV coordinates for sphere mapping here
 
             // Update ray's range of validity
-            //r.tMax = rec.t;
+            r.tMax = rec.t;
 
             return true;
         }

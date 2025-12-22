@@ -28,6 +28,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\Core\AABB.hpp" />
     <ClInclude Include="include\Core\Constants.hpp" />
     <ClInclude Include="include\Core\Core.hpp" />
     <ClInclude Include="include\Core\Interaction.hpp" />
@@ -49,6 +50,7 @@
     <ClInclude Include="include\Materials\MirrorConductor.hpp" />
     <ClInclude Include="include\Materials\SpectralMetal.hpp" />
     <ClInclude Include="include\pch.h" />
+    <ClInclude Include="include\Renderer\BVH.hpp" />
     <ClInclude Include="include\Renderer\Camera.hpp" />
     <ClInclude Include="include\Renderer\ColorTransform.hpp" />
     <ClInclude Include="include\Renderer\Film.hpp" />

@@ -13,6 +13,8 @@
 #include "Core/Math.hpp"
 #include "Core/Types.hpp"  // to use Real = double
 
+// localのx= tangent(u), y= bitangent(v), z= normal(w)(右手系)
+
 namespace rayt::frame {
 
     // -------------------------------------------------------------------------
@@ -23,7 +25,7 @@ namespace rayt::frame {
      * @brief Builds an orthonormal basis (T, B, N) from a given normal N.
      * * A robust, branchless orthonormal basis construction (Frisvad-style).
      * Essential for transforming sampled vectors from local space to world space.
-     * * @param N  The unit normal vector (z-axis of the local frame).
+     * * @param N  The unit normal vector (z-axis of the local frame).|N| == 1
      * @param T  (Output) The computed tangent vector.
      * @param B  (Output) The computed bitangent vector.
      */
@@ -36,20 +38,22 @@ namespace rayt::frame {
         B = Vector3(b, sign + N.y * N.y * a, -N.y);
     }
 
-    // 法線 n を基準に、ローカルベクトル v をワールド座標へ変換
+    // Transform the local vector v to world coordinates based on the normal n.
     inline Vector3 localToWorld(const Vector3& n, const Vector3& v) {
-        // 簡易的なONB生成 (Frisvad's methodなど)
-        Vector3 a = (std::abs(n.x) > 0.9) ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
-        Vector3 b = glm::normalize(glm::cross(n, a)); // 接線
-        Vector3 c = glm::cross(n, b);                 // 従法線
-        return v.x * b + v.y * c + v.z * n;
+        // Frisvad's method
+        Vector3 nn = glm::normalize(n);
+        Vector3 T = Vector3(0.0);
+        Vector3 B = Vector3(0.0);
+
+        makeOrthonormalBasis(nn, T, B);
+        return v.x * T + v.y * B + v.z * nn;
     }
 
     struct Onb {
 
-        Vector3 u = Vector3(0.0);
-        Vector3 v = Vector3(0.0);
-        Vector3 w = Vector3(0.0);
+        Vector3 u = Vector3(0.0);   // tangent
+        Vector3 v = Vector3(0.0);   // bitangent
+        Vector3 w = Vector3(0.0);   // normal
 
         Onb() {}
 
@@ -63,11 +67,18 @@ namespace rayt::frame {
             makeOrthonormalBasis(w, u, v);
         }
 
-        // 異方性反射や法線マップで、「UVの向き」に合わせたいときに使います。
-        void buildFromUW(const Vector3& n, const Vector3& tangent) {
+        // 異方性反射や法線マップで、「UVの向き」に合わせたいとき
+        void buildFromNormalAndTangent(const Vector3& n, const Vector3& tangent) {
             w = glm::normalize(n);
+
+            Vector3 t = tangent - w * glm::dot(w, tangent);  
+            if (glm::dot(t, t) < 1e-12) {      // 退化対策
+                makeOrthonormalBasis(w, u, v); // フォールバック
+                return;
+            }
+
             // 接線(tangent)をnに対して直交化する (Gram-Schmidt)
-            u = glm::normalize(tangent - w * glm::dot(w, tangent));
+            u = glm::normalize(t);
             v = glm::cross(w, u);
         }
 
