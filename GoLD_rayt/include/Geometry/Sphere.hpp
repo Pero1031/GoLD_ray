@@ -2,6 +2,7 @@
 
 #include "Geometry/Hittable.hpp"
 #include "Core/Interaction.hpp"
+#include "Core/AABB.hpp"
 
 #include <memory>
 #include <vector>
@@ -61,6 +62,11 @@ namespace rayt {
             r.tMax = rec.t;
 
             return true;
+        }
+
+        AABB bounds() const override {
+            Vector3 rad(m_radius);
+            return AABB(m_center - rad, m_center + rad);
         }
 
     private:

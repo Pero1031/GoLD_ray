@@ -1,7 +1,8 @@
 ﻿#pragma once
 
-// #include "pch.h"
 #include "Geometry/Hittable.hpp"
+#include "Core/AABB.hpp"
+
 #include <vector>
 #include <memory>
 
@@ -33,6 +34,20 @@ namespace rayt {
             }
 
             return hitAnything;
+        }
+
+        AABB bounds() const override {
+            if (objects.empty()) {
+                // 「無効AABB」を返す方針にするか、適当なゼロ箱を返すかはAABB設計次第
+                // ここではとりあえず 0サイズ箱にしておく例
+                return AABB(Point3(0), Point3(0));
+            }
+
+            AABB b = objects[0]->bounds();
+            for (size_t i = 1; i < objects.size(); ++i) {
+                b = AABB::unite(b, objects[i]->bounds());
+            }
+            return b;
         }
 
     public:
