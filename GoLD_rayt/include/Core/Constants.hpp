@@ -15,21 +15,10 @@ namespace rayt::constants {
     // 1. Mathematical Constants
     // -------------------------------------------------------------------------
 
-    // Using alias 'Real' allows easy switching between double and float precision.
-    // For scientific research and spectral rendering, 'double' is recommended.
-    using Real = rayt::Real;
-
-#if defined(__cpp_lib_math_constants)
     // C++20: Use standard library constants for maximum precision and portability.
     constexpr Real PI = std::numbers::pi_v<Real>;
     constexpr Real INV_PI = std::numbers::inv_pi_v<Real>;          // 1/π
     constexpr Real INV_SQRT_PI = std::numbers::inv_sqrtpi_v<Real>; // 1/√π
-#else
-    // Pre-C++20 fallback: Define constants manually with high precision.
-    constexpr Real PI = 3.14159265358979323846;
-    constexpr Real INV_PI = 1.0 / PI;
-    constexpr Real INV_SQRT_PI = 0.564189583547756286948;
-#endif
 
     // Derived constants frequently used in ray tracing equations.
     constexpr Real TWO_PI = Real(2) * PI;             // Full circle (360 deg) in radians

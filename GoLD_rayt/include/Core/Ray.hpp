@@ -1,6 +1,10 @@
 ﻿#pragma once
 
-#include "Core/Core.hpp"
+#include <cmath>
+
+#include "Core/Types.hpp"
+#include "Core/Constants.hpp"
+#include "Core/Forward.hpp"
 #include "Core/Math.hpp"
 
 namespace rayt {
@@ -78,8 +82,8 @@ namespace rayt {
     // -------------------------------------------------------------------------
     // Extends the base Ray to include auxiliary rays from neighboring pixels 
     // for differential ray tracing.
-    class RayDifferential : public Ray {
-    public:
+    struct RayDifferential : public Ray {
+
         bool hasDifferentials = false;
         Point3 rxOrigin = Point3(0.0);
         Point3 ryOrigin = Point3(0.0);

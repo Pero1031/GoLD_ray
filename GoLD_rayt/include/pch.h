@@ -36,9 +36,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 
-#include <Eigen/Core>
-#include <Eigen/Geometry>
-#include <Eigen/Dense>
+//#include <Eigen/Core>
+//#include <Eigen/Geometry>
+//#include <Eigen/Dense>
 
 // --- Ray tracing ---
 // #include <embree4/rtcore.h>

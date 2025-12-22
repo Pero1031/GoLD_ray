@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 namespace rayt {
     // ---------------------------------------------------------------------
@@ -23,7 +23,7 @@ namespace rayt {
 
     // Rays & Interactions
     struct Ray;
-    class RayDifferential; 
+    struct RayDifferential; 
     struct Interaction;
     struct SurfaceInteraction;
 

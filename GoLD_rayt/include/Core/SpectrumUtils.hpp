@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 #include "Core/Types.hpp"
 #include <cmath>
@@ -9,7 +9,7 @@ namespace rayt {
     // Checks if the spectrum contributes no energy.
     // Negative values are also considered "black" (non-contributing).
     inline bool isBlack(const Spectrum& s) {
-        // (‚²‚­¬‚³‚¢’l‚ğ‹–—e‚·‚é‚½‚ß‚ÌƒCƒvƒVƒƒ“”»’è‚ğ“ü‚ê‚Ä‚à—Ç‚¢)
+        // (ã”ãå°ã•ã„å€¤ã‚’è¨±å®¹ã™ã‚‹ãŸã‚ã®ã‚¤ãƒ—ã‚·ãƒ­ãƒ³åˆ¤å®šã‚’å…¥ã‚Œã¦ã‚‚è‰¯ã„)
         return s.x <= 0.0 && s.y <= 0.0 && s.z <= 0.0;
     }
 
@@ -22,10 +22,10 @@ namespace rayt {
     // Clamps negative values to 0 and replaces NaNs/Infs with black.
     // Crucial for long-running Monte Carlo renders.
     inline Spectrum Sanitize(const Spectrum& s) {
-        if (HasInvalidValues(s)) {
-            //std::cerr << "Invalid Spectrum detected\n";
-            return Spectrum(0.0);
-        }
+#ifndef NDEBUG  // debug mode 
+        Assert(!HasInvalidValues(s));
+#endif
+        if (HasInvalidValues(s)) [[unlikely]] return Spectrum(0.0);  // C++20: ç•°å¸¸å€¤ã¯ã€Œç¨€ã§ã‚ã‚‹ã€ã¨ã‚³ãƒ³ãƒ‘ã‚¤ãƒ©ã«ä¼ãˆã‚‹
         return glm::max(s, Spectrum(0.0));
     }
 
