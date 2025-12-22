@@ -29,12 +29,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Core\AABB.hpp" />
+    <ClInclude Include="include\Core\Assert.hpp" />
     <ClInclude Include="include\Core\Constants.hpp" />
     <ClInclude Include="include\Core\Core.hpp" />
+    <ClInclude Include="include\Core\Forward.hpp" />
     <ClInclude Include="include\Core\Interaction.hpp" />
     <ClInclude Include="include\Core\Math.hpp" />
     <ClInclude Include="include\Core\Ray.hpp" />
     <ClInclude Include="include\Core\Sampling.hpp" />
+    <ClInclude Include="include\Core\SpectrumUtils.hpp" />
     <ClInclude Include="include\Core\Types.hpp" />
     <ClInclude Include="include\Core\Utils.hpp" />
     <ClInclude Include="include\Geometry\Frame.hpp" />

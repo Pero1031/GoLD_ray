@@ -4,8 +4,9 @@
 #include <cmath>
 #include <limits>
 
-#include "Core/Constants.hpp"   // define Real = double
-#include "Core/Core.hpp" 
+#include "Core/Types.hpp"   // for type def
+#include "Core/Assert.hpp"  // assert
+#include "Core/Constants.hpp"
 
 #include <glm/glm.hpp>
 
