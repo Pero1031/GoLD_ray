@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "Core/Core.hpp"
+#include "Core/Math.hpp"
 
 namespace rayt {
 
@@ -33,13 +34,18 @@ namespace rayt {
          */
         Real tMin;
 
+        // Participating Media
+        // Enable this when rendering effects like "foggy environments," 
+        // moving beyond simple surface-level metallic reflections.
+        const Medium* medium = nullptr;
+
         /**
          * @brief Default constructor.
          * Initializes an invalid ray with infinite range.
          */
         Ray()
             : o(0.0), d(0.0, 0.0, 1.0)
-            , tMin(Constants::RAY_EPSILON), tMax(Constants::INFINITY_VAL) {}
+            , tMin(constants::RAY_EPSILON), tMax(constants::INFINITY_VAL) {}
 
         /**
          * @brief Primary constructor.
@@ -47,8 +53,8 @@ namespace rayt {
          * @param d     The direction of the ray.
          * @param tMin  Start distance to avoid self-intersection (default: EPSILON).
          */
-        Ray(const Point3& o, const Vector3& d, Real tMin = Constants::RAY_EPSILON)
-            : o(o), d(d), tMin(tMin), tMax(Constants::INFINITY_VAL) {
+        Ray(const Point3& o, const Vector3& d, Real tMin = constants::RAY_EPSILON, const Medium* medium = nullptr)
+            : o(o), d(d), tMin(tMin), tMax(constants::INFINITY_VAL), medium(medium) {
         }
 
         // Public Methods
@@ -60,6 +66,63 @@ namespace rayt {
         Point3 at(Real t) const {
             return o + d * t;
         }
+
+        // for debug check has NaN
+        bool HasNaN() const {
+            return math::hasNaNs(o) || math::hasNaNs(d) || std::isnan(tMin) || std::isnan(tMax);
+        }
     };
+
+    // -------------------------------------------------------------------------
+    // RayDifferential Class (Critical for Texture Filtering)
+    // -------------------------------------------------------------------------
+    // Extends the base Ray to include auxiliary rays from neighboring pixels 
+    // for differential ray tracing.
+    class RayDifferential : public Ray {
+    public:
+        bool hasDifferentials = false;
+        Point3 rxOrigin = Point3(0.0);
+        Point3 ryOrigin = Point3(0.0);
+        Vector3 rxDirection = Vector3(0.0);
+        Vector3 ryDirection = Vector3(0.0);
+
+        RayDifferential() = default;
+
+        RayDifferential(const Point3& o, const Vector3& d, Real tMin = constants::RAY_EPSILON, const Medium* medium = nullptr)
+            : Ray(o, d, tMin, medium) {
+            hasDifferentials = false;
+        }
+
+        // Implicitly converts from Ray.
+        RayDifferential(const Ray& ray) : Ray(ray) {
+            hasDifferentials = false;
+        }
+
+        // 微分情報のスケーリング（鏡面反射などでレイが拡散する際の計算に使用）
+        // Scales differential information (used to calculate ray spreading, such as in specular reflections).
+        void ScaleDifferentials(Real s) {
+            rxOrigin = o + (rxOrigin - o) * s;
+            ryOrigin = o + (ryOrigin - o) * s;
+            rxDirection = d + (rxDirection - d) * s;
+            ryDirection = d + (ryDirection - d) * s;
+        }
+    };
+
+    // -------------------------------------------------------------------------
+    // Utility Functions
+    // -------------------------------------------------------------------------
+
+    // Generate a new ray (wi) from the surface point (p) and normal (n).
+    inline Ray SpawnRay(const Point3& p, const Vector3& n, const Vector3& wi, const Medium* med = nullptr) {
+
+        // Offset the starting point along +n if wi is in the same hemisphere, or -n if refracted.
+        // Without this, glass rendering will be plagued by self-intersection noise.
+        Vector3 offset = glm::dot(n, wi) > 0.0 ? n : -n;
+
+        // Offset the ray origin slightly from the hit point p along the ray direction.
+        Point3 origin = p + offset * constants::RAY_EPSILON;
+
+        return Ray(origin, wi, constants::RAY_EPSILON, med);
+    }
 
 } // namespace rayt

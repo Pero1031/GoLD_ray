@@ -7,7 +7,8 @@
 #include "Core/Ray.hpp"
 #include "Core/Interaction.hpp"
 #include "Materials/Material.hpp"
-#include "Core/Utils.hpp"
+//#include "Core/Utils.hpp"
+#include "Core/Sampling.hpp"
 
 #include <memory>
 #include <iostream>
@@ -52,16 +53,18 @@ namespace rayt {
 
                     for (int s = 0; s < m_spp; ++s) {
                         // アンチエイリアシング用のジッター
-                        Real u = (Real(i) + Utils::Random()) / Real((width));
-                        Real v = (Real(j) + Utils::Random()) / Real((height));
+                        Real u = (Real(i) + rayt::sampling::Random()) / Real((width));
+                        Real v = (Real(j) + rayt::sampling::Random()) / Real((height));
 
-                        Ray r = m_camera->getRay(u, v);
+                        Point2 lensSample = sampling::Random2D();
+
+                        Ray r = m_camera->getRay(u, v, lensSample);
                         pixelColor += Li(r, scene);
                     }
                     pixelColor /= Real(m_spp);
 
                     // NaN除去（デバッグ用）
-                    if (hasNaNs(pixelColor)) {
+                    if (HasInvalidValues(pixelColor)) {
                         std::cerr << "NaN detected at " << i << ", " << j << std::endl;
                         pixelColor = Spectrum(0.0);
                     }
@@ -98,7 +101,7 @@ namespace rayt {
 
                 // 3. 次の方向をサンプリング (Material::sample)
                 // ランダムな乱数を用意 (本来はSamplerクラスから取得すべき)
-                Point2 u(Utils::Random(), Utils::Random());
+                Point2 u(rayt::sampling::Random(), rayt::sampling::Random());
 
                 // sample() 呼び出し: wo, uv を渡す
                 auto bsdfSample = rec.matPtr->sample(rec, -r.d, u);
@@ -139,7 +142,8 @@ namespace rayt {
                 if (isBlack(beta)) break;
 
                 // 5. レイの更新
-                r = Ray(rec.p + rec.n * Constants::RAY_EPSILON, wi);
+                // r = Ray(rec.p + rec.n * constants::RAY_EPSILON, wi);  old
+                r = rayt::SpawnRay(rec.p, rec.n, wi);
             }
 
             return L;

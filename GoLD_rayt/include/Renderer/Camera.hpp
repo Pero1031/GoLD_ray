@@ -2,7 +2,9 @@
 
 #include "Core/Core.hpp"
 #include "Core/Ray.hpp"
-#include "Core/Utils.hpp"
+//#include "Core/Utils.hpp"
+#include "Core/Math.hpp"
+#include "Core/Sampling.hpp"
 
 namespace rayt {
 
@@ -28,7 +30,7 @@ namespace rayt {
             m_lensRadius = aperture / 2.0;
 
             // Convert FOV to radians
-            Real theta = Utils::toRadians(vfov);
+            Real theta = rayt::math::toRadians(vfov);
             Real h = std::tan(theta / 2.0);
 
             Real viewportHeight = 2.0 * h;
@@ -56,17 +58,32 @@ namespace rayt {
 
         // Generates a ray for a given film coordinate (s, t).
         // s, t: Normalized coordinates [0, 1] on the film.
-        Ray getRay(Real s, Real t) const {
-            // For Depth of Field:
-            // Sample a random point on the lens disk if aperture > 0.
-            Vector3 rd = m_lensRadius * Utils::randomInUnitDisk();
-            Vector3 offset = m_u * rd.x + m_v * rd.y;
+        // uLens: Random numbers for lens sampling (aperture) [0, 1]
+        Ray getRay(Real s, Real t, const Point2& uLens) const {
+
+            Vector3 offset(0.0);
+
+            // Depth of Field (DoF) calculations
+            if (m_lensRadius > 0.0) {
+                // PBRT Style: Use warping function instead of rejection sampling
+                // uLens (0~1) を円盤上の点にマッピング
+                Vector3 rd = m_lensRadius * sampling::UniformSampleDisk(uLens);
+
+                // カメラの基底ベクトル (m_u, m_v) に沿ってオフセット
+                offset = m_u * rd.x + m_v * rd.y;
+            }
 
             // Determine the target point on the focus plane
             Point3 target = m_lowerLeftCorner + s * m_horizontal + t * m_vertical;
 
-            // The ray starts from the lens offset (not pure center) and goes to the target.
-            return Ray(m_origin + offset, glm::normalize(target - (m_origin + offset)));
+            // Origin is shifted by lens offset
+            Point3 rayOrigin = m_origin + offset;
+
+            // Direction is from offset origin to target
+            Vector3 rayDirection = glm::normalize(target - rayOrigin);
+
+            // Pass 'medium' (PBRT style)
+            return Ray(rayOrigin, rayDirection);
         }
 
     private:

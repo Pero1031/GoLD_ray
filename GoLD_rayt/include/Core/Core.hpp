@@ -1,35 +1,31 @@
 ﻿#pragma once
 
-// -------------------------------------------------------------------------
 // Standard Library Includes
-// -------------------------------------------------------------------------
 #include <iostream>
 #include <cassert>
+#include <algorithm> // for std::max
 
 // The following header is included by GLM, but included here explicitly for clarity.
 #include <cmath>
 #include <cstdlib>
 
-// -------------------------------------------------------------------------
 // Third-Party Library Includes (Linear Algebra)
-// -------------------------------------------------------------------------
 // Include GLM here so all files have access to vector math.
 #include <glm/glm.hpp>
 
-// -------------------------------------------------------------------------
-// 1. Global Constants & Configuration
-// -------------------------------------------------------------------------
-#include "Core/Constants.hpp" // custom constants (PI, etc.)
+// Global Constants & Configuration
+//#include "Core/Constants.hpp" // custom constants (PI, etc.)
+#include "Core/Types.hpp"  // Defines 'Real'
 
 namespace rayt {
 
     // ---------------------------------------------------------------------
-    // 2. Type Definitions (Precision Control)
+    // Type Definitions (Precision Control)
     // ---------------------------------------------------------------------
 
     // Switch between 'double' and 'float' easily.
     // For spectral rendering research (complex refractive indices), 'double' is highly recommended.
-    using Real = double;  // Define Real as an alias for double for easier type switching.
+    // using Real = double;  // Define Real as an alias for double for easier type switching.
 
     // Vector/Point Aliases
     // In strict PBRT, Points and Vectors are different classes. 
@@ -45,7 +41,7 @@ namespace rayt {
 
 
     // ---------------------------------------------------------------------
-    // 3. Spectral Representation
+    // Spectral Representation
     // ---------------------------------------------------------------------
 
     // Currently, we use RGB (vec3) as a placeholder.
@@ -53,53 +49,75 @@ namespace rayt {
     // e.g., class SampledSpectrum { std::array<Real, 60> values; ... };
     using Spectrum = glm::vec<3, Real, glm::defaultp>;
 
-    // メンバ関数 beta.isBlack() の代わりに、 isBlack(beta) と呼ぶ形になります
+    // Checks if the spectrum contributes no energy.
+    // Negative values are also considered "black" (non-contributing).
     inline bool isBlack(const Spectrum& s) {
-        // glm::vec3 は通常 x, y, z でアクセスします
-        // (ごく小さい値を許容するためのイプシロン判定を入れても良いです)
+        // (ごく小さい値を許容するためのイプシロン判定を入れても良い)
         return s.x <= 0.0 && s.y <= 0.0 && s.z <= 0.0;
     }
 
-    inline bool hasNaNs(const Spectrum& s) {
-        return std::isnan(s.x) || std::isnan(s.y) || std::isnan(s.z) ||
-            std::isinf(s.x) || std::isinf(s.y) || std::isinf(s.z);
+    // Checks for NaN (Not a Number) or Infinity.
+    // std::isfinite returns true only if the value is normal, subnormal or zero.
+    inline bool HasInvalidValues(const Spectrum& s) {
+        return !std::isfinite(s.x) || !std::isfinite(s.y) || !std::isfinite(s.z);
     }
 
-    // 必要であれば、値を安全な範囲に丸める関数
-    inline Spectrum sanitize(const Spectrum& s) {
-        if (hasNaNs(s)) {
+    // Clamps negative values to 0 and replaces NaNs/Infs with black.
+    // Crucial for long-running Monte Carlo renders.
+    inline Spectrum Sanitize(const Spectrum& s) {
+        if (HasInvalidValues(s)) {
+            //std::cerr << "Invalid Spectrum detected\n";
             return Spectrum(0.0);
         }
         return glm::max(s, Spectrum(0.0));
     }
 
-
     // ---------------------------------------------------------------------
-    // 4. Forward Declarations
+    // Forward Declarations
     // ---------------------------------------------------------------------
     // Declaring classes here allows us to use pointers/references in header files
     // without including the full definition, reducing compilation time and circular dependencies.
 
+    // Scene & Geometry
     class Scene;
-    class Camera;
-    class Sampler;
-    class Integrator;
-
-    struct Ray;
-    struct Interaction;
-    struct SurfaceInteraction;
-
     class Shape;
     class Primitive;
     class GeometricPrimitive;
+    class Aggregate; // BVH, etc.
 
+    // Main Pipeline
+    class Camera;
+    class Sampler;
+    class Integrator;
+    class Film;      
+    class Filter;    
+
+    // Rays & Interactions
+    struct Ray;
+    struct RayDifferential; // Added: For texture filtering
+    struct Interaction;
+    struct SurfaceInteraction;
+
+    // Lighting
+    class Light;            
+    class AreaLight;        
+    class VisibilityTester; 
+
+    // Shading & Materials
     class Material;
     class BSDF;
     class BxDF;
-    class Texture;
+    class Texture;          // Note: If Texture is a template class later, remove this.
+    class Fresnel;          
+    class MicrofacetDistribution; 
+
+    // Volumetrics
+    class Medium;           
+    struct MediumInterface; 
+    class PhaseFunction;    
 
     // ---------------------------------------------------------------------
-    // 5. Utility Macros / Functions
+    // Utility Macros / Functions
     // ---------------------------------------------------------------------
     // Custom assertion macro for debugging.
     //
@@ -126,27 +144,5 @@ namespace rayt {
 #else
 #define Assert(expr) do { } while (0)   // Removed in Release build
 #endif
-
-    // =====================================================================
-    // Numerical Validity Checks
-    // =====================================================================
-
-    // Check for Invalid Values (NaN or Infinity)
-    //
-    // Returns true if the spectrum contains any non-finite values.
-    // This is more robust than just checking for NaN, as it also catches 
-    // infinite values which can occur due to division by zero or extremely 
-    // small probability densities (PDFs).
-    //
-    // - NaN (Not a Number): e.g., 0.0 / 0.0
-    // - Infinity: e.g., 1.0 / 0.0
-    //
-    // Note: Keeping infinite values can cause artifacts like "fireflies" 
-    // or destroy global averages (e.g., in auto-exposure).
-    inline bool HasInvalidValues(const Spectrum & c) {
-        return !std::isfinite(c.x) ||
-               !std::isfinite(c.y) ||
-               !std::isfinite(c.z);
-    }
 
 } // namespace rayt
