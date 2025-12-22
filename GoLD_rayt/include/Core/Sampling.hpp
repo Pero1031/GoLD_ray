@@ -119,7 +119,7 @@ namespace rayt::sampling {
         return Vector3(x, y, z);
     }
 
-    // 外部から乱数(u)を受け取ってサンプリングするバージョン（PBRに必須）
+    // Cosine-weighted sampling for Lambertian reflection.
     inline Vector3 CosineSampleHemisphere(const Point2& u) {
         Real r1 = u.x;
         Real r2 = u.y;

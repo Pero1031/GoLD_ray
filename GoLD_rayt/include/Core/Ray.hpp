@@ -101,6 +101,8 @@ namespace rayt {
         // 微分情報のスケーリング（鏡面反射などでレイが拡散する際の計算に使用）
         // Scales differential information (used to calculate ray spreading, such as in specular reflections).
         void ScaleDifferentials(Real s) {
+            if (!hasDifferentials) return;
+
             rxOrigin = o + (rxOrigin - o) * s;
             ryOrigin = o + (ryOrigin - o) * s;
             rxDirection = d + (rxDirection - d) * s;
