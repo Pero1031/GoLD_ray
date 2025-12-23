@@ -1,4 +1,7 @@
-﻿#include "IO/ImageLoader.hpp"
+﻿
+#include "pch.h"
+
+#include "IO/ImageLoader.hpp"
 
 #include <stdexcept>
 #include <algorithm>

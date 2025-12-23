@@ -67,18 +67,18 @@ namespace rayt::frame {
      * * Represents a local coordinate system defined by three orthogonal unit vectors.
      * Convention: u = Tangent, v = Bitangent, w = Normal (Right-handed system).
      */
-    struct Onb {
+    struct Frame {
 
-        Vector3 u = Vector3(0.0);   // tangent local X
+        Vector3 s = Vector3(0.0);   // tangent local X
         Vector3 v = Vector3(0.0);   // bitangent local Y
         Vector3 w = Vector3(0.0);   // normal local Z
 
-        Onb() {}
+        Frame() {}
 
         /**
          * @brief Constructs an ONB from a single normal vector.
          */
-        Onb(const Vector3& n) {
+        Frame(const Vector3& n) {
             buildFromW(n);
         }
 
@@ -87,7 +87,7 @@ namespace rayt::frame {
          */
         void buildFromW(const Vector3& n) {
             w = glm::normalize(n);
-            makeOrthonormalBasis(w, u, v);
+            makeOrthonormalBasis(w, s, v);
         }
 
         /**
@@ -102,26 +102,26 @@ namespace rayt::frame {
             // Projection of tangent onto the plane perpendicular to w
             Vector3 t = tangent - w * glm::dot(w, tangent);  
             if (glm::dot(t, t) < 1e-12) {      // Fallback for degenerate cases
-                makeOrthonormalBasis(w, u, v); 
+                makeOrthonormalBasis(w, s, v); 
                 return;
             }
 
-            u = glm::normalize(t);
-            v = glm::cross(w, u);  // Right-handed system
+            s = glm::normalize(t);
+            v = glm::cross(w, s);  // Right-handed system
         }
 
         /**
          * @brief Transforms a vector from local space to world space.
          */
         Vector3 localToWorld(const Vector3& a) const {
-            return a.x * u + a.y * v + a.z * w;
+            return a.x * s + a.y * v + a.z * w;
         }
 
         /**
          * @brief Transforms a vector from world space to local space.
          */
         Vector3 worldToLocal(const Vector3& a) const {
-            return Vector3(glm::dot(a, u), glm::dot(a, v), glm::dot(a, w));
+            return Vector3(glm::dot(a, s), glm::dot(a, v), glm::dot(a, w));
         }
     };
 

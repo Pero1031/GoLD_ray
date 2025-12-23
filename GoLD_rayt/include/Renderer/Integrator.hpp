@@ -7,7 +7,6 @@
 #include "Core/Ray.hpp"
 #include "Core/Interaction.hpp"
 #include "Materials/Material.hpp"
-//#include "Core/Utils.hpp"
 #include "Core/Sampling.hpp"
 #include "IO/EnvMap.hpp"
 

@@ -18,7 +18,7 @@
 #include "Core/Assert.hpp"          // Debug-only validation macros
 #include "Core/Math.hpp"            // Common math utilities
 #include "Core/Ray.hpp"             // Ray and RayDifferential structures
-#include "Core/SpectrumUtils.hpp"    // Color/Spectral safety routines
+#include "Core/SpectrumUtils.hpp"   // Color/Spectral safety routines
 
 namespace rayt {
 
