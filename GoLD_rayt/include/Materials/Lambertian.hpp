@@ -1,40 +1,69 @@
 ﻿#pragma once
 
+/**
+ * @file Lambertian.hpp
+ * @brief Ideal diffuse (Lambertian) material implementation.
+ * * Represents a perfectly matte surface that scatters light uniformly in all
+ * directions. This implementation uses cosine-weighted importance sampling
+ * to significantly reduce noise in diffuse global illumination.
+ */
+
 #include "Core/Core.hpp"
 #include "Materials/Material.hpp"
-//#include "Core/Utils.hpp"
 #include "Geometry/Frame.hpp"
 #include "Core/Sampling.hpp"
 
 namespace rayt {
 
+    /**
+     * @brief Perfectly diffuse material following Lambert's Cosine Law.
+     * * The BRDF is a constant value: f = albedo / PI.
+     */
     class Lambertian : public Material {
         Spectrum albedo;
     public:
-        // albedo: (R, G, B)
+        /**
+         * @brief Constructs a Lambertian material.
+         * @param a The reflectance (color) of the surface.
+         */
         Lambertian(const Spectrum& a) : albedo(a) {}
 
-        // 1. BSDFの評価 (f = albedo / PI)
+        /**
+         * @brief Evaluates the Lambertian BRDF.
+         * * Formula: f(wo, wi) = albedo / PI
+         * @return The constant spectral reflectance divided by PI.
+         */
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
             TransportMode mode) const override {
-            // 裏面からの光や、埋もれる光は0にする
+
+            // Rejects light coming from behind the surface (back-face)
             Real cosTheta = glm::dot(rec.n, wi);
             if (cosTheta <= 0) return Spectrum(0.0);
 
-            return albedo * (1.0f / constants::PI);
+            return albedo * (1.0 / constants::PI);
         }
 
-        // 2. 確率密度の評価 (pdf = cos(theta) / PI)
+        /**
+         * @brief Evaluates the PDF for cosine-weighted sampling.
+         * * Formula: p(wi) = cos(theta) / PI
+         * @return The probability density of choosing direction wi.
+         */
         Real pdf(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi) const override {
             Real cosTheta = glm::dot(rec.n, wi);
             if (cosTheta <= 0) return 0.0;
 
-            return cosTheta * (1.0f / constants::PI);
+            return cosTheta * (1.0 / constants::PI);
         }
 
-        // 3. サンプリング
+        /**
+         * @brief Importance samples the hemisphere using a cosine distribution.
+         * * This method aligns the sample density with the cosine term of the
+         * rendering equation, resulting in zero-variance for the cosine term.
+         * * @param u Random samples in [0, 1)^2.
+         * @return A BSDFSample containing the direction, value, and PDF.
+         */
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
@@ -42,23 +71,25 @@ namespace rayt {
 
             BSDFSample bsdfSample;
 
-            // 1. ローカル座標で方向を生成し、ワールド座標へ変換
-            //    法線 rec.n を基準にした接空間を作る
+            // 1. Generate a direction in local space using cosine-weighted sampling.
+            //    Z-axis in local space corresponds to the surface normal.
             rayt::frame::Onb onb(rec.n);
-            Vector3 localDir = rayt::sampling::CosineSampleHemisphere(u); // ランダムな方向
+            Vector3 localDir = rayt::sampling::CosineSampleHemisphere(u); 
+
+            // 2. Transform the sampled direction to World Space.
             bsdfSample.wi = onb.localToWorld(localDir);
 
-            // 2. 幾何学的整合性のチェック（裏面に行っていないか）
+            // 3. Geometric sanity check: Ensure the direction is in the upper hemisphere.
             if (glm::dot(rec.n, bsdfSample.wi) <= 0) return std::nullopt;
 
-            // 3. PDF計算: cos(theta) / PI
-            //    Integrator側で (f * cos / pdf) を計算するので、正しいPDFを返す
-            bsdfSample.pdf = localDir.z / constants::PI; // localDir.z は cosTheta と同じ
+            // 4. PDF calculation: p(wi) = cos(theta) / PI.
+            //    Since localDir is on a unit hemisphere, localDir.z is exactly cos(theta).
+            bsdfSample.pdf = localDir.z / constants::PI; 
 
-            // 4. BSDF値: albedo / PI
+            // 5. BSDF value: constant for Lambertian surfaces.
             bsdfSample.f = albedo / constants::PI;
 
-            // 5. フラグ設定
+            // 6. Set flags indicating a diffuse reflection interaction.
             bsdfSample.sampledType = BxDFType(BSDF_DIFFUSE | BSDF_REFLECTION);
 
             return bsdfSample;
@@ -82,4 +113,4 @@ namespace rayt {
         Spectrum m_albedo;*/
     };
 
-}
+} // namespace rayt

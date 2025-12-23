@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="src\Film.cpp" />
     <ClCompile Include="src\ImageIO.cpp" />
+    <ClCompile Include="src\ImageLoader.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\pch.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">pch.h</PrecompiledHeaderFile>
@@ -32,6 +33,7 @@
     <ClInclude Include="include\Core\Assert.hpp" />
     <ClInclude Include="include\Core\Constants.hpp" />
     <ClInclude Include="include\Core\Core.hpp" />
+    <ClInclude Include="include\Core\Distribution1D.hpp" />
     <ClInclude Include="include\Core\Forward.hpp" />
     <ClInclude Include="include\Core\Interaction.hpp" />
     <ClInclude Include="include\Core\Math.hpp" />
@@ -44,7 +46,10 @@
     <ClInclude Include="include\Geometry\Hittable.hpp" />
     <ClInclude Include="include\Geometry\HittableList.hpp" />
     <ClInclude Include="include\Geometry\Sphere.hpp" />
+    <ClInclude Include="include\IO\EnvMap.hpp" />
+    <ClInclude Include="include\IO\ImageLoader.hpp" />
     <ClInclude Include="include\IO\IORInterpolator.hpp" />
+    <ClInclude Include="include\Lights\Light.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\Fresnel.hpp" />
     <ClInclude Include="include\Materials\Lambertian.hpp" />
