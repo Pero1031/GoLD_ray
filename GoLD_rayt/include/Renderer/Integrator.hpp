@@ -9,6 +9,7 @@
 #include "Materials/Material.hpp"
 //#include "Core/Utils.hpp"
 #include "Core/Sampling.hpp"
+#include "IO/EnvMap.hpp"
 
 #include <memory>
 #include <iostream>
@@ -31,8 +32,11 @@ namespace rayt {
     class PathIntegrator : public Integrator {
     public:
         // コンストラクタ
-        PathIntegrator(std::shared_ptr<Camera> camera, int maxDepth, int spp)
-            : m_camera(camera), m_maxDepth(maxDepth), m_spp(spp) {}
+        PathIntegrator(std::shared_ptr<Camera> camera, 
+            std::shared_ptr<EnvMap> env, 
+            int maxDepth, int spp)
+            : m_camera(camera), m_env(env), 
+            m_maxDepth(maxDepth), m_spp(spp) {}
 
         // レンダリングループの実装
         virtual void render(const Scene& scene, Film& film) override {
@@ -86,11 +90,23 @@ namespace rayt {
 
                 // 1. 交差判定
                 if (!scene.hit(r, rec)) {
-                    // 背景色 (IBLなどを使う場合はここで計算)
+                    /*// 背景色 (IBLなどを使う場合はここで計算)
                     Spectrum skyColor(0.0, 0.0, 0.0); 
                     // L += beta * GetSkyColor(r); 
                     L += beta * skyColor;
 
+                    break;*/
+
+                    Spectrum envL(0.0);
+
+                    if (m_env) {
+                        glm::vec3 rgb = m_env->eval(r.d);
+                        envL = Spectrum(rgb.x, rgb.y, rgb.z);
+                        // 任意：明るさ調整
+                        // envL *= 1.0f;
+                    }
+
+                    L += beta * envL;
                     break;
                 }
 
@@ -151,8 +167,28 @@ namespace rayt {
 
     private:
         std::shared_ptr<Camera> m_camera;
+        std::shared_ptr<EnvMap> m_env;
+
         int m_maxDepth;
         int m_spp;
+
+        static bool visible(const Scene& scene, const SurfaceInteraction& ref,
+            const Point3& pLight)
+        {
+            Vector3 toL = pLight - ref.p;
+            Real dist = glm::length(toL);
+            if (dist <= Real(0)) return false;
+
+            Vector3 wi = toL / dist;
+
+            // 影レイ：ライト手前まで（eps分手前）
+            Ray shadow = rayt::SpawnRay(ref.p, ref.n, wi);
+            shadow.tMin = constants::RAY_EPSILON;
+            shadow.tMax = dist - constants::RAY_EPSILON;
+
+            SurfaceInteraction tmp;
+            return !scene.hit(shadow, tmp);
+        }
     };
 
 } // namespace rayt

@@ -1,5 +1,12 @@
 ﻿#pragma once
 
+/**
+ * @file AABB.hpp
+ * @brief Axis-Aligned Bounding Box (AABB) implementation.
+ * * AABBs are the fundamental building blocks for acceleration structures (BVH).
+ * They provide a fast way to cull groups of objects that a ray cannot possibly hit.
+ */
+
 #include <algorithm>
 #include <limits>
 
@@ -8,37 +15,59 @@
 
 namespace rayt {
 
+    /**
+     * @brief Represents an Axis-Aligned Bounding Box.
+     * * Defined by its minimum and maximum corners in world space.
+     */
     class AABB {
     public:
-        Vector3 min;   // lower corner
-        Vector3 max;   // upper corner
+        Vector3 min;   // Lower-left-front corner
+        Vector3 max;   // Upper-right-back corner
 
         AABB() = default;
 
+        /**
+         * @brief Constructs an AABB from two points.
+         */
         AABB(const Vector3& pMin, const Vector3& pMax)
             : min(pMin), max(pMax) {}
 
-        // Ray–AABB intersection.
-        // Uses a slab test. The ray itself is NOT modified.
-        // tMin/tMax are passed by value and locally updated.
+        /**
+         * @brief Ray–AABB intersection test using the Slab Method.
+         * * This is a highly optimized conservative test to determine if a ray
+         * potentially intersects any geometry within the box.
+         * * @param r    The incident ray.
+         * @param tMin The start of the ray's valid interval.
+         * @param tMax The end of the ray's valid interval.
+         * @return True if the ray's path overlaps with the AABB's volume.
+         * * @note This implementation handles parallel rays and division-by-zero
+         * through floating-point standard behavior (infinity).
+         */
         bool intersect(const Ray& r, Real tMin, Real tMax) const {
             for (int axis = 0; axis < 3; ++axis) {
+                // Compute the distance to the two slabs on the current axis.
                 const Real invD = Real(1) / r.d[axis];
                 Real t0 = (min[axis] - r.o[axis]) * invD;
                 Real t1 = (max[axis] - r.o[axis]) * invD;
 
+                // If the ray direction is negative, swap the entry and exit points.
                 if (invD < 0) std::swap(t0, t1);
 
+                // Tighten the intersection interval.
                 tMin = std::max(tMin, t0);
                 tMax = std::min(tMax, t1);
 
+                // If the entry point is beyond the exit point, there is no intersection.
                 if (tMax <= tMin)
                     return false;
             }
             return true;
         }
 
-        // Returns a new AABB that encloses both a and b.
+        /**
+         * @brief Merges two AABBs into a single bounding box that encloses both.
+         * @return A new AABB representing the union of a and b.
+         */
         static AABB unite(const AABB& a, const AABB& b) {
             return AABB(
                 glm::min(a.min, b.min),
@@ -46,11 +75,17 @@ namespace rayt {
             );
         }
 
-        // Optional helper: get center and extent (useful for BVH split heuristics)
+        /**
+         * @brief Returns the center point of the AABB.
+         * Useful for BVH construction heuristics (e.g., sorting by centers).
+         */
         Vector3 center() const {
             return (min + max) * Real(0.5);
         }
 
+        /**
+         * @brief Returns the diagonal extent of the AABB.
+         */
         Vector3 extent() const {
             return max - min;
         }

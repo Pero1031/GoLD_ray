@@ -1,49 +1,64 @@
 ﻿#pragma once
 
+/**
+* @file Interaction.hpp
+* @brief Data structures for surface and volumetric interactions.
+*/
+
 #include "Core/Core.hpp"
 #include "Core/Math.hpp"
 
 namespace rayt {
 
-    // Forward declaration to avoid circular dependency
-    // note:declaration in Core.hpp
+    // Forward declaration to avoid circular dependency.
+    // Note: Already declared in Core/Forward.hpp, but listed here for clarity.
     class Material;
 
-    // SurfaceInteraction stores all geometric information at the intersection point.
+    /**
+     * @brief SurfaceInteraction stores all geometric and shading information at an intersection point.
+     * It acts as a bridge between the geometry (Shapes) and the shading (Materials/BSDFs).
+     */
     struct SurfaceInteraction {
-        Point3 p;          // Intersection point
-        Vector3 n;         // Geometric normal
-        Vector3 wo;        // Outgoing direction (vector towards camera)
-        UV uv;             // Texture coordinates
-        Real t;            // Ray parameter distance
+        Point3 p;           // The hit point in world space.
+        Vector3 n;          // Shading normal (may be modified by normal maps or smoothing).
+        Vector3 wo;         // Outgoing direction (pointing away from the surface, toward the camera/ray origin).
+        UV uv;              // 2D texture coordinates.
+        Real t;             // Distance along the ray (parametric distance).
 
-        const Material* matPtr = nullptr; // Pointer to the material at this point
+        const Material* matPtr = nullptr; // Pointer to the material property at hit point
 
+        // ---------------------------------------------------------------------
         // Differential Geometry (For Normal Mapping / Anisotropy)
-        Vector3 dpdu;      // Tangent (u方向の接線)
-        Vector3 dpdv;      // Bitangent (v方向の接線)
-        Vector3 gn;        // Geometric Normal (本来の幾何形状の法線)
+        // ---------------------------------------------------------------------
+        // These vectors define the local tangent space (TBN frame).
+        Vector3 dpdu;       // Tangent vector: partial derivative of position with respect to 'u'.
+        Vector3 dpdv;       // Bitangent vector: partial derivative of position with respect to 'v'.
+        Vector3 gn;         // Geometric normal: the true perpendicular vector of the underlying geometry.
 
+        // ---------------------------------------------------------------------
         // Methods
+        // ---------------------------------------------------------------------
         
         // Initialize with basic data
         SurfaceInteraction() = default;
 
-        // Helper to orient normal correctly
-        // rayDir: Ray direction (Incident, pointing into surface)
-        // geometricNormal: Raw surface normal
+        /**
+         * @brief Orients the geometric and shading normals based on the incident ray.
+         * Ensures that the normal always faces the side from which the ray arrived (FaceForward).
+         * * @param rayDir The incident ray direction (pointing toward the surface).
+         * @param geometricNormal The raw normal provided by the shape's geometry.
+         */
         void setFaceNormal(const Vector3& rayDir, const Vector3& geometricNormal) {
-            // PBRT: "FaceForward" logic
-            // レイと法線が逆向き（内積が負）なら表、同じ向きなら裏（内部からのヒット）
+            // Logic: If the dot product is negative, the ray and normal are in opposite directions (Front Face).
             bool frontFace = glm::dot(rayDir, geometricNormal) < 0;
 
-            // シェーディング法線と幾何法線の両方を設定
+            // Set both geometric and shading normals to face the ray.
             gn = frontFace ? geometricNormal : -geometricNormal;
-            n = gn; // 初期状態ではシェーディング法線 = 幾何法線
+            n = gn; // Initially, the shading normal matches the geometric normal.
         }
 
-        // compute tangent を定義する必要
-        // 接空間 for 金属反射や法線マップ（Normal Mapping）、異方性反射（Anisotropy）
+        // TODO: Implement coordinate system construction for tangent space.
+        // Required for Normal Mapping, Anisotropy, and Microfacet distributions.
     };
 
 }

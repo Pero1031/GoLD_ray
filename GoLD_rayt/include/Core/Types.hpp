@@ -1,14 +1,19 @@
 ﻿#pragma once
 
-// for type def
+/**
+ * @file types.hpp
+ * @brief Semantic Type Aliases for the Ray Tracing Engine.
+ * * - Real is defined as double for high precision, but is interchangeable with float.
+ * - Vector types are aliased to GLM equivalents for performance and reliability.
+ * - Contract: Including this header establishes a dependency on the GLM library.
+ */
 
 // Include GLM here so all files have access to vector math.
 #include <glm/glm.hpp>
 
 namespace rayt {
 
-    // Defines a type alias for floating-point numbers.
-    // Using 'Real' allows easy switching between 'float' and 'double' precision.
+    // Global precision toggle: allows easy switching between float and double.
     using Real = double;
 
     // ---------------------------------------------------------------------
@@ -19,7 +24,7 @@ namespace rayt {
    // With GLM, we alias them for clarity, even if they are the same underlying type.
     using Vector3 = glm::vec<3, Real, glm::defaultp>;
     using Point3 = glm::vec<3, Real, glm::defaultp>;
-    using Normal3 = glm::vec<3, Real, glm::defaultp>; // Normalized vector
+    using Normal3 = glm::vec<3, Real, glm::defaultp>; // Should be transformed by inverse-transpose matrix.
     using Point2 = glm::vec<2, Real, glm::defaultp>;
     using UV = glm::vec<2, Real, glm::defaultp>;
 

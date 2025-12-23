@@ -1,5 +1,13 @@
 #pragma once
 
+/**
+ * @file BVH.hpp
+ * @brief Bounding Volume Hierarchy (BVH) implementation.
+ * * BVH is a spatial acceleration structure that organizes objects into a
+ * hierarchical tree of AABBs. This allows the intersection complexity to be
+ * reduced from O(N) to O(log N), making complex scene rendering feasible.
+ */
+
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -14,6 +22,12 @@
 
 namespace rayt {
 
+    /**
+     * @brief A node in the Bounding Volume Hierarchy.
+     * * BVHNode acts as both an internal node (containing two children) and
+     * a potential leaf (containing a primitive). It recursively partitions
+     * objects along the axis of maximum extent to maintain a balanced tree.
+     */
     class BVHNode : public Hittable {
     public:
         std::shared_ptr<Hittable> left;
@@ -23,13 +37,23 @@ namespace rayt {
 
         BVHNode() = default;
 
+        /**
+         * @brief Recursively constructs a BVH tree from a list of objects.
+         * * This implementation uses a robust Median Split heuristic:
+         * 1. Calculate the centroid bounds of all objects.
+         * 2. Choose the axis with the maximum extent to minimize overlap.
+         * 3. Sort and partition objects into two relatively equal sets.
+         * * @param objects A vector of Hittable objects to partition.
+         * @param start   The starting index in the objects vector.
+         * @param end     The ending index in the objects vector.
+         */
         BVHNode(std::vector<std::shared_ptr<Hittable>>& objects,
             size_t start, size_t end)
         {
             // ここは「とりあえず動く」median split（SAHは後でOK）
             const size_t span = end - start;
 
-            // split axis: 最大extentの軸を使う（そこそこ良い）
+            // Compute the centroid bounding box to determine the optimal split axis.
             AABB centroidBox;
             {
                 Vector3 cmin(std::numeric_limits<Real>::infinity());
@@ -42,6 +66,8 @@ namespace rayt {
                 }
                 centroidBox = AABB(cmin, cmax);
             }
+
+            // Select the split axis based on the largest centroid extent (Heuristic).
             const Vector3 e = centroidBox.extent();
             int axis = 0;
             if (e.y > e.x) axis = 1;
@@ -49,6 +75,7 @@ namespace rayt {
 
             this->splitAxis = axis;
 
+            // Comparator for sorting objects based on their centroids along the chosen axis.
             auto cmp = [axis](const std::shared_ptr<Hittable>& a,
                 const std::shared_ptr<Hittable>& b) {
                     const AABB ba = a->bounds();
@@ -63,6 +90,7 @@ namespace rayt {
                 right = nullptr;
             }
             else if (span == 2) {
+                // For exactly two objects, simply order them along the axis.
                 if (cmp(objects[start], objects[start + 1])) {
                     left = objects[start];
                     right = objects[start + 1];
@@ -73,13 +101,14 @@ namespace rayt {
                 }
             }
             else {
+                // Median split: sort and divide the objects into two halves.
                 std::sort(objects.begin() + start, objects.begin() + end, cmp);
                 const size_t mid = start + span / 2;
                 left = std::make_shared<BVHNode>(objects, start, mid);
                 right = std::make_shared<BVHNode>(objects, mid, end);
             }
 
-            // AABBの結合 (葉ノードの場合は片方だけ)
+            // Consolidate the AABB to enclose all children.
             if (!right) {
                 box = left->bounds();
             }
@@ -88,18 +117,26 @@ namespace rayt {
             }
         }
 
+        /**
+         * @brief Traverses the BVH tree to find the closest intersection.
+         * * The traversal is optimized by:
+         * 1. Testing the node's AABB first for early rejection.
+         * 2. Determining the traversal order based on the ray direction (front-to-back).
+         * 3. Pruning the 'second' child if the 'first' child's hit is closer than
+         * the second child's AABB intersection.
+         */
         bool hit(const Ray& r, SurfaceInteraction& rec) const override {
-            // AABBヒット判定 (r.tMaxが短くなるのを利用)
+            // Early exit if the ray doesn't hit this node's bounding box.
             if (!box.intersect(r, r.tMin, r.tMax))
                 return false;
 
-            // 葉ノード（右がない）なら、左だけ判定して終わり
+            // Leaf node case.
             if (!right) {
                 return left->hit(r, rec);
             }
 
-            // ここからは「内部ノード（左右あり）」の処理
-            // レイの向きに合わせて手前(first)と奥(second)を決める
+            // Internal node: Determine traversal order (Front-to-Back) based on ray direction.
+            // This maximizes the chance of 'r.tMax' being shortened early.
             const bool dirNeg = r.d[splitAxis] < 0;
 
             // rightはnullptrではないことが保証されているので安全
@@ -108,16 +145,19 @@ namespace rayt {
 
             bool hitAny = false;
 
-            // 手前をチェック (ヒットすれば r.tMax が縮む)
+            // Test the closer child first.
             if (first->hit(r, rec)) hitAny = true;
 
-            // 奥をチェック (縮んだ r.tMax で判定されるので高速)
-            // ※ firstと同じノードでないことは保証されているのでそのまま呼ぶ
+            // Test the second child. 
+            // Note: second->hit() will automatically use the updated (shortened) r.tMax.
             if (second->hit(r, rec)) hitAny = true;
 
             return hitAny;
         }
 
+        /**
+         * @brief Returns the bounding box for the entire BVH subtree.
+         */
         AABB bounds() const override { return box; }
     };
 

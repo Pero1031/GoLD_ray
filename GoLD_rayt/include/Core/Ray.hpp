@@ -1,5 +1,12 @@
 ﻿#pragma once
 
+/**
+* @file Ray.hpp
+* @brief Ray and RayDifferential structures.
+* * Fundamental primitives for light transport. RayDifferential provides
+* auxiliary information used for antialiasing and texture filtering (LOD).
+*/
+
 #include <cmath>
 
 #include "Core/Types.hpp"
@@ -22,7 +29,7 @@ namespace rayt {
     struct Ray {
     public:
         Point3 o;       // Origin
-        Vector3 d;      // Direction
+        Vector3 d;      // Ray direction (not necessarily normalized, though common)
 
         /**
          * @brief Upper bound of the valid intersection interval.
@@ -53,9 +60,10 @@ namespace rayt {
 
         /**
          * @brief Primary constructor.
-         * @param o     The origin of the ray.
-         * @param d     The direction of the ray.
-         * @param tMin  Start distance to avoid self-intersection (default: EPSILON).
+         * @param o      The origin of the ray.
+         * @param d      The direction of the ray.
+         * @param tMin   Start distance to avoid self-intersection (default: EPSILON).
+         * @param medium The medium containing the ray (default: nullptr).
          */
         Ray(const Point3& o, const Vector3& d, Real tMin = constants::RAY_EPSILON, const Medium* medium = nullptr)
             : o(o), d(d), tMin(tMin), tMax(constants::INFINITY_VAL), medium(medium) {
@@ -65,13 +73,17 @@ namespace rayt {
 
         /**
          * @brief Calculates the point along the ray at parameter t.
-         * Formula: P = o + t * d
+         * @param t Distance from the origin.
+         * @return Point3 Formula: P(t) = o + t * d
          */
         Point3 at(Real t) const {
             return o + d * t;
         }
 
-        // for debug check has NaN
+        /**
+         * @brief Debug utility to check for invalid numerical data.
+         * @return True if any component is NaN or Infinity.
+         */
         bool HasNaN() const {
             return math::hasNaNs(o) || math::hasNaNs(d) || std::isnan(tMin) || std::isnan(tMax);
         }
@@ -80,8 +92,12 @@ namespace rayt {
     // -------------------------------------------------------------------------
     // RayDifferential Class (Critical for Texture Filtering)
     // -------------------------------------------------------------------------
-    // Extends the base Ray to include auxiliary rays from neighboring pixels 
-    // for differential ray tracing.
+    
+    /**
+     * @brief Extends the base Ray to include auxiliary rays for adjacent pixels.
+     * Used for ray differentials, allowing the integrator to estimate the
+     * footprint of the ray for high-quality texture filtering (LOD).
+     */
     struct RayDifferential : public Ray {
 
         bool hasDifferentials = false;
@@ -97,13 +113,20 @@ namespace rayt {
             hasDifferentials = false;
         }
 
-        // Implicitly converts from Ray.
+        /**
+         * @brief Implicit conversion from a standard Ray.
+         * Useful for passing standard rays into functions expecting differentials.
+         */
         RayDifferential(const Ray& ray) : Ray(ray) {
             hasDifferentials = false;
         }
 
-        // 微分情報のスケーリング（鏡面反射などでレイが拡散する際の計算に使用）
-        // Scales differential information (used to calculate ray spreading, such as in specular reflections).
+        /**
+         * @brief Scales the differential information.
+         * Used to account for the spreading of rays during specular reflections or
+         * transmissions, ensuring proper footprint estimation.
+         * @param s Scaling factor.
+         */
         void ScaleDifferentials(Real s) {
             if (!hasDifferentials) return;
 
@@ -118,7 +141,15 @@ namespace rayt {
     // Utility Functions
     // -------------------------------------------------------------------------
 
-    // Generate a new ray (wi) from the surface point (p) and normal (n).
+    /**
+     * @brief Spawns a new ray from a surface point.
+     * Correctly handles numerical offsets to avoid self-intersection (Shadow Acne).
+     * * @param p   The surface hit point (origin for the new ray).
+     * @param n   The surface normal at the hit point.
+     * @param wi  The new ray direction (already calculated, e.g., via BRDF sampling).
+     * @param med The medium containing the new ray.
+     * @return Ray The newly constructed ray with proper safety offsets.
+     */
     inline Ray SpawnRay(const Point3& p, const Vector3& n, const Vector3& wi, const Medium* med = nullptr) {
 
         // Offset the starting point along +n if wi is in the same hemisphere, or -n if refracted.

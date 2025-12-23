@@ -42,6 +42,12 @@
 #include "Materials/Mirror.hpp"
 // Note: "Lambertian" or other materials can be added here in the future.
 
+#include "IO/ImageLoader.hpp"
+#include "IO/EnvMap.hpp"
+
+#include <filesystem>
+
+
 // 画像生成のためのヘッダー
 // マクロを書く必要はなし
 #include "stb_image_write.h"
@@ -56,10 +62,34 @@ const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
 const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
 const int MAX_DEPTH = 50;          // Max recursion depth for rays
 
+const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
+
 // -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
 int main() {
+
+
+    // -------------------------------------------------------------------------
+// EnvMap (HDRI) 読み込み
+// -------------------------------------------------------------------------
+    const std::string envPath = "assets/env/grace-new.hdr";
+
+    std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
+
+    std::shared_ptr<rayt::EnvMap> env = nullptr;
+    try {
+        auto envImg = rayt::io::loadHDR(envPath);
+        env = std::make_shared<rayt::EnvMap>(std::move(envImg));
+        std::cout << "[EnvMap] Loaded: " << envPath << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[EnvMap] Failed: " << e.what() << "\n";
+        std::cerr << "[EnvMap] Fallback to black background.\n";
+    }
+
+
+
     // Initialize the Embree device.
     /*RTCDevice device = rtcNewDevice(nullptr);
     if (!device) {
@@ -360,7 +390,7 @@ int main() {
     worldObjects->add(std::make_shared<Sphere>(Point3(0, 0, -1), 0.5, matGold));
 
     // 光源 (右上・手前)
-    worldObjects->add(std::make_shared<Sphere>(Point3(1.5, 2.0, 1.0), 0.5, matLight));
+    //worldObjects->add(std::make_shared<Sphere>(Point3(1.5, 2.0, 1.0), 0.5, matLight));
 
     // 補助光源（左側・遠く）
     //worldObjects->add(std::make_shared<Sphere>(Point3(-2.0, 1.0, -2.0), 0.3, matLight));
@@ -392,7 +422,8 @@ int main() {
 
     // 新しいIntegratorを使用
     // max_depth, spp を渡す
-    auto integrator = std::make_unique<PathIntegrator>(camera, MAX_DEPTH, SAMPLES_PER_PIXEL);
+    //auto integrator = std::make_unique<PathIntegrator>(camera, MAX_DEPTH, SAMPLES_PER_PIXEL);
+    auto integrator = std::make_unique<PathIntegrator>(camera, env, MAX_DEPTH, SAMPLES_PER_PIXEL);
 
     // -------------------------------------------------------------------------
     // 5. レンダリング実行
