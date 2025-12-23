@@ -51,6 +51,16 @@ namespace rayt {
         const Medium* medium = nullptr;
 
         /**
+        * @brief Time value associated with this ray.
+        *
+        * Specifies the temporal position of the ray within the shutter interval,
+         * enabling motion blur and time-varying geometry. This parameter does not
+        * affect rendering unless explicitly used by time-dependent primitives
+        * or transformations.
+        */
+        Real time = 0.0;
+
+        /**
          * @brief Default constructor.
          * Initializes an invalid ray with infinite range.
          */
@@ -119,6 +129,10 @@ namespace rayt {
          */
         RayDifferential(const Ray& ray) : Ray(ray) {
             hasDifferentials = false;
+            // ★ここで事故防止のリセット！
+            // ただし「tMaxを引き継ぎたいレアケース」がつぶれるトレードオフはある
+            // 変なバグがあったらここを見ろ！
+            // tMax = constants::INFINITY_VAL;
         }
 
         /**
