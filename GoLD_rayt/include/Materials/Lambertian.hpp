@@ -73,7 +73,7 @@ namespace rayt {
 
             // 1. Generate a direction in local space using cosine-weighted sampling.
             //    Z-axis in local space corresponds to the surface normal.
-            rayt::frame::Onb onb(rec.n);
+            rayt::frame::Frame onb(rec.n);
             Vector3 localDir = rayt::sampling::CosineSampleHemisphere(u); 
 
             // 2. Transform the sampled direction to World Space.

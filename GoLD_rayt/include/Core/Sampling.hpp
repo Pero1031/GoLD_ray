@@ -17,12 +17,10 @@
 #include <glm/gtc/constants.hpp>
 
 #include "Core/Constants.hpp"   // Include the constants header if available
-#include "Core/Core.hpp"
 #include "Core/Types.hpp"  // to use Real = double
+#include "Core/Math.hpp"
 
 namespace rayt::sampling {
-
-	using Real = rayt::Real;
 
     // -------------------------------------------------------------------------
     // Random Number Generation (RNG)
@@ -55,7 +53,6 @@ namespace rayt::sampling {
     inline Point2 Random2D() {
         return Point2(Random(), Random());
     }
-
 
     // -------------------------------------------------------------------------
     // Geometric Sampling

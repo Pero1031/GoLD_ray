@@ -8,6 +8,8 @@
  */
 
 #include "Core/Types.hpp"
+#include "Core/Assert.hpp"
+
 #include <cmath>
 #include <glm/glm.hpp>
 
