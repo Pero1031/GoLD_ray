@@ -1,5 +1,22 @@
 ﻿#pragma once
 
+/**
+ * @file Math.hpp
+ * @brief Core mathematical utilities and geometric routines for the rayt engine.
+ * * This header provides a comprehensive suite of math helpers designed for
+ * robustness in path tracing. Key features include:
+ * * - Numerical Stability: "Safe" wrappers for sqrt and trigonometric functions to
+ * handle floating-point drift.
+ * - Multi-Style Convention: Support for both incident-based (GLSL) and
+ * outward-based (PBRT/Mitsuba) reflection/refraction routines.
+ * - Optimized Primitives: Efficient implementations of common power functions
+ * (sqr, pow5) and linear interpolation.
+ * - Validation: Comprehensive NaN and Infinity checks for both scalars and
+ * GLM vector types.
+ * * @note All functions are templated or inlined to ensure zero-overhead
+ * integration with the rendering pipeline.
+ */
+
 #include <algorithm>
 #include <cmath>
 #include <limits>

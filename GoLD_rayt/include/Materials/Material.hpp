@@ -1,5 +1,14 @@
 ﻿#pragma once
 
+/**
+ * @file Material.hpp
+ * @brief Abstract interface for physical materials and BxDF functions.
+ * * This header defines the Material base class, which encapsulates the
+ * light-scattering properties of a surface (BSDF). It supports evaluation,
+ * importance sampling, and PDF calculation required for robust Monte Carlo
+ * path tracing.
+ */
+
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/Ray.hpp"
@@ -11,8 +20,12 @@
 
 namespace rayt {
 
-    // BxDF (BSDF) の性質を表すフラグ
-    // 多重重点的サンプリング (MIS) や、鏡面反射の特異点扱いに必要です。
+    /**
+     * @brief Flags representing the properties of a BxDF (BSDF/BRDF/BTDF).
+     * * Used to categorize light scattering behavior, which is essential for
+     * Multiple Importance Sampling (MIS) and handling delta distributions
+     * (perfect mirrors/glass).
+     */
     enum BxDFType {
         BSDF_REFLECTION = 1 << 0,
         BSDF_TRANSMISSION = 1 << 1,
@@ -22,49 +35,65 @@ namespace rayt {
         BSDF_ALL = 0xFF
     };
 
-    // 放射輝度(Radiance)か、重要度(Importance)か。
-    // 屈折を伴う双方向パス（BDPTなど）で非対称なスループットを扱う際に必要。
+    /**
+     * @brief Light transport mode for asymmetric scattering.
+     * * Distinguishes between light moving from sources (Radiance) or from
+     * the camera (Importance). Necessary for handling refraction correctly
+     * in bidirectional methods.
+     */
     enum class TransportMode {
         Radiance,
         Importance
     };
 
-    // サンプリングの結果を格納する構造体
+    /**
+     * @brief Result of a BSDF sampling operation.
+     */
     struct BSDFSample {
-        Spectrum f;           // BSDFの値 (throughput)
-        Vector3 wi;           // サンプリングされた入射方向 (World Space)
-        Real pdf = 0;        // 確率密度
-        BxDFType sampledType; // サンプリングされたローブの種類
+        Spectrum f;           // The evaluated BSDF value (throughput)
+        Vector3 wi;           // The sampled incident direction (World Space).
+        Real pdf = 0;         // The probability density for the sampled direction.
+        BxDFType sampledType; // The type of lobe that was sampled.
 
+        /**
+         * @brief Checks if the sampled interaction is a perfectly specular (delta) scattering.
+         */
         bool isSpecular() const { return sampledType & BSDF_SPECULAR; }
     };
 
+    /**
+     * @brief Abstract base class for all materials.
+     * * Materials define how light interacts with a surface by providing
+     * a Bidirectional Scattering Distribution Function (BSDF).
+     */
     class Material {
     public:
         virtual ~Material() = default;
 
         /**
-         * @brief BSDF (BRDF/BTDF) の値を評価する関数 f(wo, wi)
-         * * @param rec 交差表面の情報（法線、接線、UVなど）
-         * @param wo 視線方向 (Outdirection direction, World Space)
-         * @param wi 光源方向 (Incident direction, World Space)
-         * @param mode 輸送モード (通常は Radiance)
-         * @return Spectrum BSDFの値 [1/sr]
-         * * 注: 厳密なPBRでは、ここで cosine term (n・wi) を含めるかどうかは設計によりますが、
-         * 通常は純粋なBSDF値を返し、Integrator側でcosineを掛けます。
-         * ただし、デルタ分布（完全鏡面）の場合は0を返します。
+         * @brief Evaluates the BSDF value f(wo, wi) for a given pair of directions.
+         * * @param rec  The surface interaction details (normal, tangents, UVs).
+         * @param wo   The outgoing (view) direction in World Space.
+         * @param wi   The incident (light) direction in World Space.
+         * @param mode The transport mode (usually Radiance).
+         * @return Spectrum The BSDF value [1/sr].
+         * * @note Following standard PBR conventions, this returns the pure BSDF value.
+         * The cosine term (n·wi) is typically applied by the Integrator.
+         * For delta distributions (perfect Specular), this returns 0.
          */
         virtual Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
             TransportMode mode = TransportMode::Radiance) const = 0;
 
         /**
-         * @brief BSDFに基づいて新しい入射方向 wi をインポータンスサンプリングする
-         * * @param rec 交差表面の情報
-         * @param wo 視線方向 (World Space)
-         * @param sample RNGから得られたランダムな2次元サンプル値 [0,1)^2
-         * @param mode 輸送モード
-         * @return std::optional<BSDFSample> サンプリング成功時は結果、全反射などで無効な場合はnullopt
+         * @brief Importance samples a new incident direction wi based on the BSDF.
+         * * This method is crucial for variance reduction in path tracing.
+         * @param rec    The surface interaction details.
+         * @param wo     The outgoing (view) direction in World Space.
+         * @param u      A 2D random sample from the RNG [0, 1)^2.
+         * @param mode   The transport mode.
+         * @return std::optional<BSDFSample> The result of the sampling,
+         * or nullopt if sampling fails (e.g., Total Internal Reflection).
          */
         virtual std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
@@ -72,12 +101,12 @@ namespace rayt {
             TransportMode mode = TransportMode::Radiance) const = 0;
 
         /**
-         * @brief 確率密度関数 (PDF) を評価する
-         * MIS (Multiple Importance Sampling) のために必須です。
-         * * @param rec 交差表面の情報
-         * @param wo 視線方向
-         * @param wi 光源方向 (評価したい方向)
-         * @return Float pdfの値
+         * @brief Evaluates the Probability Density Function (PDF) for a given direction.
+         * * Essential for Multiple Importance Sampling (MIS).
+         * @param rec The surface interaction details.
+         * @param wo  The outgoing direction.
+         * @param wi  The incident direction to evaluate.
+         * @return Real The PDF value with respect to solid angle.
          */
         virtual Real pdf(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi) const = 0;
@@ -86,14 +115,21 @@ namespace rayt {
         // 以下のヘルパーや、以前の簡易的な関数は必要に応じて残すか削除します
         // -----------------------------------------------------------
 
-        // 自己発光（エリアライト用）
+        /**
+         * @brief Returns the emitted radiance for area lights.
+         * @param rec The surface interaction details.
+         * @param wo  The outgoing direction.
+         * @return Spectrum The self-emitted radiance (default: black).
+         */
         virtual Spectrum emitted(const SurfaceInteraction& rec,
             const Vector3& wo) const {
             return Spectrum(0.0);
         }
 
-        // ラフネスがあるかどうかなどの判定用
+        /**
+         * @brief Optimization hint to check if the material is perfectly specular.
+         */
         virtual bool isSpecular() const { return false; }
     };
 
-}
+} // namespace rayt

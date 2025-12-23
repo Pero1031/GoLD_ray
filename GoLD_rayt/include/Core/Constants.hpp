@@ -5,10 +5,13 @@
 
 #include "Core/Types.hpp"  // to use Real = double
 
-/*
-* @brief Constants for calculations
-* @note Define Real as double consistently throughout the project.
-*/
+/**
+ * @file constants.hpp
+ * @brief Global constants for mathematical, computational, and physical calculations.
+ * * Consistent with the project-wide 'Real' type definition.
+ * Mathematical constants leverage C++20 standard library templates for maximum precision.
+ */
+
 namespace rayt::constants {
 
     // -------------------------------------------------------------------------
@@ -26,7 +29,7 @@ namespace rayt::constants {
     constexpr Real INV_TWO_PI = Real(1) / TWO_PI;
     constexpr Real INV_FOUR_PI = Real(1) / FOUR_PI;   // Normalization factor for isotropic phase functions 1/4π
 
-    // Angle conversions
+    // Unit Conversion: Angle degree/radian transformations
     constexpr Real DEG_TO_RAD = PI / Real(180.0);
     constexpr Real RAD_TO_DEG = Real(180.0) / PI;
 
@@ -35,27 +38,24 @@ namespace rayt::constants {
     // 2. Computational Constants
     // -------------------------------------------------------------------------
 
-    // Representation of infinity for initial ray distances, etc.
+    // Representation of infinity for initial ray distances and bounding box bounds.
     constexpr Real INFINITY_VAL = std::numeric_limits<Real>::infinity();
 
-    // Small epsilon to prevent self-intersection artifacts (Shadow Acne).
-    // CAUTION: Depends on scene scale. 1e-5 is good for meter-scale scenes.
-    // For microscopic/millimeter scale, consider 1e-7.
+    // Numerical epsilon to prevent self-intersection artifacts (Shadow Acne).
+    // Note: This value is scale-dependent. 1e-5 is typically suitable for meter-scale scenes.
+    // For microscopic or millimeter-scale rendering, consider 1e-7 or smaller.
     constexpr Real RAY_EPSILON = 1e-5;
 
-    // Tolerance for intersection tests.
+    // Numerical tolerance for floating-point comparisons in intersection tests.
     constexpr Real INTERSECT_TOLERANCE = 1e-6;
 
 
     // -------------------------------------------------------------------------
     // 3. Physical Constants for Spectral Rendering
     // -------------------------------------------------------------------------
-    // Johnsonのデータを使う＝スペクトルレンダリングを行う場合、
-    // 光源（黒体放射など）の定義に以下の物理定数が必要になります。
-    // ※ 単位は SI系 (m, kg, s, J, K) に準拠
-    // Essential for spectral rendering and blackbody radiation calculations.
-    // Units: meter (m), kilogram (kg), second (s), Joule (J), Kelvin (K)
-    // Values based on 2019 SI redefinition.
+    // These constants are required for defining light sources (e.g., Blackbody radiation)
+    // when performing full spectral rendering.
+    // Standard: SI Units (m, kg, s, J, K) based on the 2019 redefinition.
 
     // Speed of light in vacuum c [m/s]
     constexpr Real SPEED_OF_LIGHT = 299792458.0;
@@ -74,8 +74,8 @@ namespace rayt::constants {
     // 4. Spectral Constants
     // -------------------------------------------------------------------------
 
-    // Visible light range definition (Unit: nm)
-    // Covers the full CIE 1931 standard observer range.
+    // Visible light spectrum range (Unit: nm).
+    // Aligned with the CIE 1931 Standard Observer range (approx. 360nm to 830nm).
     constexpr Real LAMBDA_MIN = 360.0;
     constexpr Real LAMBDA_MAX = 830.0;
 

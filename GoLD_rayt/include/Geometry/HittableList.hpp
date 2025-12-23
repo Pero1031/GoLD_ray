@@ -1,5 +1,12 @@
 ﻿#pragma once
 
+/**
+ * @file HittableList.hpp
+ * @brief A container for multiple Hittable objects.
+ * * Provides a simple aggregate structure to manage a collection of scene objects.
+ * Performs linear intersection testing and computes the collective bounding box.
+ */
+
 #include "Geometry/Hittable.hpp"
 #include "Core/AABB.hpp"
 
@@ -8,26 +15,49 @@
 
 namespace rayt {
 
+    /**
+     * @brief A collection of Hittable objects.
+     * * This class acts as a simple scene graph or world container. During intersection
+     * tests, it iterates through all contained objects and ensures that 'rec'
+     * always contains the information of the closest hit.
+     */
     class HittableList : public Hittable {
     public:
         HittableList() {}
+
+        /**
+         * @brief Constructs a list with an initial object.
+         */
         HittableList(std::shared_ptr<Hittable> object) { add(object); }
 
+        /**
+         * @brief Adds a hittable object to the collection.
+         */
         void add(std::shared_ptr<Hittable> object) { objects.push_back(object); }
+
+        /**
+         * @brief Clears all objects from the list.
+         */
         void clear() { objects.clear(); }
 
-        // リスト内の全オブジェクトと当たり判定を行い、
-        // "一番手前(closest)" の交差情報を rec に記録する
-        // NOTE:
-        // Implementations of hit() may shrink r.tMax (mutable) when a closer
-        // intersection is found. r.tMax must only decrease.
+        /**
+         * @brief Intersects a ray with all objects in the list and finds the closest hit.
+         * * Optimization: As closer hits are found, the 'r.tMax' (mutable) is updated.
+         * Subsequent objects are then tested only for intersections closer than the current
+         * closest hit, effectively pruning the search space within this linear list.
+         * * @param r   The incident ray.
+         * @param rec Output structure to store the closest intersection details.
+         * @return True if at least one object in the list was hit within the ray's interval.
+         */
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const override {
             SurfaceInteraction tempRec;
             bool hitAnything = false;
 
             for (const auto& object : objects) {
+                // The hit() method of each object checks against the current r.tMax.
                 if (object->hit(r, tempRec)) {
                     hitAnything = true;
+                    // Tighten the search interval to the current hit distance.
                     r.tMax = tempRec.t;
                     rec = tempRec;
                 }
@@ -36,10 +66,15 @@ namespace rayt {
             return hitAnything;
         }
 
+        /**
+         * @brief Computes the Axis-Aligned Bounding Box (AABB) that encloses all objects.
+         * * Used to construct higher-level acceleration structures (like BVH) using this
+         * list as a node.
+         * @return A consolidated AABB covering every object in the collection.
+         */
         AABB bounds() const override {
             if (objects.empty()) {
-                // 「無効AABB」を返す方針にするか、適当なゼロ箱を返すかはAABB設計次第
-                // ここではとりあえず 0サイズ箱にしておく例
+                // Returns an empty/invalid AABB if the list is empty.
                 return AABB(Point3(0), Point3(0));
             }
 
@@ -51,7 +86,8 @@ namespace rayt {
         }
 
     public:
+        // Container of polymorphic hittable objects.
         std::vector<std::shared_ptr<Hittable>> objects;
     };
 
-}
+} // namespace rayt
