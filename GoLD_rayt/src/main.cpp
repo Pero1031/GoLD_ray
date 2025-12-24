@@ -47,7 +47,7 @@
 
 #include <filesystem>
 
-#include "Debug/FrameDebug.hpp"
+#include "DebugTools/FrameDebug.hpp"
 
 
 // 画像生成のためのヘッダー
