@@ -12,7 +12,6 @@
 // Project Headers
 // Core
 #include "Core/Constants.hpp"
-//#include "Core/Utils.hpp"
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/Math.hpp"
@@ -22,6 +21,7 @@
 #include "Geometry/Hittable.hpp"
 #include "Geometry/HittableList.hpp"
 #include "Geometry/Sphere.hpp"
+#include "Geometry/Frame.hpp"
 
 // IO
 #include "IO/IORInterpolator.hpp"
@@ -47,6 +47,8 @@
 
 #include <filesystem>
 
+#include "Debug/FrameDebug.hpp"
+
 
 // 画像生成のためのヘッダー
 // マクロを書く必要はなし
@@ -62,6 +64,7 @@ const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
 const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
 const int MAX_DEPTH = 50;          // Max recursion depth for rays
 
+// env path
 const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
 
 // -----------------------------------------------------------------------------
@@ -69,8 +72,11 @@ const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
 // -----------------------------------------------------------------------------
 int main() {
 
+    // debug frame 
+    rayt::debug::TestFrameRoundTrip();
 
-    // -------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------
 // EnvMap (HDRI) 読み込み
 // -------------------------------------------------------------------------
     const std::string envPath = "assets/env/grace-new.hdr";

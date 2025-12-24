@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\Debug\FrameDebug.cpp" />
     <ClCompile Include="src\Film.cpp" />
     <ClCompile Include="src\ImageIO.cpp" />
     <ClCompile Include="src\ImageLoader.cpp" />
@@ -42,6 +43,7 @@
     <ClInclude Include="include\Core\SpectrumUtils.hpp" />
     <ClInclude Include="include\Core\Types.hpp" />
     <ClInclude Include="include\Core\Utils.hpp" />
+    <ClInclude Include="include\Debug\FrameDebug.hpp" />
     <ClInclude Include="include\Geometry\Frame.hpp" />
     <ClInclude Include="include\Geometry\Hittable.hpp" />
     <ClInclude Include="include\Geometry\HittableList.hpp" />
@@ -153,7 +155,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>C:\Users\Kohinata\source\repos\GoLD_rayt\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -162,7 +164,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>"C:\Users\Kohinata\source\repos\GoLD_rayt\librarys\embree-4.4.0.x64.windows\lib"</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)librarys\embree-4.4.0.x64.windows\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>embree4.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -174,7 +176,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;C:\Users\Kohinata\source\repos\GoLD_rayt\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -183,7 +185,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\Users\Kohinata\source\repos\GoLD_rayt\librarys\embree-4.4.0.x64.windows\lib</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>embree4.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
