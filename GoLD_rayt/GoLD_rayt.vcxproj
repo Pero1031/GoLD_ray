@@ -19,7 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\Debug\FrameDebug.cpp" />
+    <ClCompile Include="src\DebugTools\FrameDebug.cpp" />
     <ClCompile Include="src\Film.cpp" />
     <ClCompile Include="src\ImageIO.cpp" />
     <ClCompile Include="src\ImageLoader.cpp" />
@@ -43,7 +43,7 @@
     <ClInclude Include="include\Core\SpectrumUtils.hpp" />
     <ClInclude Include="include\Core\Types.hpp" />
     <ClInclude Include="include\Core\Utils.hpp" />
-    <ClInclude Include="include\Debug\FrameDebug.hpp" />
+    <ClInclude Include="include\DebugTools\FrameDebug.hpp" />
     <ClInclude Include="include\Geometry\Frame.hpp" />
     <ClInclude Include="include\Geometry\Hittable.hpp" />
     <ClInclude Include="include\Geometry\HittableList.hpp" />
@@ -51,6 +51,7 @@
     <ClInclude Include="include\IO\EnvMap.hpp" />
     <ClInclude Include="include\IO\ImageLoader.hpp" />
     <ClInclude Include="include\IO\IORInterpolator.hpp" />
+    <ClInclude Include="include\Lights\AreaLight.hpp" />
     <ClInclude Include="include\Lights\Light.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\Fresnel.hpp" />
@@ -164,7 +165,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)librarys\embree-4.4.0.x64.windows\lib</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\lib</AdditionalLibraryDirectories>
       <AdditionalDependencies>embree4.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
