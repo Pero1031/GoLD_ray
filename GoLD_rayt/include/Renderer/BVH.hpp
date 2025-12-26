@@ -118,14 +118,15 @@ namespace rayt {
         }
 
         /**
-         * @brief Traverses the BVH tree to find the closest intersection.
-         * * The traversal is optimized by:
-         * 1. Testing the node's AABB first for early rejection.
-         * 2. Determining the traversal order based on the ray direction (front-to-back).
-         * 3. Pruning the 'second' child if the 'first' child's hit is closer than
-         * the second child's AABB intersection.
-         */
+        * @brief Traverses the BVH tree to find the closest intersection.
+        * * The ray is treated as read-only. This method keeps track of the closest
+        * hit using a local variable (closestSoFar) and prunes farther traversal
+        * by passing a reduced tMax via copied rays.
+        * * Children are traversed in front-to-back order based on ray direction
+        * to improve early pruning.
+        */
         bool hit(const Ray& r, SurfaceInteraction& rec) const override {
+
             // Early exit if the ray doesn't hit this node's bounding box.
             if (!box.intersect(r, r.tMin, r.tMax))
                 return false;
@@ -137,22 +138,45 @@ namespace rayt {
 
             // Internal node: Determine traversal order (Front-to-Back) based on ray direction.
             // This maximizes the chance of 'r.tMax' being shortened early.
-            const bool dirNeg = r.d[splitAxis] < 0;
+            const bool dirNeg = r.d[splitAxis] < Real(0);
 
             // right‚Ínullptr‚Å‚Í‚È‚¢‚±‚Æ‚ª•ÛØ‚³‚ê‚Ä‚¢‚é‚Ì‚ÅˆÀ‘S
             auto first = dirNeg ? right : left;
             auto second = dirNeg ? left : right;
 
-            bool hitAny = false;
+            bool hitAnything = false;
+            Real closestSoFar = r.tMax;
 
+            SurfaceInteraction tempRec;
+
+            Ray localRay = r;
+
+            // ---- 1st child ----
+            localRay.tMax = closestSoFar;
+            if (first->hit(localRay, tempRec)) {
+                hitAnything = true;
+                closestSoFar = tempRec.t;
+                rec = tempRec;
+            }
+
+            // ---- 2nd child ----
+            localRay.tMax = closestSoFar;
+            if (second->hit(localRay, tempRec)) {
+                hitAnything = true;
+                closestSoFar = tempRec.t;
+                rec = tempRec;
+            }
+
+            /*
             // Test the closer child first.
             if (first->hit(r, rec)) hitAny = true;
 
             // Test the second child. 
             // Note: second->hit() will automatically use the updated (shortened) r.tMax.
             if (second->hit(r, rec)) hitAny = true;
+            */
 
-            return hitAny;
+            return hitAnything;
         }
 
         /**

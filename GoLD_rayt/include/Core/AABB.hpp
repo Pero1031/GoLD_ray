@@ -8,10 +8,11 @@
  */
 
 #include <algorithm>
-#include <limits>
+#include <cmath>
 
 #include "Core/Types.hpp"
 #include "Core/Ray.hpp"
+#include "Core/Constants.hpp"
 
 namespace rayt {
 
@@ -24,7 +25,16 @@ namespace rayt {
         Vector3 min;   // Lower-left-front corner
         Vector3 max;   // Upper-right-back corner
 
-        AABB() = default;
+        /**
+         * @brief Default constructor creates an INVALID (empty) AABB.
+         * Initialize min to +Infinity and max to -Infinity.
+         * This ensures that any subsequent 'unite' operation will overwrite these values.
+         */
+        AABB() {
+            const Real inf = constants::INFINITY_VAL;
+            min = Vector3(inf, inf, inf);
+            max = Vector3(-inf, -inf, -inf);
+        }
 
         /**
          * @brief Constructs an AABB from two points.
@@ -44,21 +54,30 @@ namespace rayt {
          * through floating-point standard behavior (infinity).
          */
         bool intersect(const Ray& r, Real tMin, Real tMax) const {
+
             for (int axis = 0; axis < 3; ++axis) {
+                const Real origin = r.o[axis];
+                const Real direction = r.d[axis];
+
+                if (std::abs(direction) < constants::INTERSECT_TOLERANCE) {
+                    if (origin < min[axis] || origin > max[axis]) return false;
+                    continue;
+                }
+
                 // Compute the distance to the two slabs on the current axis.
-                const Real invD = Real(1) / r.d[axis];
-                Real t0 = (min[axis] - r.o[axis]) * invD;
-                Real t1 = (max[axis] - r.o[axis]) * invD;
+                const Real invD = Real(1) / direction;
+                Real t0 = (min[axis] - origin) * invD;
+                Real t1 = (max[axis] - origin) * invD;
 
                 // If the ray direction is negative, swap the entry and exit points.
-                if (invD < 0) std::swap(t0, t1);
+                if (invD < Real(0)) std::swap(t0, t1);
 
                 // Tighten the intersection interval.
-                tMin = std::max(tMin, t0);
-                tMax = std::min(tMax, t1);
+                tMin = (t0 > tMin) ? t0 : tMin;
+                tMax = (t1 < tMax) ? t1 : tMax;
 
                 // If the entry point is beyond the exit point, there is no intersection.
-                if (tMax <= tMin)
+                if (tMax < tMin)
                     return false;
             }
             return true;

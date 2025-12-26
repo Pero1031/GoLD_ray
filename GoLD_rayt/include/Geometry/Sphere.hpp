@@ -84,9 +84,10 @@ namespace rayt {
 
             // TODO: Implement spherical UV mapping for texture lookup (e.g., lat/long).
 
+            // 後で消す
             // Critical: Update the ray's maximum valid distance. 
             // This ensures subsequent intersection tests in a list or BVH prune farther objects.
-            r.tMax = rec.t;
+            // r.tMax = rec.t;
 
             return true;
         }

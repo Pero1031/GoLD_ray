@@ -211,4 +211,11 @@ namespace rayt::math {
         return glm::any(glm::isnan(v)) || glm::any(glm::isinf(v));
     }
 
+    //-----------------------------------------------------------------------------
+    // ベクトル(Spectrum)の中で最大の成分を返す関数
+    template <typename T>
+    inline T maxComponent(const glm::vec<3, T, glm::defaultp>& v) {
+        return std::max({ v.x, v.y, v.z });
+    }
+
 } // namespace rayt::math

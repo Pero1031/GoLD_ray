@@ -26,13 +26,17 @@ namespace rayt {
         virtual ~Hittable() = default;
 
         /**
-         * @brief Determines if a ray hits this object within its valid interval.
-         * * If an intersection is found, the 'tMax' of the ray should be updated
-         * to the hit distance to facilitate pruning of subsequent intersection tests.
-         * * @param r   The incident ray. Its tMin/tMax define the valid search interval.
-         * @param rec Output structure to store intersection details (normal, UV, etc.).
-         * @return True if an intersection occurs within the ray's valid interval [tMin, tMax].
-         */
+        * @brief Determines if a ray hits this object within its valid interval.
+        * * The ray defines a valid search interval [tMin, tMax] (e.g., for shadow rays).
+        * * This method MUST NOT modify the ray. If a hit is found, it writes the hit
+        * distance to rec.t and fills other fields in rec.
+        * * Selecting the closest hit and pruning farther tests is the caller's
+        * responsibility (e.g., HittableList/BVH manages a "closestSoFar" value and may
+        * pass a reduced tMax via a copied Ray).
+        * @param r   The incident ray. Its tMin/tMax define the valid search interval.
+        * @param rec Output structure to store intersection details (normal, UV, etc.).
+        * @return True if an intersection occurs within [r.tMin, r.tMax].
+        */
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const = 0;
 
         /**

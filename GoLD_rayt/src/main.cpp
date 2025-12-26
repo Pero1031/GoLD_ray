@@ -73,7 +73,7 @@ const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
 int main() {
 
     // debug frame 
-    rayt::debug::TestFrameRoundTrip();
+    // rayt::debug::TestFrameRoundTrip();
 
 
 // -------------------------------------------------------------------------
@@ -367,20 +367,20 @@ int main() {
     // -------------------------------------------------------------------------
 
     // --- 床用: グレーの拡散反射 ---
-    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5f, 0.5f, 0.5f));
+    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5, 0.5, 0.5));
 
     // --- 光源: 明るい白 (DiffuseLightを使用) ---
     // 値が1.0を超えると発光体として機能します
-    auto matLight = std::make_shared<DiffuseLight>(Spectrum(15.0f, 15.0f, 15.0f));
+    auto matLight = std::make_shared<DiffuseLight>(Spectrum(15.0, 15.0, 15.0));
 
     // --- 主役: 金 (MirrorConductor) ---
-    // 波長ごとの屈折率データ (RGB近似値)
+    // 波長ごとの屈折率データ (RGB近似値
     // Red(650nm), Green(550nm), Blue(450nm) 付近の値を設定
     // Au (Gold):
     // n: R=0.16, G=0.42, B=1.45
     // k: R=3.48, G=2.45, B=1.77
-    Spectrum n_Au(0.16f, 0.42f, 1.45f);
-    Spectrum k_Au(3.48f, 2.45f, 1.77f);
+    Spectrum n_Au(0.16, 0.42, 1.45);
+    Spectrum k_Au(3.48, 2.45, 1.77);
 
     auto matGold = std::make_shared<MirrorConductor>(n_Au, k_Au);
 
@@ -442,7 +442,7 @@ int main() {
     // -------------------------------------------------------------------------
     std::cout << "[Output] Saving images..." << std::endl;
     film.save("result_gold_pbr.png");
-    film.save("result_gold_pbr.hdr");
+    // film.save("result_gold_pbr.hdr");
 
     std::cout << "[System] Finished." << std::endl;
     

@@ -8,12 +8,26 @@
  * like defocus blur.
  */
 
+#include <algorithm>
+#include <cmath>
+
 #include "Core/Core.hpp"
 #include "Core/Ray.hpp"
 #include "Core/Math.hpp"
 #include "Core/Sampling.hpp"
 
 namespace rayt {
+
+    struct CameraSample {
+        // Film sample in normalized [0,1]^2 (pixel + jitter / NDC)
+        Point2 pFilm{ 0.5, 0.5 };
+
+        // Lens sample in [0,1)^2
+        Point2 pLens{ 0.5, 0.5 };
+
+        // Time sample in [0,1)
+        Real time{ 0.0 };
+    };
 
     /**
      * @brief A physically-based camera.
@@ -24,32 +38,44 @@ namespace rayt {
     class Camera {
     public:
         /**
-         * @brief Constructs a camera with full control over orientation and optics.
-         * @param lookFrom   The position of the camera in world space.
-         * @param lookAt     The point the camera is looking at.
-         * @param vUp        The "up" vector for the world (used to stabilize the camera).
-         * @param vfov       Vertical Field of View in degrees.
-         * @param aspect     Aspect ratio (Width / Height).
-         * @param aperture   Lens diameter (0.0 results in a sharp pinhole camera).
-         * @param focusDist  The distance from the lens to the plane of perfect focus.
+         * @brief Constructs    a camera with full control over orientation and optics.
+         * @param lookFrom      The position of the camera in world space.
+         * @param lookAt        The point the camera is looking at.
+         * @param vUp           The "up" vector for the world (used to stabilize the camera).
+         * @param vfov          Vertical Field of View in degrees.
+         * @param aspect        Aspect ratio (Width / Height).
+         * @param aperture      Lens diameter (0.0 results in a sharp pinhole camera).
+         * @param focusDist     The distance from the lens to the plane of perfect focus.
+         * @param shutterOpen   Shutter open time
+         * @param shutterClose  Shutter close time
+         * @param medium        Medium that the camera is inside (optional)
          */
-        Camera(Point3 lookFrom,
-            Point3 lookAt,
-            Vector3 vUp,
-            Real vfov,
+        Camera(const Point3 lookFrom,
+            const Point3 lookAt,
+            const Vector3 vUp,
+            Real vfovDeg,
             Real aspect,
             Real aperture,
-            Real focusDist) {
+            Real focusDist,
+            Real shutterOpen = 0.0,
+            Real shutterClose = 1.0,
+            const Medium* medium = nullptr)
+            : m_origin(lookFrom)
+            , m_lensRadius(aperture* Real(0.5))
+            , m_focusDist(std::max(focusDist, Real(0)))
+            , m_shutterOpen(shutterOpen)
+            , m_shutterClose(std::max(shutterClose, shutterOpen))
+            , m_medium(medium) {
 
             m_lensRadius = aperture / 2.0;
 
             // Convert vertical FOV from degrees to radians and compute half-height
-            Real theta = rayt::math::toRadians(vfov);
-            Real h = std::tan(theta / 2.0);
+            // Real theta = rayt::math::toRadians(vfovDeg);
+            // Real h = std::tan(theta / 2.0);
 
             // Viewport dimensions in the focal plane
-            Real viewportHeight = 2.0 * h;
-            Real viewportWidth = aspect * viewportHeight;
+            // Real viewportHeight = 2.0 * h;
+            // Real viewportWidth = aspect * viewportHeight;
 
             // Construct the Camera Coordinate System (Right-Handed)
             // m_w: Points directly away from the target (View direction = -m_w)
@@ -61,7 +87,11 @@ namespace rayt {
             // m_v: "Up" vector within the camera's local frame
             m_v = glm::cross(m_w, m_u);
 
-            m_origin = lookFrom;
+            // --- Perspective viewport on the focal plane ---
+            const Real theta = rayt::math::toRadians(vfovDeg);
+            const Real halfHeight = std::tan(theta * Real(0.5));
+            const Real viewportHeight = Real(2) * halfHeight;
+            const Real viewportWidth = aspect * viewportHeight;
 
             // Calculate the view vectors scaled by focus distance to reach the focal plane
             m_horizontal = focusDist * viewportWidth * m_u;
@@ -69,9 +99,40 @@ namespace rayt {
 
             // Compute the lower-left corner of the projected image plane in world space
             m_lowerLeftCorner = m_origin
-                - m_horizontal / 2.0
-                - m_vertical / 2.0
+                - m_horizontal * Real(0.5)
+                - m_vertical * Real(0.5)
                 - focusDist * m_w;
+        }
+
+        /**
+         * @brief Generate a camera ray from a sample (PBRT-style).
+         * * Uses thin-lens model if lensRadius > 0.
+         */
+        Ray generateRay(const CameraSample& cs) const {
+            // --- time (motion blur) ---
+            const Real time = math::lerp(m_shutterOpen, m_shutterClose, math::saturate(cs.time));
+
+            // --- film sample (NDC) ---
+            const Real s = math::saturate(cs.pFilm.x);
+            const Real t = math::saturate(cs.pFilm.y);
+
+            // --- point on focal plane ---
+            const Point3 target = m_lowerLeftCorner + s * m_horizontal + t * m_vertical;
+
+            // --- lens sample (DoF) ---
+            Vector3 offset(0);
+            if (m_lensRadius > Real(0)) {
+                // You can switch to ConcentricSampleDisk later.
+                const Vector3 rd = m_lensRadius * sampling::UniformSampleDisk(cs.pLens);
+                offset = m_u * rd.x + m_v * rd.y;
+            }
+
+            const Point3 rayOrigin = m_origin + offset;
+            const Vector3 rayDir = target - rayOrigin; // normalize if your system expects it
+
+            Ray r(rayOrigin, rayDir, constants::RAY_EPSILON, m_medium);
+            r.time = time;
+            return r;
         }
 
         /**
@@ -81,9 +142,15 @@ namespace rayt {
          * @param uLens  2D random sample for lens/aperture sampling (for DoF).
          * @return Ray   A world-space ray originating from the lens toward the focal plane.
          */
-        Ray getRay(Real s, Real t, const Point2& uLens) const {
+        Ray getRay(Real s, Real t, const Point2& uLens, Real timeSample = 0.0) const {
 
-            Vector3 offset(0.0);
+            CameraSample cs;
+            cs.pFilm = Point2(s, t);
+            cs.pLens = uLens;
+            cs.time = timeSample;
+            return generateRay(cs);
+
+            /*Vector3 offset(0.0);
 
             // Defocus Blur (Depth of Field) calculation
             if (m_lensRadius > 0.0) {
@@ -104,8 +171,12 @@ namespace rayt {
             Vector3 rayDirection = glm::normalize(target - rayOrigin);
 
             // Pass 'medium' (PBRT style)
-            return Ray(rayOrigin, rayDirection);
+            return Ray(rayOrigin, rayDirection);*/
         }
+
+        // Accessors
+        const Point3& origin() const { return m_origin; }
+        const Medium* medium() const { return m_medium; }
 
     private:
         Point3 m_origin;
@@ -116,7 +187,16 @@ namespace rayt {
         // Internal Orthonormal Basis
         Vector3 m_u, m_v, m_w;
 
-        Real m_lensRadius;
+        // Thin lens
+        Real m_lensRadius = 0.0;
+        Real m_focusDist = 1.0;
+
+        // Motion blur (shutter interval)
+        Real m_shutterOpen = 0.0;
+        Real m_shutterClose = 1.0;
+
+        // Medium around camera
+        const Medium* m_medium = nullptr;
     };
 
 } // namespace rayt

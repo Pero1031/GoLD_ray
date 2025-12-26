@@ -25,7 +25,7 @@ namespace rayt {
     using Vector3 = glm::vec<3, Real, glm::defaultp>;
     using Point3 = glm::vec<3, Real, glm::defaultp>;
     using Normal3 = glm::vec<3, Real, glm::defaultp>; // Should be transformed by inverse-transpose matrix.
-    using Point2 = glm::vec<2, Real, glm::defaultp>;
+    using Point2 = glm::vec<2, float, glm::defaultp>;
     using UV = glm::vec<2, Real, glm::defaultp>;
 
     // Matrix Aliases
