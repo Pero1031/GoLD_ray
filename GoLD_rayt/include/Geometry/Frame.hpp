@@ -139,48 +139,98 @@ namespace rayt::frame {
         // Trigonometric Helpers (Assumes 'v' is in LOCAL space!)
         // ---------------------------------------------------------------------
 
-        // Cosine of the angle between v and the normal (Z-axis)
+        /**
+         * @brief Returns the cosine of the angle (theta) between the vector v and the normal (Z-axis).
+         * @param v A unit vector in local space.
+         * @return Real cos(theta).
+         */
         static Real cosTheta(const Vector3& v) { return v.z; }
 
+        /**
+         * @brief Returns the squared cosine of the angle theta.
+         * @param v A unit vector in local space.
+         * @return Real cos^2(theta).
+         */
         static Real cosTheta2(const Vector3& v) { return v.z * v.z; }
 
-        // Absolute Cosine (useful for two-sided materials)
+        /**
+         * @brief Returns the absolute cosine of the angle theta.
+         * @note Useful for two-sided materials or calculating values in the lower hemisphere.
+         * @param v A unit vector in local space.
+         * @return Real |cos(theta)|.
+         */
         static Real absCosTheta(const Vector3& v) { return std::abs(v.z); }
 
+        /**
+         * @brief Returns the squared sine of the angle theta.
+         * @note Uses the identity sin^2 + cos^2 = 1.
+         * @param v A unit vector in local space.
+         * @return Real sin^2(theta).
+         */
         static Real sinTheta2(const Vector3& v) {
             return std::max(Real(0.0), Real(1.0) - cosTheta2(v));
         }
 
+        /**
+         * @brief Returns the sine of the angle theta.
+         * @param v A unit vector in local space.
+         * @return Real sin(theta).
+         */
         static Real sinTheta(const Vector3& v) {
             return std::sqrt(sinTheta2(v));
         }
 
+        /**
+         * @brief Returns the tangent of the angle theta.
+         * @param v A unit vector in local space.
+         * @return Real tan(theta). Returns 0.0 if v is parallel to the XY plane.
+         */
         static Real tanTheta(const Vector3& v) {
             Real temp = Real(1.0) - v.z * v.z;
             if (temp <= 0.0) return 0.0;
             return std::sqrt(temp) / v.z;
         }
 
+        /**
+         * @brief Returns the squared tangent of the angle theta.
+         * @param v A unit vector in local space.
+         * @return Real tan^2(theta).
+         */
         static Real tanTheta2(const Vector3& v) {
             Real temp = Real(1.0) - v.z * v.z;
             if (temp <= 0.0) return 0.0;
             return temp / (v.z * v.z);
         }
 
-        // Azimuthal angle helpers (Phi)
+        /**
+         * @brief Returns the sine of the azimuthal angle (phi) in local space.
+         * @note Phi is the angle in the XY plane measured from the X-axis (tangent).
+         * @param v A unit vector in local space.
+         * @return Real sin(phi).
+         */
         static Real sinPhi(const Vector3& v) {
             Real sinThetaSq = sinTheta2(v);
             if (sinThetaSq <= 1e-8) return 0.0; // Prevent div by zero
             return std::clamp(v.y * std::sqrt(1.0 / sinThetaSq), -1.0, 1.0);
         }
 
+        /**
+         * @brief Returns the cosine of the azimuthal angle (phi) in local space.
+         * @param v A unit vector in local space.
+         * @return Real cos(phi).
+         */
         static Real cosPhi(const Vector3& v) {
             Real sinThetaSq = sinTheta2(v);
             if (sinThetaSq <= 1e-8) return 1.0;
             return std::clamp(v.x * std::sqrt(1.0 / sinThetaSq), -1.0, 1.0);
         }
 
-        // Returns {cosPhi, sinPhi} optimized
+        /**
+         * @brief Simultaneously calculates the cosine and sine of the azimuthal angle (phi).
+         * @note More efficient than calling cosPhi and sinPhi separately.
+         * @param v A unit vector in local space.
+         * @return std::pair<Real, Real> {cos(phi), sin(phi)}.
+         */
         static std::pair<Real, Real> sincosPhi(const Vector3& v) {
             Real sinThetaSq = sinTheta2(v);
             if (sinThetaSq <= 1e-8) return { 1.0, 0.0 };

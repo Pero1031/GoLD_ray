@@ -25,6 +25,10 @@ namespace rayt {
      * The ray is parameterized as: P(t) = o + t * d
      * * Designed as a 'struct' (public members) for direct access during
      * heavy mathematical computations, following PBRT standards.
+     * 
+     * @Coution Upper bound of the valid interval. Used to limit intersection tests (e.g., shadow rays).
+     * It is NOT modified by intersection routines; callers manage closest hits.
+     * change mutable tMax → non mutable
      */
     struct Ray {
     public:
@@ -36,7 +40,7 @@ namespace rayt {
          * Marked 'mutable' to allow updates within const methods (e.g., during traversal).
          * As the ray hits closer objects, this value decreases to prune the search.
          */
-        mutable Real tMax;
+        Real tMax;
 
         /**
          * @brief Lower bound of the valid intersection interval.
@@ -163,12 +167,14 @@ namespace rayt {
      * @param wi  The new ray direction (already calculated, e.g., via BRDF sampling).
      * @param med The medium containing the new ray.
      * @return Ray The newly constructed ray with proper safety offsets.
+     * TODO: For large-scale scenes or strong normal maps,
+     * consider PBRT-style offsetRayOrigin (scale-dependent eps + nextafter).
      */
-    inline Ray SpawnRay(const Point3& p, const Vector3& n, const Vector3& wi, const Medium* med = nullptr) {
+    inline Ray SpawnRay(const Point3& p, const Vector3& gn, const Vector3& wi, const Medium* med = nullptr) {
 
         // Offset the starting point along +n if wi is in the same hemisphere, or -n if refracted.
         // Without this, glass rendering will be plagued by self-intersection noise.
-        Vector3 offset = glm::dot(n, wi) > 0.0 ? n : -n;
+        Vector3 offset = glm::dot(gn, wi) > 0.0 ? gn : -gn;
 
         // Offset the ray origin slightly from the hit point p along the ray direction.
         Point3 origin = p + offset * constants::RAY_EPSILON;

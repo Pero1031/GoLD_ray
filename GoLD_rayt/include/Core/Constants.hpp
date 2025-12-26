@@ -47,7 +47,7 @@ namespace rayt::constants {
     constexpr Real RAY_EPSILON = 1e-5;
 
     // Numerical tolerance for floating-point comparisons in intersection tests.
-    constexpr Real INTERSECT_TOLERANCE = 1e-6;
+    constexpr Real INTERSECT_TOLERANCE = 1e-8;
 
 
     // -------------------------------------------------------------------------

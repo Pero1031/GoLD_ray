@@ -41,24 +41,26 @@ namespace rayt {
         void clear() { objects.clear(); }
 
         /**
-         * @brief Intersects a ray with all objects in the list and finds the closest hit.
-         * * Optimization: As closer hits are found, the 'r.tMax' (mutable) is updated.
-         * Subsequent objects are then tested only for intersections closer than the current
-         * closest hit, effectively pruning the search space within this linear list.
-         * * @param r   The incident ray.
-         * @param rec Output structure to store the closest intersection details.
-         * @return True if at least one object in the list was hit within the ray's interval.
-         */
+        * @brief Intersects a ray with all objects in the list and finds the closest hit.
+        * * The ray is treated as read-only. If a hit is found, the hit distance is written
+        * to rec.t. This method keeps track of the closest hit using a local variable
+        * (closestSoFar) and prunes farther tests by passing a reduced tMax via a copied Ray.
+        * @param r   The incident ray.
+        * @param rec Output structure to store the closest intersection details.
+        * @return True if at least one object in the list was hit within the ray's interval.
+        */
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const override {
             SurfaceInteraction tempRec;
             bool hitAnything = false;
+            Real closestSoFar = r.tMax;
 
             for (const auto& object : objects) {
-                // The hit() method of each object checks against the current r.tMax.
-                if (object->hit(r, tempRec)) {
+                Ray testRay = r;
+                testRay.tMax = closestSoFar; // ★ 判定前にクランプ
+
+                if (object->hit(testRay, tempRec)) {
                     hitAnything = true;
-                    // Tighten the search interval to the current hit distance.
-                    r.tMax = tempRec.t;
+                    closestSoFar = tempRec.t;
                     rec = tempRec;
                 }
             }
