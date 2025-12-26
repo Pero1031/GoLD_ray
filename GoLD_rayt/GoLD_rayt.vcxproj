@@ -62,6 +62,8 @@
     <ClInclude Include="include\Materials\Mirror.hpp" />
     <ClInclude Include="include\Materials\MirrorConductor.hpp" />
     <ClInclude Include="include\Materials\SpectralMetal.hpp" />
+    <ClInclude Include="include\Microfacet\Distribution.hpp" />
+    <ClInclude Include="include\Microfacet\GGX.hpp" />
     <ClInclude Include="include\pch.h" />
     <ClInclude Include="include\Renderer\BVH.hpp" />
     <ClInclude Include="include\Renderer\Camera.hpp" />
