@@ -2,7 +2,6 @@
 
 #include "Materials/Material.hpp"
 #include "IO/IORInterpolator.hpp"
-//#include "Core/Utils.hpp"
 #include "Core/Sampling.hpp"
 
 namespace rayt {

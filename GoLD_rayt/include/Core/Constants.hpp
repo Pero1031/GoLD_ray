@@ -49,6 +49,9 @@ namespace rayt::constants {
     // Numerical tolerance for floating-point comparisons in intersection tests.
     constexpr Real INTERSECT_TOLERANCE = 1e-8;
 
+    // use MicrofacetDistribution alpha
+    constexpr Real ALPHA_EPSILON = 1e-4;
+
 
     // -------------------------------------------------------------------------
     // 3. Physical Constants for Spectral Rendering

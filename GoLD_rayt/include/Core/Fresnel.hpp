@@ -8,8 +8,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
+#include "Core/Types.hpp"
+#include "Core/Forward.hpp"
 #include "Core/Constants.hpp"   // Include the constants header if available
-#include "Core/Core.hpp"
 #include "Core/Math.hpp"
 
 namespace rayt::fresnel {
@@ -30,7 +31,7 @@ namespace rayt::fresnel {
      * @param k         Imaginary part of the refractive index (Extinction coefficient, k) - per RGB channel.
      * @return rayt::Vector3 Fresnel reflectance (Reflectance).
      */
-    inline rayt::Vector3 fresnelConductor(Real cosThetaI, const rayt::Vector3& eta, const rayt::Vector3& k) {
+    inline Vector3 fresnelConductor(Real cosThetaI, const Vector3& eta, const Vector3& k) {
         // Clamp cosine to [0, 1] to handle numerical errors
         cosThetaI = rayt::math::saturate(cosThetaI);
 
@@ -38,34 +39,34 @@ namespace rayt::fresnel {
         Real cosThetaI2 = cosThetaI * cosThetaI;
         Real sinThetaI2 = Real(1.0) - cosThetaI2;
 
-        rayt::Vector3 eta2 = eta * eta;
-        rayt::Vector3 k2 = k * k;
+        Vector3 eta2 = eta * eta;
+        Vector3 k2 = k * k;
 
         // --- Preparation for Complex Arithmetic ---
         // Calculate coefficients 'a' and 'b' based on:
         // t0 = eta^2 - k^2 - sin^2(theta)
         // a^2 + b^2 = sqrt(t0^2 + 4 * eta^2 * k^2)
 
-        rayt::Vector3 t0 = eta2 - k2 - rayt::Vector3(sinThetaI2);
-        rayt::Vector3 a2plusb2 = glm::sqrt(t0 * t0 + Real(4.0) * eta2 * k2);
+        Vector3 t0 = eta2 - k2 - Vector3(sinThetaI2);
+        Vector3 a2plusb2 = glm::sqrt(t0 * t0 + Real(4.0) * eta2 * k2);
 
         // a = sqrt(0.5 * (a^2 + b^2 + t0))
-        rayt::Vector3 t1 = a2plusb2 + rayt::Vector3(cosThetaI2);
-        rayt::Vector3 a = glm::sqrt(Real(0.5) * (a2plusb2 + t0));
+        Vector3 t1 = a2plusb2 + Vector3(cosThetaI2);
+        Vector3 a = glm::sqrt(Real(0.5) * (a2plusb2 + t0));
 
         // --- Calculate Rs (S-polarized reflectance) ---
         // Rs = ((a^2 + b^2) + cos^2 - 2a*cos) / ((a^2 + b^2) + cos^2 + 2a*cos)
-        rayt::Vector3 t2 = Real(2.0) * cosThetaI * a;
-        rayt::Vector3 Rs = (t1 - t2) / (t1 + t2);
+        Vector3 t2 = Real(2.0) * cosThetaI * a;
+        Vector3 Rs = (t1 - t2) / (t1 + t2);
 
         // --- Calculate Rp (P-polarized reflectance) ---
         // Rp = Rs * ( (a^2+b^2)*cos^2 + sin^4 - 2a*cos*sin^2 ) / ...
         // Using a simplified form derived via algebraic manipulation:
         // Rp = Rs * (t3 - t4) / (t3 + t4)
 
-        rayt::Vector3 t3 = cosThetaI2 * a2plusb2 + rayt::Vector3(sinThetaI2 * sinThetaI2);
-        rayt::Vector3 t4 = t2 * sinThetaI2;
-        rayt::Vector3 Rp = Rs * (t3 - t4) / (t3 + t4);
+        Vector3 t3 = cosThetaI2 * a2plusb2 + Vector3(sinThetaI2 * sinThetaI2);
+        Vector3 t4 = t2 * sinThetaI2;
+        Vector3 Rp = Rs * (t3 - t4) / (t3 + t4);
 
         // Return the average for unpolarized light
         return Real(0.5) * (Rs + Rp);
