@@ -37,6 +37,7 @@
     <ClInclude Include="include\Core\Distribution1D.hpp" />
     <ClInclude Include="include\Core\Distribution2D.hpp" />
     <ClInclude Include="include\Core\Forward.hpp" />
+    <ClInclude Include="include\Core\Fresnel.hpp" />
     <ClInclude Include="include\Core\Image.hpp" />
     <ClInclude Include="include\Core\Interaction.hpp" />
     <ClInclude Include="include\Core\Math.hpp" />
@@ -61,6 +62,7 @@
     <ClInclude Include="include\Materials\Material.hpp" />
     <ClInclude Include="include\Materials\Mirror.hpp" />
     <ClInclude Include="include\Materials\MirrorConductor.hpp" />
+    <ClInclude Include="include\Materials\RoughConductor.hpp" />
     <ClInclude Include="include\Materials\SpectralMetal.hpp" />
     <ClInclude Include="include\Microfacet\Distribution.hpp" />
     <ClInclude Include="include\Microfacet\GGX.hpp" />

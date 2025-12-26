@@ -2,7 +2,6 @@
 
 #include "Core/Core.hpp"
 #include "Materials/Material.hpp"
-//#include "Core/Utils.hpp"
 
 namespace rayt {
 

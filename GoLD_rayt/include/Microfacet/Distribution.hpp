@@ -10,7 +10,8 @@
  * - sample_wh(): Importance sampling of the micro-normal
  */
 
-#include "Core/Core.hpp"
+#include "Core/Types.hpp"
+#include "Core/Constants.hpp"
 #include "Core/Math.hpp"
 
 namespace rayt {
@@ -34,8 +35,8 @@ namespace rayt {
          * @param ay Roughness in the bitangent direction (alpha_y).
          */
         MicrofacetDistribution(Real ax, Real ay)
-            : alpha_x(std::max(Real(1e-4), ax)),
-            alpha_y(std::max(Real(1e-4), ay)) {}
+            : alpha_x(std::max(constants::ALPHA_EPSILON, ax)),
+            alpha_y(std::max(constants::ALPHA_EPSILON, ay)) {}
 
         virtual ~MicrofacetDistribution() = default;
 
