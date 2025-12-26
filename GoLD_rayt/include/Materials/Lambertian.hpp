@@ -8,7 +8,9 @@
  * to significantly reduce noise in diffuse global illumination.
  */
 
-#include "Core/Core.hpp"
+#include "Core/Types.hpp"
+#include "Core/Forward.hpp"
+#include "Core/Math.hpp"
 #include "Materials/Material.hpp"
 #include "Geometry/Frame.hpp"
 #include "Core/Sampling.hpp"
@@ -21,6 +23,15 @@ namespace rayt {
      */
     class Lambertian : public Material {
         Spectrum albedo;
+
+        static inline Real cosNg(const SurfaceInteraction& rec, const Vector3& w) {
+            return glm::dot(rec.gn, w);
+        }
+
+        static inline Real cosNs(const SurfaceInteraction& rec, const Vector3& w) {
+            return glm::dot(rec.n, w);
+        }
+
     public:
         /**
          * @brief Constructs a Lambertian material.
@@ -38,8 +49,9 @@ namespace rayt {
             TransportMode mode) const override {
 
             // Rejects light coming from behind the surface (back-face)
-            Real cosTheta = glm::dot(rec.n, wi);
-            if (cosTheta <= 0) return Spectrum(0.0);
+            if (cosNg(rec, wi) <= 0) {  // using geometry normal
+                return Spectrum(0.0);
+            }
 
             return albedo * (1.0 / constants::PI);
         }
@@ -51,8 +63,14 @@ namespace rayt {
          */
         Real pdf(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi) const override {
-            Real cosTheta = glm::dot(rec.n, wi);
-            if (cosTheta <= 0) return 0.0;
+            if (cosNg(rec, wi) <= 0) {
+                return 0.0;
+            }
+
+            Real cosTheta = cosNs(rec, wi);
+            if (cosTheta <= 0) {
+                return 0.0;
+            }
 
             return cosTheta * (1.0 / constants::PI);
         }
@@ -80,37 +98,20 @@ namespace rayt {
             bsdfSample.wi = onb.localToWorld(localDir);
 
             // 3. Geometric sanity check: Ensure the direction is in the upper hemisphere.
-            if (glm::dot(rec.n, bsdfSample.wi) <= 0) return std::nullopt;
+            if (cosNg(rec, bsdfSample.wi) <= 0) return std::nullopt;
 
             // 4. PDF calculation: p(wi) = cos(theta) / PI.
             //    Since localDir is on a unit hemisphere, localDir.z is exactly cos(theta).
-            bsdfSample.pdf = localDir.z / constants::PI; 
+            bsdfSample.pdf = localDir.z * (Real(1.0) / constants::PI);
 
             // 5. BSDF value: constant for Lambertian surfaces.
-            bsdfSample.f = albedo / constants::PI;
+            bsdfSample.f = albedo *(Real(1.0) / constants::PI);
 
             // 6. Set flags indicating a diffuse reflection interaction.
             bsdfSample.sampledType = BxDFType(BSDF_DIFFUSE | BSDF_REFLECTION);
 
             return bsdfSample;
         }
-
-        /*virtual bool scatter(const Ray& r_in, const SurfaceInteraction& rec,
-            Spectrum& attenuation, Ray& scattered) const override {
-            // Lambertian reflection direction: normal + random vector
-            Vector3 scatter_direction = rec.n + Utils::randomUnitVector();
-
-            // ランダムベクトルがたまたま法線と真逆でゼロベクトルになるのを防ぐ
-            if (glm::length(scatter_direction) < 1e-8)
-                scatter_direction = rec.n;
-
-            scattered = Ray(rec.p, glm::normalize(scatter_direction));
-            attenuation = m_albedo;
-            return true;
-        }*/
-
-    /*private:
-        Spectrum m_albedo;*/
     };
 
 } // namespace rayt

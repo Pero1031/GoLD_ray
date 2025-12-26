@@ -1,31 +1,44 @@
 ﻿#pragma once
 
 #include <string>
-#include <vector>
+#include <stdexcept>
 
-#include <glm/vec3.hpp>
+#include "Core/Image.hpp"
 
 namespace rayt::io {
 
-    // 線形RGB画像（HDR/LDR共通の内部表現）
-    struct Image {
-        int width = 0;
-        int height = 0;
-        std::vector<glm::vec3> pixels; // row-major: y*width + x
-
-        bool isValid() const {
-            return width > 0 && height > 0 && !pixels.empty();
-        }
-
-        const glm::vec3& at(int x, int y) const {
-            return pixels[y * width + x];
-        }
-    };
-
-    // 拡張子で自動判別（現時点では .hdr のみ対応）
+    /**
+     * @brief Loads an image file, automatically determining the format/loader by extension.
+     *
+     * Dispatches to loadHDR() or loadLDR() based on the file extension.
+     * Throws an exception if the format is unsupported or the file cannot be read.
+     *
+     * @param filename The path to the image file.
+     * @return The loaded Image object.
+     * @throws std::runtime_error If loading fails.
+     */
     Image loadImage(const std::string& filename);
 
-    // 明示的に HDR を読む
+    /**
+     * @brief Explicitly loads a High Dynamic Range (HDR) image.
+     *
+     * Reads the file as floating-point data. Assumes the data is already in linear space.
+     *
+     * @param filename The path to the HDR file (typically .hdr).
+     * @return The loaded Image object containing linear float data.
+     */
     Image loadHDR(const std::string& filename);
+
+    /**
+     * @brief Explicitly loads a Low Dynamic Range (LDR) image (PNG, JPG, etc.).
+     *
+     * Reads the file as 8-bit data and normalizes it.
+     * IMPORTANT: This function automatically converts colors from sRGB to Linear space
+     * for physically based rendering.
+     *
+     * @param filename The path to the LDR file.
+     * @return The loaded Image object containing linear float data.
+     */
+    Image loadLDR(const std::string& filename);
 
 } //namespace rayt::io
