@@ -48,7 +48,7 @@ namespace rayt {
                 // 進捗表示
                 std::cout << "\rScanlines remaining: " << (height - j) << " " << std::flush;
 
-                // #pragma omp parallel for // 可能なら並列化推奨
+                #pragma omp parallel for // 可能なら並列化推奨
 
                 for (int i = 0; i < width; ++i) {
                     Spectrum pixelColor(0.0);
@@ -89,51 +89,6 @@ namespace rayt {
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
-                // 1. 交差判定   
-                /*if (!scene.hit(r, rec)) {     旧コード
-                    // 背景色 (IBLなどを使う場合はここで計算)
-                    //Spectrum skyColor(0.0, 0.0, 0.0); 
-                    // L += beta * GetSkyColor(r); 
-                    //L += beta * skyColor;
-
-                    //break;
-
-                    Spectrum envL(0.0);
-
-                    if (m_env) {
-                        glm::vec3 rgb = m_env->eval(r.d);
-                        envL = Spectrum(rgb.x, rgb.y, rgb.z);
-                        // 任意：明るさ調整
-                        // envL *= 1.0f;
-                    }
-
-                    L += beta * envL;
-                    break;
-                }*
-
-                if (!scene.hit(r, rec)) {
-
-                    Spectrum envL(0.0);
-                    if (m_env) {
-                        glm::vec3 rgb = m_env->eval(r.d);
-                        envL = Spectrum(rgb.x, rgb.y, rgb.z);
-
-                        // MIS weight（BSDFサンプル側）
-                        Real pdfEnv = m_env->pdf(r.d);
-                        Real pdfBsdf = pdf; // 直前のBSDFサンプルのpdf
-
-                        Real w = 1.0;
-                        if (pdfEnv > 0) {
-                            Real a = pdfBsdf;
-                            Real b = pdfEnv;
-                            w = (a * a) / (a * a + b * b);
-                        }
-
-                        L += beta * envL * w;
-                    }
-                    break;
-                }*/
-
                 if (!scene.hit(r, rec)) {
 
                     if (m_env) {
@@ -165,52 +120,6 @@ namespace rayt {
                 // 光源に当たったら、ここまでの減衰(beta)を掛けて足す
                 // ※ wo = -r.direction
                 L += beta * rec.matPtr->emitted(rec, -r.d);
-
-                // 2.5. Next Event Estimation (Environment Light)
-                /*if (m_env && !rec.matPtr->isSpecular()) {
-
-                    // --- サンプル ---
-                    Point2 uLight(sampling::Random(), sampling::Random());
-
-                    Vector3 wi;
-                    Real pdfEnv;
-                    Vector3 Le = m_env->sample(uLight, wi, pdfEnv);
-
-                    if (pdfEnv > 0 && !isBlack(Le)) {
-
-                        // 幾何的に正しい半球チェック（幾何法線）
-                        if (glm::dot(rec.gn, wi) > 0) {
-
-                            // シャドウレイ
-                            Ray shadow = SpawnRay(rec.p, rec.gn, wi);
-
-                            SurfaceInteraction tmp;
-                            if (!scene.hit(shadow, tmp)) {
-
-                                // BSDF評価
-                                Spectrum f = rec.matPtr->eval(rec, -r.d, wi);
-
-                                if (!isBlack(f)) {
-                                    Real cosTheta = std::max<Real>(0, glm::dot(rec.n, wi));
-
-                                    // BSDF側pdf（MIS用）
-                                    Real pdfBsdf = rec.matPtr->pdf(rec, -r.d, wi);
-
-                                    // MIS（Power Heuristic）
-                                    Real w = 1.0;
-                                    if (pdfBsdf > 0) {
-                                        Real a = pdfEnv;
-                                        Real b = pdfBsdf;
-                                        w = (a * a) / (a * a + b * b);
-                                    }
-
-                                    L += beta * f * Spectrum(Le.x, Le.y, Le.z)
-                                        * cosTheta * (w / pdfEnv);
-                                }
-                            }
-                        }
-                    }
-                }*/
 
                 // 2.5. Next Event Estimation (Environment Light)
                 if (m_env && !rec.matPtr->isSpecular()) {
@@ -291,23 +200,6 @@ namespace rayt {
                     else
                         break;
                 }
-                /*else {
-                    // ★ 拡散・光沢反射の場合 (Diffuse / Glossy)
-                     
-                    if (glm::dot(rec.gn, wi) <= 0) {
-                        break;
-                    }
-
-                    // 余弦項 (Cosine Term) = (n dot wi)
-                    Real cosTheta = std::max<Real>(0, glm::dot(rec.n, wi));
-
-                    if (pdf > 1e-8f) { // ゼロ除算防止
-                        beta *= f * cosTheta / pdf;
-                    }
-                    else {
-                        break;
-                    }
-                }*/
 
                 // スループットが0になったら計算打ち切り（ロシアンルーレットもここで入れると良い）
                 if (isBlack(beta)) break;

@@ -32,11 +32,12 @@ namespace rayt::fresnel {
      * @return rayt::Vector3 Fresnel reflectance (Reflectance).
      */
     inline Vector3 fresnelConductor(Real cosThetaI, const Vector3& eta, const Vector3& k) {
+
         // Clamp cosine to [0, 1] to handle numerical errors
-        cosThetaI = rayt::math::saturate(cosThetaI);
+        cosThetaI = math::saturate(cosThetaI);
 
         // Pre-calculate frequently used terms
-        Real cosThetaI2 = cosThetaI * cosThetaI;
+        Real cosThetaI2 = math::sqr(cosThetaI);
         Real sinThetaI2 = Real(1.0) - cosThetaI2;
 
         Vector3 eta2 = eta * eta;
@@ -46,13 +47,12 @@ namespace rayt::fresnel {
         // Calculate coefficients 'a' and 'b' based on:
         // t0 = eta^2 - k^2 - sin^2(theta)
         // a^2 + b^2 = sqrt(t0^2 + 4 * eta^2 * k^2)
-
         Vector3 t0 = eta2 - k2 - Vector3(sinThetaI2);
         Vector3 a2plusb2 = glm::sqrt(t0 * t0 + Real(4.0) * eta2 * k2);
 
         // a = sqrt(0.5 * (a^2 + b^2 + t0))
         Vector3 t1 = a2plusb2 + Vector3(cosThetaI2);
-        Vector3 a = glm::sqrt(Real(0.5) * (a2plusb2 + t0));
+        Vector3 a = math::safe_sqrt(Real(0.5) * (a2plusb2 + t0));
 
         // --- Calculate Rs (S-polarized reflectance) ---
         // Rs = ((a^2 + b^2) + cos^2 - 2a*cos) / ((a^2 + b^2) + cos^2 + 2a*cos)
@@ -84,10 +84,10 @@ namespace rayt::fresnel {
      * @return Real     Fresnel reflectance (probability of reflection).
      */
     inline Real fresnelDielectric(Real cosThetaI, Real etaI, Real etaT) {
-        cosThetaI = rayt::math::saturate(cosThetaI);
+        cosThetaI = math::saturate(cosThetaI);
 
         // Check for total internal reflection
-        Real sinThetaI = glm::sqrt(std::max(Real(0.0), Real(1.0) - cosThetaI * cosThetaI));
+        Real sinThetaI = math::safe_sqrt(Real(1.0) - math::sqr(cosThetaI));
         Real sinThetaT = (etaI / etaT) * sinThetaI;
 
         if (sinThetaT >= Real(1.0)) {

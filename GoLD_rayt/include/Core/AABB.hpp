@@ -11,6 +11,7 @@
 #include <cmath>
 
 #include "Core/Types.hpp"
+#include "Core/Forward.hpp"
 #include "Core/Ray.hpp"
 #include "Core/Constants.hpp"
 

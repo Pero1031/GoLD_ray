@@ -32,10 +32,10 @@ namespace rayt::sampling {
      * high-performance, thread-safe parallel rendering without mutex contention.
      */
     inline Real Random() {
-        // static thread_local std::mt19937 generator(std::random_device{}());
+        static thread_local std::mt19937 generator(std::random_device{}());
 
         // Fixed seed for deterministic debugging
-        static thread_local std::mt19937 generator(12345);
+        //static thread_local std::mt19937 generator(12345);
         static thread_local std::uniform_real_distribution<Real> distribution(0.0, 1.0);
         return distribution(generator);
     }
