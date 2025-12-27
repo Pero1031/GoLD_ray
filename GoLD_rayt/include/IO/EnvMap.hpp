@@ -61,12 +61,12 @@ namespace rayt {
          * @param pdfW [out] pdf w.r.t. solid angle (sr^-1)
          * @return Le radiance from the sampled direction
          */
-        Vector3 sample(const Point2& u, Vector3& wi, Real& pdfW) const {
+        Vector3 sample(const Point2f& u, Vector3& wi, Real& pdfW) const {
             pdfW = Real(0);
             if (!m_img.isValid() || !m_dist) return Vector3(0.0);
 
             // 1) Sample UV from 2D distribution (pdf in uv-domain)
-            Point2 uvImg;
+            Point2f uvImg;
             float pdfUV_f = 0.0f;
             m_dist->sampleContinuous(u, uvImg, pdfUV_f); // uv in [0,1), pdfUV is density on [0,1]^2
             Real pdfUV = Real(pdfUV_f);
@@ -112,7 +112,7 @@ namespace rayt {
             Real vImg = Real(1) - vSph;
 
             // pdf in uv-domain
-            float pdfUV_f = m_dist->pdf(Point2((float)uSph, (float)vImg));
+            float pdfUV_f = m_dist->pdf(Point2f((float)uSph, (float)vImg));
             Real pdfUV = Real(pdfUV_f);
             if (pdfUV <= Real(0)) return Real(0);
 

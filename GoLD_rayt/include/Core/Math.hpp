@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "Core/Types.hpp"   // for type def
+#include "Core/Forward.hpp"
 #include "Core/Assert.hpp"  // assert
 #include "Core/Constants.hpp"
 
@@ -45,6 +46,14 @@ namespace rayt::math {
     template <typename T>
     inline T safe_sqrt(T x) {
         return std::sqrt(std::max(x, T(0)));
+    }
+
+    // Vector3用オーバーロード
+    // 成分ごとに 0 と比較して、成分ごとにルートを取る
+    inline Vector3 safe_sqrt(const Vector3& v) {
+        // glm::max は成分ごとの最大値を返す
+        // glm::sqrt は成分ごとの平方根を返す
+        return glm::sqrt(glm::max(v, Vector3(0.0)));
     }
 
     // 5th power function (x^5)

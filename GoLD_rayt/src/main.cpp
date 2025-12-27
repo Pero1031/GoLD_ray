@@ -72,11 +72,11 @@ using namespace rayt;
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
+const int SAMPLES_PER_PIXEL = 1000; // Higher = less noise, slower
 const int MAX_DEPTH = 50;          // Max recursion depth for rays
 
 // env path
-const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
+const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
 
 // -----------------------------------------------------------------------------
 // Main Entry Point
@@ -90,15 +90,15 @@ int main() {
 // -------------------------------------------------------------------------
 // EnvMap (HDRI) 読み込み
 // -------------------------------------------------------------------------
-    const std::string envPath = "assets/env/grace-new.hdr";
+    //const std::string envPath = "assets/env/bryanston_park_sunrise_2k.hdr";
 
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
 
     std::shared_ptr<rayt::EnvMap> env = nullptr;
     try {
-        auto envImg = rayt::io::loadHDR(envPath);
+        auto envImg = rayt::io::loadHDR(ENV_HDR_PATH);
         env = std::make_shared<rayt::EnvMap>(std::move(envImg));
-        std::cout << "[EnvMap] Loaded: " << envPath << std::endl;
+        std::cout << "[EnvMap] Loaded: " << ENV_HDR_PATH << std::endl;
     }
     catch (const std::exception& e) {
         std::cerr << "[EnvMap] Failed: " << e.what() << "\n";
@@ -178,7 +178,7 @@ int main() {
     auto worldObjects = std::make_shared<HittableList>();
 
     // 床
-    worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    //worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
 
     // 球を横に3つ並べる
     // 左: ツルツル

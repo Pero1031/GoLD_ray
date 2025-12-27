@@ -2,12 +2,12 @@
 
 /**
  * @file RoughConductor.hpp
- * @brief Rough conductor material using the Microfacet theory.
- * * Implements the Cook-Torrance BRDF model:
- * fr = (D * G * F) / (4 * (n.wi) * (n.wo))
+ * @brief Rough conductor material based on Microfacet theory (Cook-Torrance).
+ * Implements GGX distribution with VNDF sampling and complex Fresnel terms.
  */
 
 #include <complex>
+#include <optional>
 
 #include "Core/Types.hpp"
 #include "Core/Forward.hpp"
@@ -22,6 +22,16 @@
 
 namespace rayt {
 
+    /**
+     * @class RoughConductor
+     * @brief Models a rough conductive surface using the Cook-Torrance BRDF.
+     * * The BRDF is defined as: fr = (D * G * F) / (4 * (n.wi) * (n.wo)).
+     * Features:
+     * - Trowbridge-Reitz (GGX) Normal Distribution Function.
+     * - Smith Shadowing-Masking function.
+     * - Fresnel equations for conductors using complex refractive indices.
+     * - Visible Normal Distribution Function (VNDF) importance sampling.
+     */
     class RoughConductor : public Material {
         Spectrum eta;   // Index of Refraction (Real)
         Spectrum k;     // Extinction Coefficient
@@ -39,32 +49,39 @@ namespace rayt {
         RoughConductor(const Spectrum& eta, const Spectrum& k, Real roughness, Real anisotropy = 0.0)
             : eta(eta), k(k) {
 
-            // Convert roughness to alpha (perceptually linear mapping)
-            Real aspect = std::sqrt(1.0 - anisotropy * 0.9);
+            // Convert perceptual roughness to linear alpha using an anisotropic mapping.
+            Real aspect = math::safe_sqrt(1.0 - anisotropy * 0.9);
             alpha_x = MicrofacetDistribution::roughnessToAlpha(roughness / aspect);
             alpha_y = MicrofacetDistribution::roughnessToAlpha(roughness * aspect);
         }
 
         /**
-         * @brief Evaluates the Cook-Torrance BRDF.
+         * @brief Evaluates the BRDF for a given pair of directions.
+         * @param rec Surface interaction details (position, normal, etc.).
+         * @param wo Outgoing direction (towards camera).
+         * @param wi Incident direction (towards light).
+         * @param mode Transport mode (Radiance or Importance).
+         * @return The evaluated BRDF spectrum.
          */
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
             TransportMode mode) const override {
 
-            Real cosThetaO = std::abs(glm::dot(rec.n, wo)); // n dot wo
-            Real cosThetaI = std::abs(glm::dot(rec.n, wi)); // n dot wi
+            // Ensure both directions are in the same hemisphere as the geometric normal.
+            if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return Spectrum(0.0);
 
-            // Ignore grazing angles or back-facing
-            if (cosThetaI == 0 || cosThetaO == 0) return Spectrum(0.0);
-            if (glm::dot(rec.gn, wi) <= 0 || glm::dot(rec.gn, wo) <= 0) return Spectrum(0.0); // Geometric normal check
+            Real cosThetaO = std::max(Real(0), glm::dot(rec.n, wo));
+            Real cosThetaI = std::max(Real(0), glm::dot(rec.n, wi));
 
-            // 1. Half vector
+            if (cosThetaI <= 0 || cosThetaO <= 0) return Spectrum(0.0);
+
+            // 1. Calculate the half-vector and ensure it's valid.
             Vector3 wh = wi + wo;
-            if (wh.x == 0 && wh.y == 0 && wh.z == 0) return Spectrum(0.0);
-            wh = glm::normalize(wh);
+            Real whLen2 = glm::dot(wh, wh);
+            if (whLen2 <= Real(0)) return Spectrum(0.0);
+            wh *= math::safe_recip(math::safe_sqrt(whLen2));
 
-            // 2. Local Frame conversion
+            // 2. Transform world vectors to the local shading frame.
             // The Distribution class assumes operations in Tangent Space.
             // We need to transform World Space vectors to Local Space for D() and G().
             frame::Frame frame(rec.n);
@@ -78,14 +95,23 @@ namespace rayt {
             // 4. Evaluate Terms
             Real D = dist.D(wh_local);
             Real G = dist.G(wo_local, wi_local);
-            Spectrum F = fresnel::fresnelConductor(glm::dot(wh, wi), eta, k); // F using wh
+
+            Real cosThetaD = std::abs(glm::dot(wi, wh));
+            Spectrum F = fresnel::fresnelConductor(cosThetaD, eta, k); 
 
             // 5. Cook-Torrance Formula
-            return (D * G * F) / (4.0f * cosThetaI * cosThetaO);
+            Real denominator = 4.0 * cosThetaI * cosThetaO;
+            if (denominator < 1e-6) return Spectrum(0.0);
+
+            return (D * G * F) / denominator;
         }
 
         /**
-         * @brief Importance samples the GGX distribution (VNDF).
+         * @brief Importance samples the BRDF using the Visible Normal Distribution Function (VNDF).
+         * @param rec Surface interaction details.
+         * @param wo Outgoing direction.
+         * @param u Uniform random sample in [0, 1]^2.
+         * @return A BSDFSample containing the sampled direction, weight, and PDF, or nullopt on failure.
          */
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
@@ -103,50 +129,35 @@ namespace rayt {
             Vector3 wo_local = frame.worldToLocal(wo);
             GGXDistribution dist(alpha_x, alpha_y);
 
-            // 2. Sample micro-normal (wh) using VNDF
+            // 2. Sample a visible microfacet normal (wh) and transform to world space.
             Vector3 wh_local = dist.sample_wh(wo_local, u);
             Vector3 wh = frame.localToWorld(wh_local);
 
-            // 3. Reflect wo about wh to get wi
-            bsdfSample.wi = glm::reflect(-wo, wh);
+            // 3. Reflect wo about wh to determine the incident direction wi.
+            bsdfSample.wi = math::reflectOutward(wo, wh);
 
             if (glm::dot(rec.gn, bsdfSample.wi) <= 0)
                 return std::nullopt;
 
             Vector3 wi_local = frame.worldToLocal(bsdfSample.wi);
 
-            // 4. Sanity checks (geometric & shading normals)
-            if (glm::dot(rec.gn, bsdfSample.wi) <= 0) return std::nullopt; // Below surface
+            // 4. Validate vectors against the local shading frame.
             if (wo_local.z == 0 || wi_local.z == 0) return std::nullopt;
 
-            // 5. Compute PDF
-            // Jacobian transformation: dwh / dwi = 1 / (4 * (wo . wh))
-            Real dot_wo_wh = glm::dot(wo, wh);
+            // 5. Compute the PDF of the sampled direction.
+            // dwh/dwi Jacobian: 1 / (4 * (wo . wh))
+            Real dot_wo_wh = std::abs(glm::dot(wo_local, wh_local));
             if (dot_wo_wh <= 0) return std::nullopt;
 
             Real pdf_wh = dist.pdf(wo_local, wh_local);
-            bsdfSample.pdf = pdf_wh / (4.0f * dot_wo_wh);
+            bsdfSample.pdf = pdf_wh / (Real(4) * dot_wo_wh);
 
-            // 6. Evaluate Weight (f / pdf) directly to reduce variance
-            // f = D * G * F / (4 * cosI * cosO)
-            // pdf = D * G1 * (wo.wh) / (wo.z * 4 * (wo.wh)) ... (VNDF pdf simplified)
-            //
-            // However, to be safe and verify correctness first, we can just call eval() / pdf.
-            // But let's calculate F and G explicitly for clarity.
-
-            Spectrum F = fresnel::fresnelConductor(dot_wo_wh, eta, k);
-            Real G = dist.G(wo_local, wi_local);
-            Real D = dist.D(wh_local); // Usually cancels out in weight, but computed for completeness
-
-            // Correct Cook-Torrance weight with VNDF usually simplifies to: F * G2 / G1
-            // Let's stick to the standard definition for now:
-
+            // 6. Evaluate the sample weight (throughput).
             bsdfSample.f = eval(rec, wo, bsdfSample.wi, mode);
-            // bsdfSample.sampledType = BxDFType(BSDF_GLOSSY | BSDF_REFLECTION);
 
-            if (bsdfSample.pdf <= 1e-6f || math::hasNaNs(bsdfSample.f)) return std::nullopt;
+            if (bsdfSample.pdf <= 1e-6 || math::hasNaNs(bsdfSample.f)) return std::nullopt;
 
-            // Flags (重要)
+            // Flags 
             bsdfSample.flags =
                 BxDFFlags::Reflection |
                 BxDFFlags::Glossy;
@@ -156,17 +167,21 @@ namespace rayt {
         }
 
         /**
-         * @brief PDF evaluation.
+         * @brief Computes the probability density function (PDF) for a given pair of directions.
+         * @param rec Surface interaction details.
+         * @param wo Outgoing direction.
+         * @param wi Incident direction.
+         * @return The PDF value with respect to solid angle.
          */
         Real pdf(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi) const override {
 
             if (glm::dot(rec.gn, wi) <= 0 || glm::dot(rec.gn, wo) <= 0) return 0.0;
 
-            Vector3 wh = glm::normalize(wo + wi);
-            if (glm::dot(wh, wh) == 0)
-                return 0.0;
-            wh = glm::normalize(wh);
+            Vector3 wh = wo + wi;
+            Real whLen2 = glm::dot(wh, wh);
+            if (whLen2 <= Real(0.0)) return Real(0.0);
+            wh = wh * math::safe_recip(math::safe_sqrt(whLen2));
 
             rayt::frame::Frame frame(rec.n);
             Vector3 wo_local = frame.worldToLocal(wo);
@@ -176,9 +191,12 @@ namespace rayt {
             Real pdf_wh = dist.pdf(wo_local, wh_local);
 
             // Transform PDF from half-vector to solid angle
-            return pdf_wh / (4.0f * std::abs(glm::dot(wo, wh)));
+            Real dot_wo_wh = std::abs(glm::dot(wo_local, wh_local));
+            if (dot_wo_wh <= Real(0.0)) return Real(0.0);
+            return pdf_wh / (Real(4) * dot_wo_wh);
         }
 
+        /// @brief Returns false as this is a glossy material, not a perfect specular mirror.
         bool isSpecular() const override { return false; } // It is Glossy, not delta-Specular
 
     };
