@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 /**
  * @file GGX.hpp
@@ -31,16 +31,18 @@ namespace rayt {
          * Optimized algebraic form is used below.
          */
         Real D(const Vector3& wh) const override {
-            Real tan2Theta = (wh.x * wh.x + wh.y * wh.y) / (wh.z * wh.z);
-            if (std::isinf(tan2Theta)) return 0.0; // Avoid NaN at horizon
 
-            Real cos4Theta = (wh.z * wh.z) * (wh.z * wh.z);
+            if (wh.z <= Real(0.0)) return Real(0.0);
 
-            Real e = (wh.x * wh.x) / (alpha_x * alpha_x) +
-                (wh.y * wh.y) / (alpha_y * alpha_y) +
-                (wh.z * wh.z);
+            Real ax2 = math::sqr(alpha_x);
+            Real ay2 = math::sqr(alpha_y);
 
-            return Real(1.0) / (constants::PI * alpha_x * alpha_y * e * e);
+            Real e =
+                math::sqr(wh.x) / ax2 +
+                math::sqr(wh.y) / ay2 +
+                math::sqr(wh.z);
+
+            return Real(1.0) / (constants::PI * alpha_x * alpha_y * math::sqr(e));
         }
 
         /**
@@ -48,16 +50,26 @@ namespace rayt {
          * Approximation: lambda(w) = (-1 + sqrt(1 + alpha^2 * tan^2(theta))) / 2
          */
         Real lambda(const Vector3& w) const override {
-            Real absTanThetaSq = (w.x * w.x + w.y * w.y) / (w.z * w.z);
-            if (std::isinf(absTanThetaSq)) return 0.0;
+            Real absCosTheta = std::abs(w.z);
+            if (absCosTheta <= Real(0.0))
+                return std::numeric_limits<Real>::infinity();
+
+            Real sin2Theta = std::max(Real(0.0), Real(1.0) - math::sqr(absCosTheta));
+            if (sin2Theta <= Real(0.0))
+                return Real(0.0);
+
+            Real tan2Theta = sin2Theta * math::safe_recip(math::sqr(absCosTheta));
+
+            Real wxy2 = math::sqr(w.x) + math::sqr(w.y);
+            Real ax2 = math::sqr(alpha_x);
+            Real ay2 = math::sqr(alpha_y);
 
             // Compute effective alpha for the azimuthal direction of w
-            Real alpha2 = (w.x * alpha_x * w.x * alpha_x + w.y * alpha_y * w.y * alpha_y) /
-                (w.x * w.x + w.y * w.y);
+            Real alpha2 = (wxy2 > Real(0.0))
+                ? (math::sqr(w.x) * ax2 + math::sqr(w.y) * ay2) / wxy2
+                : ax2;
 
-            Real alpha2Tan2 = alpha2 * absTanThetaSq;
-
-            return Real(0.5) * (std::sqrt(Real(1.0) + alpha2Tan2) - Real(1.0));
+            return Real(0.5) * (math::safe_sqrt(Real(1.0) + alpha2 * tan2Theta) - Real(1.0));
         }
 
         /**
@@ -66,6 +78,8 @@ namespace rayt {
          * This technique accounts for masking, significantly reducing variance at grazing angles.
          */
         Vector3 sample_wh(const Vector3& wo, const Point2& u) const override {
+            if (wo.z <= Real(0.0)) return Vector3(0, 0, 1);
+
             // 1. Transform the view vector to the hemisphere configuration
             //    (stretching by roughness)
             Vector3 Vh = glm::normalize(Vector3(alpha_x * wo.x, alpha_y * wo.y, wo.z));
@@ -73,11 +87,12 @@ namespace rayt {
             // 2. Orthonormal basis (with special handling for Vh.z)
             //    We construct a basis (T1, T2, Vh) without using square roots if possible.
             Real lenSq = math::sqr(Vh.x) + math::sqr(Vh.y);
-            Vector3 T1 = lenSq > 0 ? Vector3(-Vh.y, Vh.x, 0) / math::safe_sqrt(lenSq) : Vector3(1, 0, 0);
+            Vector3 T1 = lenSq > 0 ? Vector3(-Vh.y, Vh.x, 0) * math::safe_recip(math::safe_sqrt(lenSq))
+                : Vector3(1, 0, 0);
             Vector3 T2 = glm::cross(Vh, T1);
 
             // 3. Sample the unit disk (r, phi)
-            Real r = std::sqrt(u.x);
+            Real r = math::safe_sqrt(u.x);
             Real phi = Real(2.0) * constants::PI * u.y;
             Real t1 = r * std::cos(phi);
             Real t2 = r * std::sin(phi);
@@ -85,10 +100,11 @@ namespace rayt {
             // 4. Warping to fit the projection of the visible hemisphere
             //    s is a parameter mixing the disk sample and the vertical component.
             Real s = Real(0.5) * (Real(1.0) + Vh.z);
-            t2 = (Real(1.0) - s) * std::sqrt(Real(1.0) - t1 * t1) + s * t2;
+            t2 = (Real(1.0) - s) * math::safe_sqrt(Real(1.0) - math::sqr(t1)) + s * t2;
 
             // 5. Compute the sampled micro-normal in the stretched space (Nh)
-            Vector3 Nh = t1 * T1 + t2 * T2 + std::sqrt(std::max(Real(0.0), Real(1.0) - t1 * t1 - t2 * t2)) * Vh;
+            Vector3 Nh = t1 * T1 + t2 * T2 +
+                math::safe_sqrt(std::max(Real(0.0), Real(1.0) - math::sqr(t1) - math::sqr(t2))) * Vh;
 
             // 6. Transform back to the original space (unstretching)
             //    m = normalize( (x*ax, y*ay, z) ) -- careful with normalization logic
@@ -103,11 +119,14 @@ namespace rayt {
 
         /**
          * @brief Computes the PDF of the sampled micro-normal 'wh'.
-         * pdf = G1(wo) * max(0, wo.wh) * D(wh) / wo.z
+         * pdf = G1(wo) * abs(wo·wh) * D(wh) / wo.z
          * Note: This is the PDF wrt solid angle of wh, NOT wi.
          */
         Real pdf(const Vector3& wo, const Vector3& wh) const override {
-            return G1(wo) * std::abs(glm::dot(wo, wh)) * D(wh) / std::abs(wo.z);
+            if (wo.z <= Real(0.0) || wh.z <= Real(0.0))
+                return Real(0.0);
+
+            return G1(wo) * std::abs(glm::dot(wo, wh)) * D(wh) * math::safe_recip(wo.z);
         }
     };
 

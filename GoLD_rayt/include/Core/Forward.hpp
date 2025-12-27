@@ -10,6 +10,10 @@
  */
 
 namespace rayt {
+
+    // Global precision toggle: allows easy switching between float and double.
+    using Real = double;
+    using Float = float;
     
     // ---------------------------------------------------------------------
     // Scene & Geometry

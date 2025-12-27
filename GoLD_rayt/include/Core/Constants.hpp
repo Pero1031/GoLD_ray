@@ -3,7 +3,8 @@
 #include <limits>
 #include <numbers>
 
-#include "Core/Types.hpp"  // to use Real = double
+#include "Core/Types.hpp"  
+#include "Core/Forward.hpp"
 
 /**
  * @file constants.hpp

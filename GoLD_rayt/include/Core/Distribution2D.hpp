@@ -14,9 +14,11 @@
 #include <vector>
 #include <memory>
 #include <cmath>
+#include <algorithm>
 
 #include "Distribution1D.hpp"
 #include "Core/Types.hpp"
+#include "Core/Forward.hpp"
 
 namespace rayt {
 
@@ -64,7 +66,7 @@ namespace rayt {
          * @param[out] uv The sampled 2D coordinates in [0, 1].
          * @param[out] pdf The probability density value at the sampled point.
          */
-        void sampleContinuous(const Point2& u, Point2& uv, float& pdf) const {
+        void sampleContinuous(const Point2f& u, Point2f& uv, float& pdf) const {
             float pdfV, pdfU;
             int vOff, uOff;
 
@@ -74,7 +76,7 @@ namespace rayt {
             // 2. Sample u from p(u|v)
             float x = pConditionalV[vOff]->sampleContinuous(u.x, pdfU, uOff);
 
-            uv = Point2(x, v);
+            uv = Point2f(x, v);
 
             // Joint PDF: p(u, v) = p(u|v) * p(v)
             pdf = pdfU * pdfV;   
@@ -86,7 +88,7 @@ namespace rayt {
          * @param uv The 2D coordinates in [0, 1].
          * @return The probability density value.
          */
-        float pdf(const Point2& uv) const {
+        float pdf(const Point2f& uv) const {
             // Note: Assuming pMarginal and pConditionalV are valid and match the dimensions.
             int height = (int)pMarginal->func.size();
             int width = (int)pConditionalV[0]->func.size();
