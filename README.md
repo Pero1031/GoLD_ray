@@ -1,4 +1,9 @@
  A lightweight 3D renderer built from scratch.
 
-# Aurisidus
-A high-performance, physically-based C++ rendering engine dedicated to the rigorous simulation of light transport and material appearance.
+## Aurisidus
+
+> **Aurisidus** is a coined term derived from Latin  
+> *aurum* (**gold**) and *sidus* (**star**),
+> representing the study of **gold-like metallic appearance** as a  
+> **structured, directional, and spectral phenomenon**,  
+> analogous to **stellar radiance**.
