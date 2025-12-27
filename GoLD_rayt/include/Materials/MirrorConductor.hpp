@@ -9,12 +9,13 @@
  * metals like Gold, Copper, or Chromium.
  */
 
-#include "Core/Core.hpp"
+#include <complex>
+
+#include "Core/Types.hpp"
+#include "Core/Forward.hpp"
+#include "Core/Fresnel.hpp"
 #include "Materials/Material.hpp"
 #include "Core/Interaction.hpp"
-#include <complex>
-#include <algorithm> // std::clampに必要
-#include <cmath>
 
 namespace rayt {
 
@@ -68,25 +69,25 @@ namespace rayt {
             // Formula: wi = -wo + 2(n · wo)n
             bsdfSample.wi = glm::reflect(-wo, rec.n);
 
-            // Geometric sanity check (ensure reflection is above the surface)
-            Real cosTheta = glm::dot(bsdfSample.wi, rec.n);
-            if (cosTheta <= 0) return std::nullopt;
+            // Geometric sanity: must go above the geometric surface
+            if (glm::dot(rec.gn, bsdfSample.wi) <= Real(0))
+                return std::nullopt;
 
             // 2. Metadata Flags
             // Marked as SPECULAR and REFLECTION for the Integrator's path handling.
-            bsdfSample.sampledType = BxDFType(BSDF_SPECULAR | BSDF_REFLECTION);
+            // Flags (new design)
+            bsdfSample.flags = BxDFFlags::Specular | BxDFFlags::Reflection;
             bsdfSample.pdf = 1.0; // Dummy value for delta distribution
+
+            // Fresnel conductor reflectance
+            Real cosTheta = math::saturate(glm::dot(rec.n, bsdfSample.wi));
 
             // 3. Complex Fresnel Throughput (f)
             // Calculates the exact reflectance based on the angle of incidence.
             // Since this is a delta distribution, we return (f / cosTheta) if 
             // the integrator multiplies by cosTheta, but PBRT style usually 
             // returns just the reflectance factor here.
-            bsdfSample.f = Spectrum(
-                fresnelConductorExact(cosTheta, eta.x, k.x),
-                fresnelConductorExact(cosTheta, eta.y, k.y),
-                fresnelConductorExact(cosTheta, eta.z, k.z)
-            );
+            bsdfSample.f = fresnel::fresnelConductor(cosTheta, eta, k);
 
             return bsdfSample;
         }
@@ -95,42 +96,7 @@ namespace rayt {
          * @brief Checks if the material is specular.
          */
         bool isSpecular() const override { return true; }
-
-    private:
-        /**
-         * @brief Exact Fresnel reflectance for conductors using complex arithmetic.
-         * * Handles the transition from the medium (vacuum/air) to the conductor.
-         * @param cosThetaI Cosine of the angle of incidence (n · wi).
-         * @param etaVal    The real part of the IOR.
-         * @param kVal      The extinction coefficient.
-         * @return Real Average of s-polarized and p-polarized reflectance.
-         */
-        Real fresnelConductorExact(Real cosThetaI, Real etaVal, Real kVal) const {
-            // Clamping to avoid numerical artifacts from precision errors.
-            cosThetaI = std::clamp(cosThetaI, Real(0.0), Real(1.0));
-
-            // Complex Refractive Index: N = eta + ik
-            std::complex<Real> N(etaVal, kVal);
-
-            Real cosThetaI2 = cosThetaI * cosThetaI;
-            Real sinThetaI2 = Real(1.0) - cosThetaI2;
-
-            // Compute complex cosThetaT using Snell's Law (Complex form)
-            std::complex<Real> sinThetaT2 = sinThetaI2 / (N * N);
-            std::complex<Real> cosThetaT = std::sqrt(Real(1.0) - sinThetaT2);
-
-            // Fresnel coefficients for parallel (p) and perpendicular (s) polarization
-            std::complex<Real> r_s = (cosThetaI - N * cosThetaT) / (cosThetaI + N * cosThetaT);
-            std::complex<Real> r_p = (N * cosThetaI - cosThetaT) / (N * cosThetaI + cosThetaT);
-
-            // ※注: 一般的な教科書では r_s の分子が (ni cos - nt cos) だったり (cos - N cos) だったり定義揺れがありますが、
-            // 最終的に絶対値の二乗を取るため、符号の違いは結果に影響しません。
-            // ここでは PBRT v3/v4 の実装に近い形式を採用しています。
-
-            // Reflectance for unpolarized light is the average of squared magnitudes:
-            // R = (|r_s|^2 + |r_p|^2) / 2
-            return (std::norm(r_s) + std::norm(r_p)) * Real(0.5);
-        }
+    
     };
 
 } // namespace rayt

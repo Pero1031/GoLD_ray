@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 /**
  * @file BVH.hpp
@@ -50,7 +50,7 @@ namespace rayt {
         BVHNode(std::vector<std::shared_ptr<Hittable>>& objects,
             size_t start, size_t end)
         {
-            // ‚±‚±‚Íu‚Æ‚è‚ ‚¦‚¸“®‚­vmedian splitiSAH‚ÍŒã‚ÅOKj
+            // ã“ã“ã¯ã€Œã¨ã‚Šã‚ãˆãšå‹•ãã€median splitï¼ˆSAHã¯å¾Œã§OKï¼‰
             const size_t span = end - start;
 
             // Compute the centroid bounding box to determine the optimal split axis.
@@ -140,7 +140,7 @@ namespace rayt {
             // This maximizes the chance of 'r.tMax' being shortened early.
             const bool dirNeg = r.d[splitAxis] < Real(0);
 
-            // right‚Ínullptr‚Å‚Í‚È‚¢‚±‚Æ‚ª•ÛØ‚³‚ê‚Ä‚¢‚é‚Ì‚ÅˆÀ‘S
+            // rightã¯nullptrã§ã¯ãªã„ã“ã¨ãŒä¿è¨¼ã•ã‚Œã¦ã„ã‚‹ã®ã§å®‰å…¨
             auto first = dirNeg ? right : left;
             auto second = dirNeg ? left : right;
 

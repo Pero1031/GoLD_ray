@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 
 /**
  * @file RoughConductor.hpp
@@ -92,6 +92,10 @@ namespace rayt {
             const Point2& u,
             TransportMode mode) const override {
 
+            // Reflection only
+            if (glm::dot(rec.gn, wo) <= 0)
+                return std::nullopt;
+
             BSDFSample bsdfSample;
 
             // 1. Setup Frame & Distribution
@@ -105,6 +109,10 @@ namespace rayt {
 
             // 3. Reflect wo about wh to get wi
             bsdfSample.wi = glm::reflect(-wo, wh);
+
+            if (glm::dot(rec.gn, bsdfSample.wi) <= 0)
+                return std::nullopt;
+
             Vector3 wi_local = frame.worldToLocal(bsdfSample.wi);
 
             // 4. Sanity checks (geometric & shading normals)
@@ -134,9 +142,15 @@ namespace rayt {
             // Let's stick to the standard definition for now:
 
             bsdfSample.f = eval(rec, wo, bsdfSample.wi, mode);
-            bsdfSample.sampledType = BxDFType(BSDF_GLOSSY | BSDF_REFLECTION);
+            // bsdfSample.sampledType = BxDFType(BSDF_GLOSSY | BSDF_REFLECTION);
 
             if (bsdfSample.pdf <= 1e-6f || math::hasNaNs(bsdfSample.f)) return std::nullopt;
+
+            // Flags (é‡è¦)
+            bsdfSample.flags =
+                BxDFFlags::Reflection |
+                BxDFFlags::Glossy;
+
 
             return bsdfSample;
         }
@@ -150,6 +164,10 @@ namespace rayt {
             if (glm::dot(rec.gn, wi) <= 0 || glm::dot(rec.gn, wo) <= 0) return 0.0;
 
             Vector3 wh = glm::normalize(wo + wi);
+            if (glm::dot(wh, wh) == 0)
+                return 0.0;
+            wh = glm::normalize(wh);
+
             rayt::frame::Frame frame(rec.n);
             Vector3 wo_local = frame.worldToLocal(wo);
             Vector3 wh_local = frame.worldToLocal(wh);
@@ -162,15 +180,6 @@ namespace rayt {
         }
 
         bool isSpecular() const override { return false; } // It is Glossy, not delta-Specular
-
-    private:
-        // Helper for Fresnel (same as MirrorConductor)
-        // Ideally, move this to a Physics/Fresnel.hpp utility header.
-        Spectrum fresnelConductorExact(Real cosThetaI, const Spectrum& etaVal, const Spectrum& kVal) const {
-            // ... MirrorConductor‚Æ“¯‚¶ŽÀ‘• ...
-            // ‹¤’Ê‰»‚·‚é‚±‚Æ‚ð‚¨Š©‚ß‚µ‚Ü‚·
-            return Spectrum(1.0); // Placeholder
-        }
 
     };
 
