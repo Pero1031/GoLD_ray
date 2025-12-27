@@ -1,6 +1,8 @@
 ﻿#pragma once
 
-#include "Core/Core.hpp"
+#include "Core/Assert.hpp"
+#include "Core/Types.hpp"
+#include "Core/Forward.hpp"
 #include "Materials/Material.hpp"
 
 namespace rayt {
@@ -38,8 +40,10 @@ namespace rayt {
             // rayt::Reflect の定義によりますが、通常は:
             result.wi = glm::reflect(-wo, rec.n);
 
-            // 鏡面フラグを立てる
-            result.sampledType = BxDFType(BSDF_SPECULAR | BSDF_REFLECTION);
+            // 幾何法線の面で反射が成立してるか（裏面に飛んだら無効）
+            if (glm::dot(rec.gn, result.wi) <= Real(0))
+                return std::nullopt;
+
             result.pdf = 1.0; // 特異点なのでダミーの1を入れる
 
             // 積分値（f/pdf に相当する重み）を直接返す
@@ -49,6 +53,9 @@ namespace rayt {
 
             // ★本来はここにフレネル項 (Fresnel) が掛かります
             result.f = albedo;
+
+            // flags 方式に変更
+            result.flags = BxDFFlags::Specular | BxDFFlags::Reflection;
 
             return result;
         }

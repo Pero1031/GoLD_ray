@@ -42,9 +42,10 @@
 #include "Materials/Lambertian.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Lambertian.hpp"
-#include "Materials/MirrorConductor.hpp"
-#include "Materials/Mirror.hpp"
+//#include "Materials/MirrorConductor.hpp"
+//#include "Materials/Mirror.hpp"
 #include "Materials/RoughConductor.hpp"
+#include "Materials/Dielectric.hpp"
 // Note: "Lambertian" or other materials can be added here in the future.
 
 // Microfacet
@@ -154,7 +155,7 @@ int main() {
     // -------------------------------------------------------------------------
 
     // 床用
-    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.2, 0.2, 0.2)); // 少し暗くして反射を目立たせる
+    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5, 0.5, 0.5)); // 少し暗くして反射を目立たせる
 
     // 金の光学定数 (Au)
     Spectrum n_Au(0.16, 0.42, 1.45);
@@ -167,6 +168,9 @@ int main() {
     auto matGoldSmooth = std::make_shared<RoughConductor>(n_Au, k_Au, 0.01);
     auto matGoldMedium = std::make_shared<RoughConductor>(n_Au, k_Au, 0.20);
     auto matGoldRough = std::make_shared<RoughConductor>(n_Au, k_Au, 0.50);
+
+    //auto matGlass = std::make_shared<Dielectric>(1.5, 0.0); // 粗さ0 = 完全透明
+    //auto matFrosted = std::make_shared<Dielectric>(1.5, 0.2); // 粗さ0.2 = すりガラス
 
     // -------------------------------------------------------------------------
     // 2. 物体の配置 (Scene)
@@ -185,6 +189,12 @@ int main() {
 
     // 右: かなり粗い
     worldObjects->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
+
+    // ガラス
+    //worldObjects->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
+
+    // すりガラス
+    //worldObjects->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
 
     Scene scene(worldObjects);
 

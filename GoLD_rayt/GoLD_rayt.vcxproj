@@ -56,6 +56,7 @@
     <ClInclude Include="include\IO\IORInterpolator.hpp" />
     <ClInclude Include="include\Lights\AreaLight.hpp" />
     <ClInclude Include="include\Lights\Light.hpp" />
+    <ClInclude Include="include\Materials\Dielectric.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\Fresnel.hpp" />
     <ClInclude Include="include\Materials\Lambertian.hpp" />
