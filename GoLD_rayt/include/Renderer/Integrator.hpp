@@ -167,7 +167,7 @@ namespace rayt {
                 L += beta * rec.matPtr->emitted(rec, -r.d);
 
                 // 2.5. Next Event Estimation (Environment Light)
-                if (m_env && !rec.matPtr->isSpecular()) {
+                /*if (m_env && !rec.matPtr->isSpecular()) {
 
                     // --- サンプル ---
                     Point2 uLight(sampling::Random(), sampling::Random());
@@ -210,7 +210,49 @@ namespace rayt {
                             }
                         }
                     }
+                }*/
+
+                // 2.5. Next Event Estimation (Environment Light)
+                if (m_env && !rec.matPtr->isSpecular()) {
+
+                    Point2 uLight(sampling::Random(), sampling::Random());
+
+                    Vector3 wi;
+                    Real pdfEnv;
+                    Vector3 Le = m_env->sample(uLight, wi, pdfEnv);
+
+                    if (pdfEnv > 0 && !isBlack(Le)) {
+
+                        // シャドウレイ
+                        Ray shadow = SpawnRay(rec.p, rec.gn, wi);
+
+                        SurfaceInteraction tmp;
+                        if (!scene.hit(shadow, tmp)) {
+
+                            // BSDF評価
+                            Spectrum f = rec.matPtr->eval(rec, -r.d, wi);
+                            if (isBlack(f)) continue; // or continue;
+
+                            // cos項は abs を取る（重要）
+                            Real cosTheta = std::abs(glm::dot(rec.n, wi));
+
+                            // BSDF側 pdf
+                            Real pdfBsdf = rec.matPtr->pdf(rec, -r.d, wi);
+
+                            // MIS（Power heuristic）
+                            Real w = 1.0;
+                            if (pdfBsdf > 0) {
+                                Real a = pdfEnv;
+                                Real b = pdfBsdf;
+                                w = (a * a) / (a * a + b * b);
+                            }
+
+                            L += beta * f * Spectrum(Le.x, Le.y, Le.z)
+                                * cosTheta * (w / pdfEnv);
+                        }
+                    }
                 }
+
 
                 // 3. 次の方向をサンプリング (Material::sample)
                 // ランダムな乱数を用意 (本来はSamplerクラスから取得すべき)
@@ -230,6 +272,7 @@ namespace rayt {
                 Spectrum f = bsdfSample->f;
                 Real pdf = bsdfSample->pdf;
                 Vector3 wi = bsdfSample->wi; // 新しい方向
+
                 lastPdf = pdf;
                 lastSpecular = bsdfSample->isSpecular();
                 hasLastBsdf = true;
@@ -242,6 +285,13 @@ namespace rayt {
                     beta *= f;
                 }
                 else {
+                    Real cosTheta = std::abs(glm::dot(rec.n, wi));
+                    if (pdf > 1e-8f)
+                        beta *= f * cosTheta / pdf;
+                    else
+                        break;
+                }
+                /*else {
                     // ★ 拡散・光沢反射の場合 (Diffuse / Glossy)
                      
                     if (glm::dot(rec.gn, wi) <= 0) {
@@ -257,7 +307,7 @@ namespace rayt {
                     else {
                         break;
                     }
-                }
+                }*/
 
                 // スループットが0になったら計算打ち切り（ロシアンルーレットもここで入れると良い）
                 if (isBlack(beta)) break;
