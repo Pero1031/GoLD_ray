@@ -212,6 +212,39 @@ namespace rayt {
             return L;
         }
 
+        void renderOnePass(const Scene& scene, Film& film, int sampleIndex) {
+            int width = film.width();
+            int height = film.height();
+
+            // 並列化 (OpenMP)
+            #pragma omp parallel for schedule(dynamic, 1)
+            for (int j = 0; j < height; ++j) {
+                for (int i = 0; i < width; ++i) {
+
+                    // 1. 1回だけサンプリング
+                    Real u = (Real(i) + rayt::sampling::Random()) / Real(width);
+                    Real v = (Real(j) + rayt::sampling::Random()) / Real(height);
+
+                    Point2 lensSample = sampling::Random2D();
+                    Ray r = m_camera->getRay(u, v, lensSample);
+
+                    Spectrum L = Li(r, scene);
+
+                    // NaNチェック
+                    if (HasInvalidValues(L)) L = Spectrum(0.0);
+
+                    // 2. Filmに「加算」する
+                    // 注意: Filmクラスの実装によりますが、ここでは「現在の画素値」に足し込む想定です。
+                    // もしFilmが「平均値」しか持てない場合は、
+                    // new_avg = (old_avg * (N-1) + new_val) / N の計算が必要です。
+                    // ここではシンプルに「累積加算」するためのメソッド addSample があると仮定、
+                    // なければ setPixel で工夫します。
+
+                    film.addPixel(i, height - 1 - j, L);
+                }
+            }
+        }
+
     private:
         std::shared_ptr<Camera> m_camera;
         std::shared_ptr<EnvMap> m_env;

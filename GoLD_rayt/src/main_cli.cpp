@@ -8,6 +8,17 @@
 // Precompiled Header (Must be first)
 #include "pch.h"    
 
+#define GLFW_INCLUDE_NONE
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+
+//#include <imgui.h>
+//#include <backends/imgui_impl_glfw.h>
+//#include <backends/imgui_impl_opengl3.h>
+
+#include "UI/ImGuiLayer.hpp"
+#include "Core/RenderSettings.hpp"
+
 // 自作ヘッダー
 // Project Headers
 // Core
@@ -19,6 +30,9 @@
 #include "Core/AABB.hpp"
 #include "Core/Assert.hpp"
 #include "Core/Image.hpp"
+
+// accelerates
+#include "Accelerators/BVH.hpp" 
 
 // Geometry
 #include "Geometry/Hittable.hpp"
@@ -34,7 +48,6 @@
 #include "Renderer/Camera.hpp"
 #include "Renderer/Scene.hpp"
 #include "Renderer/Integrator.hpp"
-#include "Renderer/BVH.hpp"
 
 // Materials
 #include "Materials/Material.hpp"
@@ -72,8 +85,8 @@ using namespace rayt;
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 1000; // Higher = less noise, slower
-const int MAX_DEPTH = 50;          // Max recursion depth for rays
+const int SAMPLES_PER_PIXEL = 16; // Higher = less noise, slower
+const int MAX_DEPTH = 10;          // Max recursion depth for rays
 
 // env path
 const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
@@ -90,8 +103,6 @@ int main() {
 // -------------------------------------------------------------------------
 // EnvMap (HDRI) 読み込み
 // -------------------------------------------------------------------------
-    //const std::string envPath = "assets/env/bryanston_park_sunrise_2k.hdr";
-
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
 
     std::shared_ptr<rayt::EnvMap> env = nullptr;
@@ -106,47 +117,6 @@ int main() {
     }
 
     std::cout << "[System] Initializing..." << std::endl;
-
-    // -------------------------------------------------------------------------
-    // 1. マテリアルの作成
-    // -------------------------------------------------------------------------
-
-    // --- 床用: グレーの拡散反射 ---
-    /*auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5, 0.5, 0.5));
-
-    // --- 光源: 明るい白 (DiffuseLightを使用) ---
-    // 値が1.0を超えると発光体として機能します
-    auto matLight = std::make_shared<DiffuseLight>(Spectrum(15.0, 15.0, 15.0));
-
-    // --- 主役: 金 (MirrorConductor) ---
-    // 波長ごとの屈折率データ (RGB近似値
-    // Red(650nm), Green(550nm), Blue(450nm) 付近の値を設定
-    // Au (Gold):
-    // n: R=0.16, G=0.42, B=1.45
-    // k: R=3.48, G=2.45, B=1.77
-    Spectrum n_Au(0.16, 0.42, 1.45);
-    Spectrum k_Au(3.48, 2.45, 1.77);
-
-    auto matGold = std::make_shared<MirrorConductor>(n_Au, k_Au);
-
-    // -------------------------------------------------------------------------
-    // 2. 物体の配置 (Scene)
-    // -------------------------------------------------------------------------
-    auto worldObjects = std::make_shared<HittableList>();
-
-    // 床 (巨大な球)
-    worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
-
-    // 中央の球 (金)
-    worldObjects->add(std::make_shared<Sphere>(Point3(0, 0, -1), 0.5, matGold));
-
-    // 光源 (右上・手前)
-    //worldObjects->add(std::make_shared<Sphere>(Point3(1.5, 2.0, 1.0), 0.5, matLight));
-
-    // 補助光源（左側・遠く）
-    //worldObjects->add(std::make_shared<Sphere>(Point3(-2.0, 1.0, -2.0), 0.3, matLight));
-
-    Scene scene(worldObjects);*/
 
     //-------------------------------------------------------------------------------------------
     // ラフのテスト
@@ -175,10 +145,14 @@ int main() {
     // -------------------------------------------------------------------------
     // 2. 物体の配置 (Scene)
     // -------------------------------------------------------------------------
+    //auto worldObjects = std::make_shared<HittableList>();
+    // -------------------------------------------------------------------------
+    // 2. 物体の配置 (Scene) - 1万個チャレンジ
+    // -------------------------------------------------------------------------
     auto worldObjects = std::make_shared<HittableList>();
 
     // 床
-    //worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
 
     // 球を横に3つ並べる
     // 左: ツルツル
@@ -221,9 +195,6 @@ int main() {
     // -------------------------------------------------------------------------
     Film film(IMAGE_WIDTH, IMAGE_HEIGHT);
 
-    // 新しいIntegratorを使用
-    // max_depth, spp を渡す
-    //auto integrator = std::make_unique<PathIntegrator>(camera, MAX_DEPTH, SAMPLES_PER_PIXEL);
     auto integrator = std::make_unique<PathIntegrator>(camera, env, MAX_DEPTH, SAMPLES_PER_PIXEL);
 
     // -------------------------------------------------------------------------
@@ -240,7 +211,7 @@ int main() {
     // film.save("result_gold_pbr.hdr");
 
     std::cout << "[System] Finished." << std::endl;
-    
+
 
     return 0;
 }
