@@ -1,6 +1,4 @@
-﻿#pragma once
-
-/**
+﻿/**
  * @file Scene.hpp
  * @brief Scene class representing the entire environment to be rendered.
  * * The Scene acts as a high-level container that orchestrates geometry,
@@ -8,10 +6,12 @@
  * interface for the Integrator to query the world state.
  */
 
-#include "Geometry/Hittable.hpp"
+#pragma once
 
 #include <memory>
 #include <vector>
+
+#include "Geometry/Hittable.hpp"
 
 namespace rayt {
 

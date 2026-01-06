@@ -57,7 +57,7 @@ namespace rayt {
         /// Returns pointer to the accumulation (sum) buffer (linear HDR).
         const Spectrum* getData() const { return m_pixels.data(); }
 
-        // ★追加：蓄積バッファをクリアする
+        // 蓄積バッファをクリアする
         void clear();
 
         /**
