@@ -1,0 +1,85 @@
+
+
+#pragma once
+
+#include <optional>
+
+#include "Lights/Light.hpp"
+#include "Core/Constants.hpp"
+#include "Core/Types.hpp"
+#include "Core/Math.hpp"
+
+namespace rayt {
+
+    /**
+    * @brief Point light (delta position light).
+    *
+    * Emits light from a single position in space.
+    * - sampleLi: returns a deterministic direction to the light
+    * - pdfLi: 0 (delta distribution)
+    * - Le(ray): not used (unless you want glowing point in background; typically 0)
+    *
+    * Spectrum is currently treated as RGB intensity; later it can be wavelength-evaluated.
+    */
+    class PointLight final : public Light {
+    public:
+        PointLight() = default;
+
+        PointLight(const Point3& position,
+            const Spectrum& intensity,
+            Real scale = 1.0)
+            : m_p(position), m_I(intensity), m_scale(scale) {}
+
+        LightType type() const override { return LightType::DeltaPosition; }
+
+        std::optional<LightLiSample>
+        sampleLi(const LightSampleContext& ctx,
+                 const Point2& /*u*/,
+                 const SampledWavelengths& /*lambda*/,
+                 bool /*allowIncompletePDF*/ = false) const override
+        {
+
+            Vector3 d = m_p - ctx.p;
+            Real dist2 = glm::dot(d, d);
+            if (dist2 <= Real(0)) return std::nullopt;
+
+            Real invDist = math:: safe_recip(math::safe_sqrt(dist2));
+            Vector3 wi = d * invDist;
+
+            LightLiSample ls;
+            ls.wi = wi;
+            ls.pLight = m_p;
+            ls.tMax = math::safe_sqrt(dist2);
+            ls.isDelta = true;
+
+            // Delta light: pdf is 1 for the single sampled direction conceptually,
+            // but for MIS we typically treat it as delta => pdfLi() returns 0,
+            // and sampleLi provides a usable sample with pdf=1.
+            // This convention avoids dividing by zero while keeping delta handling explicit.
+            ls.pdf = Real(1.0);
+
+            // Radiance arriving from a point light:
+            // Often modeled as intensity / r^2 (inverse-square falloff).
+            // Here we put the falloff into Li directly (common in simple renderers).
+            Real invDist2 = math::safe_recip(dist2);
+            ls.Li = (m_I * m_scale) * invDist2;
+
+            return ls;
+        }
+
+        Real pdfLi(const LightSampleContext& /*ctx*/,
+            const Vector3& /*wi*/,
+            bool /*allowIncompletePDF*/ = false) const override
+        {
+            // Delta distribution over directions: pdf w.r.t solid angle is 0 everywhere
+            // (except at the single direction, where it is a delta spike).
+            // Return 0 as PBRT does for delta lights.
+            return 0.0;
+        }
+
+    private:
+        Point3 m_p = Point3(0.0);
+        Spectrum m_I = Spectrum(1.0); // intensity (e.g., W/sr or arbitrary scale in RGB mode)
+        Real m_scale = Real(1.0);
+    };
+} // namespace rayt
