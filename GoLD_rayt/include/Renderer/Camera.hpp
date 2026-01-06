@@ -1,12 +1,12 @@
-﻿#pragma once
-
-/**
+﻿/**
  * @file Camera.hpp
  * @brief Physically-based camera model with Depth of Field (DoF).
  * * Implements a thin-lens camera system. Supports adjustable Field of View (FOV),
  * focal distance, and aperture size to simulate realistic optical effects
  * like defocus blur.
  */
+
+#pragma once
 
 #include <algorithm>
 #include <cmath>

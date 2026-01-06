@@ -1,18 +1,21 @@
 ﻿#pragma once
 
-#include "Core/Core.hpp"
-#include "renderer/Scene.hpp"   // HittableList, etc.
-#include "Renderer/Camera.hpp"
-#include "renderer/Film.hpp"
-#include "Core/Ray.hpp"
-#include "Core/Interaction.hpp"
-#include "Materials/Material.hpp"
-#include "Core/Sampling.hpp"
-#include "IO/EnvMap.hpp"
-
 #include <memory>
 #include <iostream>
 #include <algorithm>
+
+#include "Core/Forward.hpp"
+#include "Core/Types.hpp"
+#include "Core/Math.hpp"
+#include "Core/Ray.hpp"
+#include "Core/Sampling.hpp"
+#include "Core/Constants.hpp"
+#include "Core/Interaction.hpp"
+#include "Renderer/Scene.hpp" // HittableList, etc.
+#include "Renderer/Film.hpp"
+#include "Renderer/Camera.hpp"
+#include "Materials/Material.hpp"
+#include "IO/EnvMap.hpp"
 
 namespace rayt {
 
@@ -55,8 +58,8 @@ namespace rayt {
 
                     for (int s = 0; s < m_spp; ++s) {
                         // アンチエイリアシング用のジッター
-                        Real u = (Real(i) + rayt::sampling::Random()) / Real((width));
-                        Real v = (Real(j) + rayt::sampling::Random()) / Real((height));
+                        Real u = (Real(i) + sampling::Random()) / Real((width));
+                        Real v = (Real(j) + sampling::Random()) / Real((height));
 
                         Point2 lensSample = sampling::Random2D();
 
@@ -93,7 +96,7 @@ namespace rayt {
 
                     if (m_env) {
                         Spectrum envL;
-                        glm::vec3 rgb = m_env->eval(r.d);
+                        Vector3 rgb = m_env->eval(r.d);
                         envL = Spectrum(rgb.x, rgb.y, rgb.z);
 
                         if (hasLastBsdf && !lastSpecular) {
@@ -140,7 +143,7 @@ namespace rayt {
 
                             // BSDF評価
                             Spectrum f = rec.matPtr->eval(rec, -r.d, wi);
-                            if (isBlack(f)) continue; // or continue;
+                            if (isBlack(f)) continue; 
 
                             // cos項は abs を取る（重要）
                             Real cosTheta = std::abs(glm::dot(rec.n, wi));
@@ -163,9 +166,9 @@ namespace rayt {
                 }
 
 
-                // 3. 次の方向をサンプリング (Material::sample)
-                // ランダムな乱数を用意 (本来はSamplerクラスから取得すべき)
-                Point2 u(rayt::sampling::Random(), rayt::sampling::Random());
+                // 3. 次の方向をサンプリング 
+                // ランダムな乱数を用意
+                Point2 u(sampling::Random(), sampling::Random());
 
                 // sample() 呼び出し: wo, uv を渡す
                 auto bsdfSample = rec.matPtr->sample(rec, -r.d, u);
@@ -222,8 +225,8 @@ namespace rayt {
                 for (int i = 0; i < width; ++i) {
 
                     // 1. 1回だけサンプリング
-                    Real u = (Real(i) + rayt::sampling::Random()) / Real(width);
-                    Real v = (Real(j) + rayt::sampling::Random()) / Real(height);
+                    Real u = (Real(i) + sampling::Random()) / Real(width);
+                    Real v = (Real(j) + sampling::Random()) / Real(height);
 
                     Point2 lensSample = sampling::Random2D();
                     Ray r = m_camera->getRay(u, v, lensSample);
