@@ -1,17 +1,18 @@
-﻿#pragma once
-
-/**
- * @file types.hpp
+﻿/**
+ * @file Core/Types.hpp
  * @brief Semantic Type Aliases for the Ray Tracing Engine.
- * * - Real is defined as double for high precision, but is interchangeable with float.
+ * * - Real is defined in Precision.hpp and defaults to double double for high precision, 
+ * but is interchangeable with float.
  * - Vector types are aliased to GLM equivalents for performance and reliability.
  * - Contract: Including this header establishes a dependency on the GLM library.
  */
 
+#pragma once
+
 // Include GLM here so all files have access to vector math.
 #include <glm/glm.hpp>
 
-#include "Core/Forward.hpp"
+#include "Core/Precision.hpp"
 
 namespace rayt {
 
@@ -41,12 +42,10 @@ namespace rayt {
     using Matrix4x4 = glm::mat<4, 4, Real, glm::defaultp>;
 
     // ---------------------------------------------------------------------
-    // Spectral Representation
+    // Spectral Representation (Temporary)
     // ---------------------------------------------------------------------
-
-    // Currently, we use RGB (vec3) as a placeholder.
-    // TODO: Replace this with a 'SampledSpectrum' class later for full spectral rendering.
-    // e.g., class SampledSpectrum { std::array<Real, 60> values; ... };
+    // NOTE: This is a temporary placeholder for legacy code paths.
+    //       The canonical Spectrum type is defined in Spectrum.hpp.
     using Spectrum = glm::vec<3, Real, glm::defaultp>;
 
 } //namespace rayt

@@ -155,7 +155,7 @@ namespace rayt {
             // 6. Evaluate the sample weight (throughput).
             bsdfSample.f = eval(rec, wo, bsdfSample.wi, mode);
 
-            if (bsdfSample.pdf <= 1e-6 || math::hasNaNs(bsdfSample.f)) return std::nullopt;
+            if (bsdfSample.pdf <= 1e-6 || math::hasNonFinite(bsdfSample.f)) return std::nullopt;
 
             // Flags 
             bsdfSample.flags =

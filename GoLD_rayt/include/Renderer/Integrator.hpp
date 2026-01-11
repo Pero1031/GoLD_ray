@@ -11,6 +11,7 @@
 #include "Core/Sampling.hpp"
 #include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
+#include "Core/SpectrumUtils.hpp"
 #include "Renderer/Scene.hpp" // HittableList, etc.
 #include "Renderer/Film.hpp"
 #include "Renderer/Camera.hpp"
