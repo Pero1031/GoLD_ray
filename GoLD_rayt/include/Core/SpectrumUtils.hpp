@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 /**
- * @file Spectrum.hpp
+ * @file Core/SpectrumUtils.hpp
  * @brief Utilities for spectral data (color) manipulation and validation.
  * * Ensures numerical stability during light transport calculations by
  * filtering out invalid physical states (NaNs, Infinities, and negative energy).

@@ -99,7 +99,7 @@ namespace rayt {
          * @return True if any component is NaN or Infinity.
          */
         bool HasNaN() const {
-            return math::hasNaNs(o) || math::hasNaNs(d) || std::isnan(tMin) || std::isnan(tMax);
+            return math::hasNonFinite(o) || math::hasNonFinite(d) || std::isnan(tMin) || std::isnan(tMax);
         }
     };
 

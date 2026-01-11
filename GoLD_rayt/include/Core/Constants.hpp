@@ -1,17 +1,16 @@
-﻿#pragma once
-
-#include <limits>
-#include <numbers>
-
-#include "Core/Types.hpp"  
-#include "Core/Forward.hpp"
-
-/**
- * @file constants.hpp
+﻿/**
+ * @file Core/Constants.hpp
  * @brief Global constants for mathematical, computational, and physical calculations.
  * * Consistent with the project-wide 'Real' type definition.
  * Mathematical constants leverage C++20 standard library templates for maximum precision.
  */
+
+#pragma once
+
+#include <limits>
+#include <numbers>
+
+#include "Core/Precision.hpp"
 
 namespace rayt::constants {
 

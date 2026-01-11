@@ -40,9 +40,6 @@
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Frame.hpp"
 
-// IO
-#include "IO/IORInterpolator.hpp"
-
 // Renderer
 #include "Renderer/Film.hpp"
 #include "Renderer/Camera.hpp"

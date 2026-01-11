@@ -45,6 +45,8 @@
     <ClCompile Include="src\Film.cpp" />
     <ClCompile Include="src\ImageIO.cpp" />
     <ClCompile Include="src\ImageLoader.cpp" />
+    <ClCompile Include="src\IO\ComplexIorLoader.cpp" />
+    <ClCompile Include="src\IO\CsvReader.cpp" />
     <ClCompile Include="src\main_cli.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -62,7 +64,10 @@
   <ItemGroup>
     <ClInclude Include="include\Accelerators\BVH.hpp" />
     <ClInclude Include="include\Application\Application.hpp" />
+    <ClInclude Include="include\Color\ColorSpace.hpp" />
     <ClInclude Include="include\Color\ColorTransform.hpp" />
+    <ClInclude Include="include\Color\ComplexIorTable.hpp" />
+    <ClInclude Include="include\Color\IorRgbApprox.hpp" />
     <ClInclude Include="include\Core\AABB.hpp" />
     <ClInclude Include="include\Core\Assert.hpp" />
     <ClInclude Include="include\Core\Constants.hpp" />
@@ -74,6 +79,7 @@
     <ClInclude Include="include\Core\Image.hpp" />
     <ClInclude Include="include\Core\Interaction.hpp" />
     <ClInclude Include="include\Core\Math.hpp" />
+    <ClInclude Include="include\Core\Precision.hpp" />
     <ClInclude Include="include\Core\Ray.hpp" />
     <ClInclude Include="include\Core\RenderSettings.hpp" />
     <ClInclude Include="include\Core\Sampling.hpp" />
@@ -86,9 +92,10 @@
     <ClInclude Include="include\Geometry\Hittable.hpp" />
     <ClInclude Include="include\Geometry\HittableList.hpp" />
     <ClInclude Include="include\Geometry\Sphere.hpp" />
+    <ClInclude Include="include\IO\ComplexIorLoader.hpp" />
+    <ClInclude Include="include\IO\CsvReader.hpp" />
     <ClInclude Include="include\IO\EnvMap.hpp" />
     <ClInclude Include="include\IO\ImageLoader.hpp" />
-    <ClInclude Include="include\IO\IORInterpolator.hpp" />
     <ClInclude Include="include\Lights\AreaLight.hpp" />
     <ClInclude Include="include\Lights\EnvLight.hpp" />
     <ClInclude Include="include\Lights\Light.hpp" />

@@ -1,25 +1,32 @@
+﻿/**
+ * @file Core/Fresnel.hpp
+ * @brief Fresnel reflection utilities for conductors and dielectrics.
+ *
+ * Provides physically-based Fresnel reflectance evaluation:
+ * - Conductor (metal): exact formulation using complex IOR (eta + i*k)
+ * - Dielectric: exact unpolarized Fresnel reflectance with TIR handling
+ *
+ * @note This module is currently RGB-oriented. It will be extended to support
+ *       spectral rendering by evaluating eta(λ), k(λ) over sampled wavelengths.
+ */
+
 #pragma once
 
-#include <numbers>
 #include <algorithm>
 #include <cmath>
 
-// --- Math / Geometry ---
 #include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
 
 #include "Core/Types.hpp"
-#include "Core/Forward.hpp"
-#include "Core/Constants.hpp"   // Include the constants header if available
+#include "Core/Constants.hpp"   
 #include "Core/Math.hpp"
 
 namespace rayt::fresnel {
-
-	using Real = rayt::Real;
-
     // -------------------------------------------------------------------------
     // Fresnel Equations (Conductor / Metal)
     // -------------------------------------------------------------------------
+
+    // TODO: Switch eta/k to rayt::Spectrum (mode-dependent) once Spectrum.hpp becomes canonical.
 
     /**
      * @brief Calculates Fresnel reflectance for conductors (metals).
@@ -33,6 +40,7 @@ namespace rayt::fresnel {
      */
     inline Vector3 fresnelConductor(Real cosThetaI, const Vector3& eta, const Vector3& k) {
 
+        cosThetaI = std::abs(cosThetaI);
         // Clamp cosine to [0, 1] to handle numerical errors
         cosThetaI = math::saturate(cosThetaI);
 
@@ -49,9 +57,9 @@ namespace rayt::fresnel {
         // a^2 + b^2 = sqrt(t0^2 + 4 * eta^2 * k^2)
         Vector3 t0 = eta2 - k2 - Vector3(sinThetaI2);
         Vector3 a2plusb2 = glm::sqrt(t0 * t0 + Real(4.0) * eta2 * k2);
+        Vector3 t1 = a2plusb2 + Vector3(cosThetaI2);
 
         // a = sqrt(0.5 * (a^2 + b^2 + t0))
-        Vector3 t1 = a2plusb2 + Vector3(cosThetaI2);
         Vector3 a = math::safe_sqrt(Real(0.5) * (a2plusb2 + t0));
 
         // --- Calculate Rs (S-polarized reflectance) ---
@@ -63,7 +71,6 @@ namespace rayt::fresnel {
         // Rp = Rs * ( (a^2+b^2)*cos^2 + sin^4 - 2a*cos*sin^2 ) / ...
         // Using a simplified form derived via algebraic manipulation:
         // Rp = Rs * (t3 - t4) / (t3 + t4)
-
         Vector3 t3 = cosThetaI2 * a2plusb2 + Vector3(sinThetaI2 * sinThetaI2);
         Vector3 t4 = t2 * sinThetaI2;
         Vector3 Rp = Rs * (t3 - t4) / (t3 + t4);
