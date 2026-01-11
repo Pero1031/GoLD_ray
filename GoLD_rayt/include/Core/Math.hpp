@@ -227,4 +227,14 @@ namespace rayt::math {
         return std::max({ v.x, v.y, v.z });
     }
 
+    /**
+    * @brief Power heuristic for MIS (exponent = 2).
+    */
+    inline Real powerHeuristic(Real pf, Real pg) {
+        Real f2 = pf * pf;
+        Real g2 = pg * pg;
+        if (f2 == Real(0) && g2 == Real(0)) return Real(0);
+        return f2 / (f2 + g2);
+    }
+
 } // namespace rayt::math

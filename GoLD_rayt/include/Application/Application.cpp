@@ -129,18 +129,24 @@ void App::init() {
     // --------------------------------------------------
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
     
-    std::shared_ptr<EnvMap> env = nullptr;  // 環境マップクラスをインスタンス化
+    std::shared_ptr<EnvMap> envMap = nullptr;  // 環境マップクラスをインスタンス化
+    std::shared_ptr<EnvLight> envLight = nullptr;
 
     try {
         std::cout << "[EnvMap] Loading: " << ENV_HDR_PATH << std::endl;
         auto envImg = io::loadHDR(ENV_HDR_PATH);   // HDRでダウンロード
-        env = std::make_shared<EnvMap>(std::move(envImg));
+        envMap = std::make_shared<EnvMap>(std::move(envImg));
         std::cout << "[EnvMap] Success.\n";
+
+        // EnvMapからEnvLightを作成 (スケール1.0)
+        envLight = std::make_shared<EnvLight>(envMap, 1.0);
+        std::cout << "[EnvLight] Created from environment map.\n";
     }
     catch (const std::exception& e) {
         std::cerr << "[EnvMap] Failed: " << e.what() << "\n";
         std::cerr << "[EnvMap] Fallback to black background.\n";
-        env = nullptr;
+        envMap = nullptr;
+        envLight = nullptr;
     }
 
     // --------------------------------------------------
@@ -172,14 +178,42 @@ void App::init() {
     worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
     worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
 
-    // 多くな球で床を作製
+    // 大きな球で床を作製
     worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
 
-    // リストを渡して Scene を作る
+    // --------------------------------------------------
+    // 5. Scene作成と光源設定
+    // --------------------------------------------------
     m_scene = std::make_shared<Scene>(worldList);
 
+    // 環境光を設定（存在する場合）
+    if (envLight) {
+        m_scene->setEnvLight(envLight);
+        std::cout << "[Scene] Environment light set.\n";
+    }
+
+    // オプション: ポイントライトや他の光源を追加
+    // 例: シーン内にポイントライトを追加する場合
+    
+    auto pointLight = std::make_shared<PointLight>(
+        Point3(-1.2, 3, 0),           // 位置
+        Spectrum(50, 15, 0)       // 強度
+    );
+    m_scene->addLight(pointLight);
+    std::cout << "[Scene] Point light added.\n";
+    
+
+    // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
+    m_scene->finalize("uniform");
+    std::cout << "[Scene] Finalized with "
+        << m_scene->numLights() << " scene lights";
+    if (m_scene->hasEnvLight()) {
+        std::cout << " + environment light";
+    }
+    std::cout << ".\n";
+
     // --------------------------------------------------
-    // 5. カメラ設定 
+    // 6. カメラ設定 
     // --------------------------------------------------
     Point3 lookFrom(0, 0.5, 2.5); 
     Point3 lookAt(0, 0, -1);
@@ -196,13 +230,20 @@ void App::init() {
     );
 
     // --------------------------------------------------
-    // 6. レンダラー生成
+    // 7. レンダラー生成
     // --------------------------------------------------
     m_film = std::make_unique<Film>(m_width, m_height);
 
-    // spp=10 (プログレッシブ用)
-    // maxDepthは設定値を使う
-    m_integrator = std::make_unique<PathIntegrator>(m_camera, env, m_settings.maxDepth, 10);
+    // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
+    // 環境マップはSceneから取得されるので、引数から削除
+    m_integrator = std::make_unique<PathIntegrator>(
+        m_camera,
+        m_settings.maxDepth,  // 最大深度
+        10                     // プログレッシブ用のspp
+    );
+
+    std::cout << "[Integrator] PathIntegrator created (maxDepth="
+        << m_settings.maxDepth << ", spp=10).\n";
 }
 
 // テクスチャ更新 
