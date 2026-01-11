@@ -1,7 +1,5 @@
-﻿#pragma once
-
-/**
- * @file forward.hpp
+﻿/**
+ * @file Core/Forward.hpp
  * @brief Forward declarations for the rayt engine classes and structs.
  * * Purpose:
  * - Reduces compilation time by minimizing header interdependencies.
@@ -9,12 +7,10 @@
  * - Allows the use of pointers and references in headers without full definitions.
  */
 
+#pragma once
+
 namespace rayt {
 
-    // Global precision toggle: allows easy switching between float and double.
-    using Real = double;
-    using Float = float;
-    
     // ---------------------------------------------------------------------
     // Scene & Geometry
     // ---------------------------------------------------------------------

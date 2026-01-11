@@ -28,9 +28,6 @@
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Frame.hpp"
 
-// IO
-#include "IO/IORInterpolator.hpp"
-
 // Renderer
 #include "Renderer/Film.hpp"
 #include "Renderer/Camera.hpp"
@@ -59,10 +56,18 @@
 #include "IO/ImageLoader.hpp"
 #include "IO/EnvMap.hpp"
 
+// 複素屈折率関連
+#include "IO/ComplexIorLoader.hpp"
+#include "Color/ComplexIorTable.hpp"
+#include "Color/IorRgbApprox.hpp"
+
 using namespace rayt; // 名前空間省略
 
 // 環境マップのパス
 const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
+
+// Gold IOR data path (RefractiveIndex.info / Johnson & Christy style CSV)
+const std::string AU_IOR_CSV_PATH = "assets/Au_data/Johnson.csv";
 
 // -----------------------------------------------------------------------------
 // Scene Configuration
@@ -156,9 +161,40 @@ void App::init() {
     // 拡散反射の床
     auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5, 0.5, 0.5));
 
+    // --------------------------------------------------
+    // 金の光学定数 (Au) をCSVからロードして RGB近似
+    // --------------------------------------------------
+    rayt::color::ComplexIorTable auTable;
+    std::string auErr;
+
+    // fallback（ロード失敗時の保険）
+    Vector3 eta_rgb_fallback(0.16, 0.42, 1.45);
+    Vector3 k_rgb_fallback(3.48, 2.45, 1.77);
+
+    Vector3 eta_rgb = eta_rgb_fallback;
+    Vector3 k_rgb = k_rgb_fallback;
+
+    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, auTable, &auErr)) {
+        std::cerr << "[Au IOR] Failed: " << auErr << "\n";
+        std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
+    }
+    else {
+        // 3波長サンプルでRGB近似（暫定。後でCMF積分に置換可能）
+        rayt::color::approxIorToRgb_3Wavelengths(auTable, eta_rgb, k_rgb, 450, 550, 650);
+
+        std::cout << "[Au IOR] Loaded: " << AU_IOR_CSV_PATH << "\n";
+        std::cout << "[Au IOR] RGB approx eta=("
+            << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
+            << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
+    }
+
+    // Spectrum が今は glm::vec3 相当の想定
+    Spectrum n_Au = eta_rgb;
+    Spectrum k_Au = k_rgb;
+
     // 金の光学定数 (Au)
-    Spectrum n_Au(0.16, 0.42, 1.45);
-    Spectrum k_Au(3.48, 2.45, 1.77);
+    //Spectrum n_Au(0.16, 0.42, 1.45);
+    //Spectrum k_Au(3.48, 2.45, 1.77);
 
     // 3段階の粗さ
     // 0.01: ほぼ鏡 (MirrorConductorと比較用)

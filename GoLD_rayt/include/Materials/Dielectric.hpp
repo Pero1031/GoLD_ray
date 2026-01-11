@@ -229,7 +229,7 @@ namespace rayt {
                 bsdfSample.pdf = pdf_wh * dwh_dwi * (1.0 - F);
             }
 
-            if (bsdfSample.pdf < 1e-8 || rayt::math::hasNaNs(bsdfSample.f))
+            if (bsdfSample.pdf < 1e-8 || rayt::math::hasNonFinite(bsdfSample.f))
                 return std::nullopt;
 
             return bsdfSample;
