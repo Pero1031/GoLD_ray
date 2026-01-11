@@ -14,6 +14,10 @@
 #include "Renderer/Scene.hpp" // HittableList, etc.
 #include "Renderer/Film.hpp"
 #include "Renderer/Camera.hpp"
+#include "Lights/Light.hpp"
+#include "Lights/EnvLight.hpp"
+#include "Lights/PointLight.hpp"
+#include "Lights/LightSampler.hpp"
 #include "Materials/Material.hpp"
 #include "IO/EnvMap.hpp"
 
@@ -29,15 +33,19 @@ namespace rayt {
         virtual void render(const Scene& scene, Film& film) = 0;
     };
 
-    // Path Tracing Integrator
+    /**
+     * @brief Path Tracing Integrator with Multiple Importance Sampling.
+     *
+     * Features:
+     * - Supports arbitrary number of lights via LightSampler
+     * - Environment/infinite light support
+     * - Multiple Importance Sampling (MIS) for variance reduction
+     * - Handles both delta and non-delta lights correctly
+     */
     class PathIntegrator : public Integrator {
     public:
-        // コンストラクタ
-        PathIntegrator(std::shared_ptr<Camera> camera, 
-            std::shared_ptr<EnvMap> env, 
-            int maxDepth, int spp)
-            : m_camera(camera), m_env(env), 
-            m_maxDepth(maxDepth), m_spp(spp) {}
+        PathIntegrator(std::shared_ptr<Camera> camera, int maxDepth, int spp)
+            : m_camera(camera), m_maxDepth(maxDepth), m_spp(spp) {}
 
         // レンダリングループの実装
         virtual void render(const Scene& scene, Film& film) override {
@@ -81,99 +89,64 @@ namespace rayt {
             std::cout << "\n[PathIntegrator] Done." << std::endl;
         }
 
-        // 放射輝度計算 (Li)
+        /**
+         * @brief Compute radiance along a ray using path tracing.
+         */
         Spectrum Li(Ray r, const Scene& scene) const {
-            Spectrum L(0.0);        // 最終的な放射輝度（Accumulated Radiance）
-            Spectrum beta(1.0);     // スループット（Throughput: 経路の重み）
+            Spectrum L(0.0);        // Accumulated Radiance
+            Spectrum beta(1.0);     // Throughput
+
             Real lastPdf = 0;
             bool lastSpecular = false;
             bool hasLastBsdf = false;
+
+            SurfaceInteraction lastRec;
             
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
+                // ========== Ray Miss: Environment Light ==========
                 if (!scene.hit(r, rec)) {
 
-                    if (m_env) {
-                        Spectrum envL;
-                        Vector3 rgb = m_env->eval(r.d);
-                        envL = Spectrum(rgb.x, rgb.y, rgb.z);
+                    if (scene.hasEnvLight()) {
+                        SampledWavelengths lambda;
+                        Spectrum envL = scene.envLight()->Le(r, lambda);
 
                         if (hasLastBsdf && !lastSpecular) {
-                            Real pdfEnv = m_env->pdf(r.d);   // ★ EnvMap に pdf(dir) を用意しておく
+                            // MIS with BSDF sampling
+                            LightSampleContext ctx{ lastRec.p, lastRec.gn };
+                            Real pdfEnv = scene.envLight()->pdfLi(ctx, r.d);
 
                             Real w = 1.0;
                             if (pdfEnv > 0 && lastPdf > 0) {
-                                Real a = lastPdf;
-                                Real b = pdfEnv;
-                                w = (a * a) / (a * a + b * b); // power heuristic
+                                w = math::powerHeuristic(lastPdf, pdfEnv);
                             }
                             L += beta * envL * w;
                         }
                         else {
-                            // カメラレイ直撃 or 鏡面経路は MIS しない
+                            // Camera ray or specular path: no MIS
                             L += beta * envL;
                         }
                     }
                     break;
                 }
 
+                // 現在のヒット点を保存
+                lastRec = rec;
 
-                // 2. 自己発光の加算 (Le)
-                // 光源に当たったら、ここまでの減衰(beta)を掛けて足す
+                // ========== Emissive Surface Hit ==========
                 // ※ wo = -r.direction
                 L += beta * rec.matPtr->emitted(rec, -r.d);
 
-                // 2.5. Next Event Estimation (Environment Light)
-                if (m_env && !rec.matPtr->isSpecular()) {
-
-                    Point2 uLight(sampling::Random(), sampling::Random());
-
-                    Vector3 wi;
-                    Real pdfEnv;
-                    Vector3 Le = m_env->sample(uLight, wi, pdfEnv);
-
-                    if (pdfEnv > 0 && !isBlack(Le)) {
-
-                        // シャドウレイ
-                        Ray shadow = SpawnRay(rec.p, rec.gn, wi);
-
-                        SurfaceInteraction tmp;
-                        if (!scene.hit(shadow, tmp)) {
-
-                            // BSDF評価
-                            Spectrum f = rec.matPtr->eval(rec, -r.d, wi);
-                            if (isBlack(f)) continue; 
-
-                            // cos項は abs を取る（重要）
-                            Real cosTheta = std::abs(glm::dot(rec.n, wi));
-
-                            // BSDF側 pdf
-                            Real pdfBsdf = rec.matPtr->pdf(rec, -r.d, wi);
-
-                            // MIS（Power heuristic）
-                            Real w = 1.0;
-                            if (pdfBsdf > 0) {
-                                Real a = pdfEnv;
-                                Real b = pdfBsdf;
-                                w = (a * a) / (a * a + b * b);
-                            }
-
-                            L += beta * f * Spectrum(Le.x, Le.y, Le.z)
-                                * cosTheta * (w / pdfEnv);
-                        }
-                    }
+                // ========== Next Event Estimation (NEE) ==========
+                if (!rec.matPtr->isSpecular()) {
+                    L += beta * sampleAllLights(scene, rec, -r.d);
                 }
 
-
-                // 3. 次の方向をサンプリング 
-                // ランダムな乱数を用意
+                // ========== BSDF Sampling for Next Path Vertex ==========
                 Point2 u(sampling::Random(), sampling::Random());
-
-                // sample() 呼び出し: wo, uv を渡す
                 auto bsdfSample = rec.matPtr->sample(rec, -r.d, u);
 
-                // サンプリング失敗（吸収、全反射角超過など）なら終了
                 if (!bsdfSample) {
                     break;
                 }
@@ -215,6 +188,9 @@ namespace rayt {
             return L;
         }
 
+        /**
+         * @brief Progressive rendering: render one sample per pixel.
+         */
         void renderOnePass(const Scene& scene, Film& film, int sampleIndex) {
             int width = film.width();
             int height = film.height();
@@ -250,28 +226,116 @@ namespace rayt {
 
     private:
         std::shared_ptr<Camera> m_camera;
-        std::shared_ptr<EnvMap> m_env;
-
         int m_maxDepth;
         int m_spp;
 
-        static bool visible(const Scene& scene, const SurfaceInteraction& ref,
-            const Point3& pLight)
-        {
-            Vector3 toL = pLight - ref.p;
-            Real dist = glm::length(toL);
-            if (dist <= Real(0)) return false;
+        /**
+         * @brief Sample all lights (scene lights + environment) with MIS.
+         *
+         * Strategy:
+         * 1. Count total lights (scene + env if present)
+         * 2. Uniformly select one light
+         * 3. Sample the chosen light
+         * 4. Apply MIS weight combining light PDF and BSDF PDF
+         * 5. Account for light selection probability
+         */
+        Spectrum sampleAllLights(const Scene& scene,
+            const SurfaceInteraction& rec,
+            const Vector3& wo) const {
+            Spectrum Ld(0.0);
+            SampledWavelengths lambda;
+            LightSampleContext ctx{ rec.p, rec.gn };
 
-            Vector3 wi = toL / dist;
+            // Count available lights
+            int numSceneLights = scene.hasLights() ? scene.numLights() : 0;
+            size_t numEnvLights = scene.hasEnvLight() ? 1 : 0;
+            int totalLights = numSceneLights + numEnvLights;
 
-            // 影レイ：ライト手前まで（eps分手前）
+            if (totalLights == 0) return Ld;
+
+            // ========== Light Selection Strategy ==========
+            // Uniformly select one light from all available lights
+            Real uSelect = sampling::Random();
+            Real lightSelectPdf = Real(1) / Real(totalLights);
+
+            const Light* sampledLight = nullptr;
+
+            if (uSelect < Real(numSceneLights) / Real(totalLights)) {
+                // Sample from scene lights using LightSampler
+                Real uSampler = uSelect * Real(totalLights) / Real(numSceneLights);
+                auto lightSample = scene.lightSampler()->sample(uSampler);
+
+                if (lightSample) {
+                    sampledLight = lightSample->light;
+                    // Note: lightSample->pdf is the probability of selecting
+                    // this light among scene lights, but we need the probability
+                    // among ALL lights, so we multiply by the ratio
+                    //lightSelectPdf *= lightSample->pdf;
+                }
+            }
+            else if (scene.hasEnvLight()) {
+                // Sample environment light
+                sampledLight = scene.envLight();
+            }
+
+            if (!sampledLight) return Ld;
+
+            // ========== Sample Chosen Light ==========
+            Point2 uLight(sampling::Random(), sampling::Random());
+            auto ls = sampledLight->sampleLi(ctx, uLight, lambda);
+
+            if (!ls || ls->pdf <= 0 || isBlack(ls->Li)) {
+                return Ld;
+            }
+
+            Vector3 wi = ls->wi;
+            Spectrum Li = ls->Li;
+            Real pdfLight = ls->pdf;  // PDF w.r.t. solid angle
+
+            // ========== Visibility Test ==========
+            if (!visible(scene, rec, wi, ls->tMax)) {
+                return Ld;
+            }
+
+            // ========== BSDF Evaluation ==========
+            Spectrum f = rec.matPtr->eval(rec, wo, wi);
+            if (isBlack(f)) return Ld;
+
+            Real cosTheta = std::abs(glm::dot(rec.n, wi));
+
+            // ========== MIS Weight ==========
+            Real w = 1.0;
+            if (!ls->isDelta) {
+                Real pdfBsdf = rec.matPtr->pdf(rec, wo, wi);
+                if (pdfBsdf > 0) {
+                    w = math::powerHeuristic(pdfLight, pdfBsdf);
+                }
+            }
+
+            // ========== Final Contribution ==========
+            // Li already includes geometry term from light sampling
+            // We need: f * Li * cos / (pdfLight * lightSelectPdf)
+            Ld = f * Li * cosTheta * w / (pdfLight * lightSelectPdf);
+
+            return Ld;
+        }
+
+        /**
+         * @brief Check visibility between surface point and light.
+         */
+        static bool visible(const Scene& scene,
+            const SurfaceInteraction& ref,
+            const Vector3& wi,
+            Real tMax) {
+
             Ray shadow = rayt::SpawnRay(ref.p, ref.gn, wi);
             shadow.tMin = constants::RAY_EPSILON;
-            shadow.tMax = dist - constants::RAY_EPSILON;
+            shadow.tMax = tMax - constants::RAY_EPSILON;
 
             SurfaceInteraction tmp;
             return !scene.hit(shadow, tmp);
         }
+
     };
 
 } // namespace rayt 

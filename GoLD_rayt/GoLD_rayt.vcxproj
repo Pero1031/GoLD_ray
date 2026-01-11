@@ -90,7 +90,9 @@
     <ClInclude Include="include\IO\ImageLoader.hpp" />
     <ClInclude Include="include\IO\IORInterpolator.hpp" />
     <ClInclude Include="include\Lights\AreaLight.hpp" />
+    <ClInclude Include="include\Lights\EnvLight.hpp" />
     <ClInclude Include="include\Lights\Light.hpp" />
+    <ClInclude Include="include\Lights\LightSampler.hpp" />
     <ClInclude Include="include\Lights\PointLight.hpp" />
     <ClInclude Include="include\Materials\Dielectric.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
