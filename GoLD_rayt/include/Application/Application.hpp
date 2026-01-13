@@ -4,9 +4,9 @@
 #include <GLFW/glfw3.h>
 #include <memory>
 
-#include "Renderer/Film.hpp"
-#include "Renderer/Scene.hpp"
-#include "Renderer/Integrator.hpp" 
+#include "Render/Film.hpp"
+#include "Render/Scene.hpp"
+#include "Render/Integrator.hpp" 
 #include "../src/UI/ImGuiLayer.hpp"
 #include "Core/RenderSettings.hpp"
 
