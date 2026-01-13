@@ -1,5 +1,5 @@
 ﻿/**
- * @file Geometry/Hittable.hpp
+ * @file Scene/Hittable.hpp
  * @brief Abstract interface for geometric objects.
  * * This header defines the 'Hittable' base class, which provides a unified
  * interface for any object that can be intersected by a ray. It serves as

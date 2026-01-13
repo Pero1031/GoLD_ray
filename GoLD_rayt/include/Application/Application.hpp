@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "Render/Film.hpp"
-#include "Render/Scene.hpp"
+#include "Scene/Scene.hpp"
 #include "Render/Integrator.hpp" 
 #include "../src/UI/ImGuiLayer.hpp"
 #include "Core/RenderSettings.hpp"
