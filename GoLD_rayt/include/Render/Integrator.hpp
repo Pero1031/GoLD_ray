@@ -12,7 +12,7 @@
 #include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/SpectrumUtils.hpp"
-#include "Render/Scene.hpp" // HittableList, etc.
+#include "Scene/Scene.hpp" // HittableList, etc.
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
 #include "Lights/Light.hpp"

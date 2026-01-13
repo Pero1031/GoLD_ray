@@ -3,6 +3,8 @@
  * @brief Implementation of the lightweight CSV/TSV reader.
  */
 
+#include "pch.h"
+
 #include "IO/CsvReader.hpp"
 
 #include <fstream>

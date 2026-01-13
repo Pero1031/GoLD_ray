@@ -1,7 +1,5 @@
-#pragma once
-
 /**
- * @file Distribution.hpp
+ * @file Microfacet/Distribution.hpp
  * @brief Abstract interface for Microfacet Distributions (NDF).
  * * Defines the statistical distribution of micro-geometry on a rough surface.
  * Key components:
@@ -9,6 +7,8 @@
  * - G(): Geometric Shadowing/Masking (Smith Model)
  * - sample_wh(): Importance sampling of the micro-normal
  */
+
+#pragma once
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"

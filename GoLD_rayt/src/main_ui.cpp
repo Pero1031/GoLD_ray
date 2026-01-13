@@ -35,15 +35,15 @@
 #include "Accelerators/BVH.hpp" 
 
 // Geometry
-#include "Geometry/Hittable.hpp"
-#include "Geometry/Aggregate.hpp"
+#include "Scene/Hittable.hpp"
+#include "Scene/Aggregate.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Frame.hpp"
 
 // Renderer
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
-#include "Render/Scene.hpp"
+#include "Scene/Scene.hpp"
 #include "Render/Integrator.hpp"
 
 // Materials

@@ -18,7 +18,7 @@
 #include "Core/Ray.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/AABB.hpp"
-#include "Geometry/Hittable.hpp"   
+#include "Scene/Hittable.hpp"   
 
 namespace rayt {
 

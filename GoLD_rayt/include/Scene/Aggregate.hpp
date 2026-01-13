@@ -1,5 +1,5 @@
 ﻿/**
- * @file Geometry/HittableList.hpp
+ * @file Scene/HittableList.hpp
  * @brief A container for multiple Hittable objects.
  * * Provides a simple aggregate structure to manage a collection of scene objects.
  * Performs linear intersection testing and computes the collective bounding box.
@@ -11,7 +11,7 @@
 #include <vector>
 #include <memory>
 
-#include "Geometry/Hittable.hpp"
+#include "Scene/Hittable.hpp"
 #include "Core/AABB.hpp"
 
 namespace rayt {
