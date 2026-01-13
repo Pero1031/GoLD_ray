@@ -24,15 +24,15 @@
 
 // Geometry
 #include "Geometry/Hittable.hpp"
-#include "Geometry/HittableList.hpp"
+#include "Geometry/Aggregate.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Frame.hpp"
 
 // Renderer
-#include "Renderer/Film.hpp"
-#include "Renderer/Camera.hpp"
-#include "Renderer/Scene.hpp"
-#include "Renderer/Integrator.hpp"
+#include "Render/Film.hpp"
+#include "Render/Camera.hpp"
+#include "Render/Scene.hpp"
+#include "Render/Integrator.hpp"
 
 #include "Color/ColorTransform.hpp"
 

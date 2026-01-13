@@ -44,4 +44,5 @@
 // #include <embree4/rtcore.h>
 
 // my header
-// #include "Core/Core.hpp"
+#include "Core/Types.hpp"
+#include "Core/Precision.hpp"
