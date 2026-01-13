@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "Scene/Hittable.hpp"
+#include "Geometry/Shape.hpp"
 #include "Materials/Material.hpp"
 #include "Lights/Light.hpp"
 
@@ -20,7 +20,7 @@ namespace rayt {
      */
     class Primitive final : public Hittable {
     public:
-        Primitive(std::shared_ptr<Hittable> shape,
+        Primitive(std::shared_ptr<Shape> shape,
             std::shared_ptr<Material> material,
             std::shared_ptr<Light> areaLight = nullptr)
             : m_shape(std::move(shape))
@@ -47,7 +47,7 @@ namespace rayt {
         const Light* areaLight() const { return m_areaLight.get(); }
 
     private:
-        std::shared_ptr<Hittable> m_shape;
+        std::shared_ptr<Shape> m_shape;
         std::shared_ptr<Material> m_material;
         std::shared_ptr<Light> m_areaLight; // optional
     };
