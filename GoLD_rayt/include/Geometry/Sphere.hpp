@@ -8,11 +8,15 @@
 
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
+#include "Core/Constants.hpp"
+#include "Core/Math.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/AABB.hpp"
+#include "Geometry/Shape.hpp"
 #include "Scene/Hittable.hpp"
 
 namespace rayt {
@@ -22,7 +26,7 @@ namespace rayt {
      * * The sphere is defined by its center and radius. It supports material
      * assignment and provides an AABB for acceleration structures.
      */
-    class Sphere : public Hittable {
+    class Sphere : public Shape {
     public:
         /**
          * @brief Constructs a sphere.
@@ -42,7 +46,7 @@ namespace rayt {
          * @param rec Output structure to store intersection details if a hit occurs.
          * @return True if the ray hits the sphere within the valid interval [tMin, tMax].
          */
-        virtual bool hit(const Ray& r, SurfaceInteraction& rec) const override {
+        bool hit(const Ray& r, SurfaceInteraction& rec) const override {
             // Vector from sphere center to ray origin
             Vector3 oc = r.o - m_center;
 
@@ -94,6 +98,46 @@ namespace rayt {
         AABB bounds() const override {
             Vector3 rad(m_radius);
             return AABB(m_center - rad, m_center + rad);
+        }
+
+        Real area() const override {
+            return Real(4) * constants::PI * m_radius * m_radius;
+        }
+
+        std::optional<ShapeSample> sampleSurface(const Point2& u) const override {
+            Real z = Real(1) - Real(2) * u.x;
+            Real r = math::safe_sqrt(std::max(Real(0), Real(1) - z * z));
+            Real phi = Real(2) * constants::PI * u.y;
+
+            Vector3 dir(r * std::cos(phi), r * std::sin(phi), z);
+            Point3 p = m_center + dir * m_radius;
+
+            SurfaceInteraction si;
+            si.p = p;
+            si.gn = dir;
+            si.n = dir;
+            si.frontFace = true;
+
+            ShapeSample sample;
+            sample.si = si;
+            sample.pdf = math::safe_recip(area());
+            return sample;
+        }
+
+        Real pdfSurface(const SurfaceInteraction& ref, const Vector3& wi) const override {
+            Ray ray(ref.OffsetRayOrigin(wi), wi);
+            SurfaceInteraction isect;
+            if (!hit(ray, isect)) {
+                return Real(0);
+            }
+
+            Real dist2 = glm::dot(isect.p - ref.p, isect.p - ref.p);
+            Real cosTheta = std::abs(glm::dot(isect.gn, -wi));
+            if (cosTheta <= Real(0)) {
+                return Real(0);
+            }
+
+            return dist2 / (cosTheta * area());
         }
 
     private:
