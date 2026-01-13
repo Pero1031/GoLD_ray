@@ -1,23 +1,21 @@
-﻿#pragma once
-
-/**
- * @file Sampling.hpp
+﻿/**
+ * @file Core/Sampling.hpp
  * @brief Random number generation and geometric sampling routines.
  * * Provides utilities for generating samples on various manifolds (spheres, disks, hemispheres).
  * Includes importance sampling methods for reducing variance in Monte Carlo integration.
  */
+
+#pragma once
 
 #include <random>
 #include <numbers>
 #include <algorithm>
 #include <cmath>
 
-// --- Math / Geometry ---
-#include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "Core/Constants.hpp"   // Include the constants header if available
-#include "Core/Types.hpp"  // to use Real = double
+#include "Core/Constants.hpp"   
+#include "Core/Types.hpp"  
 #include "Core/Math.hpp"
 
 namespace rayt::sampling {

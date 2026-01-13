@@ -1,28 +1,25 @@
-﻿#pragma once
-
-/**
- * @file Frame.hpp
+﻿/**
+ * @file Geometry/Frame.hpp
  * @brief Utilities for Orthonormal Basis (ONB) and coordinate space transformations.
  * * Provides routines to construct and manage local coordinate systems (TBN frames).
  * This is essential for transforming microfacet samples or BRDF directions
  * from local tangent space to world space and vice-versa.
  */
 
+#pragma once
+
 #include <numbers>
 #include <algorithm>
 #include <cmath>
 #include <utility>
 
-// --- Math / Geometry ---
-#include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "Core/Constants.hpp"   // Include the constants header if available
-#include "Core/Core.hpp"
+#include "Core/Types.hpp"
+#include "Core/Constants.hpp"   
 #include "Core/Math.hpp"
-#include "Core/Types.hpp"  // to use Real = double
 
-// localのx= tangent(u), y= bitangent(v), z= normal(w)(right hand)
+// local x= tangent(u), y= bitangent(v), z= normal(w)(right hand)
 
 namespace rayt::frame {
 

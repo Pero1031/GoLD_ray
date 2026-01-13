@@ -183,7 +183,7 @@ namespace rayt {
 
                 // 5. レイの更新
                 // r = Ray(rec.p + rec.n * constants::RAY_EPSILON, wi);  old
-                r = rayt::SpawnRay(rec.p, rec.gn, wi);
+                r = rec.SpawnRay(wi);
             }
 
             return L;
@@ -329,9 +329,7 @@ namespace rayt {
             const Vector3& wi,
             Real tMax) {
 
-            Ray shadow = rayt::SpawnRay(ref.p, ref.gn, wi);
-            shadow.tMin = constants::RAY_EPSILON;
-            shadow.tMax = tMax - constants::RAY_EPSILON;
+            Ray shadow = ref.SpawnRay(wi, tMax);
 
             SurfaceInteraction tmp;
             return !scene.hit(shadow, tmp);

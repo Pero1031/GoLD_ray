@@ -1,19 +1,19 @@
-﻿#pragma once
-
-/**
- * @file Sphere.hpp
+﻿/**
+ * @file Geometry/Sphere.hpp
  * @brief Sphere primitive implementation.
  * * This header defines a standard geometric sphere. It uses an algebraic
  * solution for the ray-sphere intersection test, which is both precise
  * and efficient for primary and shadow rays.
  */
 
-#include "Geometry/Hittable.hpp"
-#include "Core/Interaction.hpp"
-#include "Core/AABB.hpp"
+#pragma once
 
 #include <memory>
 #include <vector>
+
+#include "Core/Interaction.hpp"
+#include "Core/AABB.hpp"
+#include "Geometry/Hittable.hpp"
 
 namespace rayt {
 
@@ -83,11 +83,6 @@ namespace rayt {
             rec.matPtr = m_material.get();
 
             // TODO: Implement spherical UV mapping for texture lookup (e.g., lat/long).
-
-            // 後で消す
-            // Critical: Update the ray's maximum valid distance. 
-            // This ensures subsequent intersection tests in a list or BVH prune farther objects.
-            // r.tMax = rec.t;
 
             return true;
         }

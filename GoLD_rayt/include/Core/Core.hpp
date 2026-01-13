@@ -12,12 +12,15 @@
 
 #pragma once
 
-#include "Core/Types.hpp"           // Fundamental type aliases (Real, Point3, etc.)
-#include "Core/Constants.hpp"       // Mathematical and physical constants
+#include "Core/Precision.hpp"       // Floating-point precision definitions
+#include "Core/Types.hpp"           // Fundamental type aliases (Vector3, Point3, Normal3, etc.)
 #include "Core/Forward.hpp"         // Forward declarations to break cycles
+#include "Core/Constants.hpp"       // Mathematical and physical constants
 #include "Core/Assert.hpp"          // Debug-only validation macros
 #include "Core/Math.hpp"            // Common math utilities
 #include "Core/Ray.hpp"             // Ray and RayDifferential structures
+#include "Core/AABB.hpp"            // Fundamental bounding volume structures
+//#include "Core/Spectrum.hpp"
 
 namespace rayt {
 

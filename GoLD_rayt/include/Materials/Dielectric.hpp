@@ -1,11 +1,12 @@
-#pragma once
-
 /**
- * @file Dielectric.hpp
+ * @file Materials/Dielectric.hpp
  * @brief Dielectric material (Glass, Water, Diamond).
  * * Supports both smooth and rough surfaces using Microfacet theory (Walter et al. 2007).
  * * Ported and adapted from PBRT v4 DielectricBxDF.
  */
+
+
+#pragma once
 
 #include <algorithm>
 

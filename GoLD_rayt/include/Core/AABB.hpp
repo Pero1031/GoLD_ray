@@ -1,11 +1,11 @@
-﻿#pragma once
-
-/**
- * @file AABB.hpp
+﻿/**
+ * @file Core/AABB.hpp
  * @brief Axis-Aligned Bounding Box (AABB) implementation.
  * * AABBs are the fundamental building blocks for acceleration structures (BVH).
  * They provide a fast way to cull groups of objects that a ray cannot possibly hit.
  */
+
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +47,7 @@ namespace rayt {
          * @brief Ray–AABB intersection test using the Slab Method.
          * * This is a highly optimized conservative test to determine if a ray
          * potentially intersects any geometry within the box.
-         * * @param r    The incident ray.
+         * * @param r  The incident ray.
          * @param tMin The start of the ray's valid interval.
          * @param tMax The end of the ray's valid interval.
          * @return True if the ray's path overlaps with the AABB's volume.
@@ -60,6 +60,7 @@ namespace rayt {
                 const Real origin = r.o[axis];
                 const Real direction = r.d[axis];
 
+                // Check if the ray is parallel to the current axis
                 if (std::abs(direction) < constants::INTERSECT_TOLERANCE) {
                     if (origin < min[axis] || origin > max[axis]) return false;
                     continue;

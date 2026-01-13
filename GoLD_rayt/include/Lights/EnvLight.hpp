@@ -1,5 +1,5 @@
 /**
- * @file EnvLight.hpp
+ * @file Lights/EnvLight.hpp
  * @brief Infinite/Environment light source based on an environment map.
  *
  * This light wraps an EnvMap (from IO/EnvMap.hpp) and exposes it through

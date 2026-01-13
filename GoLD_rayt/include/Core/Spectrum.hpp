@@ -1,5 +1,5 @@
 /**
- * @file Spectrum.hpp
+ * @file Core/Spectrum.hpp
  * @brief Unified spectrum representation supporting both RGB and spectral modes.
  *
  * This header provides a compile-time switchable spectrum implementation:

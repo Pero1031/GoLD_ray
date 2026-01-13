@@ -1,8 +1,8 @@
 ﻿/**
  * @file Core/Constants.hpp
- * @brief Global constants for mathematical, computational, and physical calculations.
- * * Consistent with the project-wide 'Real' type definition.
- * Mathematical constants leverage C++20 standard library templates for maximum precision.
+ * @brief Mathematical, computational, and physical constants.
+ * * - Leverages C++20 standard library templates for type-safe precision.
+ * - Adheres to the SI 2019 redefinition for physical constants.
  */
 
 #pragma once
@@ -19,14 +19,14 @@ namespace rayt::constants {
     // -------------------------------------------------------------------------
 
     // C++20: Use standard library constants for maximum precision and portability.
-    constexpr Real PI = std::numbers::pi_v<Real>;
-    constexpr Real INV_PI = std::numbers::inv_pi_v<Real>;          // 1/π
+    constexpr Real PI          = std::numbers::pi_v<Real>;
+    constexpr Real INV_PI      = std::numbers::inv_pi_v<Real>;     // 1/π
     constexpr Real INV_SQRT_PI = std::numbers::inv_sqrtpi_v<Real>; // 1/√π
 
     // Derived constants frequently used in ray tracing equations.
-    constexpr Real TWO_PI = Real(2) * PI;             // Full circle (360 deg) in radians
-    constexpr Real FOUR_PI = Real(4) * PI;            // Solid angle of a sphere
-    constexpr Real INV_TWO_PI = Real(1) / TWO_PI;
+    constexpr Real TWO_PI      = Real(2) * PI;        // Full circle (360 deg) in radians
+    constexpr Real FOUR_PI     = Real(4) * PI;        // Solid angle of a sphere
+    constexpr Real INV_TWO_PI  = Real(1) / TWO_PI;    // 1/(2π)
     constexpr Real INV_FOUR_PI = Real(1) / FOUR_PI;   // Normalization factor for isotropic phase functions 1/4π
 
     // Unit Conversion: Angle degree/radian transformations
@@ -35,7 +35,7 @@ namespace rayt::constants {
 
 
     // -------------------------------------------------------------------------
-    // 2. Computational Constants
+    // 2. Computational & Numerical Constants
     // -------------------------------------------------------------------------
 
     // Representation of infinity for initial ray distances and bounding box bounds.
@@ -49,13 +49,14 @@ namespace rayt::constants {
     // Numerical tolerance for floating-point comparisons in intersection tests.
     constexpr Real INTERSECT_TOLERANCE = 1e-8;
 
-    // use MicrofacetDistribution alpha
+    // Minimum roughness/alpha threshold for microfacet distributions to avoid singularities.
     constexpr Real ALPHA_EPSILON = 1e-4;
 
 
     // -------------------------------------------------------------------------
-    // 3. Physical Constants for Spectral Rendering
+    // 3. Physical Constants
     // -------------------------------------------------------------------------
+    
     // These constants are required for defining light sources (e.g., Blackbody radiation)
     // when performing full spectral rendering.
     // Standard: SI Units (m, kg, s, J, K) based on the 2019 redefinition.
@@ -82,4 +83,4 @@ namespace rayt::constants {
     constexpr Real LAMBDA_MIN = 360.0;
     constexpr Real LAMBDA_MAX = 830.0;
 
-} // namespace constants
+} // namespace rayt::constants

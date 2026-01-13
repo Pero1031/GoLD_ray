@@ -86,7 +86,6 @@
     <ClInclude Include="include\Core\Spectrum.hpp" />
     <ClInclude Include="include\Core\SpectrumUtils.hpp" />
     <ClInclude Include="include\Core\Types.hpp" />
-    <ClInclude Include="include\Core\Utils.hpp" />
     <ClInclude Include="include\DebugTools\FrameDebug.hpp" />
     <ClInclude Include="include\Geometry\Frame.hpp" />
     <ClInclude Include="include\Geometry\Hittable.hpp" />
@@ -209,7 +208,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);GLM_FORCE_AVX2;GLM_FORCE_DEFAULT_ALIGNED_GENTYPES;GLM_FORCE_INLINE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
@@ -217,6 +216,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <OpenMPSupport>true</OpenMPSupport>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -231,12 +231,13 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);GLM_FORCE_AVX2;GLM_FORCE_DEFAULT_ALIGNED_GENTYPES;GLM_FORCE_INLINE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)external;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <OpenMPSupport>true</OpenMPSupport>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

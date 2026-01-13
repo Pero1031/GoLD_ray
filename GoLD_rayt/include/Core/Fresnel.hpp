@@ -15,8 +15,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include <glm/glm.hpp>
-
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"   
 #include "Core/Math.hpp"

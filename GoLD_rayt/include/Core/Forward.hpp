@@ -14,6 +14,7 @@ namespace rayt {
     // ---------------------------------------------------------------------
     // Scene & Geometry
     // ---------------------------------------------------------------------
+    
     // Fundamental building blocks of the 3D environment.
     class Scene;
     class Shape;                 // Pure geometry (Sphere, Triangle, etc.)
@@ -24,6 +25,7 @@ namespace rayt {
     // ---------------------------------------------------------------------
     // Main Pipeline
     // ---------------------------------------------------------------------
+    
     // Components that drive the rendering process.
     class Camera;        // Generates primary rays
     class Sampler;       // Generates sample patterns (RNG)
@@ -34,15 +36,17 @@ namespace rayt {
     // ---------------------------------------------------------------------
     // Rays & Interactions
     // ---------------------------------------------------------------------
+    
     // Data structures representing light paths and hit information.
     struct Ray;
-    struct RayDifferential;   // Ray with derivatives for texture filtering
-    struct Interaction;       // Generic hit information
+    struct RayDifferential;    // Ray with derivatives for texture filtering
+    struct Interaction;        // Generic hit information
     struct SurfaceInteraction; // Detailed hit data (UV, normal, tangents)
 
     // ---------------------------------------------------------------------
     // Lighting
     // ---------------------------------------------------------------------
+    
     // Light sources and visibility calculations.
     class Light;
     class AreaLight;          // Light attached to a geometric shape
@@ -51,6 +55,7 @@ namespace rayt {
     // ---------------------------------------------------------------------
     // Shading & Materials
     // ---------------------------------------------------------------------
+    
     // Physics of light scattering at a surface.
     class Material;                // Describes surface properties
     class BSDF;                    // Bidirectional Scattering Distribution Function
@@ -62,6 +67,7 @@ namespace rayt {
     // ---------------------------------------------------------------------
     // Volumetrics
     // ---------------------------------------------------------------------
+    
     // Handling of light interacting with participating media (fog, smoke).
     class Medium;               // Volume properties
     struct MediumInterface;     // Transition between two media

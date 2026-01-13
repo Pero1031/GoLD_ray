@@ -1,12 +1,12 @@
-﻿#pragma once
-
-/**
- * @file BVH.hpp
+﻿/**
+ * @file Accelerators/BVH.hpp
  * @brief Bounding Volume Hierarchy (BVH) implementation.
  * * BVH is a spatial acceleration structure that organizes objects into a
  * hierarchical tree of AABBs. This allows the intersection complexity to be
  * reduced from O(N) to O(log N), making complex scene rendering feasible.
  */
+
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -166,15 +166,6 @@ namespace rayt {
                 closestSoFar = tempRec.t;
                 rec = tempRec;
             }
-
-            /*
-            // Test the closer child first.
-            if (first->hit(r, rec)) hitAny = true;
-
-            // Test the second child. 
-            // Note: second->hit() will automatically use the updated (shortened) r.tMax.
-            if (second->hit(r, rec)) hitAny = true;
-            */
 
             return hitAnything;
         }

@@ -1,13 +1,27 @@
-
+/**
+ * @file Lights/PointLight.hpp
+ * @brief Point light implementation (delta-position light).
+ *
+ * This file defines rayt::PointLight, a delta-position light source that emits
+ * from a single point in space. It supports Next Event Estimation (NEE) via
+ * Light::sampleLi() by returning the unique direction toward the light and an
+ * inverse-square falloff contribution. For delta lights, Light::pdfLi() returns
+ * 0 (delta distribution w.r.t. solid angle), while sampleLi() provides a usable
+ * sample with pdf = 1 to avoid division-by-zero in estimators and to keep delta
+ * handling explicit for MIS.
+ *
+ * The intensity is currently treated as RGB-scaled strength; it can be extended
+ * to wavelength-dependent evaluation using SampledWavelengths in spectral mode.
+ */
 
 #pragma once
 
 #include <optional>
 
-#include "Lights/Light.hpp"
-#include "Core/Constants.hpp"
 #include "Core/Types.hpp"
+#include "Core/Constants.hpp"
 #include "Core/Math.hpp"
+#include "Lights/Light.hpp"
 
 namespace rayt {
 
