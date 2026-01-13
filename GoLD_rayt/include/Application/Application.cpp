@@ -207,7 +207,7 @@ void App::init() {
     // --------------------------------------------------
     // 4. シーン構築
     // --------------------------------------------------
-    auto worldList = std::make_shared<HittableList>();
+    auto worldList = std::make_shared<Aggregate>();
 
     // リストに対して add する
     worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
@@ -223,17 +223,17 @@ void App::init() {
     m_scene = std::make_shared<Scene>(worldList);
 
     // 環境光を設定（存在する場合）
-    if (envLight) {
+    /*if (envLight) {
         m_scene->setEnvLight(envLight);
         std::cout << "[Scene] Environment light set.\n";
-    }
+    }*/
 
     // オプション: ポイントライトや他の光源を追加
     // 例: シーン内にポイントライトを追加する場合
     
-    auto pointLight = std::make_shared<PointLight>(
+   auto pointLight = std::make_shared<PointLight>(
         Point3(-1.2, 3, 0),           // 位置
-        Spectrum(50, 15, 0)       // 強度
+        Spectrum(50, 20, 0)       // 強度
     );
     m_scene->addLight(pointLight);
     std::cout << "[Scene] Point light added.\n";

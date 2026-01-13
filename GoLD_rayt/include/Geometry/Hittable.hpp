@@ -1,12 +1,12 @@
-﻿#pragma once
-
-/**
- * @file Hittable.hpp
+﻿/**
+ * @file Geometry/Hittable.hpp
  * @brief Abstract interface for geometric objects.
  * * This header defines the 'Hittable' base class, which provides a unified
  * interface for any object that can be intersected by a ray. It serves as
  * the core abstraction for primitives, aggregates (like BVH), and instances.
  */
+
+#pragma once
 
 #include "Core/Forward.hpp"
 #include "Core/Ray.hpp"

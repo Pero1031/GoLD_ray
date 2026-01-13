@@ -1,7 +1,5 @@
-﻿#pragma once
-
-/**
- * @file Distribution2D.hpp
+﻿/**
+ * @file Core/Distribution2D.hpp
  * @brief Generic 2D Probability Distribution for Monte Carlo Integration.
  *
  * This file defines the Distribution2D structure, which implements hierarchical
@@ -11,14 +9,16 @@
  * but can be applied to any 2D tabulated data.
  */
 
+#pragma once
+
 #include <vector>
 #include <memory>
 #include <cmath>
 #include <algorithm>
 
-#include "Distribution1D.hpp"
 #include "Core/Types.hpp"
 #include "Core/Forward.hpp"
+#include "Distribution1D.hpp"
 
 namespace rayt {
 

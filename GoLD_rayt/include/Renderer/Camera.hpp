@@ -1,5 +1,5 @@
 ﻿/**
- * @file Camera.hpp
+ * @file Renderer/Camera.hpp
  * @brief Physically-based camera model with Depth of Field (DoF).
  * * Implements a thin-lens camera system. Supports adjustable Field of View (FOV),
  * focal distance, and aperture size to simulate realistic optical effects

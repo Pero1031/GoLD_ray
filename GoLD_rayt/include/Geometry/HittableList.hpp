@@ -1,17 +1,18 @@
-﻿#pragma once
-
-/**
- * @file HittableList.hpp
+﻿/**
+ * @file Geometry/HittableList.hpp
  * @brief A container for multiple Hittable objects.
  * * Provides a simple aggregate structure to manage a collection of scene objects.
  * Performs linear intersection testing and computes the collective bounding box.
  */
 
-#include "Geometry/Hittable.hpp"
-#include "Core/AABB.hpp"
+
+#pragma once
 
 #include <vector>
 #include <memory>
+
+#include "Geometry/Hittable.hpp"
+#include "Core/AABB.hpp"
 
 namespace rayt {
 
@@ -21,14 +22,14 @@ namespace rayt {
      * tests, it iterates through all contained objects and ensures that 'rec'
      * always contains the information of the closest hit.
      */
-    class HittableList : public Hittable {
+    class Aggregate : public Hittable {
     public:
-        HittableList() {}
+        Aggregate() {}
 
         /**
          * @brief Constructs a list with an initial object.
          */
-        HittableList(std::shared_ptr<Hittable> object) { add(object); }
+        Aggregate(std::shared_ptr<Hittable> object) { add(object); }
 
         /**
          * @brief Adds a hittable object to the collection.
@@ -56,7 +57,7 @@ namespace rayt {
 
             for (const auto& object : objects) {
                 Ray testRay = r;
-                testRay.tMax = closestSoFar; // ★ 判定前にクランプ
+                testRay.tMax = closestSoFar; 
 
                 if (object->hit(testRay, tempRec)) {
                     hitAnything = true;

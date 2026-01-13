@@ -1,12 +1,12 @@
-﻿#pragma once
-
-/**
- * @file Assert.hpp
+﻿/**
+ * @file Core/Assert.hpp
  * @brief Diagnostic macros for state validation and debugging.
  * * Provides a lightweight assertion mechanism to ensure internal consistency
  * and physical correctness (e.g., energy conservation, non-negative PDFs)
  * without impacting performance in production builds.
  */
+
+#pragma once
 
 #include <cstdlib>
 #include <iostream>

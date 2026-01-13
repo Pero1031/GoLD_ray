@@ -146,7 +146,7 @@ int main() {
     // -------------------------------------------------------------------------
     // 2. 物体の配置 (Scene) - 1万個チャレンジ
     // -------------------------------------------------------------------------
-    auto worldObjects = std::make_shared<HittableList>();
+    auto worldObjects = std::make_shared<Aggregate>();
 
     // 床
     worldObjects->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));

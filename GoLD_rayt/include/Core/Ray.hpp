@@ -1,11 +1,11 @@
-﻿#pragma once
-
-/**
-* @file Ray.hpp
+﻿/**
+* @file Core/Ray.hpp
 * @brief Ray and RayDifferential structures.
 * * Fundamental primitives for light transport. RayDifferential provides
 * auxiliary information used for antialiasing and texture filtering (LOD).
 */
+
+#pragma once
 
 #include <cmath>
 
@@ -16,9 +16,6 @@
 
 namespace rayt {
 
-    // Ray class represents a semi-infinite line starting from an origin.
-    // In PBRT, rays also carry information about time (for motion blur)
-    // and the medium they are traveling through.
     /**
      * @brief Represents a semi-infinite line used for ray tracing.
      * Defined by an origin 'o' and a direction 'd'.
@@ -37,7 +34,6 @@ namespace rayt {
 
         /**
          * @brief Upper bound of the valid intersection interval.
-         * Marked 'mutable' to allow updates within const methods (e.g., during traversal).
          * As the ray hits closer objects, this value decreases to prune the search.
          */
         Real tMax;
@@ -49,14 +45,15 @@ namespace rayt {
          */
         Real tMin;
 
-        // Participating Media
-        // Enable this when rendering effects like "foggy environments," 
-        // moving beyond simple surface-level metallic reflections.
+        /**
+        * @brief The medium currently surrounding the ray.
+        * If not null, the ray will account for volumetric effects (e.g., fog, smoke,
+        * or subsurface scattering) as it prepagates through space.
+        */
         const Medium* medium = nullptr;
 
         /**
         * @brief Time value associated with this ray.
-        *
         * Specifies the temporal position of the ray within the shutter interval,
          * enabling motion blur and time-varying geometry. This parameter does not
         * affect rendering unless explicitly used by time-dependent primitives
@@ -82,8 +79,6 @@ namespace rayt {
         Ray(const Point3& o, const Vector3& d, Real tMin = constants::RAY_EPSILON, const Medium* medium = nullptr)
             : o(o), d(d), tMin(tMin), tMax(constants::INFINITY_VAL), medium(medium) {
         }
-
-        // Public Methods
 
         /**
          * @brief Calculates the point along the ray at parameter t.
@@ -154,32 +149,5 @@ namespace rayt {
             ryDirection = d + (ryDirection - d) * s;
         }
     };
-
-    // -------------------------------------------------------------------------
-    // Utility Functions
-    // -------------------------------------------------------------------------
-
-    /**
-     * @brief Spawns a new ray from a surface point.
-     * Correctly handles numerical offsets to avoid self-intersection (Shadow Acne).
-     * * @param p   The surface hit point (origin for the new ray).
-     * @param n   The surface normal at the hit point.
-     * @param wi  The new ray direction (already calculated, e.g., via BRDF sampling).
-     * @param med The medium containing the new ray.
-     * @return Ray The newly constructed ray with proper safety offsets.
-     * TODO: For large-scale scenes or strong normal maps,
-     * consider PBRT-style offsetRayOrigin (scale-dependent eps + nextafter).
-     */
-    inline Ray SpawnRay(const Point3& p, const Vector3& gn, const Vector3& wi, const Medium* med = nullptr) {
-
-        // Offset the starting point along +n if wi is in the same hemisphere, or -n if refracted.
-        // Without this, glass rendering will be plagued by self-intersection noise.
-        Vector3 offset = glm::dot(gn, wi) > 0.0 ? gn : -gn;
-
-        // Offset the ray origin slightly from the hit point p along the ray direction.
-        Point3 origin = p + offset * constants::RAY_EPSILON;
-
-        return Ray(origin, wi, constants::RAY_EPSILON, med);
-    }
 
 } // namespace rayt

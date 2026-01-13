@@ -23,8 +23,6 @@
 #include "Core/Assert.hpp"  
 #include "Core/Constants.hpp"
 
-#include <glm/glm.hpp>
-
 namespace rayt::math {
 
     // -------------------------------------------------------------------------

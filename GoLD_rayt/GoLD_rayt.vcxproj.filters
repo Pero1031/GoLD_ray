@@ -86,9 +86,6 @@
     <ClInclude Include="include\Core\Ray.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="include\Core\Utils.hpp">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
     <ClInclude Include="include\Geometry\Hittable.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
