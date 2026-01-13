@@ -1,7 +1,7 @@
 ﻿#include "pch.h"
 
 #include "Core/Math.hpp"
-#include "Renderer/Film.hpp"
+#include "Render/Film.hpp"
 #include "Color/ColorTransform.hpp"
 
 // stb_image_write implementation is assumed to be compiled
