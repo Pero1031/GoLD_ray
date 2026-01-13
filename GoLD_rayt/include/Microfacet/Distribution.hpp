@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
 #include "Core/Math.hpp"
