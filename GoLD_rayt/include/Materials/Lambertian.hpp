@@ -1,19 +1,19 @@
-﻿#pragma once
-
-/**
- * @file Lambertian.hpp
+﻿/**
+ * @file Materials/Lambertian.hpp
  * @brief Ideal diffuse (Lambertian) material implementation.
  * * Represents a perfectly matte surface that scatters light uniformly in all
  * directions. This implementation uses cosine-weighted importance sampling
  * to significantly reduce noise in diffuse global illumination.
  */
 
+#pragma once
+
 #include "Core/Types.hpp"
 #include "Core/Forward.hpp"
 #include "Core/Math.hpp"
+#include "Core/Sampling.hpp"
 #include "Materials/Material.hpp"
 #include "Geometry/Frame.hpp"
-#include "Core/Sampling.hpp"
 
 namespace rayt {
 

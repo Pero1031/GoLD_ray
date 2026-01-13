@@ -1,7 +1,5 @@
-﻿#pragma once
-
-/**
- * @file Distribution1D.hpp
+﻿/**
+ * @file Core/Distribution1D.hpp
  * @brief 1D Probability Distribution for Importance Sampling.
  *
  * This file defines the Distribution1D class, which implements the Inverse Transform Sampling method.
@@ -9,6 +7,8 @@
  * and allows for continuous sampling proportional to the data values.
  * This is essential for Monte Carlo integration, specifically for environment map importance sampling.
  */
+
+#pragma once
 
 #include <vector>
 #include <numeric>

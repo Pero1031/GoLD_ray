@@ -1,6 +1,4 @@
-﻿#pragma once
-
-/**
+﻿/**
  * @file Film.hpp
  * @brief Film class for storing per-pixel accumulated radiance (sum buffer).
  *
@@ -10,6 +8,8 @@
  * tone mapping, and display encoding (gamma/sRGB) are performed at output time
  * (e.g., UI display or file saving).
  */
+
+#pragma once
 
 #include <string>
 #include <vector>

@@ -1,10 +1,10 @@
-﻿#pragma once
-
-/**
- * @file RoughConductor.hpp
+﻿/**
+ * @file Materials/RoughConductor.hpp
  * @brief Rough conductor material based on Microfacet theory (Cook-Torrance).
  * Implements GGX distribution with VNDF sampling and complex Fresnel terms.
  */
+
+#pragma once
 
 #include <complex>
 #include <optional>

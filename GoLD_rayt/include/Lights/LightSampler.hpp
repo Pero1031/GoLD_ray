@@ -1,5 +1,5 @@
 /**
- * @file LightSampler.hpp
+ * @file Lights/LightSampler.hpp
  * @brief Light sampling strategies for importance sampling in rendering.
  *
  * The LightSampler encapsulates the logic for selecting which light(s) to sample
@@ -7,11 +7,13 @@
  * sampling strategies (uniform, power-based, spatial, etc.) without modifying
  * the core Scene or Integrator classes.
  */
+
 #pragma once
 
 #include <memory>
 #include <vector>
 #include <optional>
+
 #include "Core/Types.hpp"
 #include "Core/Sampling.hpp"
 #include "Lights/Light.hpp"
@@ -22,7 +24,7 @@ namespace rayt {
      * @brief Result of sampling a light source.
      */
     struct LightSampleResult {
-        const Light* light = nullptr;  ///< Pointer to the sampled light
+        const Light* light = nullptr;   ///< Pointer to the sampled light
         Real pdf = 0;                   ///< PDF of selecting this light
         int index = -1;                 ///< Index in the light array (useful for debugging)
     };
