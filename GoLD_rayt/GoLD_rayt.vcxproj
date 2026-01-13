@@ -40,7 +40,10 @@
     <ClCompile Include="external\glad\src\glad.c">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="include\Application\Application.cpp" />
+    <ClCompile Include="src\Application\Application.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\DebugTools\FrameDebug.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -148,6 +151,10 @@
     <ClInclude Include="include\Render\Film.hpp" />
     <ClInclude Include="include\Render\Integrator.hpp" />
     <ClInclude Include="include\Render\Scene.hpp" />
+    <ClInclude Include="include\Scene\Aggregate.hpp" />
+    <ClInclude Include="include\Scene\Hittable.hpp" />
+    <ClInclude Include="include\Scene\Primitive.hpp" />
+    <ClInclude Include="include\Scene\Scene.hpp" />
     <ClInclude Include="include\stb\stb_image.h" />
     <ClInclude Include="include\stb\stb_image_write.h" />
     <ClInclude Include="src\UI\ImGuiLayer.hpp" />

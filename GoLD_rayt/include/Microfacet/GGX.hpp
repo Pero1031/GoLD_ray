@@ -1,13 +1,13 @@
-﻿#pragma once
-
-/**
- * @file GGX.hpp
+﻿/**
+ * @file Microfacet/GGX.hpp
  * @brief GGX (Trowbridge-Reitz) Microfacet Distribution implementation.
  * * References:
  * - "Microfacet Models for Refraction through Rough Surfaces" (Walter et al. 2007)
  * - "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs" (Heitz 2014)
  * - "Sampling the GGX Distribution of Visible Normals" (Heitz 2018)
  */
+
+#pragma once
 
 #include <cmath>
 

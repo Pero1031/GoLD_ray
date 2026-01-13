@@ -1,5 +1,5 @@
 ﻿/**
- * @file Renderer/Scene.hpp
+ * @file Scene/Scene.hpp
  * @brief Scene class representing the entire environment to be rendered.
  * * The Scene acts as a high-level container that orchestrates geometry,
  * light sources, and environmental properties. It provides a simplified
@@ -12,7 +12,7 @@
 #include <vector>
 #include <string>
 
-#include "Geometry/Hittable.hpp"
+#include "Scene/Hittable.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/LightSampler.hpp"
 #include "Lights/EnvLight.hpp"
