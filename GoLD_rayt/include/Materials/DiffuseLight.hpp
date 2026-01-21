@@ -1,4 +1,8 @@
-﻿#pragma once
+﻿/**
+* @ file Materials/DiffuseLight.hpp
+*/
+
+#pragma once
 
 #include "Materials/Material.hpp"
 
@@ -7,7 +11,10 @@ namespace rayt {
     class DiffuseLight : public Material {
     public:
         // color: 光の色と強さ (例: (10, 10, 10) なら非常に明るい白)
-        DiffuseLight(const Spectrum& color) : m_emit(color) {}
+        DiffuseLight(const Spectrum& color, Real intensity = Real(1), bool twoSided = false)
+            : m_emit(color)
+            , m_intensity(intensity)
+            , m_twoSided(twoSided) {}
 
         // --------------------------------------------------------
         // BSDF (反射・透過) の振る舞い
@@ -42,14 +49,16 @@ namespace rayt {
         // wo: 表面からカメラ(または次のレイ)へ向かうベクトル
         Spectrum emitted(const SurfaceInteraction& rec, const Vector3& wo) const override {
             // 法線と同じ側から見ている場合のみ発光する（裏面は光らない）
-            if (glm::dot(rec.n, wo) > 0.0) {
-                return m_emit;
+            if (m_twoSided || rec.frontFace) {
+                return m_emit * m_intensity;
             }
             return Spectrum(0.0);
         }
 
     private:
         Spectrum m_emit;
+        Real m_intensity = Real(1);
+        bool m_twoSided = false;
     };
 
 }

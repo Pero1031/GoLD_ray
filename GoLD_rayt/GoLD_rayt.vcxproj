@@ -120,6 +120,7 @@
     <ClInclude Include="include\Core\Precision.hpp" />
     <ClInclude Include="include\Core\Ray.hpp" />
     <ClInclude Include="include\Core\RenderSettings.hpp" />
+    <ClInclude Include="include\Core\SampledWavelengths.hpp" />
     <ClInclude Include="include\Core\Sampling.hpp" />
     <ClInclude Include="include\Core\Spectrum.hpp" />
     <ClInclude Include="include\Core\SpectrumUtils.hpp" />

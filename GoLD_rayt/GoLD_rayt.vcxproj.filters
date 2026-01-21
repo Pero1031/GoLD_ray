@@ -278,5 +278,8 @@
     <ClInclude Include="include\Geometry\Shape.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Core\SampledWavelengths.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

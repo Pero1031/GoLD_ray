@@ -1,12 +1,18 @@
 ﻿/**
- * @file ColorSpace.hpp
+ * @file Color/ColorSpace.hpp
  * @brief CIE color matching and RGB conversion utilities.
  *
- * Provides:
- * - CIE XYZ color matching functions
- * - Spectral to RGB conversion
- * - RGB color space transformations (sRGB, Rec.2020, etc.)
+ * Notes / Assumptions:
+ * - CIE 1931 2° CMFs are approximated using Wyman/Sloan/Shirley (2013) "multi-lobe" analytic fits.
+ * - The CMF approximation is intended for wavelengths roughly in [360, 830] nm (same range used in the paper's viewer).
+ * - spectralToRGB() integrates S(λ) * CMF(λ) over wavelength.
+ *   What S(λ) represents matters:
+ *     * If S(λ) is an SPD/radiance already including illuminant, XYZ will be meaningful up to a scale.
+ *     * If S(λ) is *reflectance*, you should multiply by an illuminant SPD (e.g., D65) before integration.
+ * - XYZ_to_sRGB() uses the standard sRGB matrix for D65 white point.
+ *   If your XYZ is not D65-referenced (or you want colorimetry-grade results), you may need white-point adaptation / normalization.
  */
+
 #pragma once
 
 #include <array>
@@ -46,39 +52,42 @@ namespace rayt::color {
     };
 
     /**
-     * @brief Evaluate CIE XYZ color matching function at wavelength λ (nm).
+     * @brief Asymmetric Gaussian used by Wyman et al. (2013).
+     *
+     * The paper implements terms in the form:
+     *   d = (λ - μ) * (λ < μ ? k_left : k_right)
+     *   value = A * exp(-0.5 * d^2)
+     * Note: k is effectively (1/σ) and differs on left/right sides of the peak.
      */
-    inline CIE_XYZ evaluateCIE_XYZ(Real lambda) {
-        // Gaussian approximation (simpler, faster)
-        // For production, use piecewise Gaussian fits (Wyman et al. 2013)
+    inline Real gaussAsym(Real lambda, Real mu, Real kLeft, Real kRight, Real A) {
+        const Real d = (lambda - mu) * (lambda < mu ? kLeft : kRight);
+        return A * std::exp(Real(-0.5) * d * d);
+    }
 
+    /**
+     * @brief Wyman/Sloan/Shirley (2013) multi-lobe analytic fit for CIE 1931 2° CMFs.
+     *
+     * Validated in the paper against the tabulated CIE 1931 1nm data.
+     * Intended usage range: approximately 360–830 nm.
+     */
+    inline CIE_XYZ evaluateCIE_XYZ_1931_MultiLobe(Real lambda_nm) {
         CIE_XYZ xyz;
 
-        // X component (peaks around 600nm - red/orange)
-        {
-            Real t1 = (lambda - Real(442)) / Real(36);
-            Real t2 = (lambda - Real(599.8)) / Real(37.9);
-            Real t3 = (lambda - Real(501.1)) / Real(20.4);
-            xyz.X = Real(0.362) * std::exp(Real(-0.5) * t1 * t1)
-                + Real(1.056) * std::exp(Real(-0.5) * t2 * t2)
-                - Real(0.065) * std::exp(Real(-0.5) * t3 * t3);
-        }
+        // X
+        xyz.X =
+            gaussAsym(lambda_nm, Real(442.0), Real(0.0624), Real(0.0374), Real(0.362)) +
+            gaussAsym(lambda_nm, Real(599.8), Real(0.0264), Real(0.0323), Real(1.056)) -
+            gaussAsym(lambda_nm, Real(501.1), Real(0.0490), Real(0.0382), Real(0.065));
 
-        // Y component (peaks around 555nm - green, luminance)
-        {
-            Real t1 = (lambda - Real(568.8)) / Real(46.9);
-            Real t2 = (lambda - Real(530.9)) / Real(16.3);
-            xyz.Y = Real(0.821) * std::exp(Real(-0.5) * t1 * t1)
-                + Real(0.286) * std::exp(Real(-0.5) * t2 * t2);
-        }
+        // Y
+        xyz.Y =
+            gaussAsym(lambda_nm, Real(568.8), Real(0.0213), Real(0.0247), Real(0.821)) +
+            gaussAsym(lambda_nm, Real(530.9), Real(0.0613), Real(0.0322), Real(0.286));
 
-        // Z component (peaks around 445nm - blue)
-        {
-            Real t1 = (lambda - Real(437)) / Real(11.8);
-            Real t2 = (lambda - Real(459)) / Real(26);
-            xyz.Z = Real(1.217) * std::exp(Real(-0.5) * t1 * t1)
-                + Real(0.681) * std::exp(Real(-0.5) * t2 * t2);
-        }
+        // Z
+        xyz.Z =
+            gaussAsym(lambda_nm, Real(437.0), Real(0.0845), Real(0.0278), Real(1.217)) +
+            gaussAsym(lambda_nm, Real(459.0), Real(0.0385), Real(0.0725), Real(0.681));
 
         return xyz;
     }
@@ -88,48 +97,57 @@ namespace rayt::color {
     // ========================================================================
 
     /**
-     * @brief XYZ to sRGB conversion matrix (D65 white point).
+     * @brief Convert CIE XYZ to linear sRGB (D65).
      *
-     * Standard sRGB primaries with D65 illuminant.
+     * This is the standard matrix for sRGB/BT.709 primaries with D65 white point.
+     * Input XYZ should be in the same reference white (D65) to be strictly consistent.
      */
-    inline glm::vec3 XYZ_to_sRGB(const CIE_XYZ& xyz) {
-        // ITU-R BT.709 / sRGB conversion matrix
-        glm::vec3 rgb;
-        rgb.x = static_cast<float>(3.2406 * xyz.X - 1.5372 * xyz.Y - 0.4986 * xyz.Z);
-        rgb.y = static_cast<float>(-0.9689 * xyz.X + 1.8758 * xyz.Y + 0.0415 * xyz.Z);
-        rgb.z = static_cast<float>(0.0557 * xyz.X - 0.2040 * xyz.Y + 1.0570 * xyz.Z);
+    inline Vector3 XYZ_to_sRGB(const CIE_XYZ& xyz) {
+        Vector3 rgb;
+        rgb.x = Real(3.2406) * xyz.X - Real(1.5372) * xyz.Y - Real(0.4986) * xyz.Z;
+        rgb.y = -Real(0.9689) * xyz.X + Real(1.8758) * xyz.Y + Real(0.0415) * xyz.Z;
+        rgb.z = Real(0.0557) * xyz.X - Real(0.2040) * xyz.Y + Real(1.0570) * xyz.Z;
         return rgb;
     }
 
     /**
-     * @brief Apply sRGB gamma correction (inverse EOTF).
+    * @brief sRGB OETF (linear -> sRGB encoded) for a single channel.
+    * @note Input is assumed linear-light. Negative values are not meaningful for display; caller should clamp if needed.
+    */
+    inline Real linearToSRGB(Real x) {
+        if (x <= Real(0.0031308))
+            return Real(12.92) * x;
+        return Real(1.055) * std::pow(x, Real(1.0) / Real(2.4)) - Real(0.055);
+    }
+
+    /**
+     * @brief sRGB OETF (linear -> sRGB encoded).
+     *
+     * Note: This is defined for non-negative linear values in typical display pipelines.
+     * If linear values can go negative (e.g., out-of-gamut conversions), handle/clamp as needed
+     * before encoding for display.
      */
-    inline glm::vec3 linearToSRGB(const glm::vec3& linear) {
-        glm::vec3 srgb;
-        for (int i = 0; i < 3; ++i) {
-            float c = linear[i];
-            if (c <= 0.0031308f) {
-                srgb[i] = 12.92f * c;
-            }
-            else {
-                srgb[i] = 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
-            }
-        }
+    inline Vector3 linearToSRGB(const Vector3& linear) {
+        Vector3 srgb;
+        srgb[0] = linearToSRGB(linear[0]);
+        srgb[1] = linearToSRGB(linear[1]);
+        srgb[2] = linearToSRGB(linear[2]);
         return srgb;
     }
 
     /**
      * @brief Apply inverse sRGB gamma (EOTF).
      */
-    inline glm::vec3 sRGBToLinear(const glm::vec3& srgb) {
-        glm::vec3 linear;
+    inline Vector3 sRGBToLinear(const Vector3& srgb) {
+        constexpr Real a = Real(0.04045);
+        Vector3 linear;
         for (int i = 0; i < 3; ++i) {
-            float c = srgb[i];
-            if (c <= 0.04045f) {
-                linear[i] = c / 12.92f;
+            const Real c = srgb[i];
+            if (c <= a) {
+                linear[i] = c / Real(12.92);
             }
             else {
-                linear[i] = std::pow((c + 0.055f) / 1.055f, 2.4f);
+                linear[i] = std::pow((c + Real(0.055)) / Real(1.055), Real(2.4));
             }
         }
         return linear;
@@ -140,35 +158,52 @@ namespace rayt::color {
     // ========================================================================
 
     /**
-     * @brief Convert spectral samples to RGB using CIE color matching.
+     * @brief Convert spectral samples to CIE XYZ using CIE 1931 2° CMFs (Wyman 2013 multi-lobe).
      *
-     * @param wavelengths Array of wavelengths in nm
-     * @param values Spectral values at each wavelength
-     * @param n Number of samples
-     * @return Linear RGB color (not gamma corrected)
+     * Integration:
+     * - Uses trapezoidal rule over the provided wavelength samples.
+     * - Assumes wavelengths are in nanometers and sorted ascending.
+     *
+     * @param wavelengths Wavelengths in nm (must be ascending)
+     * @param values     Spectral values S(λ) at each wavelength
+     * @return CIE XYZ tristimulus values (scale depends on S(λ) and any normalization you apply)
      */
     template<int N>
-    glm::vec3 spectralToRGB(const std::array<Real, N>& wavelengths,
+    inline CIE_XYZ spectralToXYZ_1931(const std::array<Real, N>& wavelengths,
         const std::array<Real, N>& values) {
         CIE_XYZ xyz(0, 0, 0);
+        if constexpr (N < 2) return xyz;
 
-        // Riemann sum approximation of the integral
-        // ∫ S(λ) * CMF(λ) dλ
-        for (int i = 0; i < N; ++i) {
-            Real lambda = wavelengths[i];
-            Real value = values[i];
+        // Trapezoidal integration: ∫ f(λ) dλ ≈ Σ 0.5 (f_i + f_{i+1}) Δλ_i
+        for (int i = 0; i < N - 1; ++i) {
+            const Real l0 = wavelengths[i];
+            const Real l1 = wavelengths[i + 1];
+            const Real dl = (l1 - l0);
 
-            CIE_XYZ cmf = evaluateCIE_XYZ(lambda);
-            xyz += cmf * value;
+            const CIE_XYZ c0 = evaluateCIE_XYZ_1931_MultiLobe(l0);
+            const CIE_XYZ c1 = evaluateCIE_XYZ_1931_MultiLobe(l1);
+
+            const Real v0 = values[i];
+            const Real v1 = values[i + 1];
+
+            // f(λ) = S(λ) * CMF(λ)
+            xyz.X += Real(0.5) * (v0 * c0.X + v1 * c1.X) * dl;
+            xyz.Y += Real(0.5) * (v0 * c0.Y + v1 * c1.Y) * dl;
+            xyz.Z += Real(0.5) * (v0 * c0.Z + v1 * c1.Z) * dl;
         }
+        return xyz;
+    }
 
-        // Normalize by number of samples (approximate integration)
-        Real scale = (constants::LAMBDA_MAX - constants::LAMBDA_MIN) / Real(N);
-        xyz.X *= scale;
-        xyz.Y *= scale;
-        xyz.Z *= scale;
 
-        // Convert XYZ to linear RGB
+    /**
+     * @brief Convert spectral samples to linear sRGB using CIE 1931 2° CMFs (Wyman 2013 multi-lobe).
+     *
+     * Returns *linear* sRGB (no gamma encoding). Use linearToSRGB() for display encoding.
+     */
+    template<int N>
+    inline Vector3 spectralToRGB(const std::array<Real, N>& wavelengths,
+        const std::array<Real, N>& values) {
+        const CIE_XYZ xyz = spectralToXYZ_1931<N>(wavelengths, values);
         return XYZ_to_sRGB(xyz);
     }
 

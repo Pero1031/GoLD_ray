@@ -1,93 +1,168 @@
-﻿#pragma once
+﻿/*
+ * @file Color/ColorTransform.hpp
+ * @brief Display transforms (exposure / tone mapping / OETF encoding).
+ *
+ * This header provides the *display pipeline* that maps linear RGB radiance
+ * (typically HDR values from a path tracer) into a display-ready encoded RGB
+ * (typically sRGB in [0,1]) suitable for 8-bit output.
+ *
+ * Design notes:
+ * - This file is about *display mapping* (what you show on screen / save as PNG/JPG).
+ * - Colorimetric transforms (spectral->XYZ->RGB, matrices, CMFs, etc.) live in ColorSpace.hpp.
+ * - We intentionally keep these concerns separate:
+ *     * ColorSpace.hpp: color science / spaces / CMFs / matrices / transfer functions
+ *     * ColorTransform.hpp: exposure + tone mapping + (optional) encoding for display
+ *
+ * Assumptions:
+ * - Spectrum is currently an RGB triplet (r,g,b) in linear space.
+ * - If Spectrum becomes spectral in the future, this pipeline must be applied
+ *   *after* spectral->RGB conversion.
+ */
+
+#pragma once
+
+#include <cmath>
 
 #include "Core/Constants.hpp"
 #include "Core/Core.hpp"
+#include "Core/Math.hpp"
+#include "Color/ColorSpace.hpp"
 
 namespace rayt::color {
 
+    // -------------------------------------------------------------------------
+    // Exposure
+    // -------------------------------------------------------------------------
+
     /**
-     * @brief Converts a linear RGB component to gamma-encoded space.
+     * @brief Apply photographic exposure to a scalar value.
      *
-     * This function applies a simple power-law gamma correction,
-     * commonly approximated as gamma = 2.2.
+     * Exposure is expressed in "stops" (EV steps). Each +1 stop doubles brightness:
+     *   x' = x * 2^exposureStops
      *
-     * @note This is an approximation of sRGB and should only be used
-     *       when exact sRGB transfer is not required.
-     * @note Typically applied as the final step before image output.
+     * Typical use:
+     * - exposureStops = 0   : no change
+     * - exposureStops = +1  : 2x brighter
+     * - exposureStops = -1  : 2x darker
      *
-     * @param linearComponent Linear-space color component (>= 0).
-     * @return Gamma-corrected color component.
+     * @param x             Linear input value (e.g., radiance component)
+     * @param exposureStops Exposure in stops (EV)
+     * @return Exposure-adjusted value
      */
-    inline Real linearToGamma(Real linearComponent) {
-        if (linearComponent > 0) {
-            return std::pow(linearComponent, 1.0 / 2.2);
-        }
-        return 0.0;
+    inline Real applyExposure(Real x, Real exposureStops) {
+        return x * std::pow(Real(2), exposureStops);
     }
 
     /**
-     * @brief Applies photographic exposure adjustment.
+     * @brief Apply photographic exposure to an RGB Spectrum.
      *
-     * Exposure is applied in powers of two, following the convention:
-     * x' = x * 2^exposure
+     * Component-wise exposure scaling using the same stop-based model:
+     *   rgb' = rgb * 2^exposureStops
      *
-     * This matches the exposure model commonly used in HDR rendering
-     * and physically based camera simulations.
-     *
-     * @param x Input linear radiance or color value.
-     * @param exposure Exposure value in stops.
-     * @return Exposure-adjusted value.
+     * @param x             Linear RGB spectrum
+     * @param exposureStops Exposure in stops (EV)
+     * @return Exposure-adjusted RGB spectrum
      */
-    inline Real applyExposure(Real x, Real exposure) {
-        return x * std::pow(2.0, exposure);
+    inline Spectrum applyExposure(const Spectrum& x, Real exposureStops) {
+        return x * std::pow(Real(2), exposureStops);
     }
 
+    // -------------------------------------------------------------------------
+    // Tone Mapping
+    // -------------------------------------------------------------------------
+
     /**
-     * @brief Reinhard global tone mapping operator.
+     * @brief Reinhard global tone mapping operator (scalar).
      *
-     * Compresses high dynamic range values into displayable range
-     * using the classic Reinhard operator:
-     * f(x) = x / (1 + x)
+     * Compresses HDR values into (0,1) smoothly:
+     *   f(x) = x / (1 + x)
      *
-     * @note This operator is simple, stable, and preserves relative
-     *       contrast, but may desaturate highlights.
+     * Properties:
+     * - f(0)=0, f(∞)->1
+     * - Monotonic and stable
+     * - Simple, but can desaturate highlights when used per-channel
      *
-     * @param x Input linear HDR value.
-     * @return Tone-mapped value in [0, 1).
+     * @param x Linear HDR value (>=0 recommended)
+     * @return Tone-mapped value in [0,1)
      */
     inline Real toneMapReinhard(Real x) {
-        return x / (1.0 + x);
-    }
-
-    inline Spectrum toneMapReinhard(const Spectrum& x) {
-        return x / (x + Spectrum(1.0));
+        return x / (Real(1) + x);
     }
 
     /**
-     * @brief Converts a linear RGB component to sRGB color space.
+     * @brief Reinhard tone mapping applied component-wise to RGB Spectrum.
      *
-     * Implements the standard sRGB transfer function (IEC 61966-2-1):
-     * - Linear segment for low intensities
-     * - Power-law segment for higher intensities
+     * Note:
+     * - This is a per-channel operator. It is simple and commonly used,
+     *   but for more color-preserving behavior you may later switch to
+     *   luminance-based tone mapping (operate on Y and rescale RGB).
      *
-     * @note This function assumes the input is in linear color space
-     *       and typically follows tone mapping and exposure adjustment.
-     *
-     * @param x Linear-space color component.
-     * @return sRGB-encoded color component.
+     * @param x Linear HDR RGB spectrum (>=0 recommended)
+     * @return Tone-mapped RGB spectrum in [0,1)
      */
-    inline Real linearToSRGB(Real x) {
-        if (x <= 0.0031308)
-            return 12.92 * x;
-        return 1.055 * std::pow(x, 1.0 / 2.4) - 0.055;
+    inline Spectrum toneMapReinhard(const Spectrum& x) {
+        return x / (x + Spectrum(Real(1)));
     }
 
-    inline Spectrum toDisplayGamma22(const Spectrum& linear) {
-        Spectrum c = toneMapReinhard(linear);
-        c.r = linearToGamma(c.r);
-        c.g = linearToGamma(c.g);
-        c.b = linearToGamma(c.b);
-        return c;
+    // -------------------------------------------------------------------------
+    // Display pipeline
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Convert linear RGB (Spectrum) to display-ready *encoded* sRGB with exposure + Reinhard.
+     *
+     * Pipeline (per component):
+     *  1) sanitize:
+     *     - NaN/Inf -> 0
+     *     - negative -> 0 (display pipeline assumes non-negative radiance)
+     *  2) exposure:
+     *     - multiply by 2^exposureStops
+     *  3) tone map:
+     *     - Reinhard compression into (0,1)
+     *  4) encode:
+     *     - apply sRGB OETF (linear -> sRGB encoded)
+     *       (implementation lives in ColorSpace.hpp)
+     *  5) clamp:
+     *     - clamp to [0,1] for safe 8-bit conversion
+     *
+     * Important:
+     * - Output is *encoded* sRGB, not linear RGB.
+     *   Do NOT apply another gamma/OETF after calling this.
+     *
+     * Usage examples:
+     * - UI preview path: convert to bytes and upload to an RGBA8 texture
+     * - PNG/JPG saving: convert to bytes and write with stb_image_write
+     * - HDR saving: do NOT call this; write linear values directly.
+     *
+     * @param linearRGB     Linear RGB input (Spectrum), typically HDR radiance or averaged radiance
+     * @param exposureStops Exposure in stops (EV). Default 0.
+     * @return Encoded sRGB in [0,1] per channel (ready for 8-bit quantization)
+     */
+    inline Spectrum toDisplaySRGB_Reinhard(const Spectrum& linearRGB, Real exposureStops = Real(0)) {
+        auto sanitize = [](Real v) -> Real {
+            if (rayt::math::hasNonFinite(v) || v < Real(0)) return Real(0);
+            return v;
+            };
+
+        Spectrum x = linearRGB;
+        x.r = sanitize(x.r);
+        x.g = sanitize(x.g);
+        x.b = sanitize(x.b);
+
+        x = applyExposure(x, exposureStops);
+        x = toneMapReinhard(x);
+
+        // Encode to sRGB (canonical implementation in ColorSpace.hpp)
+        x.r = linearToSRGB(x.r);
+        x.g = linearToSRGB(x.g);
+        x.b = linearToSRGB(x.b);
+
+        // Clamp for 8-bit output safety
+        x.r = rayt::math::saturate(x.r);
+        x.g = rayt::math::saturate(x.g);
+        x.b = rayt::math::saturate(x.b);
+
+        return x;
     }
 
 } //namespace rayt::color

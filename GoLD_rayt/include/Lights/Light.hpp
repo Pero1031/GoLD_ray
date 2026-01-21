@@ -16,6 +16,8 @@
 
 namespace rayt {
 
+    class SampledWavelengths;
+
     /**
      * @brief Classification of light sources.
      *
@@ -27,21 +29,6 @@ namespace rayt {
         DeltaDirection,  ///< Directional light with delta direction (e.g. sun)
         Area,            ///< Finite area light emitting from a surface
         Infinite         ///< Environment / infinite distant light
-    };
-
-    /**
-     * @brief Container for sampled wavelengths (spectral rendering support).
-     *
-     * This corresponds conceptually to PBRT's SampledWavelengths.
-     * In RGB rendering modes, this structure may remain empty and ignored.
-     *
-     * Future extensions may include:
-     *  - sampled wavelengths (in nm)
-     *  - per-wavelength PDFs
-     *  - hero wavelength selection
-     */
-    struct SampledWavelengths {
-        // Intentionally left empty for now.
     };
 
     /**

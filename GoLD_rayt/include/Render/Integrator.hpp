@@ -12,6 +12,7 @@
 #include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/SpectrumUtils.hpp"
+#include "Core/SampledWavelengths.hpp"
 #include "Scene/Scene.hpp" // HittableList, etc.
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
@@ -137,7 +138,21 @@ namespace rayt {
 
                 // ========== Emissive Surface Hit ==========
                 // ※ wo = -r.direction
-                L += beta * rec.matPtr->emitted(rec, -r.d);
+                Spectrum Le = rec.matPtr->emitted(rec, -r.d);
+                if (!isBlack(Le)) {
+                    if (hasLastBsdf && !lastSpecular && rec.areaLight) {
+                        LightSampleContext ctx{ lastRec.p, lastRec.gn };
+                        Real pdfLight = rec.areaLight->pdfLi(ctx, r.d);
+                        Real w = 1.0;
+                        if (pdfLight > 0 && lastPdf > 0) {
+                            w = math::powerHeuristic(lastPdf, pdfLight);
+                        }
+                        L += beta * Le * w;
+                    }
+                    else {
+                        L += beta * Le;
+                    }
+                }
 
                 // ========== Next Event Estimation (NEE) ==========
                 if (!rec.matPtr->isSpecular()) {
@@ -268,10 +283,8 @@ namespace rayt {
 
                 if (lightSample) {
                     sampledLight = lightSample->light;
-                    // Note: lightSample->pdf is the probability of selecting
-                    // this light among scene lights, but we need the probability
-                    // among ALL lights, so we multiply by the ratio
-                    //lightSelectPdf *= lightSample->pdf;
+                    // Convert scene-light PDF to total-light PDF.
+                    lightSelectPdf = lightSample->pdf * (Real(numSceneLights) / Real(totalLights));
                 }
             }
             else if (scene.hasEnvLight()) {

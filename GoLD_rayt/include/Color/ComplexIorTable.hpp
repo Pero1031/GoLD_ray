@@ -1,4 +1,25 @@
-﻿// include/Color/ComplexIorTable.hpp
+﻿/**
+ * @file Color/ComplexIorTable.hpp
+ * @brief Tabulated complex index of refraction (eta, k) with interpolation.
+ *
+ * Provides:
+ * - Data container for (wavelength_nm, eta, k) samples
+ * - Linear interpolation accessor: evaluateNK(lambda_nm)
+ *
+ * Notes / Assumptions:
+ * - Wavelengths are stored in nanometers (nm).
+ * - samples_ must be sorted by lambda_nm in ascending order for lower_bound() to work.
+ *   (Recommended: sort once after loading in the IO loader.)
+ * - Duplicate wavelengths should be avoided or merged at load time.
+ *   If two neighboring samples have identical lambda_nm, interpolation would divide by zero.
+ * - Out-of-range wavelengths are clamped to the nearest endpoint (no extrapolation),
+ *   which is typically safer for optical constants than linear extrapolation.
+ *
+ * Responsibility split:
+ * - This class does NOT parse files. Fill `samples()` from IO loaders (CSV, etc.).
+ * - This class DOES provide robust interpolation queries over the loaded data.
+ */
+
 #pragma once
 
 #include <vector>
@@ -20,6 +41,13 @@ namespace rayt::color {
      */
     class ComplexIorTable {
     public:
+        /**
+         * @brief A single measured/fit sample of complex IOR at a given wavelength.
+         *
+         * @param lambda_nm Wavelength in nanometers (nm)
+         * @param eta       Real part of complex IOR (η)
+         * @param k         Extinction coefficient (k), absorption term
+         */
         struct Sample {
             Real lambda_nm = Real(0);
             Real eta = Real(1);
