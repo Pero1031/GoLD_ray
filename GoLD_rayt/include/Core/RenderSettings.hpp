@@ -16,8 +16,8 @@ struct RenderSettings {
 
     // 画質・設定
     int sppPerFrame = 1;
-    int targetSpp = 1024;
-    int maxDepth = 8;
+    int targetSpp = 256;
+    int maxDepth = 10;
 
     // カメラ・表示
     float exposure = 0.0f;
