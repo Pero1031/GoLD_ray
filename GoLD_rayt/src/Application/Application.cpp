@@ -22,23 +22,29 @@
 // accelerates
 #include "Accelerators/BVH.hpp" 
 
-// Geometry
+// Scene
 #include "Scene/Hittable.hpp"
 #include "Scene/Aggregate.hpp"
+#include "Scene/Scene.hpp"
+#include "Scene/Primitive.hpp"
+
+// Geometry
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Frame.hpp"
 
 // Renderer
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
-#include "Scene/Scene.hpp"
 #include "Render/Integrator.hpp"
 
 #include "Color/ColorTransform.hpp"
 
+// Lights
+#include "Lights/AreaLight.hpp"
+#include "Lights/PointLight.hpp"
+
 // Materials
 #include "Materials/Material.hpp"
-//#include "Materials/SpectralMetal.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Lambertian.hpp"
@@ -74,7 +80,7 @@ const std::string AU_IOR_CSV_PATH = "assets/Au_data/Johnson.csv";
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 100; // Higher = less noise, slower
+const int SAMPLES_PER_PIXEL = 256; // Higher = less noise, slower
 const int MAX_DEPTH = 10;          // Max recursion depth for rays
 
 
@@ -126,8 +132,8 @@ void App::init() {
     glBindTexture(GL_TEXTURE_2D, 0);
 
     // デフォルトの設定値を元のmainに合わせて調整
-    m_settings.targetSpp = SAMPLES_PER_PIXEL; // 元の SAMPLES_PER_PIXEL
-    m_settings.maxDepth = MAX_DEPTH;    // 元の MAX_DEPTH
+    //m_settings.targetSpp = SAMPLES_PER_PIXEL; // 元の SAMPLES_PER_PIXEL
+    //m_settings.maxDepth = MAX_DEPTH;    // 元の MAX_DEPTH
 
     // --------------------------------------------------
     // 2. 環境マップ (EnvMap) 読み込み
@@ -217,27 +223,37 @@ void App::init() {
     // 大きな球で床を作製
     worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
 
+    // Area Light (メッシュに紐付いた光源) を作成してシーンに配置
+    /*auto lightMat = std::make_shared<DiffuseLight>(Spectrum(10.0, 10.0, 10.0));
+    auto lightShape = std::make_shared<Sphere>(Point3(5, 5, 0), 1.0, lightMat);
+    auto areaLight = std::make_shared<AreaLight>(lightShape, lightMat, Spectrum(1.0));
+    auto lightPrim = std::make_shared<Primitive>(lightShape, lightMat, areaLight);
+    worldList->add(lightPrim);*/
+
     // --------------------------------------------------
     // 5. Scene作成と光源設定
     // --------------------------------------------------
     m_scene = std::make_shared<Scene>(worldList);
 
     // 環境光を設定（存在する場合）
-    /*if (envLight) {
+    if (envLight) {
         m_scene->setEnvLight(envLight);
         std::cout << "[Scene] Environment light set.\n";
-    }*/
+    }
 
     // オプション: ポイントライトや他の光源を追加
     // 例: シーン内にポイントライトを追加する場合
     
-   auto pointLight = std::make_shared<PointLight>(
+    auto pointLight = std::make_shared<PointLight>(
         Point3(-1.2, 3, 0),           // 位置
-        Spectrum(50, 20, 0)       // 強度
+        Spectrum(0, 0, 100)       // 強度
     );
     m_scene->addLight(pointLight);
     std::cout << "[Scene] Point light added.\n";
-    
+
+    // エリアライトの設定
+    //m_scene->addLight(areaLight);
+    //std::cout << "[Scene] Area light added.\n";
 
     // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
     m_scene->finalize("uniform");
@@ -275,11 +291,11 @@ void App::init() {
     m_integrator = std::make_unique<PathIntegrator>(
         m_camera,
         m_settings.maxDepth,  // 最大深度
-        10                     // プログレッシブ用のspp
+        m_settings.targetSpp     // プログレッシブ用のspp
     );
 
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
-        << m_settings.maxDepth << ", spp=10).\n";
+        << m_settings.maxDepth << ", spp=" << m_settings.targetSpp << ").\n";
 }
 
 // テクスチャ更新 
@@ -297,7 +313,8 @@ void App::updateTexture() {
         // 省略せずに書く場合は前回のコードを参照
         rayt::Spectrum s = pixels[i] * static_cast<rayt::Real>(scale);
         // Gamma correction & Tone mapping...
-        s = rayt::color::toDisplayGamma22(s);
+        const Real exposureStops = Real(0); // ここはUIや設定から渡す想定
+        s = rayt::color::toDisplaySRGB_Reinhard(s, exposureStops);
 
         displayBuffer[i * 4 + 0] = (unsigned char)(255.0f * rayt::math::saturate((float)s.r));
         displayBuffer[i * 4 + 1] = (unsigned char)(255.0f * rayt::math::saturate((float)s.g));

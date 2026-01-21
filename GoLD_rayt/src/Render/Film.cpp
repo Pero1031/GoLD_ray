@@ -1,5 +1,11 @@
 ﻿#include "pch.h"
 
+#include <algorithm>
+#include <cctype>
+#include <iostream>
+#include <string>
+#include <vector>
+
 #include "Core/Math.hpp"
 #include "Render/Film.hpp"
 #include "Color/ColorTransform.hpp"
@@ -22,7 +28,7 @@ namespace rayt {
     Film::Film(int width, int height)
         : m_width(width), m_height(height) {
         // Initialize all pixels to black (0, 0, 0).
-        m_pixels.resize(width * height, Spectrum(0.0));
+        m_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height), Spectrum(0.0));
     }
 
     /**
@@ -44,7 +50,7 @@ namespace rayt {
 
         // Store the value directly.
         // Image coordinates assume (0,0) at the top-left corner.
-        m_pixels[y * m_width + x] = radiance;
+        m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] = radiance;
     }
 
     /**
@@ -64,7 +70,7 @@ namespace rayt {
         }
 
         // Accumulate radiance
-        m_pixels[y * m_width + x] += radiance;
+        m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] += radiance;
     }
 
     /**
@@ -77,141 +83,82 @@ namespace rayt {
         std::fill(m_pixels.begin(), m_pixels.end(), Spectrum(0.0));
     }
 
-    /**
-     * @brief Saves the film to an image file.
-     *
-     * The output format is determined by the file extension:
-     * - HDR (.hdr): stored as linear floating-point RGB
-     * - LDR (.png, .bmp, .jpg): tone-mapped and gamma-corrected
-     *
-     * @param filename Output file path
-     */
-    void Film::save(const std::string& filename) const {
-
-        // Check file extension to determine output format.
-        std::string ext = filename.substr(filename.find_last_of(".") + 1);
-
-        // Convert extension to lowercase
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-        if (ext == "hdr") {
-            // --------------------------------------------------
-            // HDR Output
-            // --------------------------------------------------
-            // Stores raw linear radiance values (float RGB).
-            // Best suited for research, analysis, and relighting.
-            // Spectrum is assumed to be a contiguous vec3<float>.
-
-            stbi_write_hdr(filename.c_str(), m_width, m_height, 3, reinterpret_cast<const float*>(m_pixels.data()));
-
-            std::cout << "[Film] Saved HDR image: " << filename << std::endl;
-        }
-        else {
-            // --------------------------------------------------
-            // LDR Output (PNG / BMP / JPG)
-            // --------------------------------------------------
-            // Applies display gamma correction and quantization.
-
-            std::vector<unsigned char> outputData(m_width * m_height * 3);
-
-            for (int i = 0; i < m_width * m_height; ++i) {
-                Spectrum pixel = m_pixels[i];
-
-                // Convert from linear space to display gamma (gamma 2.2)
-                pixel = color::toDisplayGamma22(pixel);
-
-                // Quantize from [0,1] to [0,255]
-                outputData[i * 3 + 0] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.r));
-                outputData[i * 3 + 1] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.g));
-                outputData[i * 3 + 2] = static_cast<unsigned char>(255.99 * rayt::math::saturate(pixel.b));
-            }
-
-            if (ext == "png") {
-                stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
-            }
-            else if (ext == "bmp") {
-                stbi_write_bmp(filename.c_str(), m_width, m_height, 3, outputData.data());
-            }
-            else if (ext == "jpg") {
-                stbi_write_jpg(filename.c_str(), m_width, m_height, 3, outputData.data(), 90); // Quality 90
-            }
-            else {
-                std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
-                return;
-            }
-
-            std::cout << "[Film] Saved LDR image: " << filename << std::endl;
-        }
+    static inline unsigned char toByte(Real x) {
+        // x is expected in [0,1] but saturate to be safe
+        x = rayt::math::saturate(x);
+        return static_cast<unsigned char>(Real(255.0) * x + Real(0.5)); // round-to-nearest
     }
 
-    /**
-     * @brief Saves the film to an image file with a scaling factor.
-     *
-     * This function is typically used to apply normalization,
-     * such as dividing by the number of samples per pixel (SPP).
-     *
-     * @param filename Output file path
-     * @param scale    Scaling factor applied to all pixels
-     */
+    void Film::save(const std::string& filename) const {
+        save(filename, 1.0f);
+    }
+
     void Film::save(const std::string& filename, float scale) const {
 
-        // Check file extension to determine output format.
-        std::string ext = filename.substr(filename.find_last_of(".") + 1);
+        std::string ext = filename.substr(filename.find_last_of('.') + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-        // Convert to lowercase for comparison
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        const Real s = static_cast<Real>(scale);
 
         if (ext == "hdr") {
             // --------------------------------------------------
-            // HDR Output with Scaling
+            // HDR Output (always pack to float buffer safely)
             // --------------------------------------------------
-            // A temporary buffer is required because scaling
-            // must be applied before writing contiguous data.
-            std::vector<float> hdrData(m_width * m_height * 3);
+            std::vector<float> hdrData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
 
             for (size_t i = 0; i < m_pixels.size(); ++i) {
-                Spectrum s = m_pixels[i] * static_cast<Real>(scale);
-                hdrData[i * 3 + 0] = s.r;
-                hdrData[i * 3 + 1] = s.g;
-                hdrData[i * 3 + 2] = s.b;
+                Spectrum p = m_pixels[i] * s;
+
+                // NaN/Inf -> 0
+                if (math::hasNonFinite(p.r)) p.r = Real(0);
+                if (math::hasNonFinite(p.g)) p.g = Real(0);
+                if (math::hasNonFinite(p.b)) p.b = Real(0);
+
+                hdrData[i * 3 + 0] = static_cast<float>(p.r);
+                hdrData[i * 3 + 1] = static_cast<float>(p.g);
+                hdrData[i * 3 + 2] = static_cast<float>(p.b);
             }
 
             stbi_write_hdr(filename.c_str(), m_width, m_height, 3, hdrData.data());
             std::cout << "[Film] Saved HDR image: " << filename << std::endl;
+            return;
+        }
+
+        // --------------------------------------------------
+        // LDR Output (PNG / BMP / JPG)
+        // --------------------------------------------------
+        std::vector<unsigned char> outputData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
+
+        // TODO: UI/設定から渡す（今は固定）
+        const Real exposureStops = Real(0);
+
+        for (size_t i = 0; i < m_pixels.size(); ++i) {
+            Spectrum pixel = m_pixels[i] * s;
+
+            // New pipeline: exposure -> Reinhard -> sRGB encode -> clamp
+            pixel = color::toDisplaySRGB_Reinhard(pixel, exposureStops);
+
+            outputData[i * 3 + 0] = toByte(pixel.r);
+            outputData[i * 3 + 1] = toByte(pixel.g);
+            outputData[i * 3 + 2] = toByte(pixel.b);
+        }
+
+        if (ext == "png") {
+            stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
+        }
+        else if (ext == "bmp") {
+            stbi_write_bmp(filename.c_str(), m_width, m_height, 3, outputData.data());
+        }
+        else if (ext == "jpg") {
+            stbi_write_jpg(filename.c_str(), m_width, m_height, 3, outputData.data(), 90);
         }
         else {
-            // --------------------------------------------------
-            // LDR Output with Scaling
-            // --------------------------------------------------
-            std::vector<unsigned char> outputData(m_width * m_height * 3);
-
-            for (int i = 0; i < m_width * m_height; ++i) {
-                
-                // Apply scaling (e.g., 1 / spp)
-                Spectrum pixel = m_pixels[i] * static_cast<Real>(scale);
-
-                pixel = color::toDisplayGamma22(pixel);
-
-                outputData[i * 3 + 0] = static_cast<unsigned char>(255.99 * math::saturate(pixel.r));
-                outputData[i * 3 + 1] = static_cast<unsigned char>(255.99 * math::saturate(pixel.g));
-                outputData[i * 3 + 2] = static_cast<unsigned char>(255.99 * math::saturate(pixel.b));
-            }
-
-            if (ext == "png") {
-                stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
-            }
-            else if (ext == "bmp") {
-                stbi_write_bmp(filename.c_str(), m_width, m_height, 3, outputData.data());
-            }
-            else if (ext == "jpg") {
-                stbi_write_jpg(filename.c_str(), m_width, m_height, 3, outputData.data(), 90);
-            }
-            else {
-                std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
-                return;
-            }
-            std::cout << "[Film] Saved LDR image: " << filename << std::endl;
+            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
+            return;
         }
+
+        std::cout << "[Film] Saved LDR image: " << filename << std::endl;
     }
 
 } // namespace rayt

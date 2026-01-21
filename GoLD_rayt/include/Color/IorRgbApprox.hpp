@@ -1,4 +1,9 @@
+/*
+* @file Color/IorRgbApprox.hpp
+*/
+
 #pragma once
+
 #include "Core/Precision.hpp"
 #include "Core/Types.hpp"
 #include "Color/ComplexIorTable.hpp"
