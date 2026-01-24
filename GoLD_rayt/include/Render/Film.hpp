@@ -1,5 +1,5 @@
 ﻿/**
- * @file Film.hpp
+ * @file include/Render/Film.hpp
  * @brief Film class for storing per-pixel accumulated radiance (sum buffer).
  *
  * Film represents the camera sensor buffer used by the renderer.
@@ -16,7 +16,7 @@
 #include <memory>
 #include <algorithm>
 
-#include "Core/Core.hpp"  // Include core definitions (Spectrum, Real, etc.)
+#include "Core/Types.hpp" 
 
 namespace rayt {
 
@@ -57,7 +57,7 @@ namespace rayt {
         /// Returns pointer to the accumulation (sum) buffer (linear HDR).
         const Spectrum* getData() const { return m_pixels.data(); }
 
-        // 蓄積バッファをクリアする
+        // clear buffer
         void clear();
 
         /**

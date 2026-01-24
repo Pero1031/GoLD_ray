@@ -1,5 +1,5 @@
 ﻿/**
- * @file Scene/Scene.hpp
+ * @file include/Scene/Scene.hpp
  * @brief Scene class representing the entire environment to be rendered.
  * * The Scene acts as a high-level container that orchestrates geometry,
  * light sources, and environmental properties. It provides a simplified

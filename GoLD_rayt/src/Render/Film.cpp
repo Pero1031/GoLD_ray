@@ -1,4 +1,13 @@
-﻿#include "pch.h"
+﻿/*
+* @file src/Render/Fil.cpp
+* @brief Film class implementation (pixel storage, accumulation, and image output).
+* 
+* This file implements the Film class which stores per-pixel radiance values
+* in linear RGB space and provides routines to save the result as HDR (float)
+* or LDR (8-bit) image formats via stb_image_write.
+*/
+
+#include "pch.h"
 
 #include <algorithm>
 #include <cctype>
@@ -83,18 +92,52 @@ namespace rayt {
         std::fill(m_pixels.begin(), m_pixels.end(), Spectrum(0.0));
     }
 
+    /**
+     * @brief Converts a normalized float value in [0, 1] to an 8-bit byte.
+     *
+     * Values are saturated to [0, 1] for safety and then converted to
+     * [0, 255] using round-to-nearest.
+     *
+     * @param x Normalized value (expected in [0,1])
+     * @return 8-bit value in [0,255]
+     */
     static inline unsigned char toByte(Real x) {
         // x is expected in [0,1] but saturate to be safe
         x = rayt::math::saturate(x);
         return static_cast<unsigned char>(Real(255.0) * x + Real(0.5)); // round-to-nearest
     }
 
+    /**
+     * @brief Saves the film to an image file (default scale = 1.0).
+     * This overload forwards to save(filename, scale).
+     *
+     * @param filename Output file path. Extension selects the format.
+     */
     void Film::save(const std::string& filename) const {
-        save(filename, 1.0f);
+        save(filename, Real(1.0));
     }
 
+    /**
+     * @brief Saves the film to an image file with a multiplicative scale.
+     *
+     * The file extension determines the output format:
+     * - ".hdr": saved as 32-bit float RGB (linear), without tone mapping.
+     * - ".png/.bmp/.jpg": saved as 8-bit RGB after display transform.
+     *
+     * For LDR output, the pipeline is:
+     *   exposure -> tone map (Reinhard) -> sRGB OETF -> clamp -> 8-bit
+     *
+     * @param filename Output file path.
+     * @param scale    Multiply all stored radiance by this factor before saving.
+     */
     void Film::save(const std::string& filename, float scale) const {
 
+        /**
+         * @brief Parse and normalize extension to lowercase.
+         *
+         * We do a simple extension parse by taking the substring after the last '.'.
+         * If the filename has no '.', behavior is undefined (same as original code).
+         */
         std::string ext = filename.substr(filename.find_last_of('.') + 1);
         std::transform(ext.begin(), ext.end(), ext.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -107,7 +150,10 @@ namespace rayt {
             // --------------------------------------------------
             std::vector<float> hdrData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
 
-            for (size_t i = 0; i < m_pixels.size(); ++i) {
+            const int numPixels = static_cast<int>(m_pixels.size());
+
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < numPixels; ++i) {
                 Spectrum p = m_pixels[i] * s;
 
                 // NaN/Inf -> 0
@@ -132,8 +178,10 @@ namespace rayt {
 
         // TODO: UI/設定から渡す（今は固定）
         const Real exposureStops = Real(0);
+        const int numPixels = static_cast<int>(m_pixels.size());
 
-        for (size_t i = 0; i < m_pixels.size(); ++i) {
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < numPixels; ++i) {
             Spectrum pixel = m_pixels[i] * s;
 
             // New pipeline: exposure -> Reinhard -> sRGB encode -> clamp

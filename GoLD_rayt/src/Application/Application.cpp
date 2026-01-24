@@ -1,4 +1,10 @@
-﻿#include "pch.h"
+﻿/*
+* @file src/Application/Application.cpp
+* @brief Application implementation
+*/
+
+// Precompiled header(PCH)
+#include "pch.h"
 
 #include "Application/Application.hpp"
 
@@ -7,36 +13,29 @@
 #include <vector>
 #include <filesystem>
 
-// 自作ヘッダー
-// Project Headers
+// Project header
 // Core
-#include "Core/Constants.hpp"
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
-#include "Core/Math.hpp"
 #include "Core/Sampling.hpp"
-#include "Core/AABB.hpp"
-#include "Core/Assert.hpp"
 #include "Core/Image.hpp"
 
-// accelerates
+// Acceleration structures
 #include "Accelerators/BVH.hpp" 
 
 // Scene
-#include "Scene/Hittable.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
-#include "Scene/Primitive.hpp"
 
 // Geometry
 #include "Geometry/Sphere.hpp"
-#include "Geometry/Frame.hpp"
 
 // Renderer
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Integrator.hpp"
 
+// Color
 #include "Color/ColorTransform.hpp"
 
 // Lights
@@ -47,16 +46,8 @@
 #include "Materials/Material.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Materials/DiffuseLight.hpp"
-#include "Materials/Lambertian.hpp"
-#include "Materials/MirrorConductor.hpp"
-#include "Materials/Mirror.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Materials/Dielectric.hpp"
-// Note: "Lambertian" or other materials can be added here in the future.
-
-// Microfacet
-#include "Microfacet/Distribution.hpp"
-#include "Microfacet/GGX.hpp"
 
 // IO
 #include "IO/ImageLoader.hpp"
@@ -67,13 +58,17 @@
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
-using namespace rayt; // 名前空間省略
+using namespace rayt; // Convenience: avoid qualifying with rayt:: in this .cpp
 
-// 環境マップのパス
+// -----------------------------------------------------------------------------
+// Asset paths
+// -----------------------------------------------------------------------------
+
+// Environment map path
 const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
 
 // Gold IOR data path (RefractiveIndex.info / Johnson & Christy style CSV)
-const std::string AU_IOR_CSV_PATH = "assets/Au_data/Johnson.csv";
+const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Cu.csv";
 
 // -----------------------------------------------------------------------------
 // Scene Configuration
@@ -88,26 +83,34 @@ App::App(int width, int height, const char* title)
     : m_width(width), m_height(height)
 {
     // -----------------------------------------------------
-    // GLFW / OpenGL 初期化
+    // GLFW / OpenGL Init
     // -----------------------------------------------------
+    // Initialize GLFW (windowing + OpenGL context creation).
     if (!glfwInit()) exit(1);
+
+    // Request an OpenGL 3.3 Core Profile context.
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
+    // Create a window + OpenGL context.
     m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
     if (!m_window) {
         glfwTerminate();
         exit(1);
     }
 
+    // Make the created context current before any OpenGL calls.
     glfwMakeContextCurrent(m_window);
-    glfwSwapInterval(0); // V-Sync OFF (FPSを稼ぐため)
 
+    // V-Sync OFF: maximizes FPS but may cause tearing and higher GPU usage.
+    glfwSwapInterval(0);
+
+    // Load OpenGL function pointers via GLAD.
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) exit(1);
 
-    // 初期化処理を実行
+    // Project-specific initialization (renderer, resources, UI, etc.)
     init();
 }
 
@@ -130,10 +133,6 @@ void App::init() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glBindTexture(GL_TEXTURE_2D, 0);
-
-    // デフォルトの設定値を元のmainに合わせて調整
-    //m_settings.targetSpp = SAMPLES_PER_PIXEL; // 元の SAMPLES_PER_PIXEL
-    //m_settings.maxDepth = MAX_DEPTH;    // 元の MAX_DEPTH
 
     // --------------------------------------------------
     // 2. 環境マップ (EnvMap) 読み込み
@@ -198,10 +197,6 @@ void App::init() {
     Spectrum n_Au = eta_rgb;
     Spectrum k_Au = k_rgb;
 
-    // 金の光学定数 (Au)
-    //Spectrum n_Au(0.16, 0.42, 1.45);
-    //Spectrum k_Au(3.48, 2.45, 1.77);
-
     // 3段階の粗さ
     // 0.01: ほぼ鏡 (MirrorConductorと比較用)
     // 0.20: 少しぼやけた金属
@@ -209,6 +204,9 @@ void App::init() {
     auto matGoldSmooth = std::make_shared<RoughConductor>(n_Au, k_Au, 0.01);
     auto matGoldMedium = std::make_shared<RoughConductor>(n_Au, k_Au, 0.20);
     auto matGoldRough = std::make_shared<RoughConductor>(n_Au, k_Au, 0.50);
+
+    //auto matGlass = std::make_shared<Dielectric>(1.5, 0.0); // 粗さ0 = 完全透明
+    //auto matFrosted = std::make_shared<Dielectric>(1.5, 0.2); // 粗さ0.2 = すりガラス
 
     // --------------------------------------------------
     // 4. シーン構築
@@ -220,15 +218,15 @@ void App::init() {
     worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
     worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
 
+    // ガラス
+    //worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
+
+    // すりガラス
+    //worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
+
+
     // 大きな球で床を作製
     worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
-
-    // Area Light (メッシュに紐付いた光源) を作成してシーンに配置
-    /*auto lightMat = std::make_shared<DiffuseLight>(Spectrum(10.0, 10.0, 10.0));
-    auto lightShape = std::make_shared<Sphere>(Point3(5, 5, 0), 1.0, lightMat);
-    auto areaLight = std::make_shared<AreaLight>(lightShape, lightMat, Spectrum(1.0));
-    auto lightPrim = std::make_shared<Primitive>(lightShape, lightMat, areaLight);
-    worldList->add(lightPrim);*/
 
     // --------------------------------------------------
     // 5. Scene作成と光源設定
@@ -244,12 +242,12 @@ void App::init() {
     // オプション: ポイントライトや他の光源を追加
     // 例: シーン内にポイントライトを追加する場合
     
-    auto pointLight = std::make_shared<PointLight>(
+    /*auto pointLight = std::make_shared<PointLight>(
         Point3(-1.2, 3, 0),           // 位置
         Spectrum(0, 0, 100)       // 強度
     );
     m_scene->addLight(pointLight);
-    std::cout << "[Scene] Point light added.\n";
+    std::cout << "[Scene] Point light added.\n";*/
 
     // エリアライトの設定
     //m_scene->addLight(areaLight);
@@ -287,7 +285,6 @@ void App::init() {
     m_film = std::make_unique<Film>(m_width, m_height);
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
-    // 環境マップはSceneから取得されるので、引数から削除
     m_integrator = std::make_unique<PathIntegrator>(
         m_camera,
         m_settings.maxDepth,  // 最大深度

@@ -5,7 +5,6 @@
  * * Ported and adapted from PBRT v4 DielectricBxDF.
  */
 
-
 #pragma once
 
 #include <algorithm>

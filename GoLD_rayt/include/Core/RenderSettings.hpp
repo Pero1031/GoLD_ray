@@ -1,4 +1,8 @@
-﻿#pragma once
+﻿/*
+* @file include/Core/RenderSettings.hpp
+*/
+
+#pragma once
 
 // ビューモード用（必要に応じて増やす）
 enum class ViewMode {
@@ -16,8 +20,8 @@ struct RenderSettings {
 
     // 画質・設定
     int sppPerFrame = 1;
-    int targetSpp = 256;
-    int maxDepth = 10;
+    int targetSpp = 1024;
+    int maxDepth = 8;
 
     // カメラ・表示
     float exposure = 0.0f;

@@ -110,15 +110,6 @@
     <ClInclude Include="include\Materials\Material.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="include\Materials\Mirror.hpp">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="include\Materials\MirrorConductor.hpp">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="include\Materials\SpectralMetal.hpp">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
     <ClInclude Include="include\Renderer\Camera.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
