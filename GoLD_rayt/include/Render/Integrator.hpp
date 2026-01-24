@@ -1,8 +1,18 @@
-﻿#pragma once
+﻿/*
+* @file include/render/Integrator.hpp
+* @brief 
+*/
+
+#pragma once
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include <memory>
 #include <iostream>
 #include <algorithm>
+#include <atomic>
 
 #include "Core/Forward.hpp"
 #include "Core/Types.hpp"
@@ -13,7 +23,7 @@
 #include "Core/Interaction.hpp"
 #include "Core/SpectrumUtils.hpp"
 #include "Core/SampledWavelengths.hpp"
-#include "Scene/Scene.hpp" // HittableList, etc.
+#include "Scene/Scene.hpp" 
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
 #include "Lights/Light.hpp"
@@ -54,14 +64,23 @@ namespace rayt {
             int width = film.width();
             int height = film.height();
 
+#ifdef _OPENMP
+            std::cout << "[PathIntegrator] OpenMP enabled with "
+                << omp_get_max_threads() << " threads" << std::endl;
+#else
+            std::cout << "[PathIntegrator] WARNING: OpenMP NOT enabled!" << std::endl;
+#endif
+
             std::cout << "[PathIntegrator] Rendering " << width << "x" << height
                 << " (" << m_spp << " spp)" << std::endl;
 
+            std::atomic<int> linesCompleted(0);
+            const int totalLines = height;
+
+#pragma omp parallel for schedule(dynamic, 1)
             for (int j = 0; j < height; ++j) {
                 // 進捗表示
-                std::cout << "\rScanlines remaining: " << (height - j) << " " << std::flush;
-
-                #pragma omp parallel for // 可能なら並列化推奨
+                //std::cout << "\rScanlines remaining: " << (height - j) << " " << std::flush;
 
                 for (int i = 0; i < width; ++i) {
                     Spectrum pixelColor(0.0);
@@ -80,14 +99,29 @@ namespace rayt {
 
                     // NaN除去（デバッグ用）
                     if (HasInvalidValues(pixelColor)) {
-                        std::cerr << "NaN detected at " << i << ", " << j << std::endl;
+                        #pragma omp critical
+                        {
+                            std::cerr << "NaN detected at " << i << ", " << j << std::endl;
+                        }
                         pixelColor = Spectrum(0.0);
                     }
 
                     // 上下反転して保存
                     film.setPixel(i, height - 1 - j, pixelColor);
                 }
+
+                // 行完了時に進捗更新（スレッドセーフ）
+                int completed = ++linesCompleted;
+                if (completed % 10 == 0 || completed == totalLines) {
+                    #pragma omp critical
+                    {
+                        std::cout << "\rProgress: " << completed << "/" << totalLines
+                            << " (" << (100 * completed / totalLines) << "%)"
+                            << std::flush;
+                    }
+                }
             }
+
             std::cout << "\n[PathIntegrator] Done." << std::endl;
         }
 
@@ -107,14 +141,13 @@ namespace rayt {
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
-                // ========== Ray Miss: Environment Light ==========
-                if (!scene.hit(r, rec)) {
+                if (!scene.hit(r, rec)) {  // 交差判定：ミスったとき
 
-                    if (scene.hasEnvLight()) {
+                    if (scene.hasEnvLight()) {  // 環境光があるとき
                         SampledWavelengths lambda;
-                        Spectrum envL = scene.envLight()->Le(r, lambda);
+                        Spectrum envL = scene.envLight()->Le(r, lambda);  // 環境光の評価
 
-                        if (hasLastBsdf && !lastSpecular) {
+                        if (hasLastBsdf && !lastSpecular) {  // BSFF評価済みかつ鏡面反射ではない
                             // MIS with BSDF sampling
                             LightSampleContext ctx{ lastRec.p, lastRec.gn };
                             Real pdfEnv = scene.envLight()->pdfLi(ctx, r.d);
@@ -256,8 +289,8 @@ namespace rayt {
          * 5. Account for light selection probability
          */
         Spectrum sampleAllLights(const Scene& scene,
-            const SurfaceInteraction& rec,
-            const Vector3& wo) const {
+                                 const SurfaceInteraction& rec,
+                                 const Vector3& wo) const {
             Spectrum Ld(0.0);
             SampledWavelengths lambda;
             LightSampleContext ctx{ rec.p, rec.gn };

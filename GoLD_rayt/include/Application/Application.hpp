@@ -1,4 +1,9 @@
-﻿#pragma once
+﻿/*
+* @file include/Application/Application.hpp
+* @brief Defines the main application entry class (window loop, rendering, UI).
+*/
+
+#pragma once
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
