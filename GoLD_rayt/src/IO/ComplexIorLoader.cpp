@@ -14,14 +14,35 @@ namespace rayt::io {
 
     namespace {
 
+        /**
+         * @brief Parsing mode for RefractiveIndex.info-style CSV blocks.
+         *
+         * The file is expected to contain two blocks:
+         * - "wl,n" (eta / real part)
+         * - "wl,k" (k   / imaginary part)
+         */
         enum class BlockMode { None, N, K };
 
+        /**
+         * @brief Wavelength-value pair (wavelength stored in nanometers).
+         * Used as the internal representation for both the n-block and k-block data.
+         */
         struct WlVal {
             Real lambda_nm;
             Real v;
             bool operator<(const WlVal& o) const { return lambda_nm < o.lambda_nm; }
         };
 
+        /**
+         * @brief Case-insensitive equality for ASCII strings.
+         *
+         * Used to detect headers such as "wl,n" / "wl,k" even if the CSV uses
+         * different capitalization.
+         *
+         * @param a First string.
+         * @param b Second string.
+         * @return True if equal ignoring case.
+         */
         static inline bool iequals(const std::string& a, const std::string& b) {
             if (a.size() != b.size()) return false;
             for (size_t i = 0; i < a.size(); ++i) {

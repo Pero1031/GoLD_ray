@@ -22,13 +22,9 @@
 // 自作ヘッダー
 // Project Headers
 // Core
-#include "Core/Constants.hpp"
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
-#include "Core/Math.hpp"
 #include "Core/Sampling.hpp"
-#include "Core/AABB.hpp"
-#include "Core/Assert.hpp"
 #include "Core/Image.hpp"
 
 // accelerates
@@ -48,19 +44,10 @@
 
 // Materials
 #include "Materials/Material.hpp"
-//#include "Materials/SpectralMetal.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Materials/DiffuseLight.hpp"
-#include "Materials/Lambertian.hpp"
-//#include "Materials/MirrorConductor.hpp"
-//#include "Materials/Mirror.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Materials/Dielectric.hpp"
-// Note: "Lambertian" or other materials can be added here in the future.
-
-// Microfacet
-#include "Microfacet/Distribution.hpp"
-#include "Microfacet/GGX.hpp"
 
 // IO
 #include "IO/ImageLoader.hpp"

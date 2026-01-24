@@ -146,10 +146,7 @@
     <ClInclude Include="include\Materials\Fresnel.hpp" />
     <ClInclude Include="include\Materials\Lambertian.hpp" />
     <ClInclude Include="include\Materials\Material.hpp" />
-    <ClInclude Include="include\Materials\Mirror.hpp" />
-    <ClInclude Include="include\Materials\MirrorConductor.hpp" />
     <ClInclude Include="include\Materials\RoughConductor.hpp" />
-    <ClInclude Include="include\Materials\SpectralMetal.hpp" />
     <ClInclude Include="include\Microfacet\Distribution.hpp" />
     <ClInclude Include="include\Microfacet\GGX.hpp" />
     <ClInclude Include="include\pch.h" />

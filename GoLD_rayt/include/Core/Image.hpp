@@ -10,7 +10,6 @@
  * - Use isValid() to verify dimensions and buffer size consistency.
  */
 
-
 #pragma once
 
 #include <vector>
