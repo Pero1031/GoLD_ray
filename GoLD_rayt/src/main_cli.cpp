@@ -36,6 +36,7 @@
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Quad.hpp"
 #include "Geometry/TriangleMesh.hpp"
+#include "Accelerators/EmbreeMesh.hpp"
 #include "IO/ObjLoader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include "Geometry/Frame.hpp"
@@ -140,6 +141,7 @@ struct CliOptions {
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    std::string accel = "own";             // own | embree (triangle mesh intersection)
     std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
@@ -163,6 +165,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--out")   o.out = value("--out");
             else if (a == "--light") o.light = value("--light");
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
+            else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
@@ -175,6 +178,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
         }
         if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench")
             throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh or bench");
+        if (o.accel != "own" && o.accel != "embree")
+            throw std::runtime_error("--accel must be own or embree");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
             throw std::runtime_error("--light-sampler must be uniform, power or spatial");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
@@ -184,7 +189,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -868,6 +873,14 @@ static int RunMetalTests(const CliOptions& opt) {
 // -----------------------------------------------------------------------------
 // Triangle mesh checks (run at the start of --scene mesh)
 // -----------------------------------------------------------------------------
+// Triangle mesh -> Hittable with the chosen intersection backend (own SAH BVH or Embree).
+static std::shared_ptr<Hittable> MakeMeshHittable(const std::shared_ptr<const TriangleMesh>& mesh,
+    const std::shared_ptr<Material>& material, const std::string& accel)
+{
+    if (accel == "embree") return std::make_shared<EmbreeMesh>(mesh, material);
+    return BuildMeshBVH(mesh, material);
+}
+
 // -----------------------------------------------------------------------------
 // BVH benchmark (--scene bench): the reference recursive BVH vs the SAH flat BVH
 // -----------------------------------------------------------------------------
@@ -916,6 +929,29 @@ static int RunBvhBenchmark(const CliOptions& opt) {
             if (std::abs(tLegacy[i] - tFlat[i]) > 1e-9) ++mismatches;
         }
         ok = ok && mismatches == 0 && occ == hitsFlat;
+
+        // Embree (float traversal; the hit record is built in Real precision by the Triangle).
+        const auto e0 = clock::now();
+        EmbreeMesh embree(mesh, white);
+        const auto e1 = clock::now();
+        int hitsEmbree = 0, embreeMismatch = 0;
+        std::vector<Real> tEmbree(rays.size());
+        const auto e2 = clock::now();
+        for (size_t i = 0; i < rays.size(); ++i) { const bool h = embree.hit(rays[i], rec); tEmbree[i] = h ? rec.t : -1; hitsEmbree += h; }
+        const auto e3 = clock::now();
+        int occEmbree = 0;
+        for (size_t i = 0; i < rays.size(); ++i) occEmbree += embree.occluded(rays[i]) ? 1 : 0;
+        const auto e4 = clock::now();
+        for (size_t i = 0; i < rays.size(); ++i) {
+            if (std::abs(tEmbree[i] - tFlat[i]) > 1e-6) ++embreeMismatch;
+        }
+        const bool embreeOk = embreeMismatch <= std::max(2, nRays / 10000);   // a ray grazing an edge may differ in float vs double
+        ok = ok && embreeOk;
+        std::cout << "[Bench]     Embree: build " << ms(e0, e1) << " ms (incl. Triangle objects, all threads);  closest hit "
+            << double(nRays) / 1e6 / (ms(e2, e3) / 1000.0) << " Mray/s (x" << ms(c1, c2) / ms(e2, e3) << " vs flat BVH);  any-hit "
+            << double(nRays) / 1e6 / (ms(e3, e4) / 1000.0) << " Mray/s;  " << hitsEmbree << " hits, " << embreeMismatch
+            << " differ from the double BVH (|dt|>1e-6)   " << (embreeOk ? "OK" : "FAIL") << "\n";
+        (void)occEmbree;
 
         if (subdiv == 6) {
             // Coherent rays (camera-like scanline order from one point) on the same BVH: shows how much
@@ -1041,6 +1077,27 @@ static bool RunMeshChecks(const CliOptions& opt) {
             check("torus.obj " + std::to_string(mesh->numTriangles()) + " triangles, volume " + std::to_string(mesh->signedVolume())
                 + ": BVH vs brute force on 20000 rays (" + std::to_string(hits) + " hits), mismatches",
                 mismatches == 0 && hits > 1000 && mesh->signedVolume() > 0, std::to_string(mismatches));
+
+            // Embree (float traversal, Real hit record) vs brute force on the same kind of rays.
+            {
+                EmbreeMesh embree(mesh, white);
+                int diff = 0, normalDiff = 0, n = 0;
+                for (int i = 0; i < 20000; ++i) {
+                    const Vector3 target(sampling::Random(-0.7, 0.7), sampling::Random(-0.25, 0.25), sampling::Random(-0.7, 0.7));
+                    const Vector3 origin = glm::normalize(Vector3(sampling::Random(-1, 1), sampling::Random(-1, 1), sampling::Random(-1, 1))) * 3.0;
+                    const Ray ray(origin, glm::normalize(target - origin));
+                    SurfaceInteraction a, b;
+                    const bool ha = embree.hit(ray, a), hb = brute.hit(ray, b);
+                    ++n;
+                    if (ha != hb || (ha && std::abs(a.t - b.t) > 1e-6)) { ++diff; continue; }
+                    if (ha && (glm::dot(a.n, b.n) < 0.9999 || a.matPtr != b.matPtr)) ++normalDiff;
+                    Ray shortRay = ray;
+                    shortRay.tMax = sampling::Random(0.5, 5.0);
+                    if (embree.occluded(shortRay) != brute.occluded(shortRay)) ++diff;
+                }
+                check("Embree vs brute force on " + std::to_string(n) + " rays (hit/miss, distance, any-hit; normals + material)",
+                    diff <= 5 && normalDiff == 0, std::to_string(diff) + " ray(s) differ at float/double edge cases, " + std::to_string(normalDiff) + " normal/material differences");
+            }
         }
     }
 
@@ -1269,12 +1326,12 @@ int main(int argc, char** argv) {
             return 1;
         }
         torus.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(Real(65)), Vector3(1, 0, 0))), Vector3(0.0, 0.22, -1.2));
-        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(std::move(torus)), matGoldMedium));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(torus)), matGoldMedium, opt.accel));
 
         // The same 80-triangle sphere twice: flat shading (left) vs interpolated vertex normals (right).
         auto red = std::make_shared<Lambertian>(RgbColor(0.75, 0.2, 0.18));
-        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(-1.45, 0, -0.9), false)), red));
-        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(1.45, 0, -0.9), true)), red));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(-1.45, 0, -0.9), false)), red, opt.accel));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(1.45, 0, -0.9), true)), red, opt.accel));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.45, -1), 100.0, std::make_shared<Lambertian>(RgbColor(0.6, 0.6, 0.6))));
 
         studioLights.push_back(AddQuadLight(*worldList, nullptr, Point3(-1.8, 2.6, -2.0),
