@@ -10,9 +10,14 @@
  *       and to avoid circular includes. It should be safe to include anywhere.
  * @warning Changing these aliases affects the entire ABI/layout of many types.
  *          Prefer a full rebuild after modification.
+ *
+ * It also pulls in Core/RenderMode.hpp, the compile-time RGB / spectral switch, so that every
+ * file that sees Real also sees the same rendering mode.
  */
 
 #pragma once
+
+#include "Core/RenderMode.hpp"   // RAYT_ENABLE_SPECTRAL -> RAYT_SPECTRAL_MODE
 
 namespace rayt {
 

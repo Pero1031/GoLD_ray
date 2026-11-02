@@ -178,6 +178,9 @@ namespace rayt {
                 // 現在のヒット点を保存
                 lastRec = rec;
 
+                // The BSDFs below assume unit-length directions (wo = -r.d).
+                Assert(math::isNormalized(r.d) && "ray direction must be unit length");
+
                 // Dispersive materials reduce the path to a single wavelength before anything is evaluated.
                 rec.matPtr->prepareWavelengths(lambda);
 
@@ -218,6 +221,7 @@ namespace rayt {
                 Spectrum f = bsdfSample->f;
                 Real pdf = bsdfSample->pdf;
                 Vector3 wi = bsdfSample->wi; // 新しい方向
+                Assert(math::isNormalized(wi) && "BSDF sample direction must be unit length");
 
                 lastPdf = pdf;
                 lastSpecular = bsdfSample->isSpecular();
@@ -383,6 +387,7 @@ namespace rayt {
             }
 
             Vector3 wi = ls->wi;
+            Assert(math::isNormalized(wi) && "light sample direction must be unit length");
             Spectrum Li = ls->Li;
             Real pdfLight = ls->pdf;  // PDF w.r.t. solid angle
 

@@ -125,6 +125,8 @@ App::~App() {
 }
 
 void App::init() {
+    std::cout << "[Render] mode = " << rayt::kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
+
     // --------------------------------------------------
     // 1. UI & OpenGL テクスチャ初期化
     // --------------------------------------------------

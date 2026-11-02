@@ -273,6 +273,15 @@ namespace rayt::math {
         return std::max({ v.x, v.y, v.z });
     }
 
+    /// @brief Checks that a direction vector has unit length (within eps).
+    /// @details Reflection / refraction / microfacet code assumes unit-length directions. Use it
+    /// in Assert() at the boundaries where directions enter that code (an unnormalized camera ray
+    /// once bent glass refraction wrongly and made rough metal too dark).
+    template <typename T>
+    inline bool isNormalized(const glm::vec<3, T, glm::defaultp>& v, T eps = static_cast<T>(1e-4)) {
+        return std::abs(glm::length(v) - static_cast<T>(1)) <= eps;
+    }
+
     // -------------------------------------------------------------------------
     // Multiple Importance Sampling (MIS)
     // -------------------------------------------------------------------------
