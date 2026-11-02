@@ -51,6 +51,7 @@
 #include "Render/Camera.hpp"
 #include "Scene/Scene.hpp"
 #include "Render/Integrator.hpp"
+#include "Render/Denoiser.hpp"
 
 // Materials
 #include "Materials/Material.hpp"
@@ -163,6 +164,8 @@ struct CliOptions {
     std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
+    bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
+    bool cleanAux = false;                 // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
@@ -204,6 +207,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-light") o.pmxLight = true;
             else if (a == "--pmx-studio") o.pmxStudio = true;
             else if (a == "--aov") o.aov = true;
+            else if (a == "--denoise") o.denoise = true;
+            else if (a == "--clean-aux") o.cleanAux = true;
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
@@ -236,7 +241,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--aov] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -2227,7 +2232,7 @@ int main(int argc, char** argv) {
     // 7. レンダラー生成
     // --------------------------------------------------
     Film film(imageWidth, imageHeight);
-    if (opt.aov) film.enableAOVs();
+    if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
     auto integrator = std::make_unique<PathIntegrator>(
@@ -2248,12 +2253,16 @@ int main(int argc, char** argv) {
     std::cout << "[Output] Saving images..." << std::endl;
     film.save(opt.out);
     // film.save("result_gold_pbr.hdr");
+    const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
+    const std::string outExt = std::filesystem::path(opt.out).extension().string();
     if (opt.aov) {
-        const std::string stem = std::filesystem::path(opt.out).replace_extension("").string();
-        const std::string ext = std::filesystem::path(opt.out).extension().string();
-        const std::string aovExt = (ext == ".hdr") ? ".hdr" : ".png";
-        film.saveAlbedo(stem + "_albedo" + aovExt);
-        film.saveNormal(stem + "_normal" + aovExt);
+        const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
+        film.saveAlbedo(outStem + "_albedo" + aovExt);
+        film.saveNormal(outStem + "_normal" + aovExt);
+    }
+    if (opt.denoise) {
+        Film denoised(imageWidth, imageHeight);
+        if (DenoiseFilm(film, denoised, opt.cleanAux)) denoised.save(outStem + "_denoised" + outExt);
     }
 
     bool furnacePassed = true;
