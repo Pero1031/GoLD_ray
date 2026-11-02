@@ -53,6 +53,7 @@
 // Materials
 #include "Materials/Material.hpp"
 #include "Materials/Lambertian.hpp"
+#include "Materials/CoatedDiffuse.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Materials/Dielectric.hpp"
@@ -74,6 +75,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <functional>
 #include <map>
 #include <stdexcept>
@@ -150,6 +152,8 @@ struct CliOptions {
     bool pmxList = false;                  // --pmx-list : print the .pmx files found in MMD_model/ and exit
     Real pmxZoom = 1;                      // --pmx-zoom Z : camera distance / Z
     Real pmxFocus = 0.5;                   // --pmx-focus f : look at this fraction of the model height (0.9 = face)
+    bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
+    bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
     bool pmxAll = false;                   // --pmx-all : also draw the "+" overlay materials
     bool pmxInfoOnly = false;              // --pmx-info : load, print the model summary, exit (no render)
     Real pmxYaw = 0;                       // --pmx-yaw deg : turn the model about +Y
@@ -184,6 +188,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-list") o.pmxList = true;
             else if (a == "--pmx-info") o.pmxInfoOnly = true;
             else if (a == "--pmx-all") o.pmxAll = true;
+            else if (a == "--pmx-matte") o.pmxMatte = true;
+            else if (a == "--pmx-light") o.pmxLight = true;
             else if (a == "--pmx-zoom") o.pmxZoom = std::stod(value("--pmx-zoom"));
             else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
@@ -210,7 +216,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -966,6 +972,75 @@ static int RunMetalTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 6. CoatedDiffuse (diffuse under a GGX coat, metallic blend) ----
+    {
+        SurfaceInteraction rec;
+        rec.p = Point3(0.0); rec.n = Vector3(0, 0, 1); rec.gn = Vector3(0, 0, 1);
+#if defined(RAYT_SPECTRAL_MODE)
+        const SampledWavelengths lam = SampledWavelengths::sampleVisible(Real(0.37));
+#else
+        const SampledWavelengths lam;
+#endif
+        auto randomDir = [&]() {
+            const Real z = sampling::Random(0.05, 1.0), phi = 2 * constants::PI * sampling::Random();
+            const Real r = std::sqrt(1 - z * z);
+            return Vector3(r * std::cos(phi), r * std::sin(phi), z);
+        };
+        struct Case { const char* name; Real albedo, roughness, weight, metallic; };
+        for (const Case& c : { Case{ "plastic r=0.3", 0.8, 0.3, 1.0, 0.0 }, Case{ "plastic r=0.7", 0.8, 0.7, 1.0, 0.0 },
+                               Case{ "half coat, 30% metal r=0.4", 0.8, 0.4, 0.5, 0.3 }, Case{ "metal r=0.4", 0.8, 0.4, 1.0, 1.0 } }) {
+            auto mat = std::make_shared<CoatedDiffuse>(RgbColor(c.albedo), c.roughness, c.weight, c.metallic);
+            Real worstRecip = 0;
+            for (int i = 0; i < 2000; ++i) {
+                const Vector3 a = randomDir(), b = randomDir();
+                const Vector3 v1 = SpectrumToRGB(mat->eval(rec, a, b, lam, TransportMode::Radiance), lam);
+                const Vector3 v2 = SpectrumToRGB(mat->eval(rec, b, a, lam, TransportMode::Radiance), lam);
+                worstRecip = std::max(worstRecip, std::abs(v1.x - v2.x) / std::max(Real(1e-9), std::max(v1.x, v2.x)));
+            }
+            bool ok = worstRecip < 1e-6;
+            std::ostringstream line;
+            line << "[Metals]   CoatedDiffuse " << c.name << ": reciprocity " << worstRecip;
+            for (const Real cosO : { Real(0.8), Real(0.3) }) {
+                const Vector3 wo(std::sqrt(1 - cosO * cosO), 0, cosO);
+                double albedoU = 0, albedoS = 0, sqU = 0, sqS = 0, pdfInt = 0;
+                const int m = 200000;
+                for (int i = 0; i < m; ++i) {
+                    const Real z = sampling::Random(), phi = 2 * constants::PI * sampling::Random(), r = std::sqrt(std::max(Real(0), 1 - z * z));
+                    const Vector3 wi(r * std::cos(phi), r * std::sin(phi), z);
+                    pdfInt += mat->pdf(rec, wo, wi, lam) * 2 * constants::PI;
+                    const double u = SpectrumToRGB(mat->eval(rec, wo, wi, lam, TransportMode::Radiance), lam).x * wi.z * 2 * constants::PI;
+                    albedoU += u; sqU += u * u;
+                    const auto s = mat->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lam, TransportMode::Radiance);
+                    const double w = s ? SpectrumToRGB(s->f, lam).x * std::abs(glm::dot(rec.n, s->wi)) / s->pdf : 0.0;
+                    albedoS += w; sqS += w * w;
+                }
+                pdfInt /= m; albedoU /= m; albedoS /= m;
+                const double seU = std::sqrt(std::max(0.0, sqU / m - albedoU * albedoU) / m), seS = std::sqrt(std::max(0.0, sqS / m - albedoS * albedoS) / m);
+                const bool okHere = pdfInt <= 1.02 && std::abs(albedoU - albedoS) <= 4 * std::hypot(seU, seS) + 1e-3;
+                ok = ok && okHere;
+                line << ";  cos " << cosO << ": albedo " << albedoU << " vs sample() " << albedoS << ", pdf integral " << pdfInt;
+            }
+            std::cout << line.str() << "   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = allPassed && ok;
+        }
+
+        // A white (albedo 1) plastic sphere in a uniform white environment can only return <= 1 of the light.
+        auto envMap = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0))));
+        for (const Real rough : { Real(0.2), Real(0.5) }) {
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Sphere>(Point3(0, 0, 0), 1.0, std::make_shared<CoatedDiffuse>(RgbColor(1.0), rough, 1.0, 0.0)));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(std::make_shared<EnvLight>(envMap, 1.0));
+            scene->finalize();
+            Vector3 mc, sc;
+            int bad = 0;
+            EstimateRadiance(*scene, Ray(Point3(0, 0, 5), Vector3(0, 0, -1)), opt.spp * 512, 16, mc, sc, bad);
+            const bool ok = mc.x <= 1.0 + 4 * sc.x + 0.005 && mc.x > 0.9 && bad == 0;
+            std::cout << "[Metals]   white plastic r=" << rough << " in a white furnace: " << mc.x << " (<= 1)   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = allPassed && ok;
+        }
+    }
+
     std::cout << "[Metals] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
@@ -1031,9 +1106,41 @@ static void PrintPmxInfo(const io::PmxModel& m, const std::filesystem::path& fil
             << "  diffuse (" << mat.diffuse.x << ", " << mat.diffuse.y << ", " << mat.diffuse.z << ") alpha " << mat.diffuse.w
             << (mat.doubleSided() ? "  double-sided" : "")
             << (mat.texture >= 0 ? "  tex " + m.textures[static_cast<size_t>(mat.texture)] : std::string("  no texture"))
-            << (mat.sphereTexture >= 0 ? "  sphere" + std::to_string(mat.sphereMode) : std::string())
+            << "  spec (" << mat.specular.x << "," << mat.specular.y << "," << mat.specular.z << ") shin " << mat.shininess
+            << (mat.sphereTexture >= 0 ? "  sphere" + std::to_string(mat.sphereMode) + " " + m.textures[static_cast<size_t>(mat.sphereTexture)] : std::string())
+            << (mat.sharedToon ? "  toon#" + std::to_string(mat.toon) : std::string("  own toon"))
             << "\n";
     }
+}
+
+/// PMX material -> renderer material.
+///
+/// MMD materials are an NPR recipe (diffuse color, a Phong specular term, an additive sphere map for
+/// highlights, a toon ramp for the shadow side). A path tracer produces shadows and highlights by
+/// itself, so only the intent is kept:
+///  - PMX specular > 0 : a glossy dielectric coat (weight = specular strength, roughness from the
+///    shininess via Blinn-Phong exponent -> GGX alpha = sqrt(2 / (n + 2))).
+///  - this model has specular 0 everywhere and fakes gloss with sphere-mapped overlay layers, so
+///    its gloss is restored from the material NAMES (hair, eyes, ornaments, skin). That table is
+///    specific to this model; --pmx-matte turns every preset off.
+///  - toon ramps, sphere maps and edge lines are not used (shading comes from the lighting).
+static std::shared_ptr<Material> MakePmxMaterial(const io::PmxMaterial& pm, const RgbColor& base,
+    const std::shared_ptr<Texture2D>& tex, bool matte)
+{
+    if (matte) return std::make_shared<Lambertian>(base, tex);
+
+    const Real specLum = Real(0.2126) * pm.specular.x + Real(0.7152) * pm.specular.y + Real(0.0722) * pm.specular.z;
+    if (specLum > Real(0.01)) {
+        const Real alpha = std::sqrt(Real(2) / (std::max<Real>(pm.shininess, Real(1)) + Real(2)));
+        return std::make_shared<CoatedDiffuse>(base, std::sqrt(alpha), std::min(Real(1), Real(2) * specLum), Real(0), tex);
+    }
+
+    const auto has = [&](const char* s) { return pm.name.find(s) != std::string::npos; };
+    if (has("髮") || has("髪")) return std::make_shared<CoatedDiffuse>(base, Real(0.30), Real(1.0), Real(0), tex);   // hair: soft shine
+    if (has("目")) return std::make_shared<CoatedDiffuse>(base, Real(0.08), Real(1.0), Real(0), tex);                 // eyes: wet cornea
+    if (pm.name == "饰") return std::make_shared<CoatedDiffuse>(base, Real(0.30), Real(1.0), Real(0.85), tex);        // gold ornaments
+    if (has("体") || has("肌") || has("颜") || has("首")) return std::make_shared<CoatedDiffuse>(base, Real(0.50), Real(0.4), Real(0), tex);   // skin: faint sheen
+    return std::make_shared<Lambertian>(base, tex);
 }
 
 /// PMX -> TriangleMesh in the renderer's convention (right-handed, +Y up, metres, feet on y = 0, x/z centered).
@@ -1521,8 +1628,8 @@ int main(int argc, char** argv) {
                 tex = it->second;
             }
 
-            auto mat = std::make_shared<Lambertian>(
-                RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)), tex);
+            const std::shared_ptr<Material> mat = MakePmxMaterial(pm,
+                RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)), tex, opt.pmxMatte);
             const bool cutout = tex && tex->hasAlpha();
             if (cutout) ++alphaMaterials;
             for (int t = pm.firstIndex / 3; t < (pm.firstIndex + pm.indexCount) / 3; ++t) {
@@ -1545,6 +1652,16 @@ int main(int argc, char** argv) {
         pmxCamTarget = Point3(0, height * opt.pmxFocus, 0);
         pmxCamFrom = Point3(0, height * (opt.pmxFocus + 0.05 / zoom), height * 1.15 / (2 * std::tan(glm::radians(17.5))) / zoom);
         pmxCamera = true;
+        if (opt.pmxLight) {
+            // Softbox 1.0 x 0.7 m, 2.2 m from the focus point, front-left and a little above, facing it.
+            const Point3 target = pmxCamTarget;
+            const Point3 center = target + Vector3(-1.3, 0.9, 1.6);
+            const Vector3 n = glm::normalize(target - center);
+            const Vector3 e1 = glm::normalize(glm::cross(Vector3(0, 1, 0), n)) * 1.0;
+            const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * 0.7;
+            studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2,
+                EmissionSpectrum(RgbColor(1.0)), 8.0, true));
+        }
     }
     else if (opt.scene == "goldrough") {
         // Rough gold spheres (roughness 0.4 / 0.7 / 1.0): multiple scattering matters here (--no-ms turns it off).
