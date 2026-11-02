@@ -61,6 +61,24 @@ namespace rayt {
          * @brief Get wavelength at index i.
          */
         Real operator[](int i) const { return lambda[i]; }
+
+        /// True once the secondary wavelengths have been dropped (see terminateSecondary()).
+        bool secondaryTerminated() const { return pdf[1] == Real(0); }
+
+        /**
+         * @brief Keep only the first ("hero") wavelength for the rest of this path.
+         *
+         * Needed when a material bends different wavelengths in different directions (dispersion):
+         * one ray cannot carry four wavelengths any more. The secondary wavelengths get pdf 0
+         * (SpectrumToRGB skips them) and the hero pdf is divided by the number of wavelengths,
+         * which turns the 4-wavelength average into a single-wavelength estimate with the same
+         * expected value (PBRT v4: SampledWavelengths::TerminateSecondary).
+         */
+        void terminateSecondary() {
+            if (secondaryTerminated()) return;
+            for (int i = 1; i < kSpectralSamples; ++i) pdf[i] = Real(0);
+            pdf[0] /= Real(kSpectralSamples);
+        }
     };
 
     namespace detail {

@@ -58,6 +58,9 @@
 #include "Color/IorRgbApprox.hpp"
 
 #include <filesystem>
+#include <map>
+#include <stdexcept>
+#include <vector>
 
 #include "DebugTools/FrameDebug.hpp"
 
@@ -82,10 +85,148 @@ const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
 const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 
 // -----------------------------------------------------------------------------
+// Command line
+//   main_cli [--scene gold|glass|furnace] [--width N] [--spp N] [--depth N]
+//            [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]
+//
+//   --trace x,y : debug aid. Prints a few light paths of the pixel (x,y) (image coordinates,
+//                 origin at the top-left) with the object hit at every bounce, then exits.
+//
+//   gold    : three gold spheres (default, as before)
+//   glass   : clear / dispersive / frosted glass spheres on a floor
+//   furnace : lossless objects in a uniform white environment. Every pixel must converge to
+//             RGB (1,1,1); a mean below/above 1 means energy is lost/created (a bug check).
+// Without options the behavior is the same as before (gold scene, constants above).
+// -----------------------------------------------------------------------------
+struct CliOptions {
+    std::string scene = "gold";
+    int width = IMAGE_WIDTH;           // height follows the 16:9 aspect ratio of the constants
+    int spp = SAMPLES_PER_PIXEL;
+    int maxDepth = MAX_DEPTH;
+    std::string env = ENV_HDR_PATH;
+    Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
+    std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
+};
+
+static bool ParseArgs(int argc, char** argv, CliOptions& o) {
+    try {
+        for (int i = 1; i < argc; ++i) {
+            const std::string a = argv[i];
+            auto value = [&](const char* name) -> std::string {
+                if (i + 1 >= argc) throw std::runtime_error(std::string("missing value for ") + name);
+                return argv[++i];
+            };
+            if (a == "--scene")      o.scene = value("--scene");
+            else if (a == "--width") o.width = std::stoi(value("--width"));
+            else if (a == "--spp")   o.spp = std::stoi(value("--spp"));
+            else if (a == "--depth") o.maxDepth = std::stoi(value("--depth"));
+            else if (a == "--env")   o.env = value("--env");
+            else if (a == "--abbe")  o.abbe = std::stod(value("--abbe"));
+            else if (a == "--out")   o.out = value("--out");
+            else if (a == "--trace") {
+                const std::string xy = value("--trace");
+                const size_t comma = xy.find(',');
+                if (comma == std::string::npos) throw std::runtime_error("--trace needs x,y");
+                o.traceX = std::stoi(xy.substr(0, comma));
+                o.traceY = std::stoi(xy.substr(comma + 1));
+            }
+            else throw std::runtime_error("unknown option: " + a);
+        }
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace")
+            throw std::runtime_error("--scene must be gold, glass or furnace");
+        if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
+            throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[Args] " << e.what() << "\n"
+            << "usage: main_cli [--scene gold|glass|furnace] [--width N] [--spp N] [--depth N]"
+            << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
+        return false;
+    }
+    if (o.out.empty()) o.out = (o.scene == "gold") ? "result_gold_pbr.png" : "result_" + o.scene + ".png";
+    return true;
+}
+
+// Mean film color per object seen through the pixel centers (furnace test report).
+static void PrintFurnaceStats(const Scene& scene, const Camera& camera, const Film& film,
+    const std::vector<std::pair<std::string, const Material*>>& objects)
+{
+    struct Acc { Vector3 sum = Vector3(0.0); long long n = 0; };
+    std::map<const Material*, Acc> acc;   // key nullptr = background (environment)
+
+    const int w = film.width();
+    const int h = film.height();
+    for (int j = 0; j < h; ++j) {
+        for (int i = 0; i < w; ++i) {
+            // Same pixel convention as PathIntegrator::render (film row = h - 1 - j).
+            const Ray r = camera.getRay((Real(i) + 0.5) / Real(w), (Real(j) + 0.5) / Real(h), Point2(0.5, 0.5));
+            SurfaceInteraction rec;
+            const Material* m = scene.hit(r, rec) ? rec.matPtr : nullptr;
+            Acc& a = acc[m];
+            a.sum += film.getData()[static_cast<size_t>(h - 1 - j) * static_cast<size_t>(w) + static_cast<size_t>(i)];
+            a.n++;
+        }
+    }
+
+    std::cout << "\n[Furnace] mean linear RGB per object (expected (1,1,1) for lossless materials)\n";
+    auto report = [&](const std::string& label, const Material* m) {
+        const auto it = acc.find(m);
+        if (it == acc.end() || it->second.n == 0) return;
+        const Vector3 mean = it->second.sum / Real(it->second.n);
+        std::cout << "[Furnace]   " << label << ": (" << mean.x << ", " << mean.y << ", " << mean.z
+            << ")  [" << it->second.n << " px]\n";
+    };
+    report("background      ", nullptr);
+    for (const auto& [label, m] : objects) report(label, m);
+}
+
+// Debug aid: follow a few light paths of one pixel and print which object each bounce hits.
+//   [in]/[out] = the ray hits the surface from outside / from inside, (R)/(T) = reflected / transmitted.
+static void TracePixelDebug(const Scene& scene, const Camera& camera, int px, int py, int w, int h,
+    int maxDepth, int numPaths,
+    const std::vector<std::pair<std::string, const Material*>>& names)
+{
+    auto label = [&](const Material* m) {
+        for (const auto& [n, p] : names) if (p == m) return n;
+        return std::string("?");
+    };
+    const SampledWavelengths lambda;   // RGB-mode default (wavelength-independent materials)
+    std::cout << "[Trace] pixel (" << px << ", " << py << ") of " << w << "x" << h << ", " << numPaths << " paths\n";
+    for (int k = 0; k < numPaths; ++k) {
+        // Same convention as PathIntegrator: image row 0 is the top, camera t = 1 at the top.
+        Ray r = camera.getRay((Real(px) + 0.5) / Real(w), Real(1) - (Real(py) + 0.5) / Real(h), Point2(0.5, 0.5));
+        std::cout << "  path " << k << ":";
+        for (int depth = 0; depth < maxDepth; ++depth) {
+            SurfaceInteraction rec;
+            if (!scene.hit(r, rec)) {
+                std::cout << " -> ENV [ray o=(" << r.o.x << "," << r.o.y << "," << r.o.z << ") d=("
+                    << r.d.x << "," << r.d.y << "," << r.d.z << ") tMin=" << r.tMin << " tMax=" << r.tMax << "]";
+                break;
+            }
+            std::cout << " -> " << label(rec.matPtr) << (rec.frontFace ? "[in]" : "[out]")
+                << "@(" << rec.p.x << "," << rec.p.y << "," << rec.p.z << ")";
+            const auto s = rec.matPtr->sample(rec, -r.d, Point2(sampling::Random(), sampling::Random()), lambda);
+            if (!s) { std::cout << " (no sample: " << (rec.frontFace ? "?" : "TIR") << ")"; break; }
+            std::cout << (s->isTransmission() ? "(T)" : "(R)");
+            r = rec.SpawnRay(s->wi);
+        }
+        std::cout << "\n";
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
-int main() {
-    
+int main(int argc, char** argv) {
+
+    CliOptions opt;
+    if (!ParseArgs(argc, argv, opt)) return 1;
+    const int imageWidth = opt.width;
+    const int imageHeight = std::max(1, static_cast<int>(std::lround(double(opt.width) * IMAGE_HEIGHT / IMAGE_WIDTH)));
+    std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
+        << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
+
     // --------------------------------------------------
     // 2. 環境マップ (EnvMap) 読み込み
     // --------------------------------------------------
@@ -94,9 +235,15 @@ int main() {
     std::shared_ptr<EnvMap> envMap = nullptr;  // 環境マップクラスをインスタンス化
     std::shared_ptr<EnvLight> envLight = nullptr;
 
-    try {
-        std::cout << "[EnvMap] Loading: " << ENV_HDR_PATH << std::endl;
-        auto envImg = io::loadHDR(ENV_HDR_PATH);   // HDRでダウンロード
+    if (opt.scene == "furnace") {
+        // Uniform white environment: radiance (1,1,1) in every direction.
+        envMap = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0))));
+        envLight = std::make_shared<EnvLight>(envMap, 1.0);
+        std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
+    }
+    else try {
+        std::cout << "[EnvMap] Loading: " << opt.env << std::endl;
+        auto envImg = io::loadHDR(opt.env);   // HDRでダウンロード
         envMap = std::make_shared<EnvMap>(std::move(envImg));
         std::cout << "[EnvMap] Success.\n";
 
@@ -164,32 +311,62 @@ int main() {
     auto matGoldMedium = std::make_shared<RoughConductor>(auTable, 0.20);
     auto matGoldRough = std::make_shared<RoughConductor>(auTable, 0.50);
 
-    //auto matGlass = std::make_shared<Dielectric>(1.5, 0.0); // 粗さ0 = 完全透明
-    //auto matFrosted = std::make_shared<Dielectric>(1.5, 0.2); // 粗さ0.2 = すりガラス
+    // Glass and reference materials for the "glass" and "furnace" scenes.
+    auto matGlass = std::make_shared<Dielectric>(1.5, 0.0);                      // 粗さ0 = 完全透明 (no dispersion)
+    auto matGlassDisp = std::make_shared<Dielectric>(1.5, 0.0, 0.0, opt.abbe);   // clear glass with dispersion (spectral mode)
+    auto matFrosted = std::make_shared<Dielectric>(1.5, 0.2);                    // 粗さ0.2 = すりガラス
+    auto matWhite = std::make_shared<Lambertian>(RgbColor(1.0));                 // albedo 1 (furnace reference)
 
     // -------------------------------------------------------------------------
     // 2. 物体の配置 (Scene)
     // -------------------------------------------------------------------------
-    //auto worldObjects = std::make_shared<HittableList>();
-    // -------------------------------------------------------------------------
-    // 2. 物体の配置 (Scene) - 1万個チャレンジ
-    // -------------------------------------------------------------------------
     auto worldList = std::make_shared<Aggregate>();
 
-    // リストに対して add する
-    worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
-    worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
-    worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
+    std::vector<std::pair<std::string, const Material*>> furnaceObjects;   // labels for the furnace report
+    std::vector<std::shared_ptr<Material>> furnaceMaterials;               // owns materials only used there
 
-    // ガラス
-    //worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
+    if (opt.scene == "gold") {
+        // リストに対して add する
+        worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
+        worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
 
-    // すりガラス
-    //worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
+        // 大きな球で床を作製
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
+    else if (opt.scene == "glass") {
+        // left: clear glass, center: dispersive glass, right: frosted glass
+        worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGlass));
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGlassDisp));
+        worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matFrosted));
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
+    else {
+        // furnace: no floor, so the only light path is environment <-> object.
+        // The two metals use a near-perfect conductor (k = 100, F ~ 0.9996 at every angle), so
+        // only the microfacet model's own single-scattering energy loss is left.
+        auto perfectMetal = std::make_shared<rayt::color::ComplexIorTable>();
+        perfectMetal->samples() = { { 360.0, 1.0, 100.0 }, { 830.0, 1.0, 100.0 } };
+        auto matMetalMid = std::make_shared<RoughConductor>(perfectMetal, 0.2);
+        auto matMetalRough = std::make_shared<RoughConductor>(perfectMetal, 0.5);
+        furnaceMaterials = { matMetalMid, matMetalRough };   // keep them alive until the report
 
-
-    // 大きな球で床を作製
-    worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+        const Real r = 0.28;
+        worldList->add(std::make_shared<Sphere>(Point3(-1.55, 0, -1), r, matGlass));
+        worldList->add(std::make_shared<Sphere>(Point3(-0.93, 0, -1), r, matGlassDisp));
+        worldList->add(std::make_shared<Sphere>(Point3(-0.31, 0, -1), r, matFrosted));
+        worldList->add(std::make_shared<Sphere>(Point3(0.31, 0, -1), r, matWhite));
+        worldList->add(std::make_shared<Sphere>(Point3(0.93, 0, -1), r, matMetalMid));
+        worldList->add(std::make_shared<Sphere>(Point3(1.55, 0, -1), r, matMetalRough));
+        furnaceObjects = {
+            { "clear glass     ", matGlass.get() },
+            { "dispersive glass", matGlassDisp.get() },
+            { "frosted glass   ", matFrosted.get() },
+            { "white diffuse   ", matWhite.get() },
+            { "metal rough 0.2 ", matMetalMid.get() },
+            { "metal rough 0.5 ", matMetalRough.get() },
+        };
+    }
 
     // Area Light (メッシュに紐付いた光源) を作成してシーンに配置
     /*auto lightMat = std::make_shared<DiffuseLight>(Spectrum(50.0, 0.0, 0.0));
@@ -245,25 +422,33 @@ int main() {
     auto camera = std::make_shared<Camera>(
         lookFrom, lookAt, vUp,
         35.0, // FOV
-        double(IMAGE_WIDTH) / IMAGE_HEIGHT,
+        double(imageWidth) / imageHeight,
         aperture,
         distToFocus
     );
 
+    if (opt.traceX >= 0) {
+        TracePixelDebug(*scene, *camera, opt.traceX, opt.traceY, imageWidth, imageHeight, 12, 24,
+            { { "clear", matGlass.get() }, { "disp", matGlassDisp.get() }, { "frosted", matFrosted.get() },
+              { "white", matWhite.get() }, { "floor", matFloor.get() },
+              { "goldS", matGoldSmooth.get() }, { "goldM", matGoldMedium.get() }, { "goldR", matGoldRough.get() } });
+        return 0;
+    }
+
     // --------------------------------------------------
     // 7. レンダラー生成
     // --------------------------------------------------
-    Film film(IMAGE_WIDTH, IMAGE_HEIGHT);
+    Film film(imageWidth, imageHeight);
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
     auto integrator = std::make_unique<PathIntegrator>(
         camera,
-        MAX_DEPTH,  // 最大深度
-        SAMPLES_PER_PIXEL     // プログレッシブ用のspp
+        opt.maxDepth,  // 最大深度
+        opt.spp        // プログレッシブ用のspp
     );
 
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
-        << MAX_DEPTH << ", spp=" << SAMPLES_PER_PIXEL << ").\n";
+        << opt.maxDepth << ", spp=" << opt.spp << ").\n";
 
     // -------------------------------------------------------------------------
     // 6. レンダリング実行 & 保存
@@ -272,8 +457,12 @@ int main() {
     integrator->render(*scene, film);
 
     std::cout << "[Output] Saving images..." << std::endl;
-    film.save("result_gold_pbr.png");
+    film.save(opt.out);
     // film.save("result_gold_pbr.hdr");
+
+    if (opt.scene == "furnace") {
+        PrintFurnaceStats(*scene, *camera, film, furnaceObjects);
+    }
 
     std::cout << "[System] Finished." << std::endl;
 

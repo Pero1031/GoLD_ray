@@ -41,7 +41,8 @@ namespace rayt {
 
         // PDF: 0
         Real pdf(const SurfaceInteraction& rec,
-            const Vector3& wo, const Vector3& wi) const override {
+            const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda) const override {
             return 0.0;
         }
 

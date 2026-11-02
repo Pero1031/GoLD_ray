@@ -64,7 +64,8 @@ namespace rayt {
          * @return The probability density of choosing direction wi.
          */
         Real pdf(const SurfaceInteraction& rec,
-            const Vector3& wo, const Vector3& wi) const override {
+            const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda) const override {
             if (cosNg(rec, wi) <= 0) {
                 return 0.0;
             }
