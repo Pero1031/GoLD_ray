@@ -163,6 +163,7 @@ struct CliOptions {
     std::string morphSpec;                 // --morph "12=1.0,15=0.5" : morph weights by index
     std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
+    std::string studioLook = "default";    // --studio-look default|warm|cool|dramatic|soft : lighting of --pmx-studio
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
     bool cleanAux = false;                 // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
@@ -206,6 +207,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-matte") o.pmxMatte = true;
             else if (a == "--pmx-light") o.pmxLight = true;
             else if (a == "--pmx-studio") o.pmxStudio = true;
+            else if (a == "--studio-look") o.studioLook = value("--studio-look");
             else if (a == "--aov") o.aov = true;
             else if (a == "--denoise") o.denoise = true;
             else if (a == "--clean-aux") o.cleanAux = true;
@@ -232,6 +234,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, spd, metals, studio, mesh, bench, goldrough or pmx");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
+        if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")
+            throw std::runtime_error("--studio-look must be default, warm, cool, dramatic or soft");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial" && o.lightSampler != "all")
             throw std::runtime_error("--light-sampler must be uniform, power, spatial or all");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
@@ -241,7 +245,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1990,7 +1994,22 @@ int main(int argc, char** argv) {
         pmxCamera = true;
         if (opt.pmxStudio) {
             // Studio: a dim backdrop, key / fill soft boxes and two rim lights; the HDR only adds a faint ambient.
-            if (envLight) envLight->setScale(0.10);
+            // Looks (--studio-look): color temperature (K; 0 = neutral white) and radiance of each light,
+            // the ambient HDR scale and the backdrop reflectance. Positions and sizes are shared.
+            struct Lamp { Real kelvin, radiance; };
+            struct StudioLook { Lamp key, fill, rimLeft, rimRight; Real env; RgbColor wall; };
+            static const std::map<std::string, StudioLook> looks = {
+                { "default",  { { 5200, 13 },   { 0, 3.2 },     { 0, 28 },      { 7500, 22 },    0.10, RgbColor(0.16, 0.17, 0.21) } },
+                { "warm",     { { 3200, 14 },   { 4500, 2.0 },  { 2500, 30 },   { 3800, 22 },    0.08, RgbColor(0.20, 0.16, 0.13) } },
+                { "cool",     { { 8500, 8 },    { 10000, 3.0 }, { 12000, 28 },  { 9000, 22 },    0.12, RgbColor(0.13, 0.16, 0.22) } },
+                { "dramatic", { { 4300, 20 },   { 0, 0.4 },     { 6000, 35 },   { 6500, 28 },    0.02, RgbColor(0.07, 0.07, 0.09) } },
+                { "soft",     { { 5600, 7 },    { 5600, 6.0 },  { 5600, 10 },   { 5600, 8 },     0.35, RgbColor(0.45, 0.46, 0.50) } },
+            };
+            const StudioLook& look = looks.at(opt.studioLook);
+            auto spectrum = [](const Lamp& l) {
+                return l.kelvin > 0 ? EmissionSpectrum::Blackbody(l.kelvin) : EmissionSpectrum(RgbColor(1.0));
+            };
+            if (envLight) envLight->setScale(look.env);
             const Point3 target(0, height * 0.55, 0);
             auto softbox = [&](const Point3& center, Real w, Real h, const EmissionSpectrum& e, Real radiance) {
                 const Vector3 n = glm::normalize(target - center);
@@ -1999,13 +2018,13 @@ int main(int argc, char** argv) {
                 studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
             };
             const Real H = height;
-            softbox(Point3(-1.7, H * 1.05, 2.3), 1.3, 1.3, EmissionSpectrum::Blackbody(5200.0), 13.0);   // key: front-left, above, warm white
-            softbox(Point3(2.3, H * 0.60, 2.4), 1.8, 1.2, EmissionSpectrum(RgbColor(1.0)), 3.2);        // fill: front-right, soft, cool-neutral
-            softbox(Point3(-1.5, H * 1.10, -1.7), 0.5, 1.8, EmissionSpectrum(RgbColor(1.0)), 28.0);     // rim: back-left strip
-            softbox(Point3(1.8, H * 1.00, -1.6), 0.5, 1.8, EmissionSpectrum::Blackbody(7500.0), 22.0);  // rim: back-right strip, cooler
+            softbox(Point3(-1.7, H * 1.05, 2.3), 1.3, 1.3, spectrum(look.key), look.key.radiance);               // key: front-left, above
+            softbox(Point3(2.3, H * 0.60, 2.4), 1.8, 1.2, spectrum(look.fill), look.fill.radiance);              // fill: front-right, soft
+            softbox(Point3(-1.5, H * 1.10, -1.7), 0.5, 1.8, spectrum(look.rimLeft), look.rimLeft.radiance);      // rim: back-left strip
+            softbox(Point3(1.8, H * 1.00, -1.6), 0.5, 1.8, spectrum(look.rimRight), look.rimRight.radiance);     // rim: back-right strip
             const Real wallZ = -(modelSize.z * 0.5 + 1.8);
             worldList->add(std::make_shared<Quad>(Point3(-14, 0, wallZ), Vector3(28, 0, 0), Vector3(0, 12, 0),
-                std::make_shared<Lambertian>(RgbColor(0.16, 0.17, 0.21))));
+                std::make_shared<Lambertian>(look.wall)));
             // Dark glossy studio floor (normal +y: cross(z, x)) lying 1 mm above the plain floor: soft reflections of the lights and the figure.
             worldList->add(std::make_shared<Quad>(Point3(-14, 0.001, wallZ), Vector3(0, 0, 16), Vector3(28, 0, 0),
                 std::make_shared<CoatedDiffuse>(RgbColor(0.09, 0.09, 0.11), Real(0.20), Real(1.0), Real(0))));
