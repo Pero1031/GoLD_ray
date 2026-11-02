@@ -158,8 +158,11 @@ namespace rayt {
 
                         if (hasLastBsdf && !lastSpecular) {  // BSFF評価済みかつ鏡面反射ではない
                             // MIS with BSDF sampling
+                            // Density of reaching this light by NEE = P(select it) * pdfLi,
+                            // evaluated for the same context the NEE sample at lastRec used.
                             LightSampleContext ctx{ lastRec.p, lastRec.gn };
                             Real pdfEnv = scene.envLight()->pdfLi(ctx, r.d);
+                            if (scene.lightSampler()) pdfEnv *= scene.lightSampler()->pmf(ctx, scene.envLight());
 
                             Real w = 1.0;
                             if (pdfEnv > 0 && lastPdf > 0) {
@@ -188,6 +191,7 @@ namespace rayt {
                     if (hasLastBsdf && !lastSpecular && rec.areaLight) {
                         LightSampleContext ctx{ lastRec.p, lastRec.gn };
                         Real pdfLight = rec.areaLight->pdfLi(ctx, r.d);
+                        if (scene.lightSampler()) pdfLight *= scene.lightSampler()->pmf(ctx, rec.areaLight);
                         Real w = 1.0;
                         if (pdfLight > 0 && lastPdf > 0) {
                             w = math::powerHeuristic(lastPdf, pdfLight);
@@ -331,57 +335,31 @@ namespace rayt {
         }
 
         /**
-         * @brief Sample all lights (scene lights + environment) with MIS.
+         * @brief Next event estimation: pick one light with the scene's LightSampler, sample it, MIS.
          *
-         * Strategy:
-         * 1. Count total lights (scene + env if present)
-         * 2. Uniformly select one light
-         * 3. Sample the chosen light
-         * 4. Apply MIS weight combining light PDF and BSDF PDF
-         * 5. Account for light selection probability
+         * The light is chosen with probability p (uniform / power / spatial importance, the
+         * environment light included). The estimator and both MIS densities use the SAME combined
+         * density of "choose this light, then sample this direction":
+         *     pdf_light_strategy = p * light.pdfLi(wi)
+         * The BSDF-sampling side (Li) uses sampler->pmf(ctx, light) * pdfLi for the same context.
          */
         Spectrum sampleAllLights(const Scene& scene,
                                  const SurfaceInteraction& rec,
                                  const Vector3& wo,
                                  const SampledWavelengths& lambda) const {
             Spectrum Ld(0.0);
+            const LightSampler* sampler = scene.lightSampler();
+            if (!sampler || !sampler->hasLights()) return Ld;
+
             LightSampleContext ctx{ rec.p, rec.gn };
 
-            // Count available lights
-            int numSceneLights = scene.hasLights() ? scene.numLights() : 0;
-            size_t numEnvLights = scene.hasEnvLight() ? 1 : 0;
-            int totalLights = numSceneLights + numEnvLights;
-
-            if (totalLights == 0) return Ld;
-
-            // ========== Light Selection Strategy ==========
-            // Uniformly select one light from all available lights
-            Real uSelect = sampling::Random();
-            Real lightSelectPdf = Real(1) / Real(totalLights);
-
-            const Light* sampledLight = nullptr;
-
-            if (uSelect < Real(numSceneLights) / Real(totalLights)) {
-                // Sample from scene lights using LightSampler
-                Real uSampler = uSelect * Real(totalLights) / Real(numSceneLights);
-                auto lightSample = scene.lightSampler()->sample(uSampler);
-
-                if (lightSample) {
-                    sampledLight = lightSample->light;
-                    // Convert scene-light PDF to total-light PDF.
-                    lightSelectPdf = lightSample->pdf * (Real(numSceneLights) / Real(totalLights));
-                }
-            }
-            else if (scene.hasEnvLight()) {
-                // Sample environment light
-                sampledLight = scene.envLight();
-            }
-
-            if (!sampledLight) return Ld;
+            // ========== Light Selection ==========
+            const auto sampled = sampler->sample(ctx, sampling::Random());
+            if (!sampled || sampled->p <= Real(0)) return Ld;
 
             // ========== Sample Chosen Light ==========
             Point2 uLight(sampling::Random(), sampling::Random());
-            auto ls = sampledLight->sampleLi(ctx, uLight, lambda);
+            auto ls = sampled->light->sampleLi(ctx, uLight, lambda);
 
             if (!ls || ls->pdf <= 0 || isBlack(ls->Li)) {
                 return Ld;
@@ -390,7 +368,7 @@ namespace rayt {
             Vector3 wi = ls->wi;
             Assert(math::isNormalized(wi) && "light sample direction must be unit length");
             Spectrum Li = ls->Li;
-            Real pdfLight = ls->pdf;  // PDF w.r.t. solid angle
+            const Real pdfLight = ls->pdf * sampled->p;   // density of this NEE sample, w.r.t. solid angle
 
             // ========== Visibility Test ==========
             if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {
@@ -413,9 +391,8 @@ namespace rayt {
             }
 
             // ========== Final Contribution ==========
-            // Li already includes geometry term from light sampling
-            // We need: f * Li * cos / (pdfLight * lightSelectPdf)
-            Ld = f * Li * cosTheta * w / (pdfLight * lightSelectPdf);
+            // Li already includes the geometry term from light sampling.
+            Ld = f * Li * cosTheta * w / pdfLight;
 
             return Ld;
         }

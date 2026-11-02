@@ -1,157 +1,297 @@
 /**
  * @file Lights/LightSampler.hpp
- * @brief Light sampling strategies for importance sampling in rendering.
+ * @brief Light selection strategies for next event estimation (PBRT-v4 style).
  *
- * The LightSampler encapsulates the logic for selecting which light(s) to sample
- * during direct illumination calculations. This separation allows for different
- * sampling strategies (uniform, power-based, spatial, etc.) without modifying
- * the core Scene or Integrator classes.
+ * A sampler picks ONE light per shading point and reports the probability p of that choice.
+ * The integrator divides by p, and the MIS weights of both strategies use the combined density
+ * pmf(ctx, light) * light.pdfLi(), so every sampler must return the same pmf from sample() and
+ * pmf() for the same context.
+ *
+ * Samplers (all include the environment light in the list):
+ *  - UniformLightSampler : every light 1/N.
+ *  - PowerLightSampler   : bounded lights proportional to emitted power (alias table, O(1)),
+ *                          independent of the shading point (PBRT "power").
+ *  - SpatialLightSampler : bounded lights proportional to LightBounds::importance(p, n), i.e.
+ *                          power x distance falloff x orientation cones of the light and of the
+ *                          receiver (PBRT's BVH importance, evaluated for every light = PBRT's
+ *                          "exhaustive" sampler; O(N) per query, fine up to a few dozen lights).
+ *
+ * Infinite / unbounded lights (environment maps) have no meaningful power, so, as in PBRT's BVH
+ * sampler, they share a fixed probability: each unbounded light gets 1/(nUnbounded + 1) and
+ * the bounded lights together get the remaining 1/(nUnbounded + 1).
  */
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <limits>
 #include <memory>
-#include <vector>
 #include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include "Core/Types.hpp"
-#include "Core/Sampling.hpp"
 #include "Lights/Light.hpp"
 
 namespace rayt {
 
-    /**
-     * @brief Result of sampling a light source.
-     */
-    struct LightSampleResult {
-        const Light* light = nullptr;   ///< Pointer to the sampled light
-        Real pdf = 0;                   ///< PDF of selecting this light
-        int index = -1;                 ///< Index in the light array (useful for debugging)
+    /// The chosen light and the probability with which it was chosen.
+    struct SampledLight {
+        const Light* light = nullptr;
+        Real p = 0;
     };
 
-    /**
-     * @brief Abstract base class for light sampling strategies.
-     *
-     * Different implementations can provide various sampling strategies:
-     * - UniformLightSampler: Sample all lights with equal probability
-     * - PowerLightSampler: Sample based on emitted power (future)
-     * - BVHLightSampler: Spatial light sampling using BVH (future)
-     */
     class LightSampler {
     public:
         virtual ~LightSampler() = default;
 
-        /**
-         * @brief Sample a single light source.
-         * @param u Random sample in [0,1)
-         * @return LightSampleResult containing the sampled light and its PDF
-         */
-        virtual std::optional<LightSampleResult> sample(Real u) const = 0;
+        /// Picks a light for the shading point `ctx` using the uniform random number u in [0,1).
+        virtual std::optional<SampledLight> sample(const LightSampleContext& ctx, Real u) const = 0;
 
-        /**
-         * @brief Compute the PDF of sampling a specific light.
-         * @param lightIndex Index of the light in question
-         * @return Probability of selecting this light
-         */
-        virtual Real pdf(int lightIndex) const = 0;
+        /// Probability that sample(ctx, .) returns `light` (0 for lights it does not know).
+        virtual Real pmf(const LightSampleContext& ctx, const Light* light) const = 0;
 
-        /**
-         * @brief Get total number of lights managed by this sampler.
-         */
         virtual size_t numLights() const = 0;
-
-        /**
-         * @brief Check if any lights are available.
-         */
-        virtual bool hasLights() const = 0;
+        bool hasLights() const { return numLights() > 0; }
     };
 
-    /**
-     * @brief Uniform light sampler - selects lights with equal probability.
-     *
-     * This is the simplest and most commonly used strategy. Each light has
-     * probability 1/N where N is the total number of lights.
-     */
+    // ---------------------------------------------------------------------------------------
+    // Uniform
+    // ---------------------------------------------------------------------------------------
     class UniformLightSampler : public LightSampler {
     public:
-        /**
-         * @brief Construct from a collection of lights.
-         * @param lights Vector of light sources to sample from
-         */
-        explicit UniformLightSampler(const std::vector<std::shared_ptr<Light>>& lights)
-            : m_lights(lights) {}
-
-        std::optional<LightSampleResult> sample(Real u) const override {
-            if (m_lights.empty()) {
-                return std::nullopt;
-            }
-
-            // Uniform sampling: select light index uniformly
-            int index = std::min(
-                static_cast<int>(u * m_lights.size()),
-                static_cast<int>(m_lights.size()) - 1
-            );
-
-            LightSampleResult result;
-            result.light = m_lights[index].get();
-            result.pdf = Real(1) / Real(m_lights.size());
-            result.index = index;
-
-            return result;
+        explicit UniformLightSampler(const std::vector<std::shared_ptr<Light>>& lights) {
+            for (const auto& l : lights) m_lights.push_back(l.get());
         }
 
-        Real pdf(int lightIndex) const override {
-            if (m_lights.empty() || lightIndex < 0 ||
-                lightIndex >= static_cast<int>(m_lights.size())) {
-                return 0;
-            }
+        std::optional<SampledLight> sample(const LightSampleContext&, Real u) const override {
+            if (m_lights.empty()) return std::nullopt;
+            const int n = static_cast<int>(m_lights.size());
+            const int i = std::min(static_cast<int>(u * Real(n)), n - 1);
+            return SampledLight{ m_lights[static_cast<size_t>(i)], Real(1) / Real(n) };
+        }
+
+        Real pmf(const LightSampleContext&, const Light* light) const override {
+            if (std::find(m_lights.begin(), m_lights.end(), light) == m_lights.end()) return Real(0);
             return Real(1) / Real(m_lights.size());
         }
 
-        size_t numLights() const override {
-            return m_lights.size();
-        }
-
-        bool hasLights() const override {
-            return !m_lights.empty();
-        }
+        size_t numLights() const override { return m_lights.size(); }
 
     private:
-        std::vector<std::shared_ptr<Light>> m_lights;
+        std::vector<const Light*> m_lights;
     };
 
-    /**
-     * @brief Power-based light sampler (future implementation).
-     *
-     * Samples lights proportional to their emitted power, which can reduce
-     * variance when lights have very different intensities.
-     *
-     * @note This is a placeholder for future implementation.
-     */
-    class PowerLightSampler : public LightSampler {
+    // ---------------------------------------------------------------------------------------
+    // Shared bookkeeping: bounded lights (with LightBounds) and unbounded ones
+    // ---------------------------------------------------------------------------------------
+    class BoundedLightSet {
     public:
-        explicit PowerLightSampler(const std::vector<std::shared_ptr<Light>>& lights) {
-            // TODO: Compute power for each light and build discrete distribution
-            // m_distribution = DiscreteDistribution1D(powers);
+        explicit BoundedLightSet(const std::vector<std::shared_ptr<Light>>& lights) {
+            for (const auto& sp : lights) {
+                const Light* l = sp.get();
+                if (const auto b = l->bounds()) {
+                    m_index[l] = static_cast<int>(m_bounded.size());
+                    m_bounded.push_back(l);
+                    m_bounds.push_back(*b);
+                }
+                else {
+                    m_index[l] = -1 - static_cast<int>(m_unbounded.size());
+                    m_unbounded.push_back(l);
+                }
+            }
         }
 
-        std::optional<LightSampleResult> sample(Real u) const override {
-            // TODO: Sample from power distribution
-            return std::nullopt;
+        size_t numBounded() const { return m_bounded.size(); }
+        size_t numUnbounded() const { return m_unbounded.size(); }
+        const Light* bounded(size_t i) const { return m_bounded[i]; }
+        const Light* unbounded(size_t i) const { return m_unbounded[i]; }
+        const LightBounds& bounds(size_t i) const { return m_bounds[i]; }
+
+        /// >= 0: index among bounded lights; < 0: -1 - index among unbounded; INT_MIN: unknown.
+        int find(const Light* l) const {
+            const auto it = m_index.find(l);
+            return it == m_index.end() ? std::numeric_limits<int>::min() : it->second;
         }
 
-        Real pdf(int lightIndex) const override {
-            // TODO: Return power-based PDF
-            return 0;
+        /// Probability of the unbounded group; `boundedUsable` = whether bounded lights can be picked at all.
+        Real pUnbounded(bool boundedUsable) const {
+            const Real nu = Real(m_unbounded.size());
+            if (m_unbounded.empty()) return Real(0);
+            return boundedUsable ? nu / (nu + Real(1)) : Real(1);
         }
-
-        size_t numLights() const override { return 0; }
-        bool hasLights() const override { return false; }
 
     private:
-        // TODO: Store discrete distribution
-        // DiscreteDistribution1D m_distribution;
-        // std::vector<std::shared_ptr<Light>> m_lights;
+        std::vector<const Light*> m_bounded, m_unbounded;
+        std::vector<LightBounds> m_bounds;
+        std::unordered_map<const Light*, int> m_index;
+    };
+
+    // ---------------------------------------------------------------------------------------
+    // Alias table (Vose): O(1) sampling from a discrete distribution
+    // ---------------------------------------------------------------------------------------
+    class AliasTable {
+    public:
+        AliasTable() = default;
+
+        explicit AliasTable(const std::vector<Real>& weights) {
+            const size_t n = weights.size();
+            m_pmf.assign(n, Real(0));
+            m_q.assign(n, Real(1));
+            m_alias.assign(n, 0);
+            if (n == 0) return;
+
+            Real sum = 0;
+            for (Real w : weights) sum += std::max(w, Real(0));
+            for (size_t i = 0; i < n; ++i)
+                m_pmf[i] = sum > Real(0) ? std::max(weights[i], Real(0)) / sum : Real(1) / Real(n);
+
+            std::vector<Real> scaled(n);
+            std::vector<int> small, large;
+            for (size_t i = 0; i < n; ++i) {
+                scaled[i] = m_pmf[i] * Real(n);
+                (scaled[i] < Real(1) ? small : large).push_back(static_cast<int>(i));
+            }
+            while (!small.empty() && !large.empty()) {
+                const int s = small.back(); small.pop_back();
+                const int l = large.back(); large.pop_back();
+                m_q[static_cast<size_t>(s)] = scaled[static_cast<size_t>(s)];
+                m_alias[static_cast<size_t>(s)] = l;
+                scaled[static_cast<size_t>(l)] += scaled[static_cast<size_t>(s)] - Real(1);
+                (scaled[static_cast<size_t>(l)] < Real(1) ? small : large).push_back(l);
+            }
+            // Leftovers have probability 1 (numerical round-off).
+            for (int i : small) m_q[static_cast<size_t>(i)] = Real(1);
+            for (int i : large) m_q[static_cast<size_t>(i)] = Real(1);
+        }
+
+        size_t size() const { return m_pmf.size(); }
+        Real pmf(size_t i) const { return m_pmf[i]; }
+
+        int sample(Real u) const {
+            const int n = static_cast<int>(m_pmf.size());
+            const Real x = u * Real(n);
+            const int i = std::min(static_cast<int>(x), n - 1);
+            const Real frac = x - Real(i);
+            return frac < m_q[static_cast<size_t>(i)] ? i : m_alias[static_cast<size_t>(i)];
+        }
+
+    private:
+        std::vector<Real> m_pmf, m_q;
+        std::vector<int> m_alias;
+    };
+
+    // ---------------------------------------------------------------------------------------
+    // Power
+    // ---------------------------------------------------------------------------------------
+    class PowerLightSampler : public LightSampler {
+    public:
+        explicit PowerLightSampler(const std::vector<std::shared_ptr<Light>>& lights)
+            : m_set(lights)
+        {
+            std::vector<Real> phi;
+            for (size_t i = 0; i < m_set.numBounded(); ++i) phi.push_back(m_set.bounds(i).phi);
+            m_table = AliasTable(phi);   // all-zero power falls back to uniform inside AliasTable
+            m_pUnbounded = m_set.pUnbounded(m_set.numBounded() > 0);
+        }
+
+        std::optional<SampledLight> sample(const LightSampleContext&, Real u) const override {
+            if (m_set.numUnbounded() > 0 && u < m_pUnbounded) {
+                const size_t n = m_set.numUnbounded();
+                const size_t i = std::min(static_cast<size_t>(u / m_pUnbounded * Real(n)), n - 1);
+                return SampledLight{ m_set.unbounded(i), m_pUnbounded / Real(n) };
+            }
+            if (m_set.numBounded() == 0) return std::nullopt;
+            const Real u2 = (u - m_pUnbounded) / (Real(1) - m_pUnbounded);
+            const int i = m_table.sample(std::clamp(u2, Real(0), Real(0.99999999)));
+            return SampledLight{ m_set.bounded(static_cast<size_t>(i)),
+                (Real(1) - m_pUnbounded) * m_table.pmf(static_cast<size_t>(i)) };
+        }
+
+        Real pmf(const LightSampleContext&, const Light* light) const override {
+            const int idx = m_set.find(light);
+            if (idx >= 0) return (Real(1) - m_pUnbounded) * m_table.pmf(static_cast<size_t>(idx));
+            if (idx == std::numeric_limits<int>::min()) return Real(0);
+            return m_pUnbounded / Real(m_set.numUnbounded());
+        }
+
+        size_t numLights() const override { return m_set.numBounded() + m_set.numUnbounded(); }
+
+    private:
+        BoundedLightSet m_set;
+        AliasTable m_table;
+        Real m_pUnbounded = 0;
+    };
+
+    // ---------------------------------------------------------------------------------------
+    // Spatial (importance of every light at the shading point)
+    // ---------------------------------------------------------------------------------------
+    class SpatialLightSampler : public LightSampler {
+    public:
+        explicit SpatialLightSampler(const std::vector<std::shared_ptr<Light>>& lights)
+            : m_set(lights) {}
+
+        std::optional<SampledLight> sample(const LightSampleContext& ctx, Real u) const override {
+            const size_t nb = m_set.numBounded(), nu = m_set.numUnbounded();
+            std::array<Real, kStack> stackBuf;
+            std::vector<Real> heapBuf;
+            Real* imp = stackBuf.data();
+            if (nb > kStack) { heapBuf.resize(nb); imp = heapBuf.data(); }
+            const Real total = importances(ctx, imp);
+
+            const Real pU = m_set.pUnbounded(total > Real(0));
+            if (nu > 0 && u < pU) {
+                const size_t i = std::min(static_cast<size_t>(u / pU * Real(nu)), nu - 1);
+                return SampledLight{ m_set.unbounded(i), pU / Real(nu) };
+            }
+            if (total <= Real(0)) return std::nullopt;   // no bounded light can reach this point
+
+            const Real target = std::clamp((u - pU) / (Real(1) - pU), Real(0), Real(0.99999999)) * total;
+            Real acc = 0;
+            size_t chosen = nb;
+            for (size_t i = 0; i < nb; ++i) {
+                if (imp[i] <= Real(0)) continue;
+                acc += imp[i];
+                chosen = i;                       // remember the last usable light (round-off safe)
+                if (target < acc) break;
+            }
+            if (chosen == nb) return std::nullopt;
+            return SampledLight{ m_set.bounded(chosen), (Real(1) - pU) * imp[chosen] / total };
+        }
+
+        Real pmf(const LightSampleContext& ctx, const Light* light) const override {
+            const int idx = m_set.find(light);
+            if (idx == std::numeric_limits<int>::min()) return Real(0);
+
+            const size_t nb = m_set.numBounded();
+            std::array<Real, kStack> stackBuf;
+            std::vector<Real> heapBuf;
+            Real* imp = stackBuf.data();
+            if (nb > kStack) { heapBuf.resize(nb); imp = heapBuf.data(); }
+            const Real total = importances(ctx, imp);
+            const Real pU = m_set.pUnbounded(total > Real(0));
+
+            if (idx < 0) return pU / Real(m_set.numUnbounded());
+            if (total <= Real(0)) return Real(0);
+            return (Real(1) - pU) * imp[idx] / total;
+        }
+
+        size_t numLights() const override { return m_set.numBounded() + m_set.numUnbounded(); }
+
+    private:
+        static constexpr size_t kStack = 64;
+
+        Real importances(const LightSampleContext& ctx, Real* out) const {
+            Real total = 0;
+            for (size_t i = 0; i < m_set.numBounded(); ++i) {
+                out[i] = m_set.bounds(i).importance(ctx.p, ctx.gn);
+                total += out[i];
+            }
+            return total;
+        }
+
+        BoundedLightSet m_set;
     };
 
 } // namespace rayt

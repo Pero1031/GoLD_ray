@@ -220,6 +220,12 @@ namespace rayt {
          * @brief Optimization hint to check if the material is perfectly specular.
          */
         virtual bool isSpecular() const { return false; }
+
+        /// Luminance (Y) of the emitted radiance, 0 for non-emitters. Used for light power estimates.
+        virtual Real emittedLuminance() const { return Real(0); }
+
+        /// True if the material emits from both sides of its surface.
+        virtual bool emitsTwoSided() const { return false; }
     };
 
 } // namespace rayt
