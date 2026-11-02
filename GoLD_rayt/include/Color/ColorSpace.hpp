@@ -20,6 +20,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
+#include "Color/Illuminants.hpp"
 
 namespace rayt::color {
 
@@ -205,6 +206,50 @@ namespace rayt::color {
         const std::array<Real, N>& values) {
         const CIE_XYZ xyz = spectralToXYZ_1931<N>(wavelengths, values);
         return XYZ_to_sRGB(xyz);
+    }
+
+    /**
+     * @brief Convert a reflectance-like spectrum S(lambda) to linear sRGB under D65 light.
+     *
+     * Computes  RGB = M * Integral( S(l) * D65(l) * CMF(l) dl )  and divides it per channel by the
+     * same integral for S(l) == 1, so that:
+     *   - a perfectly white spectrum (S == 1) maps to exactly (1, 1, 1),
+     *   - the result does not depend on the CMF fit / D65 table normalization.
+     *
+     * Intended for smooth, "0..1-ish" spectra: reflectance, and also eta(lambda) (an RGB value
+     * that stays close to the spectrum's average, like a color).
+     *
+     * @note The sRGB matrix has negative lobes, so saturated spectra (e.g. gold's red plateau)
+     *       can land slightly outside [0, 1] (out of sRGB gamut). Callers decide how to clamp.
+     * @note Uses 1 nm trapezoid integration over [lambdaMin, lambdaMax] (D65 table: 380..780 nm).
+     *
+     * @tparam SpectrumFn Callable Real(Real lambda_nm) returning S(lambda).
+     */
+    template<class SpectrumFn>
+    inline Vector3 spectrumToRGB_D65(SpectrumFn&& spectrum,
+        Real lambdaMin_nm = Real(380),
+        Real lambdaMax_nm = Real(780),
+        Real stepNm = Real(1))
+    {
+        CIE_XYZ xyzS(0, 0, 0);   // with the spectrum
+        CIE_XYZ xyzW(0, 0, 0);   // reference white (S == 1)
+
+        const int n = static_cast<int>(std::round((lambdaMax_nm - lambdaMin_nm) / stepNm));
+        for (int i = 0; i <= n; ++i) {
+            const Real lambda = lambdaMin_nm + stepNm * Real(i);
+            const Real trapezoid = (i == 0 || i == n) ? Real(0.5) : Real(1);
+            const Real weight = evaluateD65(lambda) * trapezoid * stepNm;
+
+            const CIE_XYZ cmf = evaluateCIE_XYZ_1931_MultiLobe(lambda);
+            const Real s = static_cast<Real>(spectrum(lambda));
+
+            xyzS += cmf * (weight * s);
+            xyzW += cmf * weight;
+        }
+
+        const Vector3 rgbS = XYZ_to_sRGB(xyzS);
+        const Vector3 rgbW = XYZ_to_sRGB(xyzW);
+        return Vector3(rgbS.x / rgbW.x, rgbS.y / rgbW.y, rgbS.z / rgbW.z);
     }
 
 } // namespace rayt::color

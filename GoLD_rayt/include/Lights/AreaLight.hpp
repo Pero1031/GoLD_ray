@@ -13,6 +13,7 @@
 #include "Geometry/Shape.hpp"
 #include "Lights/Light.hpp"
 #include "Materials/Material.hpp"
+#include "Color/SpectralConversion.hpp"
 
 namespace rayt {
 
@@ -28,7 +29,7 @@ namespace rayt {
 
         AreaLight(std::shared_ptr<Shape> shape,
             std::shared_ptr<Material> material,
-            const Spectrum& scale = Spectrum(1.0))
+            const RgbColor& scale = RgbColor(1.0))
             : m_shape(std::move(shape))
             , m_material(std::move(material))
             , m_scale(scale) {}
@@ -37,7 +38,7 @@ namespace rayt {
 
         std::optional<LightLiSample>
             sampleLi(const LightSampleContext& ctx, const Point2& u,
-                const SampledWavelengths& /*lambda*/,
+                const SampledWavelengths& lambda,
                 bool /*allowIncompletePDF*/ = false) const override {
             if (!m_shape || !m_material) return std::nullopt;
 
@@ -65,7 +66,7 @@ namespace rayt {
             ls.isDelta = false;
             ls.pLight = pLight.p;
             ls.tMax = math::safe_sqrt(dist2);
-            ls.Li = m_material->emitted(pLight, -wi) * m_scale;
+            ls.Li = m_material->emitted(pLight, -wi, lambda) * m_scale.reflectance(lambda);
 
             return ls;
         }
@@ -85,15 +86,15 @@ namespace rayt {
         }
 
         Spectrum L(const SurfaceInteraction& pLight, const Vector3& w,
-            const SampledWavelengths& /*lambda*/) const override {
+            const SampledWavelengths& lambda) const override {
             if (!m_material) return Spectrum(0.0);
-            return m_material->emitted(pLight, w) * m_scale;
+            return m_material->emitted(pLight, w, lambda) * m_scale.reflectance(lambda);
         }
 
     private:
         std::shared_ptr<Shape> m_shape;
         std::shared_ptr<Material> m_material;
-        Spectrum m_scale = Spectrum(1.0);
+        RgbColor m_scale = RgbColor(1.0);   // tint multiplied onto the emitted spectrum
     };
 
 } // namespace rayt

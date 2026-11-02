@@ -20,7 +20,7 @@
 #include "Core/Math.hpp"            // Common math utilities
 #include "Core/Ray.hpp"             // Ray and RayDifferential structures
 #include "Core/AABB.hpp"            // Fundamental bounding volume structures
-//#include "Core/Spectrum.hpp"
+#include "Core/Spectrum.hpp"        // Spectral types (RGBSpectrum / SampledSpectrumT); alias only in spectral mode
 
 namespace rayt {
 

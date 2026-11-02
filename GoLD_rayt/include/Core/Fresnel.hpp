@@ -77,6 +77,17 @@ namespace rayt::fresnel {
         return Real(0.5) * (Rs + Rp);
     }
 
+    /**
+     * @brief Scalar overload of fresnelConductor() for a single wavelength (spectral mode).
+     * @param cosThetaI Cosine of the incident angle.
+     * @param eta       Real part of the refractive index at this wavelength.
+     * @param k         Extinction coefficient at this wavelength.
+     * @return Fresnel reflectance (unpolarized).
+     */
+    inline Real fresnelConductor(Real cosThetaI, Real eta, Real k) {
+        return fresnelConductor(cosThetaI, Vector3(eta), Vector3(k)).x;
+    }
+
     // -------------------------------------------------------------------------
     // Fresnel Equations (Dielectric)
     // -------------------------------------------------------------------------

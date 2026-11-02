@@ -13,6 +13,8 @@
 
 #include "Core/Types.hpp"
 #include "Core/Ray.hpp"
+#include "Core/SampledWavelengths.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "Lights/Light.hpp"
 #include "IO/EnvMap.hpp"
 
@@ -62,7 +64,7 @@ namespace rayt {
         std::optional<LightLiSample>
         sampleLi(const LightSampleContext& ctx,
                  const Point2& u,
-                 const SampledWavelengths& /*lambda*/,
+                 const SampledWavelengths& lambda,
                  bool /*allowIncompletePDF*/ = false) const override
         {
             if (!m_envMap) return std::nullopt;
@@ -85,7 +87,7 @@ namespace rayt {
             ls.pLight = ctx.p + wi * ls.tMax; 
 
             // Radiance from sampled direction
-            ls.Li = Spectrum(rgb.x, rgb.y, rgb.z) * m_scale;
+            ls.Li = RgbToIlluminantSpectrum(rgb * m_scale, lambda);
 
             return ls;
         }
@@ -116,11 +118,11 @@ namespace rayt {
          * @param lambda Wavelength samples (unused in RGB mode)
          * @return Background radiance in the ray direction
          */
-        Spectrum Le(const Ray& ray, const SampledWavelengths& /*lambda*/) const override
+        Spectrum Le(const Ray& ray, const SampledWavelengths& lambda) const override
         {
             if (!m_envMap) return Spectrum(0.0);
             Vector3 rgb = m_envMap->eval(ray.d);
-            return Spectrum(rgb.x, rgb.y, rgb.z) * m_scale;
+            return RgbToIlluminantSpectrum(rgb * m_scale, lambda);
         }
 
         /**

@@ -48,6 +48,16 @@ namespace rayt {
         static SampledWavelengths sampleHero(Real u);
 
         /**
+         * @brief Sample wavelengths with a density that follows the eye's sensitivity.
+         *
+         * Wavelengths the eye barely sees (deep red / violet) are sampled less often, which
+         * greatly reduces color noise compared to uniform sampling. The four wavelengths are
+         * stratified (u, u+1/4, u+2/4, u+3/4 wrapped), each with its own pdf.
+         * @param u Random value in [0,1)
+         */
+        static SampledWavelengths sampleVisible(Real u);
+
+        /**
          * @brief Get wavelength at index i.
          */
         Real operator[](int i) const { return lambda[i]; }
@@ -58,6 +68,36 @@ namespace rayt {
         inline T lerp(const T& a, const T& b, Real t) {
             return a + t * (b - a);
         }
+    }
+
+    /**
+     * @brief Density used by sampleVisible(), normalized on [360, 830] nm (0 outside).
+     * Closed form from PBRT v4: p(l) = 0.0039398042 / cosh^2(0.0072 * (l - 538)).
+     */
+    inline Real visibleWavelengthPdf(Real lambda_nm) {
+        if (lambda_nm < Real(360) || lambda_nm > Real(830)) return Real(0);
+        const Real c = std::cosh(Real(0.0072) * (lambda_nm - Real(538)));
+        return Real(0.0039398042) / (c * c);
+    }
+
+    /**
+     * @brief Inverse CDF of visibleWavelengthPdf(): maps u in [0,1] to a wavelength in [360, 830] nm.
+     */
+    inline Real sampleVisibleWavelength(Real u) {
+        return Real(538) - Real(138.888889) * std::atanh(Real(0.85691062) - Real(1.82750197) * u);
+    }
+
+    inline SampledWavelengths SampledWavelengths::sampleVisible(Real u) {
+        SampledWavelengths swl;
+
+        for (int i = 0; i < kSpectralSamples; ++i) {
+            Real up = u + Real(i) / Real(kSpectralSamples);
+            if (up >= Real(1)) up -= Real(1);   // wrap into [0,1)
+            swl.lambda[i] = sampleVisibleWavelength(up);
+            swl.pdf[i] = visibleWavelengthPdf(swl.lambda[i]);
+        }
+
+        return swl;
     }
 
     inline SampledWavelengths SampledWavelengths::sampleUniform(Real u) {

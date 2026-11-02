@@ -26,6 +26,7 @@
 // Scene
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
+#include "Scene/Primitive.hpp"
 
 // Geometry
 #include "Geometry/Sphere.hpp"
@@ -65,17 +66,19 @@ using namespace rayt; // Convenience: avoid qualifying with rayt:: in this .cpp
 // -----------------------------------------------------------------------------
 
 // Environment map path
-const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
+//const std::string ENV_HDR_PATH = "assets/env/grace-new.hdr";
+//const std::string ENV_HDR_PATH = "assets/env/bryanston_park_sunrise_2k.hdr";
+const std::string ENV_HDR_PATH = "assets/env/stpeters_probe_latlong.hdr";
 
 // Gold IOR data path (RefractiveIndex.info / Johnson & Christy style CSV)
-const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Cu.csv";
+const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 
 // -----------------------------------------------------------------------------
 // Scene Configuration
 // -----------------------------------------------------------------------------
 const int IMAGE_WIDTH = 800;
 const int IMAGE_HEIGHT = 450;      // 16:9 Aspect Ratio
-const int SAMPLES_PER_PIXEL = 256; // Higher = less noise, slower
+const int SAMPLES_PER_PIXEL = 1024; // Higher = less noise, slower
 const int MAX_DEPTH = 10;          // Max recursion depth for rays
 
 
@@ -91,7 +94,7 @@ App::App(int width, int height, const char* title)
     // Request an OpenGL 3.3 Core Profile context.
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);  // req modern
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
     // Create a window + OpenGL context.
@@ -164,49 +167,54 @@ void App::init() {
     // --------------------------------------------------
 
     // 拡散反射の床
-    auto matFloor = std::make_shared<Lambertian>(Spectrum(0.5, 0.5, 0.5));
+    auto matFloor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5));
 
     // --------------------------------------------------
-    // 金の光学定数 (Au) をCSVからロードして RGB近似
+    // 金の光学定数 (Au) をCSVからロード
+    // The table is handed to the material as-is: spectral mode evaluates it per wavelength,
+    // RGB mode reduces it to RGB eta/k by CMF integration.
     // --------------------------------------------------
-    rayt::color::ComplexIorTable auTable;
+    auto auTable = std::make_shared<rayt::color::ComplexIorTable>();
     std::string auErr;
 
-    // fallback（ロード失敗時の保険）
-    Vector3 eta_rgb_fallback(0.16, 0.42, 1.45);
-    Vector3 k_rgb_fallback(3.48, 2.45, 1.77);
-
-    Vector3 eta_rgb = eta_rgb_fallback;
-    Vector3 k_rgb = k_rgb_fallback;
-
-    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, auTable, &auErr)) {
+    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *auTable, &auErr)) {
         std::cerr << "[Au IOR] Failed: " << auErr << "\n";
         std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
+
+        // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
+        auTable->samples() = {
+            { 450.0, 1.45, 1.77 },
+            { 550.0, 0.42, 2.45 },
+            { 650.0, 0.16, 3.48 },
+        };
     }
     else {
-        // 3波長サンプルでRGB近似（暫定。後でCMF積分に置換可能）
-        rayt::color::approxIorToRgb_3Wavelengths(auTable, eta_rgb, k_rgb, 450, 550, 650);
-
         std::cout << "[Au IOR] Loaded: " << AU_IOR_CSV_PATH << "\n";
-        std::cout << "[Au IOR] RGB approx eta=("
-            << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
-            << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
     }
 
-    // Spectrum が今は glm::vec3 相当の想定
-    Spectrum n_Au = eta_rgb;
-    Spectrum k_Au = k_rgb;
+    // Log the RGB reduction of the table (what RGB mode renders with).
+    {
+        Vector3 eta_rgb(1.0), k_rgb(0.0);
+        rayt::color::integrateIorToRgb_CMF(*auTable, eta_rgb, k_rgb);
+        std::cout << "[Au IOR] RGB (CMF-integrated) eta=("
+            << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
+            << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
+        std::cout << "[Au IOR] F0 (normal incidence) = ("
+            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.x, k_rgb.x) << ","
+            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.y, k_rgb.y) << ","
+            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.z, k_rgb.z) << ")\n";
+    }
 
     // 3段階の粗さ
     // 0.01: ほぼ鏡 (MirrorConductorと比較用)
     // 0.20: 少しぼやけた金属
     // 0.50: マットな金属（ブラスト仕上げ風）
-    auto matGoldSmooth = std::make_shared<RoughConductor>(n_Au, k_Au, 0.01);
-    auto matGoldMedium = std::make_shared<RoughConductor>(n_Au, k_Au, 0.20);
-    auto matGoldRough = std::make_shared<RoughConductor>(n_Au, k_Au, 0.50);
+    auto matGoldSmooth = std::make_shared<RoughConductor>(auTable, 0.01);
+    auto matGoldMedium = std::make_shared<RoughConductor>(auTable, 0.20);
+    auto matGoldRough = std::make_shared<RoughConductor>(auTable, 0.50);
 
-    //auto matGlass = std::make_shared<Dielectric>(1.5, 0.0); // 粗さ0 = 完全透明
-    //auto matFrosted = std::make_shared<Dielectric>(1.5, 0.2); // 粗さ0.2 = すりガラス
+    auto matGlass = std::make_shared<Dielectric>(6.0, 0.01); // 粗さ0 = 完全透明
+    auto matFrosted = std::make_shared<Dielectric>(1.2, 0.2); // 粗さ0.2 = すりガラス
 
     // --------------------------------------------------
     // 4. シーン構築
@@ -214,19 +222,26 @@ void App::init() {
     auto worldList = std::make_shared<Aggregate>();
 
     // リストに対して add する
-    worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
-    worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
-    worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
+    //worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
+    //worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
+    //worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
 
     // ガラス
-    //worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
+    worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
 
     // すりガラス
-    //worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
+    worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
 
 
     // 大きな球で床を作製
-    worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    //worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+
+    // Area Light (メッシュに紐付いた光源) を作成してシーンに配置
+    /*auto lightMat = std::make_shared<DiffuseLight>(Spectrum(700.0, 300.0, 0.0));
+    auto lightShape = std::make_shared<Sphere>(Point3(5.0, 10.0, 6.0),0.5, lightMat);
+    auto areaLight = std::make_shared<AreaLight>(lightShape, lightMat, Spectrum(1.0));
+    auto lightPrim = std::make_shared<Primitive>(lightShape, lightMat, areaLight);
+    worldList->add(lightPrim);*/
 
     // --------------------------------------------------
     // 5. Scene作成と光源設定
@@ -243,8 +258,8 @@ void App::init() {
     // 例: シーン内にポイントライトを追加する場合
     
     /*auto pointLight = std::make_shared<PointLight>(
-        Point3(-1.2, 3, 0),           // 位置
-        Spectrum(0, 0, 100)       // 強度
+        Point3(5, 3, 3),           // 位置
+        Spectrum(7000, 3000, 0)       // 強度
     );
     m_scene->addLight(pointLight);
     std::cout << "[Scene] Point light added.\n";*/
@@ -308,14 +323,14 @@ void App::updateTexture() {
     for (int i = 0; i < m_width * m_height; ++i) {
         // ... (前のコードと同じ変換処理) ...
         // 省略せずに書く場合は前回のコードを参照
-        rayt::Spectrum s = pixels[i] * static_cast<rayt::Real>(scale);
+        rayt::Vector3 s = pixels[i] * static_cast<rayt::Real>(scale);
         // Gamma correction & Tone mapping...
         const Real exposureStops = Real(0); // ここはUIや設定から渡す想定
         s = rayt::color::toDisplaySRGB_Reinhard(s, exposureStops);
 
-        displayBuffer[i * 4 + 0] = (unsigned char)(255.0f * rayt::math::saturate((float)s.r));
-        displayBuffer[i * 4 + 1] = (unsigned char)(255.0f * rayt::math::saturate((float)s.g));
-        displayBuffer[i * 4 + 2] = (unsigned char)(255.0f * rayt::math::saturate((float)s.b));
+        displayBuffer[i * 4 + 0] = (unsigned char)(255.0f * rayt::math::saturate((float)s[0]));
+        displayBuffer[i * 4 + 1] = (unsigned char)(255.0f * rayt::math::saturate((float)s[1]));
+        displayBuffer[i * 4 + 2] = (unsigned char)(255.0f * rayt::math::saturate((float)s[2]));
         displayBuffer[i * 4 + 3] = 255;
     }
 

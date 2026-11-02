@@ -31,6 +31,7 @@
 #include "Lights/PointLight.hpp"
 #include "Lights/LightSampler.hpp"
 #include "Materials/Material.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "IO/EnvMap.hpp"
 
 namespace rayt {
@@ -83,7 +84,7 @@ namespace rayt {
                 //std::cout << "\rScanlines remaining: " << (height - j) << " " << std::flush;
 
                 for (int i = 0; i < width; ++i) {
-                    Spectrum pixelColor(0.0);
+                    Vector3 pixelColor(0.0);   // linear sRGB
 
                     for (int s = 0; s < m_spp; ++s) {
                         // アンチエイリアシング用のジッター
@@ -93,17 +94,20 @@ namespace rayt {
                         Point2 lensSample = sampling::Random2D();
 
                         Ray r = m_camera->getRay(u, v, lensSample);
-                        pixelColor += Li(r, scene);
+
+                        // Each camera path carries its own set of wavelengths (spectral mode).
+                        const SampledWavelengths lambda = samplePathWavelengths();
+                        pixelColor += SpectrumToRGB(Li(r, scene, lambda), lambda);
                     }
                     pixelColor /= Real(m_spp);
 
                     // NaN除去（デバッグ用）
-                    if (HasInvalidValues(pixelColor)) {
+                    if (math::hasNonFinite(pixelColor)) {
                         #pragma omp critical
                         {
                             std::cerr << "NaN detected at " << i << ", " << j << std::endl;
                         }
-                        pixelColor = Spectrum(0.0);
+                        pixelColor = Vector3(0.0);
                     }
 
                     // 上下反転して保存
@@ -127,8 +131,9 @@ namespace rayt {
 
         /**
          * @brief Compute radiance along a ray using path tracing.
+         * @param lambda Wavelengths carried by this path (spectral mode); unused in RGB mode.
          */
-        Spectrum Li(Ray r, const Scene& scene) const {
+        Spectrum Li(Ray r, const Scene& scene, const SampledWavelengths& lambda) const {
             Spectrum L(0.0);        // Accumulated Radiance
             Spectrum beta(1.0);     // Throughput
 
@@ -137,14 +142,13 @@ namespace rayt {
             bool hasLastBsdf = false;
 
             SurfaceInteraction lastRec;
-            
+
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
                 if (!scene.hit(r, rec)) {  // 交差判定：ミスったとき
 
                     if (scene.hasEnvLight()) {  // 環境光があるとき
-                        SampledWavelengths lambda;
                         Spectrum envL = scene.envLight()->Le(r, lambda);  // 環境光の評価
 
                         if (hasLastBsdf && !lastSpecular) {  // BSFF評価済みかつ鏡面反射ではない
@@ -171,7 +175,7 @@ namespace rayt {
 
                 // ========== Emissive Surface Hit ==========
                 // ※ wo = -r.direction
-                Spectrum Le = rec.matPtr->emitted(rec, -r.d);
+                Spectrum Le = rec.matPtr->emitted(rec, -r.d, lambda);
                 if (!isBlack(Le)) {
                     if (hasLastBsdf && !lastSpecular && rec.areaLight) {
                         LightSampleContext ctx{ lastRec.p, lastRec.gn };
@@ -189,12 +193,12 @@ namespace rayt {
 
                 // ========== Next Event Estimation (NEE) ==========
                 if (!rec.matPtr->isSpecular()) {
-                    L += beta * sampleAllLights(scene, rec, -r.d);
+                    L += beta * sampleAllLights(scene, rec, -r.d, lambda);
                 }
 
                 // ========== BSDF Sampling for Next Path Vertex ==========
                 Point2 u(sampling::Random(), sampling::Random());
-                auto bsdfSample = rec.matPtr->sample(rec, -r.d, u);
+                auto bsdfSample = rec.matPtr->sample(rec, -r.d, u, lambda);
 
                 if (!bsdfSample) {
                     break;
@@ -226,8 +230,26 @@ namespace rayt {
                         break;
                 }
 
-                // スループットが0になったら計算打ち切り（ロシアンルーレットもここで入れると良い）
+                // スループットが0になったら計算打ち切り
                 if (isBlack(beta)) break;
+
+                // ========== Russian Roulette ==========
+                // Early bounces are never terminated:
+                //   - they carry most of the energy and are cheap
+                //   - terminating them randomly mostly adds variance
+                // From rrStartDepth on, the path continues with a probability based on the
+                // largest component of the throughput (beta). Survivors are reweighted by
+                // 1 / survival probability, so the estimator stays unbiased.
+                // This avoids the bias of a hard maxDepth cutoff while still ending
+                // low-contribution paths early to save time.
+                constexpr int rrStartDepth = 3;
+                if (depth >= rrStartDepth) {
+                    Real rrProb = std::clamp(math::maxComponent(beta), Real(0.05), Real(0.95));
+                    if (sampling::Random() > rrProb) {
+                        break; // terminate this path
+                    }
+                    beta /= rrProb; // compensate for the survival probability
+                }
 
                 // 5. レイの更新
                 // r = Ray(rec.p + rec.n * constants::RAY_EPSILON, wi);  old
@@ -256,10 +278,12 @@ namespace rayt {
                     Point2 lensSample = sampling::Random2D();
                     Ray r = m_camera->getRay(u, v, lensSample);
 
-                    Spectrum L = Li(r, scene);
+                    // Each camera path carries its own set of wavelengths (spectral mode).
+                    const SampledWavelengths lambda = samplePathWavelengths();
+                    Vector3 L = SpectrumToRGB(Li(r, scene, lambda), lambda);
 
                     // NaNチェック
-                    if (HasInvalidValues(L)) L = Spectrum(0.0);
+                    if (math::hasNonFinite(L)) L = Vector3(0.0);
 
                     // 2. Filmに「加算」する
                     // 注意: Filmクラスの実装によりますが、ここでは「現在の画素値」に足し込む想定です。
@@ -279,6 +303,20 @@ namespace rayt {
         int m_spp;
 
         /**
+         * @brief Wavelengths for one camera path.
+         *
+         * Spectral mode: four stratified wavelengths importance-sampled by visual sensitivity.
+         * RGB mode: a dummy set (never read, no random numbers consumed).
+         */
+        static SampledWavelengths samplePathWavelengths() {
+#if defined(RAYT_SPECTRAL_MODE)
+            return SampledWavelengths::sampleVisible(sampling::Random());
+#else
+            return SampledWavelengths();
+#endif
+        }
+
+        /**
          * @brief Sample all lights (scene lights + environment) with MIS.
          *
          * Strategy:
@@ -290,9 +328,9 @@ namespace rayt {
          */
         Spectrum sampleAllLights(const Scene& scene,
                                  const SurfaceInteraction& rec,
-                                 const Vector3& wo) const {
+                                 const Vector3& wo,
+                                 const SampledWavelengths& lambda) const {
             Spectrum Ld(0.0);
-            SampledWavelengths lambda;
             LightSampleContext ctx{ rec.p, rec.gn };
 
             // Count available lights
@@ -345,7 +383,7 @@ namespace rayt {
             }
 
             // ========== BSDF Evaluation ==========
-            Spectrum f = rec.matPtr->eval(rec, wo, wi);
+            Spectrum f = rec.matPtr->eval(rec, wo, wi, lambda);
             if (isBlack(f)) return Ld;
 
             Real cosTheta = std::abs(glm::dot(rec.n, wi));

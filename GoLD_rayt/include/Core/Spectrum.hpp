@@ -57,7 +57,7 @@ namespace rayt {
         RGBSpectrum(Real r, Real g, Real b) : v(r, g, b) {}
         explicit RGBSpectrum(const Vector3& rgb) : v(rgb) {}
 
-        // èzä¬éQè∆Çñhé~Ç∑ÇÈÇΩÇﬂ
+        // Âæ™Áí∞ÂèÇÁÖß„ÇíÈò≤Ê≠¢„Åô„Çã„Åü„ÇÅ
         // Query
         bool isBlack() const {
             return v.x <= Real(0) && v.y <= Real(0) && v.z <= Real(0);
@@ -70,6 +70,10 @@ namespace rayt {
         Real maxComponent() const {
             return std::max({ v.x, v.y, v.z });
         }
+
+        // Component access (0=R, 1=G, 2=B). Same API as SampledSpectrumT.
+        Real& operator[](int i) { return v[i]; }
+        Real operator[](int i) const { return v[i]; }
 
         // Operators
         RGBSpectrum& operator+=(const RGBSpectrum& o) { v += o.v; return *this; }
@@ -158,6 +162,10 @@ namespace rayt {
             return *std::max_element(c.begin(), c.end());
         }
 
+        // Component access (one value per sampled wavelength). Same API as RGBSpectrum.
+        Real& operator[](int i) { return c[i]; }
+        Real operator[](int i) const { return c[i]; }
+
         // Operators
         SampledSpectrumT& operator+=(const SampledSpectrumT& o) {
             for (int i = 0; i < N; ++i) c[i] += o.c[i];
@@ -184,11 +192,11 @@ namespace rayt {
             Assert(s != Real(0));
 #endif
             if (!std::isfinite(s) || s == Real(0)) [[unlikely]] {
-                // Ç±Ç±ÇÕï˚êjÇ≈ëIëÅF
-                // A) çïÇ…í◊Ç∑Åià¿ëSÅj
+                // „Åì„Åì„ÅØÊñπÈáù„ÅßÈÅ∏ÊäûÔºö
+                // A) Èªí„Å´ÊΩ∞„ÅôÔºàÂÆâÂÖ®Ôºâ
                 c.fill(Real(0));
                 return *this;
-                // B) âΩÇ‡ÇµÇ»Ç¢Ç≈ï‘Ç∑ÅiÇÊÇËÅgê√Ç©ÅhÇæÇ™åÎñÇâªÇ∑Åj
+                // B) ‰Ωï„ÇÇ„Åó„Å™„ÅÑ„ÅßËøî„ÅôÔºà„Çà„Çä‚ÄúÈùô„Åã‚Äù„Å†„ÅåË™§È≠îÂåñ„ÅôÔºâ
                 // return *this;
                 }
             Real inv = Real(1) / s;
@@ -216,11 +224,26 @@ namespace rayt {
             return a /= s;
         }
 
+        // Element-wise division (a lane that divides by zero becomes 0).
+        SampledSpectrumT& operator/=(const SampledSpectrumT& o) {
+            for (int i = 0; i < N; ++i) c[i] = (o.c[i] != Real(0)) ? c[i] / o.c[i] : Real(0);
+            return *this;
+        }
+        friend SampledSpectrumT operator/(SampledSpectrumT a, const SampledSpectrumT& b) {
+            return a /= b;
+        }
+
+        Real average() const {
+            Real sum = 0;
+            for (Real x : c) sum += x;
+            return sum / Real(N);
+        }
+
         /**
-         * @brief Convert sampled spectrum to RGB.
+         * @brief Placeholder conversion (grayscale average). Do NOT use for rendering.
          *
-         * TODO: Implement proper spectral to RGB conversion using CIE color matching
-         * For now, use average as grayscale
+         * The real conversion needs the sampled wavelengths and their pdfs:
+         * use SpectrumToRGB(L, lambda) from Color/SpectralConversion.hpp.
          */
         Vector3 toRGB() const {
             Real sum = 0;
@@ -263,10 +286,12 @@ namespace rayt {
 
 #if defined(RAYT_SPECTRAL_MODE)
     using Spectrum = SampledSpectrumT<kSpectralSamples>;
-#else
-    using Spectrum = RGBSpectrum;
 #endif
+    // NOTE: In RGB mode (default) `Spectrum` is the glm::vec3 alias in Core/Types.hpp and the
+    //       helpers (isBlack / HasInvalidValues / Sanitize) come from Core/SpectrumUtils.hpp.
+    //       RGBSpectrum is compiled but not aliased yet (candidate for a later migration).
 
+#if defined(RAYT_SPECTRAL_MODE)
     // ========================================================================
     // Utility Functions (Backwards Compatible with Existing Code)
     // ========================================================================
@@ -300,19 +325,16 @@ namespace rayt {
         return s.sanitize();
     }
 
-    // ========================================================================
-    // SampledWavelengths Implementation (out-of-line to avoid circular deps)
-    // ========================================================================
+    // Overloads so generic code (Russian roulette, NaN checks) works for both Spectrum types.
+    namespace math {
+        template<int N>
+        inline Real maxComponent(const SampledSpectrumT<N>& s) { return s.maxComponent(); }
 
-    // ========================================================================
-    // Helper: Simple linear interpolation (avoids Math.hpp dependency)
-    // ========================================================================
-
-    namespace detail {
-        template<typename T>
-        inline T lerp(const T& a, const T& b, Real t) {
-            return a + t * (b - a);
-        }
+        template<int N>
+        inline bool hasNonFinite(const SampledSpectrumT<N>& s) { return s.hasNaNs(); }
     }
+#endif // RAYT_SPECTRAL_MODE
+
+    // NOTE: detail::lerp and SampledWavelengths live in Core/SampledWavelengths.hpp.
 
 } // namespace rayt

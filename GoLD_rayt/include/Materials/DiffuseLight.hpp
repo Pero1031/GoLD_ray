@@ -5,13 +5,14 @@
 #pragma once
 
 #include "Materials/Material.hpp"
+#include "Color/SpectralConversion.hpp"
 
 namespace rayt {
 
     class DiffuseLight : public Material {
     public:
         // color: 光の色と強さ (例: (10, 10, 10) なら非常に明るい白)
-        DiffuseLight(const Spectrum& color, Real intensity = Real(1), bool twoSided = false)
+        DiffuseLight(const RgbColor& color, Real intensity = Real(1), bool twoSided = false)
             : m_emit(color)
             , m_intensity(intensity)
             , m_twoSided(twoSided) {}
@@ -24,6 +25,7 @@ namespace rayt {
         // 評価値: 常に黒 (反射しない)
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
             return Spectrum(0.0);
         }
@@ -32,6 +34,7 @@ namespace rayt {
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
             return std::nullopt;
         }
@@ -47,16 +50,17 @@ namespace rayt {
         // --------------------------------------------------------
 
         // wo: 表面からカメラ(または次のレイ)へ向かうベクトル
-        Spectrum emitted(const SurfaceInteraction& rec, const Vector3& wo) const override {
+        Spectrum emitted(const SurfaceInteraction& rec, const Vector3& wo,
+            const SampledWavelengths& lambda) const override {
             // 法線と同じ側から見ている場合のみ発光する（裏面は光らない）
             if (m_twoSided || rec.frontFace) {
-                return m_emit * m_intensity;
+                return m_emit.illuminant(lambda) * m_intensity;
             }
             return Spectrum(0.0);
         }
 
     private:
-        Spectrum m_emit;
+        RgbColor m_emit;
         Real m_intensity = Real(1);
         bool m_twoSided = false;
     };

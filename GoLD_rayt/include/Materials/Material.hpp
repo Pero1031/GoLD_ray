@@ -8,7 +8,6 @@
  * path tracing.
  */
 
-
 #pragma once
 
 #include <optional>
@@ -17,7 +16,8 @@
 #include "Core/Forward.hpp"
 #include "Core/Assert.hpp"
 #include "Core/Interaction.hpp"
-#include "Core/Ray.hpp" 
+#include "Core/Ray.hpp"
+#include "Core/SampledWavelengths.hpp"
 
 namespace rayt {
 
@@ -147,14 +147,16 @@ namespace rayt {
          * * @param rec  The surface interaction details (normal, tangents, UVs).
          * @param wo   The outgoing (view) direction in World Space.
          * @param wi   The incident (light) direction in World Space.
+         * @param lambda The wavelengths the current path is carrying (ignored in RGB mode).
          * @param mode The transport mode (usually Radiance).
-         * @return Spectrum The BSDF value [1/sr].
+         * @return Spectrum The BSDF value [1/sr], one value per sampled wavelength.
          * * @note Following standard PBR conventions, this returns the pure BSDF value.
          * The cosine term (n·wi) is typically applied by the Integrator.
          * For delta distributions (perfect Specular), this returns 0.
          */
         virtual Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda,
             TransportMode mode = TransportMode::Radiance) const = 0;
 
         /**
@@ -163,13 +165,15 @@ namespace rayt {
          * @param rec    The surface interaction details.
          * @param wo     The outgoing (view) direction in World Space.
          * @param u      A 2D random sample from the RNG [0, 1)^2.
+         * @param lambda The wavelengths the current path is carrying (ignored in RGB mode).
          * @param mode   The transport mode.
          * @return std::optional<BSDFSample> The result of the sampling,
          * or nullopt if sampling fails (e.g., Total Internal Reflection).
          */
         virtual std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
-            const Point2& u, 
+            const Point2& u,
+            const SampledWavelengths& lambda,
             TransportMode mode = TransportMode::Radiance) const = 0;
 
         /**
@@ -191,10 +195,12 @@ namespace rayt {
          * @brief Returns the emitted radiance for area lights.
          * @param rec The surface interaction details.
          * @param wo  The outgoing direction.
+         * @param lambda The wavelengths the current path is carrying (ignored in RGB mode).
          * @return Spectrum The self-emitted radiance (default: black).
          */
         virtual Spectrum emitted(const SurfaceInteraction& rec,
-            const Vector3& wo) const {
+            const Vector3& wo,
+            const SampledWavelengths& lambda) const {
             return Spectrum(0.0);
         }
 
