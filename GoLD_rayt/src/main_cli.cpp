@@ -35,6 +35,9 @@
 #include "Scene/Aggregate.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Geometry/Quad.hpp"
+#include "Geometry/TriangleMesh.hpp"
+#include "IO/ObjLoader.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 #include "Geometry/Frame.hpp"
 #include "Scene/Primitive.hpp"
 #include "Scene/Scene.hpp"
@@ -115,6 +118,9 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             No environment light (black background). Spectral mode shows metamerism best.
 //   studio  : gold / dispersive glass / red diffuse sphere lit by a tungsten rectangular softbox
 //             and a small cool-white LED sphere light (SPDs from EmissionSpectrum / CSV). No environment.
+//   mesh    : triangle meshes: runs mesh checks first (geometry, OBJ, BVH vs brute force, furnace,
+//             emissive triangles), then renders a tilted gold torus (assets/Meshes/torus.obj) and a
+//             flat- vs smooth-shaded low-poly sphere pair under the studio lights.
 //   metals  : metal spectral data tests (no image): file layouts / units, reflectance input,
 //             edge-tint accuracy against the Johnson tables, rendered gold. Samples = --spp x 1024.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -164,8 +170,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals or studio");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio or mesh");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
             throw std::runtime_error("--light-sampler must be uniform, power or spatial");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
@@ -175,7 +181,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -857,6 +863,143 @@ static int RunMetalTests(const CliOptions& opt) {
 }
 
 // -----------------------------------------------------------------------------
+// Triangle mesh checks (run at the start of --scene mesh)
+// -----------------------------------------------------------------------------
+static bool RunMeshChecks(const CliOptions& opt) {
+    bool allPassed = true;
+    auto check = [&](const std::string& what, bool pass, const std::string& detail) {
+        std::cout << "[Mesh]   " << what << ": " << detail << "   " << (pass ? "OK" : "FAIL") << "\n";
+        allPassed = allPassed && pass;
+    };
+    auto white = std::make_shared<Lambertian>(RgbColor(1.0));
+
+    // a. geometry of a procedural icosphere (an inscribed polyhedron: a bit smaller than the sphere)
+    auto sphere = std::make_shared<TriangleMesh>(TriangleMesh::Icosphere(3, 1.0, Point3(0.0), true));
+    {
+        const Real a = sphere->surfaceArea() / (4 * constants::PI);
+        const Real v = sphere->signedVolume() / (4.0 / 3.0 * constants::PI);
+        check("icosphere (" + std::to_string(sphere->numTriangles()) + " triangles) area / sphere, volume / sphere",
+            a > 0.97 && a <= 1.0 && v > 0.95 && v <= 1.0, std::to_string(a) + ", " + std::to_string(v) + "  (volume > 0 = outward winding)");
+    }
+
+    // b. one ray: hit distance and the interpolated (smooth) normal
+    const std::shared_ptr<const TriangleMesh> sphereC = sphere;
+    auto bvh = BuildMeshBVH(sphereC, white);
+    {
+        SurfaceInteraction rec;
+        const bool hit = bvh->hit(Ray(Point3(0, 0, 5), Vector3(0, 0, -1)), rec);
+        const bool ok = hit && rec.t > 3.98 && rec.t <= 4.0 + 1e-9 && glm::dot(rec.n, Vector3(0, 0, 1)) > 0.999 && glm::dot(rec.gn, Vector3(0, 0, 1)) > 0.99;
+        check("ray at the pole: t, shading normal . z, geometric normal . z", ok,
+            hit ? std::to_string(rec.t) + ", " + std::to_string(glm::dot(rec.n, Vector3(0, 0, 1))) + ", " + std::to_string(glm::dot(rec.gn, Vector3(0, 0, 1))) : std::string("no hit"));
+    }
+
+    // c. OBJ round trip
+    {
+        const std::string path = (std::filesystem::temp_directory_path() / "rayt_test_mesh.obj").string();
+        {
+            std::ofstream f(path);
+            f.precision(12);
+            for (const auto& p : sphere->p) f << "v " << p.x << " " << p.y << " " << p.z << "\n";
+            for (const auto& n : sphere->n) f << "vn " << n.x << " " << n.y << " " << n.z << "\n";
+            for (size_t i = 0; i < sphere->numTriangles(); ++i)
+                f << "f " << sphere->indices[3 * i] + 1 << "//" << sphere->indices[3 * i] + 1 << " "
+                  << sphere->indices[3 * i + 1] + 1 << "//" << sphere->indices[3 * i + 1] + 1 << " "
+                  << sphere->indices[3 * i + 2] + 1 << "//" << sphere->indices[3 * i + 2] + 1 << "\n";
+        }
+        TriangleMesh back;
+        std::string err;
+        const bool loaded = io::loadObj(path, back, &err);
+        const bool ok = loaded && back.numTriangles() == sphere->numTriangles() && back.hasNormals()
+            && std::abs(back.signedVolume() - sphere->signedVolume()) < 1e-9;
+        check("OBJ write + load (triangles, normals, volume)", ok,
+            loaded ? std::to_string(back.numTriangles()) + " triangles" : err);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // d. BVH vs brute force on the torus file (2304 triangles): same hit / miss / distance for random rays
+    {
+        TriangleMesh torus;
+        std::string err;
+        if (!io::loadObj("assets/Meshes/torus.obj", torus, &err)) {
+            check("torus.obj", false, err);
+        }
+        else {
+            auto mesh = std::make_shared<const TriangleMesh>(std::move(torus));
+            std::vector<std::shared_ptr<Triangle>> tris;
+            auto torusBvh = BuildMeshBVH(mesh, white, &tris);
+            Aggregate brute;
+            for (const auto& t : tris) brute.add(t);
+            int mismatches = 0, hits = 0;
+            for (int i = 0; i < 20000; ++i) {
+                const Vector3 target(sampling::Random(-0.7, 0.7), sampling::Random(-0.25, 0.25), sampling::Random(-0.7, 0.7));
+                const Vector3 origin = glm::normalize(Vector3(sampling::Random(-1, 1), sampling::Random(-1, 1), sampling::Random(-1, 1))) * 3.0;
+                const Ray ray(origin, glm::normalize(target - origin));
+                SurfaceInteraction a, b;
+                const bool ha = torusBvh->hit(ray, a), hb = brute.hit(ray, b);
+                hits += hb ? 1 : 0;
+                if (ha != hb || (ha && std::abs(a.t - b.t) > 1e-9)) ++mismatches;
+            }
+            check("torus.obj " + std::to_string(mesh->numTriangles()) + " triangles, volume " + std::to_string(mesh->signedVolume())
+                + ": BVH vs brute force on 20000 rays (" + std::to_string(hits) + " hits), mismatches",
+                mismatches == 0 && hits > 1000 && mesh->signedVolume() > 0, std::to_string(mismatches));
+        }
+    }
+
+    // e. white (albedo 1) diffuse mesh sphere in a uniform white environment must stay exactly white
+    {
+        auto envMap = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0))));
+        for (const bool smooth : { true, false }) {
+            auto mesh = std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(2, 1.0, Point3(0.0), smooth));
+            auto world = std::make_shared<Aggregate>();
+            world->add(BuildMeshBVH(mesh, white));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(std::make_shared<EnvLight>(envMap, 1.0));
+            scene->finalize();
+            double sum = 0;
+            const int n = opt.spp * 256;
+            Vector3 m, se;
+            int bad = 0;
+            EstimateRadiance(*scene, Ray(Point3(0.3, 0.2, 5), Vector3(0, 0, -1)), n, 16, m, se, bad);
+            const bool ok = std::abs(m.x - 1.0) <= 4 * se.x + 0.01 && bad == 0;
+            check(std::string("furnace, white diffuse mesh sphere, ") + (smooth ? "smooth normals" : "flat normals"), ok,
+                "mean " + std::to_string(m.x) + " +- " + std::to_string(se.x));
+            (void)sum;
+        }
+    }
+
+    // f. two emissive triangles = the Quad light of --scene lights (numerical reference)
+    {
+        const Point3 corner(-0.5, 2, -0.5);
+        const Vector3 e1(1, 0, 0), e2(0, 0, 1);
+        auto mesh = std::make_shared<TriangleMesh>();
+        mesh->p = { corner, corner + e1, corner + e1 + e2, corner + e2 };
+        mesh->indices = { 0, 1, 2, 0, 2, 3 };
+        const std::shared_ptr<const TriangleMesh> meshC = mesh;
+        const Real albedo = 0.5;
+        auto scene = MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+            auto mat = std::make_shared<DiffuseLight>(EmissionSpectrum(RgbColor(1.0)), 10.0);
+            for (size_t i = 0; i < meshC->numTriangles(); ++i) {
+                auto tri = std::make_shared<Triangle>(meshC, i, mat);
+                auto light = std::make_shared<AreaLight>(tri, mat);
+                w.add(std::make_shared<Primitive>(tri, mat, light));
+                s.addLight(light);
+            }
+        });
+        Vector3 m, se;
+        int bad = 0;
+        EstimateRadiance(*scene, Ray(Point3(-3, 3, 0), glm::normalize(Vector3(1, -1, 0))), opt.spp * 1024, 8, m, se, bad);
+        const Real expected = QuadGroundRadiance(corner, e1, e2, false, 10.0, albedo);
+        check("emissive triangle pair (area lights, NEE+MIS) vs quad reference " + std::to_string(expected),
+            std::abs(m.x - expected) <= 4 * se.x + 0.005 * expected && bad == 0,
+            std::to_string(m.x) + " +- " + std::to_string(se.x));
+    }
+
+    std::cout << "[Mesh] checks: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed;
+}
+
+// -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -871,6 +1014,8 @@ int main(int argc, char** argv) {
 
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
+    bool meshChecksPassed = true;
+    if (opt.scene == "mesh") meshChecksPassed = RunMeshChecks(opt);
 
     // --------------------------------------------------
     // 2. 環境マップ (EnvMap) 読み込み
@@ -886,7 +1031,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio") {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh") {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -1004,6 +1149,37 @@ int main(int argc, char** argv) {
             Vector3(2.4, 0, 0), Vector3(0, 0, 1.8), EmissionSpectrum::IlluminantA(), 7.0, true));
 
         // Small cool-white LED (synthetic SPD from CSV) on the right.
+        color::SpectralCurve ledCurve;
+        std::string ledErr;
+        if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", ledCurve, &ledErr)) {
+            std::cerr << "[SPD] " << ledErr << "\n";
+            return 1;
+        }
+        auto ledMat = std::make_shared<DiffuseLight>(EmissionSpectrum::FromCurve(ledCurve), 30.0);
+        auto ledShape = std::make_shared<Sphere>(Point3(2.4, 1.4, 0.2), 0.3, ledMat);
+        auto ledLight = std::make_shared<AreaLight>(ledShape, ledMat);
+        worldList->add(std::make_shared<Primitive>(ledShape, ledMat, ledLight));
+        studioLights.push_back(ledLight);
+    }
+    else if (opt.scene == "mesh") {
+        // Gold torus from an OBJ file, tilted toward the camera.
+        TriangleMesh torus;
+        std::string objErr;
+        if (!io::loadObj("assets/Meshes/torus.obj", torus, &objErr)) {
+            std::cerr << "[Mesh] " << objErr << "\n";
+            return 1;
+        }
+        torus.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(Real(65)), Vector3(1, 0, 0))), Vector3(0.0, 0.22, -1.2));
+        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(std::move(torus)), matGoldMedium));
+
+        // The same 80-triangle sphere twice: flat shading (left) vs interpolated vertex normals (right).
+        auto red = std::make_shared<Lambertian>(RgbColor(0.75, 0.2, 0.18));
+        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(-1.45, 0, -0.9), false)), red));
+        worldList->add(BuildMeshBVH(std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(1, 0.4, Point3(1.45, 0, -0.9), true)), red));
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.45, -1), 100.0, std::make_shared<Lambertian>(RgbColor(0.6, 0.6, 0.6))));
+
+        studioLights.push_back(AddQuadLight(*worldList, nullptr, Point3(-1.8, 2.6, -2.0),
+            Vector3(2.4, 0, 0), Vector3(0, 0, 1.8), EmissionSpectrum::IlluminantA(), 7.0, true));
         color::SpectralCurve ledCurve;
         std::string ledErr;
         if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", ledCurve, &ledErr)) {
@@ -1184,5 +1360,5 @@ int main(int argc, char** argv) {
     std::cout << "[System] Finished." << std::endl;
 
     // Furnace test: exit code 2 when an object is outside its expected value, so a script can check it.
-    return furnacePassed ? 0 : 2;
+    return (furnacePassed && meshChecksPassed) ? 0 : 2;
 }
