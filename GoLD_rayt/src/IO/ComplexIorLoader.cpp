@@ -104,7 +104,7 @@ namespace rayt::io {
         std::string* outError,
         const CsvOptions& csvOpt)
     {
-        outTable.samples().clear();
+        outTable = rayt::color::ComplexIorTable();
 
         CsvOptions opt = csvOpt;
         opt.delimiter = ',';        // RefractiveIndex.info uses comma
@@ -170,18 +170,77 @@ namespace rayt::io {
         for (auto& p : kData) wlGrid.push_back(p.lambda_nm);
         sortAndUnique(wlGrid);
 
-        auto& dst = outTable.samples();
-        dst.reserve(wlGrid.size());
-
         for (Real wl_nm : wlGrid) {
             Real eta = evalLinear(nData, wl_nm, Real(1));
             Real k = evalLinear(kData, wl_nm, Real(0));
-            dst.push_back(rayt::color::ComplexIorTable::Sample{ wl_nm, eta, k });
+            outTable.add(wl_nm, eta, k);
         }
 
-        // Final sanity: ensure sorted
-        std::sort(dst.begin(), dst.end());
+        outTable.finalize();
         return true;
+    }
+
+    bool loadComplexIor_ThreeColumn(
+        const std::string& filename,
+        rayt::color::ComplexIorTable& outTable,
+        WavelengthUnit unit,
+        std::string* outError)
+    {
+        outTable = rayt::color::ComplexIorTable();
+
+        CsvOptions opt;
+        opt.delimiter = ',';
+        opt.allow_tabs = true;
+        opt.allow_spaces = true;
+
+        CsvTable table;
+        std::string err;
+        if (!readDelimitedFile(filename, table, &err, opt)) {
+            if (outError) *outError = err;
+            return false;
+        }
+
+        for (const auto& row : table) {
+            Real wl = 0, n = 0, k = 0;
+            if (row.size() < 3 || !parseReal(row[0], wl) || !parseReal(row[1], n) || !parseReal(row[2], k)) {
+                continue;   // header / comment / junk
+            }
+            outTable.add(toNm(wl, unit), n, k);
+        }
+        outTable.finalize();
+
+        if (outTable.size() < 2) {
+            if (outError) *outError = "Fewer than two numeric (wavelength, n, k) rows in: " + filename;
+            return false;
+        }
+        return true;
+    }
+
+    bool loadComplexIor(
+        const std::string& filename,
+        rayt::color::ComplexIorTable& outTable,
+        WavelengthUnit unit,
+        std::string* outError)
+    {
+        CsvOptions opt;
+        opt.delimiter = ',';
+        opt.allow_tabs = true;
+        opt.allow_spaces = true;
+
+        CsvTable table;
+        std::string err;
+        if (!readDelimitedFile(filename, table, &err, opt)) {
+            if (outError) *outError = err;
+            return false;
+        }
+
+        // RefractiveIndex.info exports contain "wl,n" / "wl,k" block headers.
+        for (const auto& row : table) {
+            if (row.size() == 2 && iequals(row[0], "wl") && iequals(row[1], "n")) {   // 2-field block header; "wl,n,k" is the 3-column layout
+                return loadComplexIor_RefractiveIndexInfoCsv(filename, outTable, outError);
+            }
+        }
+        return loadComplexIor_ThreeColumn(filename, outTable, unit, outError);
     }
 
 } // namespace rayt::io
