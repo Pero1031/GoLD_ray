@@ -106,6 +106,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             its expected value (1.0 for lossless materials; a value below/above means energy is
 //             lost/created, i.e. a bug). Prints OK/FAIL per object and exits with code 2 on FAIL.
 //             Debug builds also assert that all ray directions have unit length.
+//   spd     : colored diffuse spheres + gold under ONE sphere light whose spectrum is chosen with
+//             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
+//             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
+//             No environment light (black background). Spectral mode shows metamerism best.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -120,6 +124,8 @@ struct CliOptions {
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
+    bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
 };
 
@@ -138,6 +144,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--env")   o.env = value("--env");
             else if (a == "--abbe")  o.abbe = std::stod(value("--abbe"));
             else if (a == "--out")   o.out = value("--out");
+            else if (a == "--light") o.light = value("--light");
+            else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
                 const size_t comma = xy.find(',');
@@ -147,18 +155,23 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights")
-            throw std::runtime_error("--scene must be gold, glass, furnace or lights");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights or spd");
+        if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
+            throw std::runtime_error("--light must be d65, tungsten, candle or led");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
             throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd] [--light d65|tungsten|candle|led] [--wb] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
-    if (o.out.empty()) o.out = (o.scene == "gold") ? "result_gold_pbr.png" : "result_" + o.scene + ".png";
+    if (o.out.empty()) {
+        o.out = (o.scene == "gold") ? "result_gold_pbr.png" : "result_" + o.scene + ".png";
+        if (o.scene == "spd") o.out = "result_spd_" + o.light + (o.whiteBalance ? "_wb" : "") + ".png";
+    }
     return true;
 }
 
@@ -592,6 +605,9 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
+    else if (opt.scene == "spd") {
+        std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
+    }
     else try {
         std::cout << "[EnvMap] Loading: " << opt.env << std::endl;
         auto envImg = io::loadHDR(opt.env);   // HDRでダウンロード
@@ -673,6 +689,8 @@ int main(int argc, char** argv) {
     // -------------------------------------------------------------------------
     auto worldList = std::make_shared<Aggregate>();
 
+    EmissionSpectrum spdEmission;                                 // spd scene: spectrum of its sphere light
+    std::shared_ptr<Light> spdLight;                              // spd scene: registered for NEE below
     std::vector<FurnaceObject> furnaceObjects;                    // what the furnace test checks
     std::vector<std::shared_ptr<Material>> furnaceMaterials;      // owns materials only used there
 
@@ -691,6 +709,40 @@ int main(int argc, char** argv) {
         worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGlassDisp));
         worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matFrosted));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
+    else if (opt.scene == "spd") {
+        // Five diffuse spheres with distinct reflectance spectra + gold, lit by one off-screen sphere light.
+        const Real r = 0.3;
+        auto lambertian = [](Real R, Real G, Real B) { return std::make_shared<Lambertian>(RgbColor(R, G, B)); };
+        worldList->add(std::make_shared<Sphere>(Point3(-1.4, 0, -1), r, lambertian(0.80, 0.15, 0.12)));   // red
+        worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), r, lambertian(0.80, 0.80, 0.80)));   // white
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), r, matGoldMedium));                    // gold
+        worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), r, lambertian(0.12, 0.30, 0.80)));    // blue
+        worldList->add(std::make_shared<Sphere>(Point3(1.4, 0, -1), r, lambertian(0.15, 0.60, 0.20)));    // green
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.3, -1), 100.0, lambertian(0.7, 0.7, 0.7)));
+
+        if (opt.light == "d65")           spdEmission = EmissionSpectrum(RgbColor(1.0));
+        else if (opt.light == "tungsten") spdEmission = EmissionSpectrum::IlluminantA();
+        else if (opt.light == "candle")   spdEmission = EmissionSpectrum::Blackbody(1850.0);
+        else {
+            color::SpectralCurve curve;
+            std::string err;
+            if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", curve, &err)) {
+                std::cerr << "[SPD] " << err << "\n";
+                return 1;
+            }
+            spdEmission = EmissionSpectrum::FromCurve(curve);
+        }
+        std::cout << "[SPD] light = " << opt.light << ", sensor RGB of the light = ("
+            << spdEmission.rgb().x << ", " << spdEmission.rgb().y << ", " << spdEmission.rgb().z << ")"
+            << (opt.whiteBalance ? ", film white-balanced to it" : "") << "\n";
+        if (opt.whiteBalance) color::setWhiteBalance(spdEmission);
+
+        // Radiance 20 at distance ~3.5 gives a floor radiance of about 0.6.
+        auto lightMat = std::make_shared<DiffuseLight>(spdEmission, 20.0);
+        auto lightShape = std::make_shared<Sphere>(Point3(-2.2, 3.0, 1.5), 0.8, lightMat);
+        spdLight = std::make_shared<AreaLight>(lightShape, lightMat);
+        worldList->add(std::make_shared<Primitive>(lightShape, lightMat, spdLight));
     }
     else {
         // furnace: no floor, so the only light path is environment <-> object.
@@ -754,6 +806,8 @@ int main(int argc, char** argv) {
     // エリアライトの設定
     //scene->addLight(areaLight);
     //std::cout << "[Scene] Area light added.\n";
+
+    if (spdLight) scene->addLight(spdLight);
 
     // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
     scene->finalize("uniform");
