@@ -1,88 +1,84 @@
 ﻿/**
  * @file Color/ComplexIorTable.hpp
- * @brief Tabulated complex index of refraction (eta, k) with interpolation.
+ * @brief Tabulated complex index of refraction (eta, k) of a conductor as a function of wavelength.
  *
- * Provides:
- * - Data container for (wavelength_nm, eta, k) samples
- * - Linear interpolation accessor: evaluateNK(lambda_nm)
+ * This is the canonical spectral description of a metal: every other input (RefractiveIndex.info
+ * CSV, 3-column tables, separate n / k files, normal-incidence reflectance, ...) is converted into
+ * one of these tables, and RoughConductor / the RGB reduction only ever see this class.
  *
- * Notes / Assumptions:
- * - Wavelengths are stored in nanometers (nm).
- * - samples_ must be sorted by lambda_nm in ascending order for lower_bound() to work.
- *   (Recommended: sort once after loading in the IO loader.)
- * - Duplicate wavelengths should be avoided or merged at load time.
- *   If two neighboring samples have identical lambda_nm, interpolation would divide by zero.
- * - Out-of-range wavelengths are clamped to the nearest endpoint (no extrapolation),
- *   which is typically safer for optical constants than linear extrapolation.
+ * Internally eta(l) and k(l) are two SpectralCurve objects (Color/SpectralCurve.hpp).
  *
- * Responsibility split:
- * - This class does NOT parse files. Fill `samples()` from IO loaders (CSV, etc.).
- * - This class DOES provide robust interpolation queries over the loaded data.
+ * Notes:
+ * - Wavelengths are in nanometers (nm).
+ * - Out-of-range wavelengths are clamped to the nearest endpoint (no extrapolation), which is
+ *   safer for optical constants than linear extrapolation.
+ * - Fill with add() (any order) and call finalize() once; file parsing lives in the IO loaders.
  */
 
 #pragma once
 
-#include <vector>
+#include <initializer_list>
 #include <utility>
-#include <algorithm>
+#include <vector>
 
 #include "Core/Precision.hpp"
+#include "Color/SpectralCurve.hpp"
 
 namespace rayt::color {
 
-    /**
-     * @brief Tabulated complex IOR (eta, k) as a function of wavelength.
-     *
-     * Unit:
-     * - Wavelength is stored in nanometers (nm).
-     *
-     * This is a data container + interpolation accessor.
-     * File parsing is handled by IO loaders.
-     */
     class ComplexIorTable {
     public:
-        /**
-         * @brief A single measured/fit sample of complex IOR at a given wavelength.
-         *
-         * @param lambda_nm Wavelength in nanometers (nm)
-         * @param eta       Real part of complex IOR (η)
-         * @param k         Extinction coefficient (k), absorption term
-         */
+        /// One measured / fitted sample: eta = real part, k = extinction coefficient.
         struct Sample {
             Real lambda_nm = Real(0);
             Real eta = Real(1);
             Real k = Real(0);
-
-            bool operator<(const Sample& o) const { return lambda_nm < o.lambda_nm; }
         };
 
-        bool empty() const { return samples_.empty(); }
-        const std::vector<Sample>& samples() const { return samples_; }
-        std::vector<Sample>& samples() { return samples_; }
+        /// Appends a sample. Call finalize() after the last one.
+        void add(Real lambda_nm, Real eta, Real k) {
+            m_eta.add(lambda_nm, eta);
+            m_k.add(lambda_nm, k);
+        }
 
-        /// Linear interpolation. Returns (eta, k).
+        /// Replaces the content with the given samples (already finalized).
+        void assign(std::initializer_list<Sample> samples) {
+            m_eta = SpectralCurve();
+            m_k = SpectralCurve();
+            for (const Sample& s : samples) add(s.lambda_nm, s.eta, s.k);
+            finalize();
+        }
+
+        /// Sorts by wavelength and merges duplicate wavelengths.
+        void finalize() {
+            m_eta.finalize();
+            m_k.finalize();
+        }
+
+        /// Builds a table on the union of both curves' wavelengths (each curve clamped at its ends).
+        static ComplexIorTable fromCurves(const SpectralCurve& eta, const SpectralCurve& k) {
+            ComplexIorTable t;
+            for (const auto& s : eta.samples()) t.add(s.lambda_nm, eta.evaluate(s.lambda_nm, Extrapolate::Clamp), k.evaluate(s.lambda_nm, Extrapolate::Clamp));
+            for (const auto& s : k.samples()) t.add(s.lambda_nm, eta.evaluate(s.lambda_nm, Extrapolate::Clamp), k.evaluate(s.lambda_nm, Extrapolate::Clamp));
+            t.finalize();   // identical wavelengths from both loops are merged
+            return t;
+        }
+
+        bool empty() const { return m_eta.empty(); }
+        size_t size() const { return m_eta.size(); }
+
+        const SpectralCurve& etaCurve() const { return m_eta; }
+        const SpectralCurve& kCurve() const { return m_k; }
+
+        /// Linear interpolation, clamped at both ends. Returns (eta, k); an empty table is (1, 0).
         std::pair<Real, Real> evaluateNK(Real lambda_nm) const {
-            if (samples_.empty()) return { Real(1), Real(0) };
-
-            if (lambda_nm <= samples_.front().lambda_nm)
-                return { samples_.front().eta, samples_.front().k };
-            if (lambda_nm >= samples_.back().lambda_nm)
-                return { samples_.back().eta, samples_.back().k };
-
-            Sample key{ lambda_nm, Real(0), Real(0) };
-            auto it = std::lower_bound(samples_.begin(), samples_.end(), key);
-
-            const Sample& b = *it;
-            const Sample& a = *(it - 1);
-
-            Real t = (lambda_nm - a.lambda_nm) / (b.lambda_nm - a.lambda_nm);
-            Real eta = a.eta + (b.eta - a.eta) * t;
-            Real k = a.k + (b.k - a.k) * t;
-            return { eta, k };
+            if (m_eta.empty()) return { Real(1), Real(0) };
+            return { m_eta.evaluate(lambda_nm, Extrapolate::Clamp), m_k.evaluate(lambda_nm, Extrapolate::Clamp) };
         }
 
     private:
-        std::vector<Sample> samples_;
+        SpectralCurve m_eta;
+        SpectralCurve m_k;
     };
 
 } // namespace rayt::color

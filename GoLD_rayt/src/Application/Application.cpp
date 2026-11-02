@@ -184,11 +184,11 @@ void App::init() {
         std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
 
         // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
-        auTable->samples() = {
+        auTable->assign({
             { 450.0, 1.45, 1.77 },
             { 550.0, 0.42, 2.45 },
             { 650.0, 0.16, 3.48 },
-        };
+        });
     }
     else {
         std::cout << "[Au IOR] Loaded: " << AU_IOR_CSV_PATH << "\n";
