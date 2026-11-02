@@ -159,9 +159,13 @@ namespace rayt {
         }
 
         bool occluded(const Ray& r) const override {
+            if (!m_castsShadow) return false;
             Real t, u, v;
             return intersect(r, t, u, v);
         }
+
+        /// false: shadow rays pass through (translucent overlay layers must not shade the surface under them).
+        void setCastsShadow(bool casts) { m_castsShadow = casts; }
 
         bool intersectT(const Ray& r, Real& t) const override {
             Real u, v;
@@ -270,6 +274,7 @@ namespace rayt {
         std::shared_ptr<const TriangleMesh> m_mesh;
         std::shared_ptr<Material> m_material;
         int m_i0 = 0, m_i1 = 0, m_i2 = 0;
+        bool m_castsShadow = true;
         std::shared_ptr<const Texture2D> m_alphaTex;   // optional alpha mask
         Real m_alphaCutoff = Real(0.5);
         Point3 m_p0 = Point3(0.0);

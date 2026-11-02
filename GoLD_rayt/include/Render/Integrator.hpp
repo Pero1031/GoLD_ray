@@ -147,6 +147,7 @@ namespace rayt {
             bool hasLastBsdf = false;
 
             SurfaceInteraction lastRec;
+            int passThrough = 0;
 
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
@@ -176,6 +177,16 @@ namespace rayt {
                         }
                     }
                     break;
+                }
+
+                // Translucent layer: with probability 1 - opacity the ray continues straight through.
+                {
+                    const Real opacity = rec.matPtr->opacity(rec);
+                    if (opacity < Real(1) && sampling::Random() >= opacity && ++passThrough < 64) {
+                        r = rec.SpawnRay(r.d);
+                        --depth;   // not a scattering event
+                        continue;
+                    }
                 }
 
                 // The BSDFs below assume unit-length directions (wo = -r.d).

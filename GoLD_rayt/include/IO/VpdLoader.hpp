@@ -25,6 +25,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Core/Types.hpp"
@@ -50,6 +51,7 @@ namespace rayt::io {
     struct VpdPose {
         std::string parentModel;                           ///< "宮舞モカ.osm" etc. (informational)
         std::vector<VpdBone> bones;
+        std::vector<std::pair<std::string, Real>> morphs;   ///< "Morph" blocks: expression name, weight
     };
 
     /// Shift-JIS (code page 932) -> UTF-8. Text that is already valid UTF-8 is returned unchanged.
@@ -133,11 +135,19 @@ namespace rayt::io {
                 out.bones.push_back(std::move(b));
                 i = j - 1;
             }
+            else if (line.compare(0, 5, "Morph") == 0 && line.find('{') != std::string::npos) {
+                const std::string name = detail::trim(line.substr(line.find('{') + 1));
+                size_t j = i + 1;
+                while (j < lines.size() && detail::trim(lines[j]).empty()) ++j;
+                double v[1] = {};
+                if (j < lines.size() && detail::numbers(detail::trim(lines[j]), v, 1) == 1) out.morphs.emplace_back(name, Real(v[0]));
+                i = j;
+            }
             else if (line.find("osm;") != std::string::npos || line.find("pmx;") != std::string::npos || line.find("pmd;") != std::string::npos) {
                 out.parentModel = detail::trim(line.substr(0, line.find(';')));
             }
         }
-        if (out.bones.empty()) return fail("no Bone blocks found");
+        if (out.bones.empty() && out.morphs.empty()) return fail("no Bone or Morph blocks found");
         return true;
     }
 
