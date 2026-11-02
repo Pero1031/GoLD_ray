@@ -37,7 +37,7 @@ namespace rayt {
     Film::Film(int width, int height)
         : m_width(width), m_height(height) {
         // Initialize all pixels to black (0, 0, 0).
-        m_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height), Spectrum(0.0));
+        m_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height), Vector3(0.0));
     }
 
     /**
@@ -50,7 +50,7 @@ namespace rayt {
      * @param y         Pixel y-coordinate
      * @param radiance  Radiance value to store (linear space)
      */
-    void Film::setPixel(int x, int y, const Spectrum& radiance) {
+    void Film::setPixel(int x, int y, const Vector3& radiance) {
 
         // Boundary check to prevent segmentation faults.
         if (x < 0 || x >= m_width || y < 0 || y >= m_height) {
@@ -73,7 +73,7 @@ namespace rayt {
      * @param y         Pixel y-coordinate
      * @param radiance  Radiance contribution to add
      */
-    void Film::addPixel(int x, int y, const Spectrum& radiance) {
+    void Film::addPixel(int x, int y, const Vector3& radiance) {
         if (x < 0 || x >= m_width || y < 0 || y >= m_height) {
             return;
         }
@@ -89,7 +89,7 @@ namespace rayt {
      * Useful when restarting a progressive render.
      */
     void Film::clear() {
-        std::fill(m_pixels.begin(), m_pixels.end(), Spectrum(0.0));
+        std::fill(m_pixels.begin(), m_pixels.end(), Vector3(0.0));
     }
 
     /**
@@ -154,16 +154,16 @@ namespace rayt {
 
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < numPixels; ++i) {
-                Spectrum p = m_pixels[i] * s;
+                Vector3 p = m_pixels[i] * s;
 
                 // NaN/Inf -> 0
-                if (math::hasNonFinite(p.r)) p.r = Real(0);
-                if (math::hasNonFinite(p.g)) p.g = Real(0);
-                if (math::hasNonFinite(p.b)) p.b = Real(0);
+                if (math::hasNonFinite(p[0])) p[0] = Real(0);
+                if (math::hasNonFinite(p[1])) p[1] = Real(0);
+                if (math::hasNonFinite(p[2])) p[2] = Real(0);
 
-                hdrData[i * 3 + 0] = static_cast<float>(p.r);
-                hdrData[i * 3 + 1] = static_cast<float>(p.g);
-                hdrData[i * 3 + 2] = static_cast<float>(p.b);
+                hdrData[i * 3 + 0] = static_cast<float>(p[0]);
+                hdrData[i * 3 + 1] = static_cast<float>(p[1]);
+                hdrData[i * 3 + 2] = static_cast<float>(p[2]);
             }
 
             stbi_write_hdr(filename.c_str(), m_width, m_height, 3, hdrData.data());
@@ -182,14 +182,14 @@ namespace rayt {
 
         #pragma omp parallel for schedule(static)
         for (int i = 0; i < numPixels; ++i) {
-            Spectrum pixel = m_pixels[i] * s;
+            Vector3 pixel = m_pixels[i] * s;
 
             // New pipeline: exposure -> Reinhard -> sRGB encode -> clamp
             pixel = color::toDisplaySRGB_Reinhard(pixel, exposureStops);
 
-            outputData[i * 3 + 0] = toByte(pixel.r);
-            outputData[i * 3 + 1] = toByte(pixel.g);
-            outputData[i * 3 + 2] = toByte(pixel.b);
+            outputData[i * 3 + 0] = toByte(pixel[0]);
+            outputData[i * 3 + 1] = toByte(pixel[1]);
+            outputData[i * 3 + 2] = toByte(pixel[2]);
         }
 
         if (ext == "png") {

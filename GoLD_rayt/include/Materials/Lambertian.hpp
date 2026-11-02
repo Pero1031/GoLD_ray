@@ -14,6 +14,7 @@
 #include "Core/Sampling.hpp"
 #include "Materials/Material.hpp"
 #include "Geometry/Frame.hpp"
+#include "Color/SpectralConversion.hpp"
 
 namespace rayt {
 
@@ -22,7 +23,7 @@ namespace rayt {
      * * The BRDF is a constant value: f = albedo / PI.
      */
     class Lambertian : public Material {
-        Spectrum albedo;
+        RgbColor albedo;
 
         static inline Real cosNg(const SurfaceInteraction& rec, const Vector3& w) {
             return glm::dot(rec.gn, w);
@@ -37,7 +38,7 @@ namespace rayt {
          * @brief Constructs a Lambertian material.
          * @param a The reflectance (color) of the surface.
          */
-        Lambertian(const Spectrum& a) : albedo(a) {}
+        Lambertian(const RgbColor& a) : albedo(a) {}
 
         /**
          * @brief Evaluates the Lambertian BRDF.
@@ -46,6 +47,7 @@ namespace rayt {
          */
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             // Rejects light coming from behind the surface (back-face)
@@ -53,7 +55,7 @@ namespace rayt {
                 return Spectrum(0.0);
             }
 
-            return albedo * (1.0 / constants::PI);
+            return albedo.reflectance(lambda) * (1.0 / constants::PI);
         }
 
         /**
@@ -85,6 +87,7 @@ namespace rayt {
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             BSDFSample bsdfSample;
@@ -105,7 +108,7 @@ namespace rayt {
             bsdfSample.pdf = localDir.z * (Real(1.0) / constants::PI);
 
             // 5. BSDF value: constant for Lambertian surfaces.
-            bsdfSample.f = albedo *(Real(1.0) / constants::PI);
+            bsdfSample.f = albedo.reflectance(lambda) * (Real(1.0) / constants::PI);
 
             // 6. Set flags indicating a diffuse reflection interaction.
             bsdfSample.flags =

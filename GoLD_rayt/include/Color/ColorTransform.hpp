@@ -14,9 +14,9 @@
  *     * ColorTransform.hpp: exposure + tone mapping + (optional) encoding for display
  *
  * Assumptions:
- * - Spectrum is currently an RGB triplet (r,g,b) in linear space.
- * - If Spectrum becomes spectral in the future, this pipeline must be applied
- *   *after* spectral->RGB conversion.
+ * - All functions here take linear sRGB (Vector3). In spectral mode the integrator converts
+ *   each path's sampled spectrum to RGB first (SpectrumToRGB in Color/SpectralConversion.hpp),
+ *   so this pipeline is applied *after* the spectral->RGB conversion in both modes.
  */
 
 #pragma once
@@ -63,7 +63,7 @@ namespace rayt::color {
      * @param exposureStops Exposure in stops (EV)
      * @return Exposure-adjusted RGB spectrum
      */
-    inline Spectrum applyExposure(const Spectrum& x, Real exposureStops) {
+    inline Vector3 applyExposure(const Vector3& x, Real exposureStops) {
         return x * std::pow(Real(2), exposureStops);
     }
 
@@ -100,8 +100,8 @@ namespace rayt::color {
      * @param x Linear HDR RGB spectrum (>=0 recommended)
      * @return Tone-mapped RGB spectrum in [0,1)
      */
-    inline Spectrum toneMapReinhard(const Spectrum& x) {
-        return x / (x + Spectrum(Real(1)));
+    inline Vector3 toneMapReinhard(const Vector3& x) {
+        return x / (x + Vector3(Real(1)));
     }
 
     // -------------------------------------------------------------------------
@@ -138,29 +138,29 @@ namespace rayt::color {
      * @param exposureStops Exposure in stops (EV). Default 0.
      * @return Encoded sRGB in [0,1] per channel (ready for 8-bit quantization)
      */
-    inline Spectrum toDisplaySRGB_Reinhard(const Spectrum& linearRGB, Real exposureStops = Real(0)) {
+    inline Vector3 toDisplaySRGB_Reinhard(const Vector3& linearRGB, Real exposureStops = Real(0)) {
         auto sanitize = [](Real v) -> Real {
             if (rayt::math::hasNonFinite(v) || v < Real(0)) return Real(0);
             return v;
             };
 
-        Spectrum x = linearRGB;
-        x.r = sanitize(x.r);
-        x.g = sanitize(x.g);
-        x.b = sanitize(x.b);
+        Vector3 x = linearRGB;
+        x[0] = sanitize(x[0]);
+        x[1] = sanitize(x[1]);
+        x[2] = sanitize(x[2]);
 
         x = applyExposure(x, exposureStops);
         x = toneMapReinhard(x);
 
         // Encode to sRGB (canonical implementation in ColorSpace.hpp)
-        x.r = linearToSRGB(x.r);
-        x.g = linearToSRGB(x.g);
-        x.b = linearToSRGB(x.b);
+        x[0] = linearToSRGB(x[0]);
+        x[1] = linearToSRGB(x[1]);
+        x[2] = linearToSRGB(x[2]);
 
         // Clamp for 8-bit output safety
-        x.r = rayt::math::saturate(x.r);
-        x.g = rayt::math::saturate(x.g);
-        x.b = rayt::math::saturate(x.b);
+        x[0] = rayt::math::saturate(x[0]);
+        x[1] = rayt::math::saturate(x[1]);
+        x[2] = rayt::math::saturate(x[2]);
 
         return x;
     }

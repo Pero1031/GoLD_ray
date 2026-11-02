@@ -46,9 +46,19 @@ namespace rayt {
     // Color & Spectral Representation
     // ---------------------------------------------------------------------
     
-    // TODO: Transition to a dedicated Spectrum class in Spectrum.hpp 
-    // once full spectral rendering is implemented.
-    // Currently used as a placeholder for RGB-based light transport.
+    // RGB mode (default): Spectrum is a plain linear-RGB triplet.
+    // Spectral mode (RAYT_SPECTRAL_MODE): Spectrum is SampledSpectrumT<N> from Core/Spectrum.hpp.
+    // Exactly one definition is active; Core/Spectrum.hpp defines the spectral one.
+    // Use Spectrum[i] for component access (works for both representations).
+#if !defined(RAYT_SPECTRAL_MODE)
     using Spectrum = glm::vec<3, Real, glm::defaultp>;
+#endif
+    // Film / display values are always linear sRGB (Vector3), in both modes.
 
 } //namespace rayt
+
+// In spectral mode the Spectrum alias is defined in Core/Spectrum.hpp. It needs Real / Vector3
+// from above, so it is included at the very end (safe in either include order: #pragma once).
+#if defined(RAYT_SPECTRAL_MODE)
+#include "Core/Spectrum.hpp"
+#endif

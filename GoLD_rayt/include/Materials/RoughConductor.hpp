@@ -6,8 +6,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <complex>
+#include <memory>
 #include <optional>
+#include <vector>
 
 #include "Core/Types.hpp"
 #include "Core/Forward.hpp"
@@ -18,7 +21,9 @@
 
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
-#include "Microfacet/GGX.hpp" 
+#include "Microfacet/GGX.hpp"
+#include "Color/ComplexIorTable.hpp"
+#include "Color/IorRgbApprox.hpp"
 
 namespace rayt {
 
@@ -33,14 +38,53 @@ namespace rayt {
      * - Visible Normal Distribution Function (VNDF) importance sampling.
      */
     class RoughConductor : public Material {
-        Spectrum eta;   // Index of Refraction (Real)
-        Spectrum k;     // Extinction Coefficient
+#if defined(RAYT_SPECTRAL_MODE)
+        // Complex IOR resampled on a 1 nm grid for fast per-wavelength lookup.
+        static constexpr int kLutFirstNm = 360;
+        static constexpr int kLutLastNm = 830;
+        std::vector<Real> etaLut;   // Index of Refraction (Real) per nm
+        std::vector<Real> kLut;     // Extinction Coefficient per nm
+#else
+        Spectrum eta;   // Index of Refraction (Real), RGB
+        Spectrum k;     // Extinction Coefficient, RGB
+#endif
         Real alpha_x;   // Roughness X
         Real alpha_y;   // Roughness Y (same as X if isotropic)
 
+        // Convert perceptual roughness to linear alpha using an anisotropic mapping.
+        void initRoughness(Real roughness, Real anisotropy) {
+            Real aspect = math::safe_sqrt(1.0 - anisotropy * 0.9);
+            alpha_x = MicrofacetDistribution::roughnessToAlpha(roughness / aspect);
+            alpha_y = MicrofacetDistribution::roughnessToAlpha(roughness * aspect);
+        }
+
+#if defined(RAYT_SPECTRAL_MODE)
+        static Real lutAt(const std::vector<Real>& lut, Real lambda_nm) {
+            const Real x = std::clamp(lambda_nm, Real(kLutFirstNm), Real(kLutLastNm)) - Real(kLutFirstNm);
+            const int i = std::min(static_cast<int>(x), static_cast<int>(lut.size()) - 2);
+            const Real f = x - Real(i);
+            return lut[static_cast<size_t>(i)] * (Real(1) - f) + lut[static_cast<size_t>(i) + 1] * f;
+        }
+#endif
+
+        // Fresnel reflectance for each wavelength carried by the path.
+        Spectrum fresnelAt(Real cosThetaD, const SampledWavelengths& lambda) const {
+#if defined(RAYT_SPECTRAL_MODE)
+            Spectrum F;
+            for (int i = 0; i < kSpectralSamples; ++i) {
+                F[i] = fresnel::fresnelConductor(cosThetaD, lutAt(etaLut, lambda[i]), lutAt(kLut, lambda[i]));
+            }
+            return F;
+#else
+            (void)lambda;
+            return fresnel::fresnelConductor(cosThetaD, eta, k);
+#endif
+        }
+
     public:
+#if !defined(RAYT_SPECTRAL_MODE)
         /**
-         * @brief Constructs a rough conductor.
+         * @brief Constructs a rough conductor from RGB optical constants (RGB mode only).
          * @param eta Real part of IOR.
          * @param k Imaginary part of IOR.
          * @param roughness Roughness value [0, 1].
@@ -48,11 +92,37 @@ namespace rayt {
          */
         RoughConductor(const Spectrum& eta, const Spectrum& k, Real roughness, Real anisotropy = 0.0)
             : eta(eta), k(k) {
+            initRoughness(roughness, anisotropy);
+        }
+#endif
 
-            // Convert perceptual roughness to linear alpha using an anisotropic mapping.
-            Real aspect = math::safe_sqrt(1.0 - anisotropy * 0.9);
-            alpha_x = MicrofacetDistribution::roughnessToAlpha(roughness / aspect);
-            alpha_y = MicrofacetDistribution::roughnessToAlpha(roughness * aspect);
+        /**
+         * @brief Constructs a rough conductor from a tabulated complex IOR (eta(l), k(l)).
+         *
+         * Spectral mode: the Fresnel term is evaluated per sampled wavelength from the table.
+         * RGB mode: the table is reduced to RGB eta/k by CMF integration (integrateIorToRgb_CMF).
+         * @param table Complex IOR table (wavelengths in nm).
+         * @param roughness Roughness value [0, 1].
+         * @param anisotropy Anisotropy factor [-1, 1] (0 for isotropic).
+         */
+        RoughConductor(const std::shared_ptr<const color::ComplexIorTable>& table,
+            Real roughness, Real anisotropy = 0.0) {
+#if defined(RAYT_SPECTRAL_MODE)
+            const int n = kLutLastNm - kLutFirstNm + 1;
+            etaLut.resize(static_cast<size_t>(n));
+            kLut.resize(static_cast<size_t>(n));
+            for (int i = 0; i < n; ++i) {
+                const auto [e, kk] = table->evaluateNK(Real(kLutFirstNm + i));
+                etaLut[static_cast<size_t>(i)] = e;
+                kLut[static_cast<size_t>(i)] = kk;
+            }
+#else
+            Vector3 etaRgb(1.0), kRgb(0.0);
+            color::integrateIorToRgb_CMF(*table, etaRgb, kRgb);
+            eta = etaRgb;
+            k = kRgb;
+#endif
+            initRoughness(roughness, anisotropy);
         }
 
         /**
@@ -60,11 +130,13 @@ namespace rayt {
          * @param rec Surface interaction details (position, normal, etc.).
          * @param wo Outgoing direction (towards camera).
          * @param wi Incident direction (towards light).
+         * @param lambda Wavelengths carried by the current path.
          * @param mode Transport mode (Radiance or Importance).
          * @return The evaluated BRDF spectrum.
          */
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             // Ensure both directions are in the same hemisphere as the geometric normal.
@@ -97,7 +169,7 @@ namespace rayt {
             Real G = dist.G(wo_local, wi_local);
 
             Real cosThetaD = std::abs(glm::dot(wi, wh));
-            Spectrum F = fresnel::fresnelConductor(cosThetaD, eta, k); 
+            Spectrum F = fresnelAt(cosThetaD, lambda);
 
             // 5. Cook-Torrance Formula
             Real denominator = 4.0 * cosThetaI * cosThetaO;
@@ -111,11 +183,13 @@ namespace rayt {
          * @param rec Surface interaction details.
          * @param wo Outgoing direction.
          * @param u Uniform random sample in [0, 1]^2.
+         * @param lambda Wavelengths carried by the current path.
          * @return A BSDFSample containing the sampled direction, weight, and PDF, or nullopt on failure.
          */
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             // Reflection only
@@ -153,7 +227,7 @@ namespace rayt {
             bsdfSample.pdf = pdf_wh / (Real(4) * dot_wo_wh);
 
             // 6. Evaluate the sample weight (throughput).
-            bsdfSample.f = eval(rec, wo, bsdfSample.wi, mode);
+            bsdfSample.f = eval(rec, wo, bsdfSample.wi, lambda, mode);
 
             if (bsdfSample.pdf <= 1e-6 || math::hasNonFinite(bsdfSample.f)) return std::nullopt;
 

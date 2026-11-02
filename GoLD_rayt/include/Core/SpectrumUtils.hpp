@@ -13,6 +13,9 @@
 #include <cmath>
 #include <glm/glm.hpp>
 
+// RGB-mode helpers. In spectral mode the same functions are defined in Core/Spectrum.hpp.
+#if !defined(RAYT_SPECTRAL_MODE)
+
 namespace rayt {
 
     /**
@@ -22,7 +25,7 @@ namespace rayt {
      */
     inline bool isBlack(const Spectrum& s) {
         // Simple threshold check; could be extended with an epsilon if needed for noise floor.
-        return s.x <= 0.0 && s.y <= 0.0 && s.z <= 0.0;
+        return s[0] <= 0.0 && s[1] <= 0.0 && s[2] <= 0.0;
     }
 
     /**
@@ -31,7 +34,7 @@ namespace rayt {
      */
     inline bool HasInvalidValues(const Spectrum& s) {
         // std::isfinite returns false for NaN, Inf, and -Inf.
-        return !std::isfinite(s.x) || !std::isfinite(s.y) || !std::isfinite(s.z);
+        return !std::isfinite(s[0]) || !std::isfinite(s[1]) || !std::isfinite(s[2]);
     }
 
     /**
@@ -53,3 +56,5 @@ namespace rayt {
     }
 
 } // namespace rayt
+
+#endif // !RAYT_SPECTRAL_MODE

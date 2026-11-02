@@ -49,13 +49,13 @@ namespace rayt {
          * @param y        Pixel y-coordinate.
          * @param radiance The physical intensity (radiance) to store.
          */
-        void setPixel(int x, int y, const Spectrum& radiance);
+        void setPixel(int x, int y, const Vector3& radiance);
 
         /// Adds radiance to the accumulation buffer at (x,y) (progressive rendering).
-        void addPixel(int x, int y, const Spectrum& radiance);
+        void addPixel(int x, int y, const Vector3& radiance);
 
-        /// Returns pointer to the accumulation (sum) buffer (linear HDR).
-        const Spectrum* getData() const { return m_pixels.data(); }
+        /// Returns pointer to the accumulation (sum) buffer (linear sRGB, HDR).
+        const Vector3* getData() const { return m_pixels.data(); }
 
         // clear buffer
         void clear();
@@ -92,11 +92,11 @@ namespace rayt {
         int m_height;
 
         /**
-         * @brief Internal buffer for raw pixel data.
-         * * Using 'Spectrum' ensures that no physical light information is lost
-         * during the rendering process, allowing for flexible post-processing.
+         * @brief Internal buffer for raw pixel data (linear sRGB, floating point HDR).
+         * * In spectral mode the integrator converts each path's sampled spectrum to RGB
+         * (SpectrumToRGB) before it reaches the film, so the film is always RGB.
          */
-        std::vector<Spectrum> m_pixels;
+        std::vector<Vector3> m_pixels;
     };
 
 } // namespace rayt

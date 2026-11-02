@@ -38,6 +38,7 @@ namespace rayt {
         // ---------------------------------------------------------------------
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             // Delta lobes: eval() returns 0 (Dirac delta)
@@ -55,9 +56,14 @@ namespace rayt {
                 if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0)
                     return Spectrum(0.0);
             }
+            else {
+                if (glm::dot(rec.gn, wo) * glm::dot(rec.gn, wi) > 0) {
+                    return Spectrum(0.0);
+                }
+            }
 
             // PBRT logic for eta/etap
-            bool entering = cosThetaO > 0;
+            bool entering = rec.frontFace;
             Real eta = entering ? (1.0 / ior) : ior;          // etaI / etaT  (for refractOutward)
             Real etap = entering ? ior : (1.0 / ior);          // etaT / etaI  (for half-vector reconstruction)
 
@@ -83,7 +89,9 @@ namespace rayt {
             GGXDistribution dist(alpha_x, alpha_y);
             Real D = dist.D(wh_local);
             Real G = dist.G(wo_local, wi_local);
-            Real F = rayt::fresnel::fresnelDielectric(std::abs(glm::dot(wo, wh)), 1.0, ior);
+            Real F = entering
+                ? rayt::fresnel::fresnelDielectric(std::abs(glm::dot(wo, wh)), 1.0, ior)
+                : rayt::fresnel::fresnelDielectric(std::abs(glm::dot(wo, wh)), ior, 1.0);
 
             if (isReflection) {
                 Real denom = std::abs(4.0 * cosThetaI * cosThetaO);
@@ -100,11 +108,12 @@ namespace rayt {
 
                 if (std::abs(denom) < 1e-8) return Spectrum(0.0);
 
+                // NOTE: `denom` already carries an implicit etap^2 factor because
+                // wh is reconstructed as (wo + wi * etap) instead of PBRT's
+                // (wo / etap + wi). An extra `/ etap^2` here would double-apply
+                // the radiance non-symmetry correction, so none is needed.
                 Real val = D * G * (1.0 - F) *
                     std::abs(dot_wi_wh * dot_wo_wh / denom);
-
-                if (mode == TransportMode::Radiance)
-                    val /= rayt::math::sqr(etap);
 
                 return Spectrum(val);
             }
@@ -116,12 +125,13 @@ namespace rayt {
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
+            const SampledWavelengths& lambda,
             TransportMode mode) const override {
 
             BSDFSample bsdfSample;
 
             Real cosThetaO = glm::dot(rec.n, wo);
-            bool entering = cosThetaO > 0;
+            bool entering = rec.frontFace;
 
             Real eta = entering ? (1.0 / ior) : ior;          // for refractOutward
             Real etap = entering ? ior : (1.0 / ior);          // for scaling in BTDF
@@ -129,7 +139,9 @@ namespace rayt {
 
             // --- Case A: Smooth (delta) ---
             if (isSmooth()) {
-                Real F = rayt::fresnel::fresnelDielectric(std::abs(cosThetaO), 1.0, ior);
+                Real F = entering
+                    ? rayt::fresnel::fresnelDielectric(std::abs(cosThetaO), 1.0, ior)
+                    : rayt::fresnel::fresnelDielectric(std::abs(cosThetaO), ior, 1.0);
 
                 if (u.x < F) {
                     // Specular reflection
@@ -173,13 +185,18 @@ namespace rayt {
             // 1) sample wh (uses u)
             Vector3 wh_local = dist.sample_wh(wo_sampling, u);
             Vector3 wh = frame.localToWorld(wh_local);
-            if (glm::dot(wh, wo) < 0) wh = -wh;
+            if (glm::dot(wh, wo) < 0) {
+                wh = -wh;
+                wh_local = -wh_local;
+            }
 
             // 2) Fresnel
             Real dot_wo_wh = glm::dot(wo, wh);
             if (dot_wo_wh == 0) return std::nullopt;
 
-            Real F = rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), 1.0, ior);
+            Real F = entering
+                ? rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), 1.0, ior)
+                : rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), ior, 1.0);
 
             // IMPORTANT:
             // Don't reuse u.x (already used in VNDF sampling) for lobe selection.
@@ -198,7 +215,7 @@ namespace rayt {
                 bsdfSample.flags = BxDFFlags::Glossy | BxDFFlags::Reflection;
 
                 // f via eval() to keep eval/pdf/sample consistent
-                bsdfSample.f = eval(rec, wo, bsdfSample.wi, mode);
+                bsdfSample.f = eval(rec, wo, bsdfSample.wi, lambda, mode);
 
                 // PDF
                 Real pdf_wh = dist.pdf(wo_sampling, wh_local);
@@ -217,7 +234,7 @@ namespace rayt {
                 bsdfSample.flags = BxDFFlags::Glossy | BxDFFlags::Transmission;
 
                 // f via eval() to keep consistent
-                bsdfSample.f = eval(rec, wo, wi, mode);
+                bsdfSample.f = eval(rec, wo, wi, lambda, mode);
 
                 // PDF (PBRT v4 Jacobian)
                 Real dot_wi_wh = glm::dot(wi, wh);
@@ -248,7 +265,7 @@ namespace rayt {
 
             bool isReflection = cosThetaO * cosThetaI > 0;
 
-            bool entering = cosThetaO > 0;
+            bool entering = rec.frontFace;
             Real etap = entering ? ior : (1.0 / ior);
 
             // Reconstruct wh correctly depending on reflection/transmission
@@ -266,7 +283,9 @@ namespace rayt {
             Real dot_wo_wh = glm::dot(wo, wh);
             if (dot_wo_wh == 0) return 0.0;
 
-            Real F = rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), 1.0, ior);
+            Real F = entering
+                ? rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), 1.0, ior)
+                : rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), ior, 1.0);
 
             rayt::frame::Frame frame(rec.n);
             GGXDistribution dist(alpha_x, alpha_y);
