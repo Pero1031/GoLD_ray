@@ -8,6 +8,8 @@
  *     reflectance(lambda) : for albedo-like quantities, white (1,1,1) -> flat 1
  *     illuminant(lambda)  : for light-like quantities, white (1,1,1) -> D65 power distribution
  *
+ * Light source spectra (blackbody, measured SPD) live in Color/EmissionSpectrum.hpp.
+ *
  * Film side (spectrum -> RGB):
  * - SpectrumToRGB(): Monte Carlo estimate of  Integral( L(l) * sensor_rgb(l) dl )  from the
  *   sampled wavelengths and their pdfs. Convention: a radiance of D65 * 1 maps to RGB (1,1,1).
@@ -192,6 +194,18 @@ namespace rayt::color {
     } // namespace detail
 
     /**
+     * @brief Camera white balance: the film divides the sensor RGB by this color (default (1,1,1)).
+     *
+     * A light that is not D65 (tungsten, candle, ...) renders with its true color cast. Setting
+     * this to the RGB of the light that should look white removes the cast (diagonal von Kries in
+     * linear sRGB). Set it before rendering starts; see setWhiteBalance() in Color/EmissionSpectrum.hpp.
+     */
+    inline Vector3& whiteBalanceRgb() {
+        static Vector3 wb(1.0);
+        return wb;
+    }
+
+    /**
      * @brief Per-channel sensor weights at a wavelength: s_c(l) = (M * cmf(l))_c / W_c.
      *
      * Integral( D65(l) * s_c(l) dl ) == 1 for every channel, so a D65-colored light of
@@ -299,10 +313,10 @@ namespace rayt {
             if (pdf <= Real(0)) continue;
             rgb += color::rgbSensorWeights(lambda[i]) * (L[i] / pdf);
         }
-        return rgb / Real(kSpectralSamples);
+        return rgb / (Real(kSpectralSamples) * color::whiteBalanceRgb());
 #else
         (void)lambda;
-        return L;
+        return L / color::whiteBalanceRgb();
 #endif
     }
 

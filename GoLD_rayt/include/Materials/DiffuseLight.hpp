@@ -6,13 +6,14 @@
 
 #include "Materials/Material.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Color/EmissionSpectrum.hpp"
 
 namespace rayt {
 
     class DiffuseLight : public Material {
     public:
         // color: 光の色と強さ (例: (10, 10, 10) なら非常に明るい白)
-        DiffuseLight(const RgbColor& color, Real intensity = Real(1), bool twoSided = false)
+        DiffuseLight(const EmissionSpectrum& color, Real intensity = Real(1), bool twoSided = false)
             : m_emit(color)
             , m_intensity(intensity)
             , m_twoSided(twoSided) {}
@@ -55,13 +56,13 @@ namespace rayt {
             const SampledWavelengths& lambda) const override {
             // 法線と同じ側から見ている場合のみ発光する（裏面は光らない）
             if (m_twoSided || rec.frontFace) {
-                return m_emit.illuminant(lambda) * m_intensity;
+                return m_emit(lambda) * m_intensity;
             }
             return Spectrum(0.0);
         }
 
     private:
-        RgbColor m_emit;
+        EmissionSpectrum m_emit;
         Real m_intensity = Real(1);
         bool m_twoSided = false;
     };
