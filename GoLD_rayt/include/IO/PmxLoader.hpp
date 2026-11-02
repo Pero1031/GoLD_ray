@@ -21,8 +21,11 @@
  *               edge color + size, texture index, sphere-map texture index + mode, toon (shared 0..9
  *               or own texture), memo, and the number of indices (faces x 3) the material covers,
  *               consecutively in the face list.
- *   then bones, morphs, display frames, rigid bodies, joints (and soft bodies in 2.1): needed for
- *   posing / animation / physics, NOT for a static render, so this loader stops after the materials.
+ *   bones      int32 count; each: names, rest position, parent, deform level, flags (rotatable, translatable,
+ *               IK, rotation/translation grant, fixed axis, local axis ...), tail, grant parent + weight, IK data.
+ *               Vertices are skinned to these bones (indices + weights, stored in PmxVertex).
+ *   then morphs, display frames, rigid bodies, joints (and soft bodies in 2.1): expressions / physics, not
+ *   needed for a pose, so this loader stops after the bones.
  *
  * Coordinates are left-handed (DirectX style), +Y up; 1 unit is about 8 cm. Front faces wind
  * clockwise. Converting to the renderer's right-handed system is done by the caller.
@@ -51,6 +54,40 @@ namespace rayt::io {
         Point2 uv = Point2(0.0);
         int weightType = 0;        ///< 0 BDEF1, 1 BDEF2, 2 BDEF4, 3 SDEF, 4 QDEF
         Real edgeScale = 1;
+        int bones[4] = { -1, -1, -1, -1 };        ///< skinning bones (-1 = unused)
+        Real weights[4] = { 0, 0, 0, 0 };         ///< their weights (sum to 1). SDEF is treated as BDEF2, QDEF as BDEF4.
+    };
+
+    /// One link of an IK chain.
+    struct PmxIkLink {
+        int bone = -1;
+        bool hasLimit = false;
+        Vector3 lower = Vector3(0.0), upper = Vector3(0.0);   ///< angle limits (radians), only if hasLimit
+    };
+
+    struct PmxBone {
+        std::string name, nameEn;
+        Point3 position = Point3(0.0);          ///< rest position (model space)
+        int parent = -1;
+        int layer = 0;                          ///< deform order level
+        unsigned flags = 0;
+        int tailBone = -1;                      ///< connected bone (flag 0x1) or -1
+        Vector3 tailOffset = Vector3(0.0);
+        int grantParent = -1;                   ///< bone whose rotation / translation is inherited (flags 0x100 / 0x200)
+        Real grantWeight = 0;
+        Vector3 fixedAxis = Vector3(0.0);       ///< flag 0x400
+        Vector3 localAxisX = Vector3(1, 0, 0), localAxisZ = Vector3(0, 0, 1);   ///< flag 0x800
+        int ikTarget = -1;                      ///< IK bones (flag 0x20)
+        int ikLoops = 0;
+        Real ikLimit = 0;
+        std::vector<PmxIkLink> ikLinks;
+
+        bool rotatable() const { return (flags & 0x2u) != 0; }
+        bool translatable() const { return (flags & 0x4u) != 0; }
+        bool isIk() const { return (flags & 0x20u) != 0; }
+        bool inheritsRotation() const { return (flags & 0x100u) != 0; }
+        bool inheritsTranslation() const { return (flags & 0x200u) != 0; }
+        bool afterPhysics() const { return (flags & 0x1000u) != 0; }
     };
 
     struct PmxMaterial {
@@ -83,6 +120,7 @@ namespace rayt::io {
         std::vector<int> indices;               ///< 3 per triangle, in file order (clockwise from the front)
         std::vector<std::string> textures;      ///< UTF-8 relative paths as stored in the file
         std::vector<PmxMaterial> materials;
+        std::vector<PmxBone> bones;
         int additionalUv = 0;
     };
 
@@ -212,16 +250,24 @@ namespace rayt::io {
             for (int i = 0; i < out.additionalUv; ++i) r.vec4();
             v.weightType = r.read<uint8_t>();
             switch (v.weightType) {
-            case 0: r.index(boneIndexSize); break;                                              // BDEF1
-            case 1: r.index(boneIndexSize); r.index(boneIndexSize); r.read<float>(); break;     // BDEF2
-            case 2: case 4:                                                                      // BDEF4 / QDEF
-                for (int i = 0; i < 4; ++i) r.index(boneIndexSize);
-                r.skip(4 * sizeof(float));
+            case 0: v.bones[0] = r.index(boneIndexSize); v.weights[0] = 1; break;                // BDEF1
+            case 1: {                                                                            // BDEF2
+                v.bones[0] = r.index(boneIndexSize); v.bones[1] = r.index(boneIndexSize);
+                const Real w = r.read<float>();
+                v.weights[0] = w; v.weights[1] = Real(1) - w;
                 break;
-            case 3:                                                                              // SDEF
-                r.index(boneIndexSize); r.index(boneIndexSize); r.read<float>();
+            }
+            case 2: case 4:                                                                      // BDEF4 / QDEF
+                for (int i = 0; i < 4; ++i) v.bones[i] = r.index(boneIndexSize);
+                for (int i = 0; i < 4; ++i) v.weights[i] = r.read<float>();
+                break;
+            case 3: {                                                                            // SDEF (treated as BDEF2)
+                v.bones[0] = r.index(boneIndexSize); v.bones[1] = r.index(boneIndexSize);
+                const Real w = r.read<float>();
+                v.weights[0] = w; v.weights[1] = Real(1) - w;
                 r.skip(9 * sizeof(float));                                                       // C, R0, R1
                 break;
+            }
             default: return fail("unknown skinning type " + std::to_string(v.weightType));
             }
             v.edgeScale = r.read<float>();
@@ -272,6 +318,44 @@ namespace rayt::io {
             out.materials.push_back(std::move(m));
         }
         if (offset != indexCount) return fail("the materials do not cover exactly the face list (" + std::to_string(offset) + " vs " + std::to_string(indexCount) + " indices)");
+
+        // ---- bones (the skeleton the vertices are skinned to) ----
+        const int32_t boneCount = r.read<int32_t>();
+        if (!r.ok() || boneCount < 0 || boneCount > 100000) return fail("implausible bone count");
+        for (int i = 0; i < boneCount; ++i) {
+            PmxBone b;
+            b.name = r.text(encoding);
+            b.nameEn = r.text(encoding);
+            b.position = Point3(r.vec3());
+            b.parent = r.index(boneIndexSize);
+            b.layer = r.read<int32_t>();
+            b.flags = r.read<uint16_t>();
+            if (b.flags & 0x1u) b.tailBone = r.index(boneIndexSize); else b.tailOffset = r.vec3();
+            if (b.flags & 0x300u) { b.grantParent = r.index(boneIndexSize); b.grantWeight = r.read<float>(); }
+            if (b.flags & 0x400u) b.fixedAxis = r.vec3();
+            if (b.flags & 0x800u) { b.localAxisX = r.vec3(); b.localAxisZ = r.vec3(); }
+            if (b.flags & 0x2000u) r.read<int32_t>();   // external parent key
+            if (b.flags & 0x20u) {
+                b.ikTarget = r.index(boneIndexSize);
+                b.ikLoops = r.read<int32_t>();
+                b.ikLimit = r.read<float>();
+                const int32_t links = r.read<int32_t>();
+                if (links < 0 || links > 1000) return fail("implausible IK link count");
+                for (int k = 0; k < links; ++k) {
+                    PmxIkLink l;
+                    l.bone = r.index(boneIndexSize);
+                    l.hasLimit = r.read<uint8_t>() != 0;
+                    if (l.hasLimit) { l.lower = r.vec3(); l.upper = r.vec3(); }
+                    b.ikLinks.push_back(l);
+                }
+            }
+            if (!r.ok()) return fail("file ended inside the bone list");
+            out.bones.push_back(std::move(b));
+        }
+        for (const PmxVertex& v : out.vertices)
+            for (int k = 0; k < 4; ++k)
+                if (v.bones[k] >= boneCount) return fail("a vertex is skinned to a bone that does not exist");
+        // morphs, display frames, rigid bodies and joints follow; not needed for a pose.
         return true;
     }
 
