@@ -38,6 +38,7 @@
 #include "Geometry/TriangleMesh.hpp"
 #include "Accelerators/EmbreeMesh.hpp"
 #include "IO/ObjLoader.hpp"
+#include "IO/PmxLoader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include "Geometry/Frame.hpp"
 #include "Scene/Primitive.hpp"
@@ -118,6 +119,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
 //             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
 //             No environment light (black background). Spectral mode shows metamerism best.
+//   pmx     : an MMD model from MMD_model/ (--pmx-list, --pmx-index N, --pmx-info, --pmx-yaw deg). Geometry and
+//             materials only (per-material diffuse color, no textures yet), HDR environment lighting.
 //   goldrough: gold spheres of roughness 0.4 / 0.7 / 1.0 under the HDR environment; --no-ms = without the
 //             multiple-scattering compensation (to compare).
 //   studio  : gold / dispersive glass / red diffuse sphere lit by a tungsten rectangular softbox
@@ -143,6 +146,10 @@ struct CliOptions {
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    int pmxIndex = -1;                     // --pmx-index N (see --pmx-list); -1 = the largest .pmx
+    bool pmxList = false;                  // --pmx-list : print the .pmx files found in MMD_model/ and exit
+    bool pmxInfoOnly = false;              // --pmx-info : load, print the model summary, exit (no render)
+    Real pmxYaw = 0;                       // --pmx-yaw deg : turn the model about +Y
     bool noMs = false;                     // --no-ms : single-scattering GGX only (goldrough scene)
     std::string accel = "own";             // own | embree (triangle mesh intersection)
     std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
@@ -170,6 +177,10 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
+            else if (a == "--pmx-index") o.pmxIndex = std::stoi(value("--pmx-index"));
+            else if (a == "--pmx-list") o.pmxList = true;
+            else if (a == "--pmx-info") o.pmxInfoOnly = true;
+            else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
             else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
@@ -180,8 +191,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh, bench or goldrough");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh, bench, goldrough or pmx");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
@@ -193,7 +204,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-yaw deg] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -956,6 +967,93 @@ static int RunMetalTests(const CliOptions& opt) {
 // -----------------------------------------------------------------------------
 // Triangle mesh checks (run at the start of --scene mesh)
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// MMD (PMX) models  (--scene pmx)
+// -----------------------------------------------------------------------------
+// The files live in MMD_model/ (git-ignored, third-party assets). Names are CJK, which a Windows
+// command line cannot carry reliably, so a model is chosen by its index in --pmx-list.
+
+static std::string PathToUtf8(const std::filesystem::path& p) {
+    const std::u8string s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
+
+static std::filesystem::path PathFromUtf8(const std::string& s) {
+    return std::filesystem::path(std::u8string(s.begin(), s.end()));
+}
+
+static std::vector<std::filesystem::path> FindPmxFiles() {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> found;
+    for (const char* dir : { "../MMD_model", "MMD_model" }) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec)) continue;
+        for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
+            if (e.is_regular_file() && e.path().extension() == ".pmx") found.push_back(e.path());
+        }
+        if (!found.empty()) break;
+    }
+    std::sort(found.begin(), found.end());
+    return found;
+}
+
+static Real SrgbToLinear(Real c) { return std::pow(std::clamp(c, Real(0), Real(1)), Real(2.2)); }
+
+static void PrintPmxInfo(const io::PmxModel& m, const std::filesystem::path& file) {
+    namespace fs = std::filesystem;
+    std::cout << "[PMX] " << PathToUtf8(file.filename()) << "   model name: " << m.name << "  (PMX " << m.version
+        << ", " << m.vertices.size() << " vertices, " << m.indices.size() / 3 << " triangles, " << m.textures.size()
+        << " textures, " << m.materials.size() << " materials, " << m.additionalUv << " extra UV sets)\n";
+
+    int skin[5] = {};
+    for (const auto& v : m.vertices) ++skin[std::clamp(v.weightType, 0, 4)];
+    std::cout << "[PMX]   skinning: BDEF1 " << skin[0] << ", BDEF2 " << skin[1] << ", BDEF4 " << skin[2] << ", SDEF " << skin[3] << ", QDEF " << skin[4]
+        << "   (bones/morphs are in the file but not read: this is a static render)\n";
+
+    int existing = 0;
+    for (const auto& t : m.textures) {
+        std::string rel = t;
+        std::replace(rel.begin(), rel.end(), '\\', '/');
+        std::error_code ec;
+        if (fs::exists(file.parent_path() / PathFromUtf8(rel), ec)) ++existing;
+    }
+    std::cout << "[PMX]   texture files found next to the model: " << existing << " of " << m.textures.size() << "\n";
+
+    for (size_t i = 0; i < m.materials.size(); ++i) {
+        const auto& mat = m.materials[i];
+        std::cout << "[PMX]   material " << i << ": " << mat.name << "  tris " << mat.triangleCount()
+            << "  diffuse (" << mat.diffuse.x << ", " << mat.diffuse.y << ", " << mat.diffuse.z << ") alpha " << mat.diffuse.w
+            << (mat.doubleSided() ? "  double-sided" : "")
+            << (mat.texture >= 0 ? "  tex " + m.textures[static_cast<size_t>(mat.texture)] : std::string("  no texture"))
+            << (mat.sphereTexture >= 0 ? "  sphere" + std::to_string(mat.sphereMode) : std::string())
+            << "\n";
+    }
+}
+
+/// PMX -> TriangleMesh in the renderer's convention (right-handed, +Y up, metres, feet on y = 0, x/z centered).
+/// MMD is left-handed with 1 unit ~ 8 cm; mirroring z fixes the handedness, yaw (degrees) turns the model about +Y.
+static std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight) {
+    constexpr Real kScale = 0.08;
+    auto mesh = std::make_shared<TriangleMesh>();
+    const Real yaw = glm::radians(yawDegrees), cy = std::cos(yaw), sy = std::sin(yaw);
+    auto rotate = [&](const Vector3& v) { return Vector3(cy * v.x + sy * v.z, v.y, -sy * v.x + cy * v.z); };
+
+    Vector3 lo(1e30), hi(-1e30);
+    for (const auto& v : m.vertices) {
+        const Vector3 p = rotate(Vector3(v.position.x, v.position.y, -v.position.z) * kScale);
+        mesh->p.push_back(Point3(p));
+        mesh->n.push_back(glm::normalize(rotate(Vector3(v.normal.x, v.normal.y, -v.normal.z))));
+        mesh->uv.push_back(v.uv);
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
+    }
+    const Vector3 shift(-(lo.x + hi.x) / 2, -lo.y, -(lo.z + hi.z) / 2);
+    for (auto& p : mesh->p) p += shift;
+    mesh->indices = m.indices;
+    if (outHeight) *outHeight = hi.y - lo.y;
+    return mesh;
+}
+
 // Triangle mesh -> Hittable with the chosen intersection backend (own SAH BVH or Embree).
 static std::shared_ptr<Hittable> MakeMeshHittable(const std::shared_ptr<const TriangleMesh>& mesh,
     const std::shared_ptr<Material>& material, const std::string& accel)
@@ -1245,7 +1343,9 @@ int main(int argc, char** argv) {
     CliOptions opt;
     if (!ParseArgs(argc, argv, opt)) return 1;
     const int imageWidth = opt.width;
-    const int imageHeight = std::max(1, static_cast<int>(std::lround(double(opt.width) * IMAGE_HEIGHT / IMAGE_WIDTH)));
+    // The pmx scene is a standing figure: 3:4 portrait instead of 16:9.
+    const double heightPerWidth = (opt.scene == "pmx") ? 4.0 / 3.0 : double(IMAGE_HEIGHT) / IMAGE_WIDTH;
+    const int imageHeight = std::max(1, static_cast<int>(std::lround(double(opt.width) * heightPerWidth)));
     std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
         << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
@@ -1253,6 +1353,13 @@ int main(int argc, char** argv) {
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
+    if (opt.scene == "pmx" && opt.pmxList) {
+        const auto files = FindPmxFiles();
+        for (size_t i = 0; i < files.size(); ++i)
+            std::cout << "[PMX] " << i << ": " << PathToUtf8(files[i].filename()) << "  (" << std::filesystem::file_size(files[i]) / 1024 << " KB)\n";
+        if (files.empty()) std::cout << "[PMX] no .pmx files found in MMD_model/\n";
+        return 0;
+    }
     bool meshChecksPassed = true;
     if (opt.scene == "mesh") meshChecksPassed = RunMeshChecks(opt);
 
@@ -1355,6 +1462,8 @@ int main(int argc, char** argv) {
     auto worldList = std::make_shared<Aggregate>();
 
     EmissionSpectrum spdEmission;                                 // spd scene: spectrum of its sphere light
+    Point3 pmxCamFrom(0.0), pmxCamTarget(0.0);                    // pmx scene: camera framing the model
+    bool pmxCamera = false;
     std::vector<std::shared_ptr<Light>> studioLights;             // studio scene lights, registered below
     std::shared_ptr<Light> spdLight;                              // spd scene: registered for NEE below
     std::vector<FurnaceObject> furnaceObjects;                    // what the furnace test checks
@@ -1368,6 +1477,39 @@ int main(int argc, char** argv) {
 
         // 大きな球で床を作製
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
+    else if (opt.scene == "pmx") {
+        const auto files = FindPmxFiles();
+        if (files.empty()) { std::cerr << "[PMX] no .pmx files found in MMD_model/\n"; return 1; }
+        size_t pick = 0;
+        if (opt.pmxIndex >= 0) pick = std::min(static_cast<size_t>(opt.pmxIndex), files.size() - 1);
+        else for (size_t i = 1; i < files.size(); ++i) if (std::filesystem::file_size(files[i]) > std::filesystem::file_size(files[pick])) pick = i;
+
+        io::PmxModel model;
+        std::string pmxErr;
+        if (!io::loadPmx(files[pick], model, &pmxErr)) { std::cerr << "[PMX] load failed: " << pmxErr << "\n"; return 1; }
+        PrintPmxInfo(model, files[pick]);
+        if (opt.pmxInfoOnly) return 0;
+
+        Real height = 1;
+        const std::shared_ptr<const TriangleMesh> mesh = PmxToMesh(model, opt.pmxYaw, &height);
+        std::vector<std::shared_ptr<Hittable>> prims;
+        for (const auto& pm : model.materials) {
+            if (pm.diffuse.w <= Real(0.001)) continue;   // fully transparent material
+            auto mat = std::make_shared<Lambertian>(RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)));
+            for (int t = pm.firstIndex / 3; t < (pm.firstIndex + pm.indexCount) / 3; ++t) {
+                const Vector3 e1 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 1])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
+                const Vector3 e2 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 2])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
+                if (glm::length(glm::cross(e1, e2)) < 1e-12) continue;   // degenerate triangle
+                prims.push_back(std::make_shared<Triangle>(mesh, static_cast<size_t>(t), mat));
+            }
+        }
+        std::cout << "[PMX] " << prims.size() << " triangles in the scene, height " << height << " m\n";
+        worldList->add(std::make_shared<BVH>(std::move(prims)));
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100, 0), 100.0, matFloor));
+        pmxCamTarget = Point3(0, height * 0.5, 0);
+        pmxCamFrom = Point3(0, height * 0.55, height * 1.15 / (2 * std::tan(glm::radians(17.5))) );
+        pmxCamera = true;
     }
     else if (opt.scene == "goldrough") {
         // Rough gold spheres (roughness 0.4 / 0.7 / 1.0): multiple scattering matters here (--no-ms turns it off).
@@ -1555,6 +1697,7 @@ int main(int argc, char** argv) {
     Point3 lookFrom(0, 0.5, 2.5); // 少し高い位置から見下ろす
     Point3 lookAt(0, 0, -1);
     Vector3 vUp(0, 1, 0);
+    if (pmxCamera) { lookFrom = pmxCamFrom; lookAt = pmxCamTarget; }
 
     Real distToFocus = glm::length(lookFrom - lookAt);
     Real aperture = 0.0; // ピンホールカメラ（ボケなし）でテスト
