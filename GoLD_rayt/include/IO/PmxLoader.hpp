@@ -90,6 +90,35 @@ namespace rayt::io {
         bool afterPhysics() const { return (flags & 0x1000u) != 0; }
     };
 
+    // ---- morphs (facial expressions, material switches, ...) ----
+    struct PmxVertexOffset { int vertex = 0; Vector3 offset = Vector3(0.0); };
+    struct PmxUvOffset { int vertex = 0; Vec4 offset = Vec4(0.0); };
+    struct PmxBoneOffset { int bone = -1; Vector3 translation = Vector3(0.0); Vec4 rotation = Vec4(0, 0, 0, 1); };   ///< rotation = quaternion x, y, z, w
+    struct PmxGroupOffset { int morph = -1; Real rate = 0; };
+    struct PmxMaterialOffset {
+        int material = -1;                      ///< -1 = every material
+        int op = 0;                             ///< 0 multiply, 1 add
+        Vec4 diffuse = Vec4(0.0);
+        Vector3 specular = Vector3(0.0);
+        Real shininess = 0;
+        Vector3 ambient = Vector3(0.0);
+        Vec4 edgeColor = Vec4(0.0);
+        Real edgeSize = 0;
+        Vec4 textureTint = Vec4(0.0), sphereTint = Vec4(0.0), toonTint = Vec4(0.0);
+    };
+
+    struct PmxMorph {
+        std::string name, nameEn;
+        int panel = 0;                          ///< 1 eyebrows, 2 eyes, 3 mouth, 4 other
+        int type = 0;                           ///< 0 group, 1 vertex, 2 bone, 3-7 UV, 8 material, 9 flip, 10 impulse
+        std::vector<PmxVertexOffset> vertexOffsets;
+        std::vector<PmxUvOffset> uvOffsets;
+        std::vector<PmxBoneOffset> boneOffsets;
+        std::vector<PmxGroupOffset> groupOffsets;   ///< group (type 0) and flip (type 9)
+        std::vector<PmxMaterialOffset> materialOffsets;
+        size_t offsetCount() const { return vertexOffsets.size() + uvOffsets.size() + boneOffsets.size() + groupOffsets.size() + materialOffsets.size(); }
+    };
+
     struct PmxMaterial {
         std::string name;                       ///< UTF-8
         std::string nameEn;
@@ -106,6 +135,7 @@ namespace rayt::io {
         bool sharedToon = true;
         int toon = -1;                          ///< shared toon number 0..9, or texture index
         std::string memo;
+        bool alphaFromMorph = false;            ///< set when a morph changed the diffuse alpha (see applyMorphs)
         int indexCount = 0;                     ///< number of face indices of this material
         int firstIndex = 0;                     ///< offset into PmxModel::indices
 
@@ -121,6 +151,7 @@ namespace rayt::io {
         std::vector<std::string> textures;      ///< UTF-8 relative paths as stored in the file
         std::vector<PmxMaterial> materials;
         std::vector<PmxBone> bones;
+        std::vector<PmxMorph> morphs;
         int additionalUv = 0;
     };
 
@@ -355,7 +386,49 @@ namespace rayt::io {
         for (const PmxVertex& v : out.vertices)
             for (int k = 0; k < 4; ++k)
                 if (v.bones[k] >= boneCount) return fail("a vertex is skinned to a bone that does not exist");
-        // morphs, display frames, rigid bodies and joints follow; not needed for a pose.
+
+        // ---- morphs ----
+        const int materialIndexSize = g[4], morphIndexSize = g[6], rigidIndexSize = g[7];
+        const int32_t morphCount = r.read<int32_t>();
+        if (!r.ok() || morphCount < 0 || morphCount > 100000) return fail("implausible morph count");
+        for (int i = 0; i < morphCount; ++i) {
+            PmxMorph m;
+            m.name = r.text(encoding);
+            m.nameEn = r.text(encoding);
+            m.panel = r.read<uint8_t>();
+            m.type = r.read<uint8_t>();
+            const int32_t n = r.read<int32_t>();
+            if (!r.ok() || n < 0 || n > 20000000) return fail("implausible morph offset count");
+            for (int k = 0; k < n; ++k) {
+                switch (m.type) {
+                case 0: case 9: {   // group / flip
+                    PmxGroupOffset o; o.morph = r.index(morphIndexSize); o.rate = r.read<float>(); m.groupOffsets.push_back(o); break;
+                }
+                case 1: { PmxVertexOffset o; o.vertex = r.vertexIndex(vertexIndexSize); o.offset = r.vec3(); m.vertexOffsets.push_back(o); break; }
+                case 2: { PmxBoneOffset o; o.bone = r.index(boneIndexSize); o.translation = r.vec3(); o.rotation = r.vec4(); m.boneOffsets.push_back(o); break; }
+                case 3: case 4: case 5: case 6: case 7: {
+                    PmxUvOffset o; o.vertex = r.vertexIndex(vertexIndexSize); o.offset = r.vec4(); m.uvOffsets.push_back(o); break;
+                }
+                case 8: {
+                    PmxMaterialOffset o;
+                    o.material = r.index(materialIndexSize);
+                    o.op = r.read<uint8_t>();
+                    o.diffuse = r.vec4(); o.specular = r.vec3(); o.shininess = r.read<float>(); o.ambient = r.vec3();
+                    o.edgeColor = r.vec4(); o.edgeSize = r.read<float>();
+                    o.textureTint = r.vec4(); o.sphereTint = r.vec4(); o.toonTint = r.vec4();
+                    m.materialOffsets.push_back(o);
+                    break;
+                }
+                case 10:            // impulse (rigid body, PMX 2.1): index, flag, velocity, torque
+                    r.index(rigidIndexSize); r.read<uint8_t>(); r.skip(6 * sizeof(float));
+                    break;
+                default: return fail("unknown morph type " + std::to_string(m.type));
+                }
+                if (!r.ok()) return fail("file ended inside a morph");
+            }
+            out.morphs.push_back(std::move(m));
+        }
+        // display frames, rigid bodies and joints follow; not needed for a pose / expression.
         return true;
     }
 

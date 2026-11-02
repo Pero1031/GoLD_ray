@@ -221,6 +221,13 @@ namespace rayt {
          */
         virtual bool isSpecular() const { return false; }
 
+        /**
+         * @brief Probability that a ray is stopped by the surface at this hit (1 = opaque).
+         * Below 1 the integrator lets the ray pass through with probability 1 - opacity, which is
+         * stochastic transparency (a blush layer, a thin veil): unbiased, no blending needed.
+         */
+        virtual Real opacity(const SurfaceInteraction& /*rec*/) const { return Real(1); }
+
         /// Luminance (Y) of the emitted radiance, 0 for non-emitters. Used for light power estimates.
         virtual Real emittedLuminance() const { return Real(0); }
 

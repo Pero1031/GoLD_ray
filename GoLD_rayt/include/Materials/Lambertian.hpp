@@ -26,6 +26,8 @@ namespace rayt {
     class Lambertian : public Material {
         RgbColor albedo;
         std::shared_ptr<const Texture2D> m_tex;   // optional: albedo is multiplied by the texture color at rec.uv
+        Real m_opacity = Real(1);                 // < 1: translucent layer (see Material::opacity)
+        bool m_translucent = false;
 
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
             if (!m_tex) return albedo;
@@ -46,6 +48,14 @@ namespace rayt {
          * @param a The reflectance (color) of the surface.
          */
         Lambertian(const RgbColor& a) : albedo(a) {}
+
+        /// Makes the surface a translucent layer: stopped with probability opacity x texture alpha.
+        void setTranslucent(Real opacity) { m_translucent = true; m_opacity = opacity; }
+
+        Real opacity(const SurfaceInteraction& rec) const override {
+            if (!m_translucent) return Real(1);
+            return m_opacity * (m_tex ? m_tex->alpha(rec.uv.x, rec.uv.y) : Real(1));
+        }
 
         /// Albedo = constant color x texture (sampled at the hit point's uv).
         Lambertian(const RgbColor& a, std::shared_ptr<const Texture2D> tex) : albedo(a), m_tex(std::move(tex)) {}

@@ -40,6 +40,7 @@
 #include "IO/ObjLoader.hpp"
 #include "IO/PmxLoader.hpp"
 #include "IO/PmxPose.hpp"
+#include "IO/PmxMorph.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include "Geometry/Frame.hpp"
 #include "Scene/Primitive.hpp"
@@ -155,6 +156,9 @@ struct CliOptions {
     Real pmxFocus = 0.5;                   // --pmx-focus f : look at this fraction of the model height (0.9 = face)
     int poseIndex = -1;                    // --pose-index N (see --pose-list): apply a .vpd pose from MMD_model/pose
     bool poseList = false;                 // --pose-list : print the .vpd files found and exit
+    bool morphList = false;                // --morph-list : print the model's morphs and exit
+    std::string morphSpec;                 // --morph "12=1.0,15=0.5" : morph weights by index
+    std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
@@ -197,6 +201,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
+            else if (a == "--morph-list") o.morphList = true;
+            else if (a == "--morph") o.morphSpec = value("--morph");
+            else if (a == "--expr") o.exprFile = value("--expr");
             else if (a == "--pmx-zoom") o.pmxZoom = std::stod(value("--pmx-zoom"));
             else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
@@ -223,7 +230,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1717,18 +1724,76 @@ int main(int argc, char** argv) {
         if (!io::loadPmx(files[pick], model, &pmxErr)) { std::cerr << "[PMX] load failed: " << pmxErr << "\n"; return 1; }
         PrintPmxInfo(model, files[pick]);
         if (opt.pmxCheck) return RunPmxChecks(model) ? 0 : 2;
+        if (opt.morphList) {
+            static const char* kTypes[] = { "group", "vertex", "bone", "uv", "uv1", "uv2", "uv3", "uv4", "material", "flip", "impulse" };
+            static const char* kPanels[] = { "-", "brow", "eye", "mouth", "other" };
+            for (size_t i = 0; i < model.morphs.size(); ++i) {
+                const auto& m = model.morphs[i];
+                std::cout << "[Morph] " << i << ": " << m.name << "  [" << kPanels[std::clamp(m.panel, 0, 4)] << ", " << kTypes[std::clamp(m.type, 0, 10)]
+                    << ", " << m.offsetCount() << " offsets]\n";
+            }
+            return 0;
+        }
 
+        // ---- pose file (bones, and expression entries) ----
+        io::VpdPose vpd;
+        bool havePose = false;
+        std::string poseLabel;
         if (opt.poseIndex >= 0) {
             const auto poses = FindMmdFiles("pose", ".vpd");
             if (poses.empty()) { std::cerr << "[Pose] no .vpd files found in MMD_model/pose\n"; return 1; }
             const auto& poseFile = poses[std::min(static_cast<size_t>(opt.poseIndex), poses.size() - 1)];
-            io::VpdPose vpd;
             std::string poseErr;
             if (!io::loadVpd(poseFile, vpd, &poseErr)) { std::cerr << "[Pose] load failed: " << poseErr << "\n"; return 1; }
+            havePose = true;
+            poseLabel = PathToUtf8(poseFile.parent_path().filename()) + "/" + PathToUtf8(poseFile.filename());
+        }
+
+        // ---- morph weights: --morph i=w,..  /  --expr name  /  Morph blocks of the pose file ----
+        std::map<int, Real> morphWeights;
+        auto morphByName = [&](const std::string& name) {
+            for (size_t i = 0; i < model.morphs.size(); ++i) if (model.morphs[i].name == name) return static_cast<int>(i);
+            return -1;
+        };
+        auto setMorph = [&](const std::string& key, Real w, const char* from) {
+            int idx = -1;
+            const bool numeric = !key.empty() && std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
+            if (numeric) idx = std::stoi(key);
+            else idx = morphByName(key);
+            if (idx < 0 || idx >= static_cast<int>(model.morphs.size())) { std::cout << "[Morph] " << from << ": no morph " << key << " in this model\n"; return; }
+            morphWeights[idx] = w;
+        };
+        if (!opt.morphSpec.empty()) {
+            std::stringstream ss(opt.morphSpec);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                const size_t eq = item.find('=');
+                if (eq != std::string::npos) setMorph(item.substr(0, eq), std::stod(item.substr(eq + 1)), "--morph");
+            }
+        }
+        if (!opt.exprFile.empty()) {
+            const auto files = FindMmdFiles("expression", ".txt");
+            const auto it = std::find_if(files.begin(), files.end(), [&](const std::filesystem::path& f) { return PathToUtf8(f.stem()) == opt.exprFile; });
+            std::vector<std::pair<std::string, Real>> items;
+            std::string exprErr;
+            if (it == files.end() || !io::loadExpression(*it, items, &exprErr)) { std::cerr << "[Morph] expression " << opt.exprFile << " not found in MMD_model/expression\n"; return 1; }
+            for (const auto& [name, w] : items) setMorph(name, w, "--expr");
+        }
+        if (havePose) for (const auto& [name, w] : vpd.morphs) setMorph(name, w, "pose file");
+
+        std::vector<io::VpdBone> morphBones;
+        if (!morphWeights.empty()) {
+            model = io::applyMorphs(model, morphWeights, &morphBones);
+            std::cout << "[Morph] applied:";
+            for (const auto& [idx, w] : morphWeights) std::cout << " " << model.morphs[static_cast<size_t>(idx)].name << "=" << w;
+            std::cout << "\n";
+        }
+        if (havePose || !morphBones.empty()) {
+            io::mergePoseBones(vpd, morphBones);
             io::PoseReport rep;
             model = io::applyPose(model, vpd, &rep);
-            std::cout << "[Pose] " << PathToUtf8(poseFile.parent_path().filename()) << "/" << PathToUtf8(poseFile.filename()) << "  made for \"" << vpd.parentModel
-                << "\": " << vpd.bones.size() << " bones in the file, " << rep.applied << " applied";
+            std::cout << "[Pose] " << (havePose ? poseLabel : std::string("(bone morphs only)")) << "  made for " << vpd.parentModel
+                << ": " << vpd.bones.size() << " bones, " << rep.applied << " applied";
             if (!rep.missing.empty()) {
                 std::cout << ", " << rep.missing.size() << " not in this model:";
                 for (const auto& n : rep.missing) std::cout << " " << n;
@@ -1738,16 +1803,34 @@ int main(int argc, char** argv) {
         if (opt.pmxInfoOnly) return 0;
 
         Real height = 1;
-        const std::shared_ptr<const TriangleMesh> mesh = PmxToMesh(model, opt.pmxYaw, &height);
+        const std::shared_ptr<TriangleMesh> editableMesh = PmxToMesh(model, opt.pmxYaw, &height);
+        {
+            // A translucent layer (blush ...) is a copy of the surface it covers, lying exactly on it. A ray that
+            // passes through the layer must still find the surface below, so the layer is lifted 0.5 mm along
+            // its normals (far more than the 1e-5 ray offset, invisible in the picture).
+            std::vector<char> lifted(editableMesh->p.size(), 0);
+            for (const auto& pm : model.materials) {
+                const bool overlayName = !pm.name.empty() && pm.name.back() == '+';
+                if (pm.diffuse.w <= Real(0.001) || !(pm.alphaFromMorph && (overlayName || pm.diffuse.w < Real(0.999)))) continue;
+                for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
+                    const size_t v = static_cast<size_t>(editableMesh->indices[static_cast<size_t>(i)]);
+                    if (!lifted[v]) { editableMesh->p[v] += editableMesh->n[v] * Real(5e-4); lifted[v] = 1; }
+                }
+            }
+        }
+        const std::shared_ptr<const TriangleMesh> mesh = editableMesh;
         std::vector<std::shared_ptr<Hittable>> prims;
         std::map<int, std::shared_ptr<Texture2D>> textureCache;   // PMX texture index -> loaded texture (nullptr = failed)
-        int skippedOverlay = 0, skippedHidden = 0, alphaMaterials = 0, missingTextures = 0;
+        int skippedOverlay = 0, skippedHidden = 0, alphaMaterials = 0, missingTextures = 0, translucentLayers = 0;
         for (const auto& pm : model.materials) {
             if (pm.diffuse.w <= Real(0.001)) { ++skippedHidden; continue; }   // fully transparent material
             // MMD models stack extra layers on top of the real surface and switch them with morphs; names
-            // ending in '+' mark them (sphere-map highlights, blush ...). Drawn as opaque diffuse they
-            // would cover the real surface, so they are left out unless --pmx-all.
-            if (!opt.pmxAll && !pm.name.empty() && pm.name.back() == '+') { ++skippedOverlay; continue; }
+            // ending in '+' mark them (sphere-map highlights, blush ...). A layer a morph has switched on
+            // (diffuse alpha changed by a morph) is drawn as a translucent layer; the others would cover the
+            // real surface as opaque diffuse, so they are left out unless --pmx-all.
+            const bool overlayName = !pm.name.empty() && pm.name.back() == '+';
+            bool translucent = pm.alphaFromMorph && (overlayName || pm.diffuse.w < Real(0.999));
+            if (overlayName && !pm.alphaFromMorph && !opt.pmxAll) { ++skippedOverlay; continue; }
 
             std::shared_ptr<Texture2D> tex;
             if (pm.texture >= 0) {
@@ -1761,9 +1844,18 @@ int main(int argc, char** argv) {
                 tex = it->second;
             }
 
-            const std::shared_ptr<Material> mat = MakePmxMaterial(pm,
-                RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)), tex, opt.pmxMatte);
-            const bool cutout = tex && tex->hasAlpha();
+            const RgbColor baseColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z));
+            std::shared_ptr<Material> mat;
+            if (translucent) {
+                auto layer = std::make_shared<Lambertian>(baseColor, tex);
+                layer->setTranslucent(std::clamp(pm.diffuse.w, Real(0), Real(1)));
+                mat = layer;
+                ++translucentLayers;
+            }
+            else {
+                mat = MakePmxMaterial(pm, baseColor, tex, opt.pmxMatte);
+            }
+            const bool cutout = tex && tex->hasAlpha() && !translucent;   // a translucent layer uses the texture alpha as opacity instead
             if (cutout) ++alphaMaterials;
             for (int t = pm.firstIndex / 3; t < (pm.firstIndex + pm.indexCount) / 3; ++t) {
                 const Vector3 e1 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 1])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
@@ -1771,6 +1863,7 @@ int main(int argc, char** argv) {
                 if (glm::length(glm::cross(e1, e2)) < 1e-12) continue;   // degenerate triangle
                 auto tri = std::make_shared<Triangle>(mesh, static_cast<size_t>(t), mat);
                 if (cutout) tri->setAlphaTexture(tex, Real(0.5));
+                if (translucent) tri->setCastsShadow(false);
                 prims.push_back(tri);
             }
         }
@@ -1778,7 +1871,7 @@ int main(int argc, char** argv) {
         for (const auto& [idx, t] : textureCache) if (t) texBytes += static_cast<size_t>(t->width()) * static_cast<size_t>(t->height()) * 4;
         std::cout << "[PMX] " << prims.size() << " triangles in the scene, height " << height << " m;  " << textureCache.size() - missingTextures
             << " textures loaded (" << texBytes / (1024 * 1024) << " MB), " << alphaMaterials << " materials with alpha cut-outs, skipped "
-            << skippedOverlay << " overlay ('+') and " << skippedHidden << " fully transparent materials\n";
+            << skippedOverlay << " overlay ('+') and " << skippedHidden << " fully transparent materials, " << translucentLayers << " translucent layers\n";
         worldList->add(std::make_shared<BVH>(std::move(prims)));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100, 0), 100.0, matFloor));
         const Real zoom = std::max(opt.pmxZoom, Real(0.1));
