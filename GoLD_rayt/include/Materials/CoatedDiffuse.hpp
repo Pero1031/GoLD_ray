@@ -33,6 +33,7 @@
 #include "Core/Texture.hpp"
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
+#include "Materials/Subsurface.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
 
@@ -56,6 +57,33 @@ namespace rayt {
             m_fAvg = Real(2) * sum / Real(n);
         }
 
+        /**
+         * @brief Turns the diffuse base into a subsurface scatterer (skin).
+         *
+         * The coat (the specular lobe, weight w) stays a local reflection. The light that passes the
+         * coat enters the surface and leaves at another point of any surface sharing `profile`; the
+         * diffuse color becomes the albedo of the radial profile. Set before rendering; metallic is ignored.
+         */
+        void setSubsurface(std::shared_ptr<const SubsurfaceProfile> profile) {
+            m_profile = std::move(profile);
+            if (m_profile) m_exit = std::make_unique<SubsurfaceExit>(m_w, m_profile->eta());
+            else m_exit.reset();
+        }
+
+        const SubsurfaceProfile* subsurface() const override { return m_profile.get(); }
+        const Material* subsurfaceExit() const override { return m_exit.get(); }
+
+        void subsurfaceParams(const SurfaceInteraction& rec, const SampledWavelengths& lambda,
+            SubsurfaceParams& out) const override
+        {
+            const Spectrum A = albedoAt(rec).reflectance(lambda);
+            const Spectrum ell = m_profile->scatterDistance(lambda);
+            for (int i = 0; i < kSssChannels; ++i) {
+                out.albedo[i] = std::clamp(A[i], Real(0), Real(1));
+                out.d[i] = std::max(ell[i], Real(1e-6)) / sss::shape(out.albedo[i]);
+            }
+        }
+
         Spectrum eval(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
             const SampledWavelengths& lambda, TransportMode /*mode*/) const override
         {
@@ -64,6 +92,7 @@ namespace rayt {
             if (cosO <= 0 || cosI <= 0) return Spectrum(0.0);
 
             const Spectrum R = albedoAt(rec).reflectance(lambda);
+            if (m_profile) return specular(rec, wo, wi, R, cosO, cosI);   // the diffuse lobe is the subsurface event
             return diffuse(R, cosO, cosI) + specular(rec, wo, wi, R, cosO, cosI);
         }
 
@@ -82,6 +111,15 @@ namespace rayt {
                 const GGXDistribution dist(m_alpha, m_alpha);
                 const Vector3 wh = frame.localToWorld(dist.sample_wh(wo_local, Point2(u.x / pS, u.y)));
                 s.wi = math::reflectOutward(wo, wh);
+            }
+            else if (m_profile) {
+                // The light passes the coat (probability 1 - w F) and enters: the integrator picks the exit.
+                // Choosing it with probability 1 - pS gives the weight (1 - w F) / (1 - pS), exactly 1 unless pS was clamped.
+                s.f = Spectrum((Real(1) - coatFresnel(wo_local.z)) / (Real(1) - pS));
+                s.pdf = Real(1);
+                s.wi = rec.n;
+                s.flags = BxDFFlags::Subsurface;
+                return s;
             }
             else {
                 const Real ux = (u.x - pS) / (Real(1) - pS);
@@ -116,6 +154,7 @@ namespace rayt {
             const Real pdfSpec = dotOH > 0 ? dist.pdf(wo_local, wh_local) / (Real(4) * dotOH) : Real(0);
 
             const Real pS = lobeProbability(rec, cosO);
+            if (m_profile) return pS * pdfSpec;   // the rest of the probability is the subsurface event (no direction)
             return pS * pdfSpec + (Real(1) - pS) * cosI / constants::PI;
         }
 
@@ -164,6 +203,7 @@ namespace rayt {
 
         /// Probability of sampling the specular lobe: its weight against the diffuse lobe's.
         Real lobeProbability(const SurfaceInteraction& rec, Real cosO) const {
+            if (m_profile) return std::clamp(coatFresnel(cosO), Real(0.05), Real(0.95));   // reflected by the coat, else enters
             const Real sW = (Real(1) - m_m) * coatFresnel(cosO) + m_m * Real(0.6);
             const Vector3 c = albedoAt(rec).rgb();   // wavelength independent: the same value in eval(), sample() and pdf()
             const Real dW = (Real(1) - m_m) * std::max({ c.x, c.y, c.z }) * (Real(1) - coatFresnel(cosO));
@@ -174,6 +214,8 @@ namespace rayt {
         std::shared_ptr<const Texture2D> m_tex;
         Real m_w, m_m, m_alpha;
         Real m_fAvg = 0;
+        std::shared_ptr<const SubsurfaceProfile> m_profile;   // null = plain coated diffuse
+        std::unique_ptr<SubsurfaceExit> m_exit;                // exit vertex material (owns the coat weight / IOR)
     };
 
 } // namespace rayt

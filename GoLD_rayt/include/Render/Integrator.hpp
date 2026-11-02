@@ -26,6 +26,7 @@
 #include "Scene/Scene.hpp" 
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
+#include "Render/SubsurfaceProbe.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Lights/PointLight.hpp"
@@ -253,14 +254,28 @@ namespace rayt {
                 // It must happen AFTER the emissive-hit MIS above, which needs the PREVIOUS vertex.
                 lastRec = rec;
 
-                // ========== Next Event Estimation (NEE) ==========
-                if (!rec.matPtr->isSpecular()) {
-                    L += beta * sampleAllLights(scene, rec, -r.d, lambda);
-                }
+                // ========== NEE + BSDF sampling ==========
+                // A subsurface material may return a "subsurface" event instead of a direction: the path then
+                // moves to an exit point (probe rays), and the same two steps run there with the exit lobe.
+                std::optional<BSDFSample> bsdfSample;
+                for (int stage = 0; ; ++stage) {
+                    // ========== Next Event Estimation (NEE) ==========
+                    if (!rec.matPtr->isSpecular()) {
+                        L += beta * sampleAllLights(scene, rec, -r.d, lambda);
+                    }
 
-                // ========== BSDF Sampling for Next Path Vertex ==========
-                Point2 u(sampling::Random(), sampling::Random());
-                auto bsdfSample = rec.matPtr->sample(rec, -r.d, u, lambda);
+                    // ========== BSDF Sampling for Next Path Vertex ==========
+                    Point2 u(sampling::Random(), sampling::Random());
+                    bsdfSample = rec.matPtr->sample(rec, -r.d, u, lambda);
+                    if (!bsdfSample || !bsdfSample->isSubsurface() || stage > 0) break;
+
+                    SurfaceInteraction exitVertex;
+                    Spectrum exitWeight;
+                    if (!SampleSubsurfaceExit(scene, rec, lambda, exitVertex, exitWeight)) { bsdfSample.reset(); break; }
+                    beta *= bsdfSample->f * exitWeight;
+                    rec = exitVertex;
+                    lastRec = rec;   // later emitter hits are weighted against the exit vertex
+                }
 
                 if (!bsdfSample) {
                     break;

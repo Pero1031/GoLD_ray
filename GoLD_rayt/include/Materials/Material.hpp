@@ -35,6 +35,7 @@ namespace rayt {
         Diffuse = 1u << 2,      ///< Diffuse scattering (Lambertian, etc.).
         Glossy = 1u << 3,       ///< Glossy scattering (Microfacet, etc.).
         Specular = 1u << 4,     ///< Perfect specular scattering (Delta distribution).
+        Subsurface = 1u << 5,   ///< The light enters the surface and leaves elsewhere (not a direction sample).
 
         /// Composite flag representing all possible scattering types.
         All = Reflection | Transmission | Diffuse | Glossy | Specular
@@ -131,6 +132,22 @@ namespace rayt {
          * @return true If the sampled direction lies in the transmission hemisphere.
          */
         bool isTransmission() const { return has(flags, BxDFFlags::Transmission); }
+
+        /**
+         * @brief Checks if the light entered the surface (subsurface scattering).
+         *
+         * Then `f` is the weight of this event (a plain factor: no cosine, no pdf division),
+         * and `wi` / `pdf` are unused: the integrator moves the path to an exit point instead.
+         */
+        bool isSubsurface() const { return has(flags, BxDFFlags::Subsurface); }
+    };
+
+    class SubsurfaceProfile;
+
+    /// Radial profile parameters of a subsurface material at one hit, per RGB channel / wavelength.
+    struct SubsurfaceParams {
+        Spectrum albedo = Spectrum(0.0);   ///< total diffuse reflectance A of the profile
+        Spectrum d = Spectrum(1.0);        ///< length scale of Burley's profile (m)
     };
 
     /**
@@ -235,6 +252,20 @@ namespace rayt {
          * glass, the hue of the emission for lights. Always RGB, in spectral mode as well.
          */
         virtual Vector3 aovAlbedo(const SurfaceInteraction& /*rec*/) const { return Vector3(1.0); }
+
+        // -----------------------------------------------------------
+        // Subsurface scattering (see Materials/Subsurface.hpp, Render/SubsurfaceProbe.hpp)
+        // -----------------------------------------------------------
+
+        /// The profile shared by all surfaces light may leave from after entering this one (null = no SSS).
+        virtual const SubsurfaceProfile* subsurface() const { return nullptr; }
+
+        /// Pseudo material for the exit vertex of a subsurface path (valid when subsurface() is not null).
+        virtual const Material* subsurfaceExit() const { return nullptr; }
+
+        /// Profile parameters at this hit (only called when subsurface() is not null).
+        virtual void subsurfaceParams(const SurfaceInteraction& /*rec*/, const SampledWavelengths& /*lambda*/,
+            SubsurfaceParams& /*out*/) const {}
 
         /// Luminance (Y) of the emitted radiance, 0 for non-emitters. Used for light power estimates.
         virtual Real emittedLuminance() const { return Real(0); }
