@@ -22,6 +22,7 @@
 #include "Core/Interaction.hpp"
 #include "Core/AABB.hpp"
 #include "Accelerators/BVH.hpp"
+#include "Core/Texture.hpp"
 #include "Geometry/Shape.hpp"
 #include "Scene/Hittable.hpp"
 
@@ -176,6 +177,12 @@ namespace rayt {
 
         Real area() const override { return m_area; }
 
+        /// Makes texels of `tex` with alpha below `cutoff` transparent for every ray (hit, any-hit, closest).
+        void setAlphaTexture(std::shared_ptr<const Texture2D> tex, Real cutoff = Real(0.5)) {
+            m_alphaTex = std::move(tex);
+            m_alphaCutoff = cutoff;
+        }
+
         void normalBounds(Vector3& w, Real& cosTheta) const override {
             w = m_ng;
             cosTheta = Real(1);
@@ -216,7 +223,15 @@ namespace rayt {
                     + u * m_mesh->n[static_cast<size_t>(m_i1)] + v * m_mesh->n[static_cast<size_t>(m_i2)]);
                 rec.n = rec.frontFace ? ns : -ns;
             }
+            if (m_mesh->uv.size() == m_mesh->p.size()) rec.uv = uvAt(u, v);
             rec.matPtr = m_material.get();
+        }
+
+        /// Interpolated texture coordinates for barycentric weights (u, v) of p1, p2.
+        UV uvAt(Real u, Real v) const {
+            const Real w = Real(1) - u - v;
+            return UV(w * Real(m_mesh->uv[static_cast<size_t>(m_i0)].x) + u * Real(m_mesh->uv[static_cast<size_t>(m_i1)].x) + v * Real(m_mesh->uv[static_cast<size_t>(m_i2)].x),
+                w * Real(m_mesh->uv[static_cast<size_t>(m_i0)].y) + u * Real(m_mesh->uv[static_cast<size_t>(m_i1)].y) + v * Real(m_mesh->uv[static_cast<size_t>(m_i2)].y));
         }
 
         /// Moller-Trumbore. On success t is the distance and (u, v) the barycentric weights of p1, p2.
@@ -238,7 +253,14 @@ namespace rayt {
             if (v < Real(0) || u + v > Real(1)) return false;
 
             t = glm::dot(e2, qvec) * invDet;
-            return t >= r.tMin && t <= r.tMax;
+            if (t < r.tMin || t > r.tMax) return false;
+
+            // Alpha test: texels below the cutoff are holes (hair strands, lashes, lace ...).
+            if (m_alphaTex && m_mesh->uv.size() == m_mesh->p.size()) {
+                const UV uv = uvAt(u, v);
+                if (m_alphaTex->alpha(uv.x, uv.y) < m_alphaCutoff) return false;
+            }
+            return true;
         }
 
         const Point3& p0() const { return m_mesh->p[static_cast<size_t>(m_i0)]; }
@@ -248,6 +270,8 @@ namespace rayt {
         std::shared_ptr<const TriangleMesh> m_mesh;
         std::shared_ptr<Material> m_material;
         int m_i0 = 0, m_i1 = 0, m_i2 = 0;
+        std::shared_ptr<const Texture2D> m_alphaTex;   // optional alpha mask
+        Real m_alphaCutoff = Real(0.5);
         Point3 m_p0 = Point3(0.0);
         Vector3 m_e1 = Vector3(0.0), m_e2 = Vector3(0.0);   // p1 - p0, p2 - p0
         Vector3 m_ng = Vector3(0, 1, 0);

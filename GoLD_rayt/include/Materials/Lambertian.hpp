@@ -15,6 +15,7 @@
 #include "Materials/Material.hpp"
 #include "Geometry/Frame.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Core/Texture.hpp"
 
 namespace rayt {
 
@@ -24,6 +25,12 @@ namespace rayt {
      */
     class Lambertian : public Material {
         RgbColor albedo;
+        std::shared_ptr<const Texture2D> m_tex;   // optional: albedo is multiplied by the texture color at rec.uv
+
+        RgbColor albedoAt(const SurfaceInteraction& rec) const {
+            if (!m_tex) return albedo;
+            return RgbColor(albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));
+        }
 
         static inline Real cosNg(const SurfaceInteraction& rec, const Vector3& w) {
             return glm::dot(rec.gn, w);
@@ -40,6 +47,9 @@ namespace rayt {
          */
         Lambertian(const RgbColor& a) : albedo(a) {}
 
+        /// Albedo = constant color x texture (sampled at the hit point's uv).
+        Lambertian(const RgbColor& a, std::shared_ptr<const Texture2D> tex) : albedo(a), m_tex(std::move(tex)) {}
+
         /**
          * @brief Evaluates the Lambertian BRDF.
          * * Formula: f(wo, wi) = albedo / PI
@@ -55,7 +65,7 @@ namespace rayt {
                 return Spectrum(0.0);
             }
 
-            return albedo.reflectance(lambda) * (1.0 / constants::PI);
+            return albedoAt(rec).reflectance(lambda) * (1.0 / constants::PI);
         }
 
         /**
@@ -109,7 +119,7 @@ namespace rayt {
             bsdfSample.pdf = localDir.z * (Real(1.0) / constants::PI);
 
             // 5. BSDF value: constant for Lambertian surfaces.
-            bsdfSample.f = albedo.reflectance(lambda) * (Real(1.0) / constants::PI);
+            bsdfSample.f = albedoAt(rec).reflectance(lambda) * (Real(1.0) / constants::PI);
 
             // 6. Set flags indicating a diffuse reflection interaction.
             bsdfSample.flags =
