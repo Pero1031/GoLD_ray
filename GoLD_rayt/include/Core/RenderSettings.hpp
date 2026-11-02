@@ -23,9 +23,6 @@ struct RenderSettings {
     int targetSpp = 1024;
     int maxDepth = 8;
 
-    // --- Material tweak (example) ---
-    float roughness = 0.2f;          // [0,1]
-
     // カメラ・表示
     float exposure = 0.0f;
     ViewMode viewMode = ViewMode::Beauty;
