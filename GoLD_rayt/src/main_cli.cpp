@@ -119,8 +119,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
 //             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
 //             No environment light (black background). Spectral mode shows metamerism best.
-//   pmx     : an MMD model from MMD_model/ (--pmx-list, --pmx-index N, --pmx-info, --pmx-yaw deg). Geometry and
-//             materials only (per-material diffuse color, no textures yet), HDR environment lighting.
+//   pmx     : an MMD model from MMD_model/ (--pmx-list, --pmx-index N, --pmx-info, --pmx-yaw deg). Diffuse textures (uv, repeat, bilinear)
+//             and alpha cut-outs; "+" overlay materials are skipped unless --pmx-all. HDR environment lighting.
 //   goldrough: gold spheres of roughness 0.4 / 0.7 / 1.0 under the HDR environment; --no-ms = without the
 //             multiple-scattering compensation (to compare).
 //   studio  : gold / dispersive glass / red diffuse sphere lit by a tungsten rectangular softbox
@@ -148,6 +148,9 @@ struct CliOptions {
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
     int pmxIndex = -1;                     // --pmx-index N (see --pmx-list); -1 = the largest .pmx
     bool pmxList = false;                  // --pmx-list : print the .pmx files found in MMD_model/ and exit
+    Real pmxZoom = 1;                      // --pmx-zoom Z : camera distance / Z
+    Real pmxFocus = 0.5;                   // --pmx-focus f : look at this fraction of the model height (0.9 = face)
+    bool pmxAll = false;                   // --pmx-all : also draw the "+" overlay materials
     bool pmxInfoOnly = false;              // --pmx-info : load, print the model summary, exit (no render)
     Real pmxYaw = 0;                       // --pmx-yaw deg : turn the model about +Y
     bool noMs = false;                     // --no-ms : single-scattering GGX only (goldrough scene)
@@ -180,6 +183,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-index") o.pmxIndex = std::stoi(value("--pmx-index"));
             else if (a == "--pmx-list") o.pmxList = true;
             else if (a == "--pmx-info") o.pmxInfoOnly = true;
+            else if (a == "--pmx-all") o.pmxAll = true;
+            else if (a == "--pmx-zoom") o.pmxZoom = std::stod(value("--pmx-zoom"));
+            else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
             else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
@@ -204,7 +210,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-yaw deg] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1494,21 +1500,50 @@ int main(int argc, char** argv) {
         Real height = 1;
         const std::shared_ptr<const TriangleMesh> mesh = PmxToMesh(model, opt.pmxYaw, &height);
         std::vector<std::shared_ptr<Hittable>> prims;
+        std::map<int, std::shared_ptr<Texture2D>> textureCache;   // PMX texture index -> loaded texture (nullptr = failed)
+        int skippedOverlay = 0, skippedHidden = 0, alphaMaterials = 0, missingTextures = 0;
         for (const auto& pm : model.materials) {
-            if (pm.diffuse.w <= Real(0.001)) continue;   // fully transparent material
-            auto mat = std::make_shared<Lambertian>(RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)));
+            if (pm.diffuse.w <= Real(0.001)) { ++skippedHidden; continue; }   // fully transparent material
+            // MMD models stack extra layers on top of the real surface and switch them with morphs; names
+            // ending in '+' mark them (sphere-map highlights, blush ...). Drawn as opaque diffuse they
+            // would cover the real surface, so they are left out unless --pmx-all.
+            if (!opt.pmxAll && !pm.name.empty() && pm.name.back() == '+') { ++skippedOverlay; continue; }
+
+            std::shared_ptr<Texture2D> tex;
+            if (pm.texture >= 0) {
+                auto it = textureCache.find(pm.texture);
+                if (it == textureCache.end()) {
+                    std::string rel = model.textures[static_cast<size_t>(pm.texture)];
+                    std::replace(rel.begin(), rel.end(), '\\', '/');
+                    it = textureCache.emplace(pm.texture, Texture2D::load(files[pick].parent_path() / PathFromUtf8(rel))).first;
+                    if (!it->second) { ++missingTextures; std::cout << "[PMX] could not load texture " << rel << "\n"; }
+                }
+                tex = it->second;
+            }
+
+            auto mat = std::make_shared<Lambertian>(
+                RgbColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z)), tex);
+            const bool cutout = tex && tex->hasAlpha();
+            if (cutout) ++alphaMaterials;
             for (int t = pm.firstIndex / 3; t < (pm.firstIndex + pm.indexCount) / 3; ++t) {
                 const Vector3 e1 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 1])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
                 const Vector3 e2 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 2])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
                 if (glm::length(glm::cross(e1, e2)) < 1e-12) continue;   // degenerate triangle
-                prims.push_back(std::make_shared<Triangle>(mesh, static_cast<size_t>(t), mat));
+                auto tri = std::make_shared<Triangle>(mesh, static_cast<size_t>(t), mat);
+                if (cutout) tri->setAlphaTexture(tex, Real(0.5));
+                prims.push_back(tri);
             }
         }
-        std::cout << "[PMX] " << prims.size() << " triangles in the scene, height " << height << " m\n";
+        size_t texBytes = 0;
+        for (const auto& [idx, t] : textureCache) if (t) texBytes += static_cast<size_t>(t->width()) * static_cast<size_t>(t->height()) * 4;
+        std::cout << "[PMX] " << prims.size() << " triangles in the scene, height " << height << " m;  " << textureCache.size() - missingTextures
+            << " textures loaded (" << texBytes / (1024 * 1024) << " MB), " << alphaMaterials << " materials with alpha cut-outs, skipped "
+            << skippedOverlay << " overlay ('+') and " << skippedHidden << " fully transparent materials\n";
         worldList->add(std::make_shared<BVH>(std::move(prims)));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100, 0), 100.0, matFloor));
-        pmxCamTarget = Point3(0, height * 0.5, 0);
-        pmxCamFrom = Point3(0, height * 0.55, height * 1.15 / (2 * std::tan(glm::radians(17.5))) );
+        const Real zoom = std::max(opt.pmxZoom, Real(0.1));
+        pmxCamTarget = Point3(0, height * opt.pmxFocus, 0);
+        pmxCamFrom = Point3(0, height * (opt.pmxFocus + 0.05 / zoom), height * 1.15 / (2 * std::tan(glm::radians(17.5))) / zoom);
         pmxCamera = true;
     }
     else if (opt.scene == "goldrough") {
