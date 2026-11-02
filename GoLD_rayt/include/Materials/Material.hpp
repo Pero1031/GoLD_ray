@@ -228,6 +228,14 @@ namespace rayt {
          */
         virtual Real opacity(const SurfaceInteraction& /*rec*/) const { return Real(1); }
 
+        /**
+         * @brief Lighting-free color of the surface in linear RGB, in [0, 1] (denoiser albedo AOV).
+         *
+         * Diffuse color for diffuse materials, normal-incidence reflectance for metals, white for
+         * glass, the hue of the emission for lights. Always RGB, in spectral mode as well.
+         */
+        virtual Vector3 aovAlbedo(const SurfaceInteraction& /*rec*/) const { return Vector3(1.0); }
+
         /// Luminance (Y) of the emitted radiance, 0 for non-emitters. Used for light power estimates.
         virtual Real emittedLuminance() const { return Real(0); }
 

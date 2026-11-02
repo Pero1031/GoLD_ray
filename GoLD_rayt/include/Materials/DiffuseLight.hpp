@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "Materials/Material.hpp"
 #include "Color/SpectralConversion.hpp"
 #include "Color/EmissionSpectrum.hpp"
@@ -67,6 +69,13 @@ namespace rayt {
         }
 
         bool emitsTwoSided() const override { return m_twoSided; }
+
+        /// Hue of the emission scaled so that its largest channel is 1 (a light has no reflectance).
+        Vector3 aovAlbedo(const SurfaceInteraction& /*rec*/) const override {
+            const Vector3& c = m_emit.rgb();
+            const Real m = std::max({ c.x, c.y, c.z });
+            return m > Real(0) ? c / m : Vector3(1.0);
+        }
 
     private:
         EmissionSpectrum m_emit;

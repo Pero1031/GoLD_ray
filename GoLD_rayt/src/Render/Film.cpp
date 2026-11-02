@@ -17,6 +17,7 @@
 
 #include "Core/Math.hpp"
 #include "Render/Film.hpp"
+#include "Color/ColorSpace.hpp"
 #include "Color/ColorTransform.hpp"
 
 // stb_image_write implementation is assumed to be compiled
@@ -90,6 +91,21 @@ namespace rayt {
      */
     void Film::clear() {
         std::fill(m_pixels.begin(), m_pixels.end(), Vector3(0.0));
+    }
+
+    void Film::enableAOVs() {
+        const size_t n = static_cast<size_t>(m_width) * static_cast<size_t>(m_height);
+        m_albedo.assign(n, Vector3(0.0));
+        m_normal.assign(n, Vector3(0.0));
+    }
+
+    void Film::setAOV(int x, int y, const Vector3& albedo, const Vector3& normal) {
+        if (!hasAOVs() || x < 0 || x >= m_width || y < 0 || y >= m_height) {
+            return;
+        }
+        const size_t i = static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x);
+        m_albedo[i] = albedo;
+        m_normal[i] = normal;
     }
 
     /**
@@ -200,6 +216,68 @@ namespace rayt {
         }
         else if (ext == "jpg") {
             stbi_write_jpg(filename.c_str(), m_width, m_height, 3, outputData.data(), 90);
+        }
+        else {
+            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
+            return;
+        }
+
+        std::cout << "[Film] Saved LDR image: " << filename << std::endl;
+    }
+
+    void Film::saveAlbedo(const std::string& filename) const {
+        saveBuffer(filename, m_albedo, /*encodeSrgb=*/true, /*remapSigned=*/false);
+    }
+
+    void Film::saveNormal(const std::string& filename) const {
+        saveBuffer(filename, m_normal, /*encodeSrgb=*/false, /*remapSigned=*/true);
+    }
+
+    void Film::saveBuffer(const std::string& filename, const std::vector<Vector3>& data,
+        bool encodeSrgb, bool remapSigned) const {
+        if (data.empty()) {
+            std::cerr << "[Film] Error: AOVs are not enabled, nothing to save: " << filename << std::endl;
+            return;
+        }
+
+        std::string ext = filename.substr(filename.find_last_of('.') + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        const size_t numPixels = data.size();
+
+        if (ext == "hdr") {
+            std::vector<float> hdrData(numPixels * 3);
+            for (size_t i = 0; i < numPixels; ++i) {
+                for (int c = 0; c < 3; ++c) {
+                    const Real v = data[i][c];
+                    hdrData[i * 3 + c] = math::hasNonFinite(v) ? 0.0f : static_cast<float>(v);
+                }
+            }
+            stbi_write_hdr(filename.c_str(), m_width, m_height, 3, hdrData.data());
+            std::cout << "[Film] Saved HDR image: " << filename << std::endl;
+            return;
+        }
+
+        std::vector<unsigned char> out(numPixels * 3);
+        for (size_t i = 0; i < numPixels; ++i) {
+            for (int c = 0; c < 3; ++c) {
+                Real v = data[i][c];
+                if (math::hasNonFinite(v)) v = Real(0);
+                if (remapSigned) v = v * Real(0.5) + Real(0.5);
+                else if (encodeSrgb) v = color::linearToSRGB(rayt::math::saturate(v));
+                out[i * 3 + c] = toByte(v);
+            }
+        }
+
+        if (ext == "png") {
+            stbi_write_png(filename.c_str(), m_width, m_height, 3, out.data(), m_width * 3);
+        }
+        else if (ext == "bmp") {
+            stbi_write_bmp(filename.c_str(), m_width, m_height, 3, out.data());
+        }
+        else if (ext == "jpg") {
+            stbi_write_jpg(filename.c_str(), m_width, m_height, 3, out.data(), 90);
         }
         else {
             std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;

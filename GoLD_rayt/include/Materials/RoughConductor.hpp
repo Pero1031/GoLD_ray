@@ -51,6 +51,7 @@ namespace rayt {
 #endif
         Real alpha_x;   // Roughness X
         Real alpha_y;   // Roughness Y (same as X if isotropic)
+        Vector3 m_f0Rgb = Vector3(1.0);   // normal-incidence reflectance in RGB (denoiser albedo AOV)
 
         // ---- Multiple-scattering compensation (Kulla & Conty 2017) ----
         // Single-scattering GGX loses energy that grows with roughness. A diffuse-like lobe
@@ -163,6 +164,7 @@ namespace rayt {
          */
         RoughConductor(const Spectrum& eta, const Spectrum& k, Real roughness, Real anisotropy = 0.0)
             : eta(eta), k(k) {
+            m_f0Rgb = fresnel::fresnelConductor(Real(1), eta, k);
             initRoughness(roughness, anisotropy);
             initMultipleScattering();
         }
@@ -179,6 +181,12 @@ namespace rayt {
          */
         RoughConductor(const std::shared_ptr<const color::ComplexIorTable>& table,
             Real roughness, Real anisotropy = 0.0) {
+            {
+                // RGB reduction of the table: only used for the albedo AOV in spectral mode.
+                Vector3 etaRgb(1.0), kRgb(0.0);
+                color::integrateIorToRgb_CMF(*table, etaRgb, kRgb);
+                m_f0Rgb = fresnel::fresnelConductor(Real(1), etaRgb, kRgb);
+            }
 #if defined(RAYT_SPECTRAL_MODE)
             const int n = kLutLastNm - kLutFirstNm + 1;
             etaLut.resize(static_cast<size_t>(n));
@@ -372,6 +380,11 @@ namespace rayt {
 
         /// @brief Returns false as this is a glossy material, not a perfect specular mirror.
         bool isSpecular() const override { return false; } // It is Glossy, not delta-Specular
+
+        /// Normal-incidence reflectance (the color of the metal).
+        Vector3 aovAlbedo(const SurfaceInteraction& /*rec*/) const override {
+            return glm::clamp(m_f0Rgb, Vector3(0.0), Vector3(1.0));
+        }
 
     };
 
