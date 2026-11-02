@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 # Mesh assets (OBJ models are source data here, not build objects)
 !GoLD_rayt/assets/Meshes/*.obj
+
+# MMD models (third-party assets with their own usage/redistribution terms): never commit them
+MMD_model/
