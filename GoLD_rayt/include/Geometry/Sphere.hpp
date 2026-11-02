@@ -124,7 +124,65 @@ namespace rayt {
             return sample;
         }
 
+        /**
+         * @brief Cone sampling: a direction is drawn uniformly inside the cone the sphere subtends
+         *        at `ref`, so every sample lands on the visible part of the sphere (area sampling
+         *        wastes the far half). pdf = 1 / (2 pi (1 - cos(thetaMax))) w.r.t. solid angle.
+         *        Falls back to area sampling when `ref` is inside the sphere.
+         */
+        std::optional<ShapeSample> sampleFrom(const Point3& ref, const Point2& u) const override {
+            const Vector3 toCenter = m_center - ref;
+            const Real dc2 = glm::dot(toCenter, toCenter);
+            const Real r2 = m_radius * m_radius;
+            if (dc2 <= r2 * (Real(1) + Real(1e-6))) return Shape::sampleFrom(ref, u);
+
+            const Real dc = std::sqrt(dc2);
+            const Vector3 wc = toCenter / dc;
+            const Real sin2Max = r2 / dc2;
+            const Real cosMax = math::safe_sqrt(Real(1) - sin2Max);
+            const Real oneMinusCosMax = sin2Max / (Real(1) + cosMax);   // stable for small spheres
+
+            // Uniform in cos(theta) inside the cone.
+            const Real cosT = Real(1) - u.x * oneMinusCosMax;
+            const Real sin2T = u.x * oneMinusCosMax * (Real(1) + cosT);
+            const Real sinMax = std::sqrt(sin2Max);
+
+            // Angle alpha at the sphere center between wc and the sampled point (law of sines).
+            const Real cosA = sin2T / sinMax + cosT * math::safe_sqrt(Real(1) - sin2T / sin2Max);
+            const Real sinA = math::safe_sqrt(Real(1) - cosA * cosA);
+            const Real phi = Real(2) * constants::PI * u.y;
+
+            // Orthonormal basis around wc.
+            const Real sign = std::copysign(Real(1), wc.z);
+            const Real a = -Real(1) / (sign + wc.z);
+            const Real b = wc.x * wc.y * a;
+            const Vector3 bx(Real(1) + sign * wc.x * wc.x * a, sign * b, -sign * wc.x);
+            const Vector3 by(b, sign + wc.y * wc.y * a, -wc.y);
+
+            const Vector3 n = -(bx * (sinA * std::cos(phi)) + by * (sinA * std::sin(phi)) + wc * cosA);
+
+            ShapeSample sample;
+            sample.si.p = m_center + n * m_radius;
+            sample.si.gn = n;
+            sample.si.n = n;
+            sample.si.frontFace = true;   // the visible side faces `ref`
+            sample.pdf = Real(1) / (Real(2) * constants::PI * oneMinusCosMax);
+            return sample;
+        }
+
         Real pdfSurface(const SurfaceInteraction& ref, const Vector3& wi) const override {
+            // Same cone as sampleFrom(): constant density inside it.
+            const Vector3 toCenter = m_center - ref.p;
+            const Real dc2 = glm::dot(toCenter, toCenter);
+            const Real r2 = m_radius * m_radius;
+            if (dc2 > r2 * (Real(1) + Real(1e-6))) {
+                const Real sin2Max = r2 / dc2;
+                const Real cosMax = math::safe_sqrt(Real(1) - sin2Max);
+                const Real cosT = glm::dot(wi, toCenter) / std::sqrt(dc2);
+                if (cosT < cosMax) return Real(0);
+                return (Real(1) + cosMax) / (Real(2) * constants::PI * sin2Max);
+            }
+
             Ray ray(ref.OffsetRayOrigin(wi), wi);
             SurfaceInteraction isect;
             if (!hit(ray, isect)) {
