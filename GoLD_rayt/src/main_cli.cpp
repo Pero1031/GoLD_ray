@@ -94,8 +94,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //
 //   gold    : three gold spheres (default, as before)
 //   glass   : clear / dispersive / frosted glass spheres on a floor
-//   furnace : lossless objects in a uniform white environment. Every pixel must converge to
-//             RGB (1,1,1); a mean below/above 1 means energy is lost/created (a bug check).
+//   furnace : objects in a uniform white environment. The mean color of every object must match
+//             its expected value (1.0 for lossless materials; a value below/above means energy is
+//             lost/created, i.e. a bug). Prints OK/FAIL per object and exits with code 2 on FAIL.
+//             Debug builds also assert that all ray directions have unit length.
 // Without options the behavior is the same as before (gold scene, constants above).
 // -----------------------------------------------------------------------------
 struct CliOptions {
@@ -148,9 +150,21 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     return true;
 }
 
+// One object of the furnace test with the mean color it must reach.
+//   expected: 1.0 for lossless materials. Models that lose energy by construction use the value
+//   of an independent numerical integration (conductors) or a measured regression value (frosted
+//   glass, which has no closed form here).
+struct FurnaceObject {
+    std::string label;
+    const Material* material;   // nullptr = the background (environment)
+    Real expected;
+    Real tolerance;             // allowed |mean - expected| per color channel
+};
+
 // Mean film color per object seen through the pixel centers (furnace test report).
-static void PrintFurnaceStats(const Scene& scene, const Camera& camera, const Film& film,
-    const std::vector<std::pair<std::string, const Material*>>& objects)
+// Returns false when any object is outside its tolerance (the caller turns that into an exit code).
+static bool CheckFurnace(const Scene& scene, const Camera& camera, const Film& film,
+    const std::vector<FurnaceObject>& objects)
 {
     struct Acc { Vector3 sum = Vector3(0.0); long long n = 0; };
     std::map<const Material*, Acc> acc;   // key nullptr = background (environment)
@@ -169,16 +183,26 @@ static void PrintFurnaceStats(const Scene& scene, const Camera& camera, const Fi
         }
     }
 
-    std::cout << "\n[Furnace] mean linear RGB per object (expected (1,1,1) for lossless materials)\n";
-    auto report = [&](const std::string& label, const Material* m) {
-        const auto it = acc.find(m);
-        if (it == acc.end() || it->second.n == 0) return;
+    std::cout << "\n[Furnace] mean linear RGB per object vs the expected value (+- tolerance, per channel)\n";
+    bool allPassed = true;
+    for (const FurnaceObject& obj : objects) {
+        const auto it = acc.find(obj.material);
+        if (it == acc.end() || it->second.n == 0) {
+            std::cout << "[Furnace]   " << obj.label << ": no pixels found -> FAIL\n";
+            allPassed = false;
+            continue;
+        }
         const Vector3 mean = it->second.sum / Real(it->second.n);
-        std::cout << "[Furnace]   " << label << ": (" << mean.x << ", " << mean.y << ", " << mean.z
-            << ")  [" << it->second.n << " px]\n";
-    };
-    report("background      ", nullptr);
-    for (const auto& [label, m] : objects) report(label, m);
+        const bool ok = std::abs(mean.x - obj.expected) <= obj.tolerance
+            && std::abs(mean.y - obj.expected) <= obj.tolerance
+            && std::abs(mean.z - obj.expected) <= obj.tolerance;
+        allPassed = allPassed && ok;
+        std::cout << "[Furnace]   " << obj.label << ": (" << mean.x << ", " << mean.y << ", " << mean.z
+            << ")  expected " << obj.expected << " +- " << obj.tolerance
+            << "  [" << it->second.n << " px]  " << (ok ? "OK" : "FAIL") << "\n";
+    }
+    std::cout << "[Furnace] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed;
 }
 
 // Debug aid: follow a few light paths of one pixel and print which object each bounce hits.
@@ -224,6 +248,7 @@ int main(int argc, char** argv) {
     if (!ParseArgs(argc, argv, opt)) return 1;
     const int imageWidth = opt.width;
     const int imageHeight = std::max(1, static_cast<int>(std::lround(double(opt.width) * IMAGE_HEIGHT / IMAGE_WIDTH)));
+    std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
         << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
 
@@ -322,8 +347,8 @@ int main(int argc, char** argv) {
     // -------------------------------------------------------------------------
     auto worldList = std::make_shared<Aggregate>();
 
-    std::vector<std::pair<std::string, const Material*>> furnaceObjects;   // labels for the furnace report
-    std::vector<std::shared_ptr<Material>> furnaceMaterials;               // owns materials only used there
+    std::vector<FurnaceObject> furnaceObjects;                    // what the furnace test checks
+    std::vector<std::shared_ptr<Material>> furnaceMaterials;      // owns materials only used there
 
     if (opt.scene == "gold") {
         // リストに対して add する
@@ -358,13 +383,17 @@ int main(int argc, char** argv) {
         worldList->add(std::make_shared<Sphere>(Point3(0.31, 0, -1), r, matWhite));
         worldList->add(std::make_shared<Sphere>(Point3(0.93, 0, -1), r, matMetalMid));
         worldList->add(std::make_shared<Sphere>(Point3(1.55, 0, -1), r, matMetalRough));
+        // expected / tolerance:  1.0 for lossless materials;  the near-perfect conductors use an
+        // independent numerical integration of single-scattering GGX (0.994 / 0.882);  frosted
+        // glass uses the measured value 0.986 (no closed form).
         furnaceObjects = {
-            { "clear glass     ", matGlass.get() },
-            { "dispersive glass", matGlassDisp.get() },
-            { "frosted glass   ", matFrosted.get() },
-            { "white diffuse   ", matWhite.get() },
-            { "metal rough 0.2 ", matMetalMid.get() },
-            { "metal rough 0.5 ", matMetalRough.get() },
+            { "background      ", nullptr,              1.000, 0.010 },
+            { "clear glass     ", matGlass.get(),       1.000, 0.030 },
+            { "dispersive glass", matGlassDisp.get(),   1.000, 0.030 },
+            { "white diffuse   ", matWhite.get(),       1.000, 0.030 },
+            { "frosted glass   ", matFrosted.get(),     0.986, 0.030 },
+            { "metal rough 0.2 ", matMetalMid.get(),    0.994, 0.030 },
+            { "metal rough 0.5 ", matMetalRough.get(),  0.882, 0.030 },
         };
     }
 
@@ -460,12 +489,13 @@ int main(int argc, char** argv) {
     film.save(opt.out);
     // film.save("result_gold_pbr.hdr");
 
+    bool furnacePassed = true;
     if (opt.scene == "furnace") {
-        PrintFurnaceStats(*scene, *camera, film, furnaceObjects);
+        furnacePassed = CheckFurnace(*scene, *camera, film, furnaceObjects);
     }
 
     std::cout << "[System] Finished." << std::endl;
 
-
-    return 0;
+    // Furnace test: exit code 2 when an object is outside its expected value, so a script can check it.
+    return furnacePassed ? 0 : 2;
 }
