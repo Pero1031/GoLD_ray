@@ -406,11 +406,9 @@ namespace rayt {
             Real tMax,
             const Point3& pLight) {
 
-            SurfaceInteraction tmp;
-
             // Infinite light (environment): the ray only has to escape the scene.
             if (!std::isfinite(tMax)) {
-                return !scene.hit(ref.SpawnRay(wi), tmp);
+                return !scene.occluded(ref.SpawnRay(wi));
             }
 
             // Finite light: aim the ray exactly at the sampled point from the *offset* origin and
@@ -426,7 +424,7 @@ namespace rayt {
             Ray shadow(origin, toLight / dist, Real(0), ref.medium);
             shadow.time = ref.time;
             shadow.tMax = dist * (Real(1) - Real(1e-4));
-            return !scene.hit(shadow, tmp);
+            return !scene.occluded(shadow);
         }
 
     };

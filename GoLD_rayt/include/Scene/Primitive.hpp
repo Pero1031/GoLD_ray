@@ -39,6 +39,9 @@ namespace rayt {
             return true;
         }
 
+        bool occluded(const Ray& r) const override { return m_shape->occluded(r); }
+        bool intersectT(const Ray& r, Real& t) const override { return m_shape->intersectT(r, t); }
+
         AABB bounds() const override {
             return m_shape->bounds();
         }

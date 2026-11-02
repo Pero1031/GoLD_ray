@@ -69,6 +69,7 @@
 #include "IO/SpectralCurveLoader.hpp"
 #include "Color/IorRgbApprox.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -121,6 +122,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //   mesh    : triangle meshes: runs mesh checks first (geometry, OBJ, BVH vs brute force, furnace,
 //             emissive triangles), then renders a tilted gold torus (assets/Meshes/torus.obj) and a
 //             flat- vs smooth-shaded low-poly sphere pair under the studio lights.
+//   bench   : BVH benchmark (recursive reference vs SAH flat BVH) on icospheres of 20k / 82k / 328k triangles;
+//             rays = --spp x 2000. Use a Release build for meaningful speeds.
 //   metals  : metal spectral data tests (no image): file layouts / units, reflectance input,
 //             edge-tint accuracy against the Johnson tables, rendered gold. Samples = --spp x 1024.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -170,8 +173,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio or mesh");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh or bench");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
             throw std::runtime_error("--light-sampler must be uniform, power or spatial");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
@@ -181,7 +184,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -865,6 +868,97 @@ static int RunMetalTests(const CliOptions& opt) {
 // -----------------------------------------------------------------------------
 // Triangle mesh checks (run at the start of --scene mesh)
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// BVH benchmark (--scene bench): the reference recursive BVH vs the SAH flat BVH
+// -----------------------------------------------------------------------------
+static int RunBvhBenchmark(const CliOptions& opt) {
+    using clock = std::chrono::steady_clock;
+    auto ms = [](clock::time_point a, clock::time_point b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    const int nRays = opt.spp * 2000;
+    bool ok = true;
+    std::cout << "[Bench] " << nRays << " random rays per mesh, single thread (use a Release build)\n";
+
+    auto white = std::make_shared<Lambertian>(RgbColor(1.0));
+    for (const int subdiv : { 5, 6, 7 }) {
+        const auto mesh = std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(subdiv, 1.0, Point3(0.0), true));
+        std::vector<std::shared_ptr<Hittable>> prims;
+        for (size_t i = 0; i < mesh->numTriangles(); ++i) prims.push_back(std::make_shared<Triangle>(mesh, i, white));
+
+        // Rays from a sphere of radius 3 toward random points of a ball of radius 1.3 (about half hit).
+        std::vector<Ray> rays(static_cast<size_t>(nRays));
+        for (Ray& r : rays) {
+            const Vector3 from = glm::normalize(Vector3(sampling::Random(-1, 1), sampling::Random(-1, 1), sampling::Random(-1, 1))) * 3.0;
+            Vector3 to(0.0);
+            do { to = Vector3(sampling::Random(-1.3, 1.3), sampling::Random(-1.3, 1.3), sampling::Random(-1.3, 1.3)); } while (glm::dot(to, to) > 1.69);
+            r = Ray(from, glm::normalize(to - from));
+        }
+
+        auto v1 = prims;
+        const auto t0 = clock::now();
+        BVHNode legacy(v1, 0, v1.size());
+        const auto t1 = clock::now();
+        BVH flat(prims);
+        const auto t2 = clock::now();
+
+        SurfaceInteraction rec;
+        int hitsLegacy = 0, hitsFlat = 0, mismatches = 0;
+        std::vector<Real> tLegacy(rays.size()), tFlat(rays.size());
+        const auto c0 = clock::now();
+        for (size_t i = 0; i < rays.size(); ++i) { const bool h = legacy.hit(rays[i], rec); tLegacy[i] = h ? rec.t : -1; hitsLegacy += h; }
+        const auto c1 = clock::now();
+        for (size_t i = 0; i < rays.size(); ++i) { const bool h = flat.hit(rays[i], rec); tFlat[i] = h ? rec.t : -1; hitsFlat += h; }
+        const auto c2 = clock::now();
+        int occ = 0;
+        for (size_t i = 0; i < rays.size(); ++i) occ += flat.occluded(rays[i]) ? 1 : 0;
+        const auto c3 = clock::now();
+
+        for (size_t i = 0; i < rays.size(); ++i) {
+            if (std::abs(tLegacy[i] - tFlat[i]) > 1e-9) ++mismatches;
+        }
+        ok = ok && mismatches == 0 && occ == hitsFlat;
+
+        if (subdiv == 6) {
+            // Coherent rays (camera-like scanline order from one point) on the same BVH: shows how much
+            // of the random-ray cost is cache misses.
+            const int side = static_cast<int>(std::sqrt(double(nRays)));
+            std::vector<Ray> cam;
+            cam.reserve(static_cast<size_t>(side) * static_cast<size_t>(side));
+            for (int y = 0; y < side; ++y)
+                for (int x = 0; x < side; ++x) {
+                    const Vector3 target(-1.2 + 2.4 * (x + 0.5) / side, -1.2 + 2.4 * (y + 0.5) / side, 0.0);
+                    cam.emplace_back(Point3(0, 0, 3), glm::normalize(target - Vector3(0, 0, 3)));
+                }
+            int h = 0;
+            const auto s0 = clock::now();
+            for (const Ray& r : cam) h += flat.hit(r, rec) ? 1 : 0;
+            const auto s1 = clock::now();
+            std::cout << "[Bench]     coherent camera rays (" << cam.size() << "): " << double(cam.size()) / 1e6 / (ms(s0, s1) / 1000.0)
+                << " Mray/s (" << h << " hits)\n";
+
+            // Leaf size sensitivity (closest hit, same rays).
+            for (const int leaf : { 1, 2, 4, 8 }) {
+                BVH b(prims, leaf);
+                int h = 0;
+                const auto s0 = clock::now();
+                for (size_t i = 0; i < rays.size(); ++i) h += b.hit(rays[i], rec) ? 1 : 0;
+                const auto s1 = clock::now();
+                std::cout << "[Bench]     leaf size " << leaf << ": " << double(nRays) / 1e6 / (ms(s0, s1) / 1000.0) << " Mray/s, "
+                    << b.numNodes() << " nodes (" << h << " hits)\n";
+            }
+        }
+
+        const double mr = double(nRays) / 1e6;
+        std::cout << "[Bench] " << mesh->numTriangles() << " triangles:  build  recursive " << ms(t0, t1) << " ms,  SAH flat " << ms(t1, t2)
+            << " ms  (" << flat.numNodes() << " nodes, depth " << flat.maxDepth() << ")\n"
+            << "[Bench]     closest hit  recursive " << mr / (ms(c0, c1) / 1000.0) << " Mray/s,  flat " << mr / (ms(c1, c2) / 1000.0)
+            << " Mray/s  (x" << ms(c0, c1) / ms(c1, c2) << ");  any-hit flat " << mr / (ms(c2, c3) / 1000.0) << " Mray/s\n"
+            << "[Bench]     results: " << hitsLegacy << " / " << hitsFlat << " hits, " << mismatches << " distance mismatches, any-hit = "
+            << occ << "   " << ((mismatches == 0 && occ == hitsFlat) ? "OK" : "FAIL") << "\n";
+    }
+    std::cout << "[Bench] RESULT: " << (ok ? "PASS" : "FAIL") << "\n";
+    return ok ? 0 : 2;
+}
+
 static bool RunMeshChecks(const CliOptions& opt) {
     bool allPassed = true;
     auto check = [&](const std::string& what, bool pass, const std::string& detail) {
@@ -939,6 +1033,10 @@ static bool RunMeshChecks(const CliOptions& opt) {
                 const bool ha = torusBvh->hit(ray, a), hb = brute.hit(ray, b);
                 hits += hb ? 1 : 0;
                 if (ha != hb || (ha && std::abs(a.t - b.t) > 1e-9)) ++mismatches;
+                // any-hit with a random shortened range must agree with the closest-hit distance
+                Ray shortRay = ray;
+                shortRay.tMax = sampling::Random(0.5, 5.0);
+                if (torusBvh->occluded(shortRay) != brute.occluded(shortRay) || brute.occluded(shortRay) != (hb && b.t <= shortRay.tMax)) ++mismatches;
             }
             check("torus.obj " + std::to_string(mesh->numTriangles()) + " triangles, volume " + std::to_string(mesh->signedVolume())
                 + ": BVH vs brute force on 20000 rays (" + std::to_string(hits) + " hits), mismatches",
@@ -1014,6 +1112,7 @@ int main(int argc, char** argv) {
 
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
+    if (opt.scene == "bench") return RunBvhBenchmark(opt);
     bool meshChecksPassed = true;
     if (opt.scene == "mesh") meshChecksPassed = RunMeshChecks(opt);
 
