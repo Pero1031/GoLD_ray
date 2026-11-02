@@ -128,7 +128,9 @@ namespace rayt {
             }
 
             const Point3 rayOrigin = m_origin + offset;
-            const Vector3 rayDir = target - rayOrigin; // normalize if your system expects it
+            // The BSDFs (reflect / refract / GGX) assume unit-length directions, and the camera ray
+            // becomes `wo` at the first hit, so it must be normalized (its raw length is ~ focusDist).
+            const Vector3 rayDir = glm::normalize(target - rayOrigin);
 
             Ray r(rayOrigin, rayDir, constants::RAY_EPSILON, m_medium);
             r.time = time;
