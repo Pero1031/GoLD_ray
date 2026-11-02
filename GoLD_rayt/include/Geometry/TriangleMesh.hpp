@@ -119,7 +119,11 @@ namespace rayt {
             m_i0 = m_mesh->indices[3 * index];
             m_i1 = m_mesh->indices[3 * index + 1];
             m_i2 = m_mesh->indices[3 * index + 2];
-            const Vector3 e1 = p1() - p0(), e2 = p2() - p0();
+            // Edges cached in the triangle: intersect() then needs no pointer chasing into the mesh.
+            m_p0 = p0();
+            m_e1 = p1() - p0();
+            m_e2 = p2() - p0();
+            const Vector3 e1 = m_e1, e2 = m_e2;
             const Vector3 c = glm::cross(e1, e2);
             m_area = Real(0.5) * glm::length(c);
             m_ng = m_area > Real(0) ? c / (Real(2) * m_area) : Vector3(0, 1, 0);
@@ -131,24 +135,8 @@ namespace rayt {
         }
 
         bool hit(const Ray& r, SurfaceInteraction& rec) const override {
-            // Moller-Trumbore
-            const Point3& a = p0();
-            const Vector3 e1 = p1() - a, e2 = p2() - a;
-            const Vector3 pvec = glm::cross(r.d, e2);
-            const Real det = glm::dot(e1, pvec);
-            if (std::abs(det) < Real(1e-14)) return false;   // parallel
-            const Real invDet = Real(1) / det;
-
-            const Vector3 tvec = r.o - a;
-            const Real u = glm::dot(tvec, pvec) * invDet;
-            if (u < Real(0) || u > Real(1)) return false;
-
-            const Vector3 qvec = glm::cross(tvec, e1);
-            const Real v = glm::dot(r.d, qvec) * invDet;
-            if (v < Real(0) || u + v > Real(1)) return false;
-
-            const Real t = glm::dot(e2, qvec) * invDet;
-            if (t < r.tMin || t > r.tMax) return false;
+            Real t, u, v;
+            if (!intersect(r, t, u, v)) return false;
 
             rec.t = t;
             rec.p = r.at(t);
@@ -161,6 +149,16 @@ namespace rayt {
             }
             rec.matPtr = m_material.get();
             return true;
+        }
+
+        bool occluded(const Ray& r) const override {
+            Real t, u, v;
+            return intersect(r, t, u, v);
+        }
+
+        bool intersectT(const Ray& r, Real& t) const override {
+            Real u, v;
+            return intersect(r, t, u, v);
         }
 
         AABB bounds() const override {
@@ -201,6 +199,28 @@ namespace rayt {
         }
 
     private:
+        /// Moller-Trumbore. On success t is the distance and (u, v) the barycentric weights of p1, p2.
+        bool intersect(const Ray& r, Real& t, Real& u, Real& v) const {
+            const Point3& a = m_p0;
+            const Vector3& e1 = m_e1;
+            const Vector3& e2 = m_e2;
+            const Vector3 pvec = glm::cross(r.d, e2);
+            const Real det = glm::dot(e1, pvec);
+            if (std::abs(det) < Real(1e-14)) return false;   // parallel
+            const Real invDet = Real(1) / det;
+
+            const Vector3 tvec = r.o - a;
+            u = glm::dot(tvec, pvec) * invDet;
+            if (u < Real(0) || u > Real(1)) return false;
+
+            const Vector3 qvec = glm::cross(tvec, e1);
+            v = glm::dot(r.d, qvec) * invDet;
+            if (v < Real(0) || u + v > Real(1)) return false;
+
+            t = glm::dot(e2, qvec) * invDet;
+            return t >= r.tMin && t <= r.tMax;
+        }
+
         const Point3& p0() const { return m_mesh->p[static_cast<size_t>(m_i0)]; }
         const Point3& p1() const { return m_mesh->p[static_cast<size_t>(m_i1)]; }
         const Point3& p2() const { return m_mesh->p[static_cast<size_t>(m_i2)]; }
@@ -208,6 +228,8 @@ namespace rayt {
         std::shared_ptr<const TriangleMesh> m_mesh;
         std::shared_ptr<Material> m_material;
         int m_i0 = 0, m_i1 = 0, m_i2 = 0;
+        Point3 m_p0 = Point3(0.0);
+        Vector3 m_e1 = Vector3(0.0), m_e2 = Vector3(0.0);   // p1 - p0, p2 - p0
         Vector3 m_ng = Vector3(0, 1, 0);
         Real m_area = 0;
     };
@@ -228,7 +250,7 @@ namespace rayt {
             objects.push_back(t);
         }
         if (objects.empty()) return nullptr;
-        return std::make_shared<BVHNode>(objects, 0, objects.size());
+        return std::make_shared<BVH>(std::move(objects));
     }
 
 } // namespace rayt

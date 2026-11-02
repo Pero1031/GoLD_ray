@@ -49,6 +49,11 @@ namespace rayt {
             return m_aggregate->hit(r, rec);
         }
 
+        /// Any-hit query for shadow rays (cheaper than hit()).
+        bool occluded(const Ray& r) const {
+            return m_aggregate->occluded(r);
+        }
+
         /**
          * @brief Add a light source to the scene.
          * @param light The light to add

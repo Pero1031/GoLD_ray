@@ -40,6 +40,30 @@ namespace rayt {
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const = 0;
 
         /**
+         * @brief Any-hit query for shadow rays: is there ANY intersection within [r.tMin, r.tMax]?
+         * Implementations stop at the first one found and fill no hit record, which is much
+         * cheaper than hit() for occlusion tests. Default: hit() with a scratch record.
+         */
+        virtual bool occluded(const Ray& r) const {
+            SurfaceInteraction scratch;
+            return hit(r, scratch);
+        }
+
+        /**
+         * @brief Closest-hit distance only, without building a hit record.
+         *
+         * The BVH uses it while traversing: it only keeps (best primitive, t) and calls hit() once
+         * on the winner, so the expensive record (normals, material, ...) is built once per ray
+         * instead of once per candidate. Default: hit() with a scratch record.
+         */
+        virtual bool intersectT(const Ray& r, Real& t) const {
+            SurfaceInteraction scratch;
+            if (!hit(r, scratch)) return false;
+            t = scratch.t;
+            return true;
+        }
+
+        /**
          * @brief Returns the world-space Axis-Aligned Bounding Box (AABB) of the object.
          * * This is a required interface for building acceleration structures like BVH.
          * The bounding box must encompass the entire geometric extent of the object.

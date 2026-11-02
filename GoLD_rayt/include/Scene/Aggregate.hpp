@@ -51,22 +51,27 @@ namespace rayt {
         * @return True if at least one object in the list was hit within the ray's interval.
         */
         virtual bool hit(const Ray& r, SurfaceInteraction& rec) const override {
-            SurfaceInteraction tempRec;
             bool hitAnything = false;
-            Real closestSoFar = r.tMax;
+            Ray testRay = r;
 
+            // Objects write rec only when they hit inside [tMin, testRay.tMax], i.e. closer than
+            // anything found so far, so rec can be passed straight through (no scratch copies).
             for (const auto& object : objects) {
-                Ray testRay = r;
-                testRay.tMax = closestSoFar; 
-
-                if (object->hit(testRay, tempRec)) {
+                if (object->hit(testRay, rec)) {
                     hitAnything = true;
-                    closestSoFar = tempRec.t;
-                    rec = tempRec;
+                    testRay.tMax = rec.t;
                 }
             }
 
             return hitAnything;
+        }
+
+        /// Any-hit: stops at the first object that blocks the ray.
+        bool occluded(const Ray& r) const override {
+            for (const auto& object : objects) {
+                if (object->occluded(r)) return true;
+            }
+            return false;
         }
 
         /**
