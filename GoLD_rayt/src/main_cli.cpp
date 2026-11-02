@@ -118,6 +118,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
 //             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
 //             No environment light (black background). Spectral mode shows metamerism best.
+//   goldrough: gold spheres of roughness 0.4 / 0.7 / 1.0 under the HDR environment; --no-ms = without the
+//             multiple-scattering compensation (to compare).
 //   studio  : gold / dispersive glass / red diffuse sphere lit by a tungsten rectangular softbox
 //             and a small cool-white LED sphere light (SPDs from EmissionSpectrum / CSV). No environment.
 //   mesh    : triangle meshes: runs mesh checks first (geometry, OBJ, BVH vs brute force, furnace,
@@ -141,6 +143,7 @@ struct CliOptions {
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    bool noMs = false;                     // --no-ms : single-scattering GGX only (goldrough scene)
     std::string accel = "own";             // own | embree (triangle mesh intersection)
     std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
@@ -166,6 +169,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--light") o.light = value("--light");
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
+            else if (a == "--no-ms") o.noMs = true;
             else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
@@ -176,8 +180,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh or bench");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh, bench or goldrough");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
@@ -189,7 +193,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -866,6 +870,85 @@ static int RunMetalTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 5. multiple-scattering compensation (Kulla-Conty) ----
+    {
+        // 5a. near-perfect conductor in a uniform white environment: must return all the light.
+        auto envMap = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0))));
+        auto perfect = std::make_shared<color::ComplexIorTable>();
+        perfect->assign({ { 360.0, 1.0, 100.0 }, { 830.0, 1.0, 100.0 } });
+        const int n = opt.spp * 512;
+        for (const Real roughness : { Real(0.2), Real(0.5), Real(0.8), Real(1.0) }) {
+            std::string line = "[Metals]   perfect conductor, roughness " + std::to_string(roughness).substr(0, 3) + ": albedo (center | rim)";
+            bool ok = true;
+            for (const bool ms : { false, true }) {
+                auto mat = std::make_shared<RoughConductor>(perfect, roughness);
+                mat->setMultipleScattering(ms);
+                auto world = std::make_shared<Aggregate>();
+                world->add(std::make_shared<Sphere>(Point3(0, 0, 0), 1.0, mat));
+                auto scene = std::make_shared<Scene>(world);
+                scene->setEnvLight(std::make_shared<EnvLight>(envMap, 1.0));
+                scene->finalize();
+                Vector3 mc, sc, mr, sr;
+                int bad = 0;
+                EstimateRadiance(*scene, Ray(Point3(0, 0, 5), Vector3(0, 0, -1)), n, 16, mc, sc, bad);
+                EstimateRadiance(*scene, Ray(Point3(0.94, 0, 5), Vector3(0, 0, -1)), n, 16, mr, sr, bad);
+                line += std::string(ms ? "   with MS: " : "   single: ") + std::to_string(mc.x).substr(0, 5) + " | " + std::to_string(mr.x).substr(0, 5);
+                if (ms) ok = std::abs(mc.x - 1.0) <= 4 * sc.x + 0.02 && std::abs(mr.x - 1.0) <= 4 * sr.x + 0.03 && bad == 0;
+            }
+            std::cout << line << "   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = allPassed && ok;
+        }
+
+        // 5b. gold, roughness 0.6: reciprocity, pdf normalization, and sample() vs uniform integration.
+        auto gold = std::make_shared<RoughConductor>(std::make_shared<color::ComplexIorTable>(ref), 0.6);
+        SurfaceInteraction rec;
+        rec.p = Point3(0.0); rec.n = Vector3(0, 0, 1); rec.gn = Vector3(0, 0, 1);
+#if defined(RAYT_SPECTRAL_MODE)
+        const SampledWavelengths lambda0 = SampledWavelengths::sampleVisible(Real(0.37));   // fixed wavelengths: a meaningful, repeatable albedo
+#else
+        const SampledWavelengths lambda0;
+#endif
+        auto randomDir = [&]() {
+            const Real z = sampling::Random(0.05, 1.0), phi = 2 * constants::PI * sampling::Random();
+            const Real r = std::sqrt(1 - z * z);
+            return Vector3(r * std::cos(phi), r * std::sin(phi), z);
+        };
+        Real worstRecip = 0;
+        for (int i = 0; i < 2000; ++i) {
+            const Vector3 a = randomDir(), b = randomDir();
+            const Spectrum f1 = gold->eval(rec, a, b, lambda0, TransportMode::Radiance);
+            const Spectrum f2 = gold->eval(rec, b, a, lambda0, TransportMode::Radiance);
+            const Vector3 v1 = SpectrumToRGB(f1, lambda0), v2 = SpectrumToRGB(f2, lambda0);
+            worstRecip = std::max(worstRecip, std::abs(v1.x - v2.x) / std::max(Real(1e-9), std::max(v1.x, v2.x)));
+        }
+        report("gold r=0.6: reciprocity f(wo,wi) = f(wi,wo), max relative difference", worstRecip, 1e-6);
+
+        for (const Real cosO : { Real(0.9), Real(0.5), Real(0.15) }) {
+            const Vector3 wo(std::sqrt(1 - cosO * cosO), 0, cosO);
+            double pdfInt = 0, albedoU = 0, albedoS = 0, sqU = 0, sqS = 0;
+            const int m = 200000;
+            for (int i = 0; i < m; ++i) {
+                // uniform hemisphere: integral of pdf, and integral of f cos
+                const Real z = sampling::Random(), phi = 2 * constants::PI * sampling::Random(), r = std::sqrt(std::max(Real(0), 1 - z * z));
+                const Vector3 wi(r * std::cos(phi), r * std::sin(phi), z);
+                pdfInt += gold->pdf(rec, wo, wi, lambda0) * 2 * constants::PI;
+                const double u = SpectrumToRGB(gold->eval(rec, wo, wi, lambda0, TransportMode::Radiance), lambda0).x * wi.z * 2 * constants::PI;
+                albedoU += u; sqU += u * u;
+                // importance sampled through the material's own sample()
+                const auto s = gold->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda0, TransportMode::Radiance);
+                const double w = s ? SpectrumToRGB(s->f, lambda0).x * std::abs(glm::dot(rec.n, s->wi)) / s->pdf : 0.0;
+                albedoS += w; sqS += w * w;
+            }
+            pdfInt /= m; albedoU /= m; albedoS /= m;
+            const double seU = std::sqrt(std::max(0.0, sqU / m - albedoU * albedoU) / m), seS = std::sqrt(std::max(0.0, sqS / m - albedoS * albedoS) / m);
+            // The pdf integrates to <= 1: GGX reflections that leave the hemisphere are lost (sample() fails for them).
+            const bool ok = pdfInt <= 1.02 && pdfInt > 0.8 && std::abs(albedoU - albedoS) <= 4 * std::hypot(seU, seS) + 1e-3;
+            std::cout << "[Metals]   gold r=0.6, cos(theta_o)=" << cosO << ": integral of pdf = " << pdfInt << " (<= 1), albedo (R) by uniform integration "
+                << albedoU << " vs by sample() " << albedoS << "   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = allPassed && ok;
+        }
+    }
+
     std::cout << "[Metals] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
@@ -1286,6 +1369,15 @@ int main(int argc, char** argv) {
         // 大きな球で床を作製
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
     }
+    else if (opt.scene == "goldrough") {
+        // Rough gold spheres (roughness 0.4 / 0.7 / 1.0): multiple scattering matters here (--no-ms turns it off).
+        for (const auto& [x, roughness] : { std::pair<Real, Real>{ -1.2, 0.4 }, std::pair<Real, Real>{ 0.0, 0.7 }, std::pair<Real, Real>{ 1.2, 1.0 } }) {
+            auto m = std::make_shared<RoughConductor>(auTable, roughness);
+            m->setMultipleScattering(!opt.noMs);
+            worldList->add(std::make_shared<Sphere>(Point3(x, 0, -1), 0.5, m));
+        }
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
     else if (opt.scene == "glass") {
         // left: clear glass, center: dispersive glass, right: frosted glass
         worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGlass));
@@ -1408,8 +1500,8 @@ int main(int argc, char** argv) {
             { "dispersive glass", matGlassDisp.get(),   1.000, 0.030 },
             { "white diffuse   ", matWhite.get(),       1.000, 0.030 },
             { "frosted glass   ", matFrosted.get(),     0.986, 0.030 },
-            { "metal rough 0.2 ", matMetalMid.get(),    0.994, 0.030 },
-            { "metal rough 0.5 ", matMetalRough.get(),  0.882, 0.030 },
+            { "metal rough 0.2 ", matMetalMid.get(),    1.000, 0.020 },
+            { "metal rough 0.5 ", matMetalRough.get(),  1.000, 0.020 },
         };
     }
 
