@@ -22,6 +22,7 @@
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
 #include "Microfacet/GGX.hpp"
+#include "Microfacet/GGXAlbedo.hpp"
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
@@ -50,6 +51,76 @@ namespace rayt {
 #endif
         Real alpha_x;   // Roughness X
         Real alpha_y;   // Roughness Y (same as X if isotropic)
+
+        // ---- Multiple-scattering compensation (Kulla & Conty 2017) ----
+        // Single-scattering GGX loses energy that grows with roughness. A diffuse-like lobe
+        //     f_ms = F_ms (1 - E(mu_o)) (1 - E(mu_i)) / (pi (1 - E_avg))
+        //     F_ms = F_avg^2 E_avg / (1 - F_avg (1 - E_avg))
+        // adds it back (E = directional albedo of the single-scattering lobe, E_avg its cosine
+        // average, F_avg the cosine-averaged Fresnel reflectance, per wavelength / RGB channel).
+        // Anisotropic roughness uses the geometric-mean alpha for E (an approximation).
+        bool m_msActive = false;                              // true if compensation is on and needed
+        bool m_msEnabled = true;
+        Real m_eAvg = 0;
+        std::array<Real, GGXAlbedoTable::kMu> m_eRow{};       // E(mu) at the table's mu nodes for this alpha
+#if defined(RAYT_SPECTRAL_MODE)
+        std::vector<Real> m_fmsLut;                           // F_ms per nm (same grid as etaLut)
+#else
+        Spectrum m_fms = Spectrum(0.0);
+#endif
+
+        /// Cosine-weighted average Fresnel reflectance: 2 Integral F(mu) mu dmu.
+        static Real averageFresnel(Real eta, Real k) {
+            constexpr int n = 64;
+            Real sum = 0;
+            for (int i = 0; i < n; ++i) {
+                const Real mu = (Real(i) + Real(0.5)) / Real(n);
+                sum += fresnel::fresnelConductor(mu, eta, k) * mu;
+            }
+            return Real(2) * sum / Real(n);
+        }
+
+        static Real msFresnel(Real fAvg, Real eAvg) {
+            return fAvg * fAvg * eAvg / (Real(1) - fAvg * (Real(1) - eAvg));
+        }
+
+        /// Interpolates E(mu) from the per-material row.
+        Real eAt(Real mu) const {
+            const Real x = std::clamp(mu, Real(0), Real(1)) * Real(GGXAlbedoTable::kMu - 1);
+            const int i = std::min(static_cast<int>(x), GGXAlbedoTable::kMu - 2);
+            const Real f = x - Real(i);
+            return m_eRow[static_cast<size_t>(i)] * (Real(1) - f) + m_eRow[static_cast<size_t>(i) + 1] * f;
+        }
+
+        void initMultipleScattering() {
+            const Real alphaEff = std::sqrt(alpha_x * alpha_y);
+            GGXAlbedoTable::get().row(alphaEff, m_eRow, m_eAvg);
+            m_msActive = m_msEnabled && (Real(1) - m_eAvg) > Real(1e-3);
+            if (!m_msActive) return;
+#if defined(RAYT_SPECTRAL_MODE)
+            m_fmsLut.resize(etaLut.size());
+            for (size_t i = 0; i < etaLut.size(); ++i)
+                m_fmsLut[i] = msFresnel(averageFresnel(etaLut[i], kLut[i]), m_eAvg);
+#else
+            m_fms = Spectrum(msFresnel(averageFresnel(eta.x, k.x), m_eAvg),
+                msFresnel(averageFresnel(eta.y, k.y), m_eAvg),
+                msFresnel(averageFresnel(eta.z, k.z), m_eAvg));
+#endif
+        }
+
+        /// The compensation lobe (BSDF value, cosine not included).
+        Spectrum msBrdf(Real cosO, Real cosI, const SampledWavelengths& lambda) const {
+            const Real scale = (Real(1) - eAt(cosO)) * (Real(1) - eAt(cosI))
+                / (constants::PI * (Real(1) - m_eAvg));
+#if defined(RAYT_SPECTRAL_MODE)
+            Spectrum s;
+            for (int i = 0; i < kSpectralSamples; ++i) s[i] = lutAt(m_fmsLut, lambda[i]) * scale;
+            return s;
+#else
+            (void)lambda;
+            return m_fms * scale;
+#endif
+        }
 
         // Convert perceptual roughness to linear alpha using an anisotropic mapping.
         void initRoughness(Real roughness, Real anisotropy) {
@@ -93,6 +164,7 @@ namespace rayt {
         RoughConductor(const Spectrum& eta, const Spectrum& k, Real roughness, Real anisotropy = 0.0)
             : eta(eta), k(k) {
             initRoughness(roughness, anisotropy);
+            initMultipleScattering();
         }
 #endif
 
@@ -123,6 +195,13 @@ namespace rayt {
             k = kRgb;
 #endif
             initRoughness(roughness, anisotropy);
+            initMultipleScattering();
+        }
+
+        /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
+        void setMultipleScattering(bool enabled) {
+            m_msEnabled = enabled;
+            initMultipleScattering();
         }
 
         /**
@@ -175,7 +254,9 @@ namespace rayt {
             Real denominator = 4.0 * cosThetaI * cosThetaO;
             if (denominator < 1e-6) return Spectrum(0.0);
 
-            return (D * G * F) / denominator;
+            Spectrum f = (D * G * F) / denominator;
+            if (m_msActive) f += msBrdf(cosThetaO, cosThetaI, lambda);
+            return f;
         }
 
         /**
@@ -203,12 +284,30 @@ namespace rayt {
             Vector3 wo_local = frame.worldToLocal(wo);
             GGXDistribution dist(alpha_x, alpha_y);
 
-            // 2. Sample a visible microfacet normal (wh) and transform to world space.
-            Vector3 wh_local = dist.sample_wh(wo_local, u);
-            Vector3 wh = frame.localToWorld(wh_local);
+            // Choose the lobe: GGX single scattering, or the multiple-scattering lobe (cosine-weighted)
+            // with probability 1 - E(mu_o), the energy the GGX lobe cannot account for.
+            const Real pMs = m_msActive ? (Real(1) - eAt(wo_local.z)) : Real(0);
+            Point2 uLobe = u;
+            bool useMs = false;
+            if (pMs > Real(0)) {
+                if (u.x < pMs) { useMs = true; uLobe.x = u.x / pMs; }
+                else { uLobe.x = (u.x - pMs) / (Real(1) - pMs); }
+            }
 
-            // 3. Reflect wo about wh to determine the incident direction wi.
-            bsdfSample.wi = math::reflectOutward(wo, wh);
+            if (useMs) {
+                const Real r = math::safe_sqrt(uLobe.x);
+                const Real phi = Real(2) * constants::PI * uLobe.y;
+                const Vector3 wi_ms(r * std::cos(phi), r * std::sin(phi), math::safe_sqrt(Real(1) - uLobe.x));
+                bsdfSample.wi = frame.localToWorld(wi_ms);
+            }
+            else {
+                // 2. Sample a visible microfacet normal (wh) and transform to world space.
+                Vector3 wh_local = dist.sample_wh(wo_local, uLobe);
+                Vector3 wh = frame.localToWorld(wh_local);
+
+                // 3. Reflect wo about wh to determine the incident direction wi.
+                bsdfSample.wi = math::reflectOutward(wo, wh);
+            }
 
             if (glm::dot(rec.gn, bsdfSample.wi) <= 0)
                 return std::nullopt;
@@ -218,13 +317,8 @@ namespace rayt {
             // 4. Validate vectors against the local shading frame.
             if (wo_local.z == 0 || wi_local.z == 0) return std::nullopt;
 
-            // 5. Compute the PDF of the sampled direction.
-            // dwh/dwi Jacobian: 1 / (4 * (wo . wh))
-            Real dot_wo_wh = std::abs(glm::dot(wo_local, wh_local));
-            if (dot_wo_wh <= 0) return std::nullopt;
-
-            Real pdf_wh = dist.pdf(wo_local, wh_local);
-            bsdfSample.pdf = pdf_wh / (Real(4) * dot_wo_wh);
+            // 5. The PDF of the sampled direction: the mixture of both lobes (see pdf()).
+            bsdfSample.pdf = pdf(rec, wo, bsdfSample.wi, lambda);
 
             // 6. Evaluate the sample weight (throughput).
             bsdfSample.f = eval(rec, wo, bsdfSample.wi, lambda, mode);
@@ -267,8 +361,13 @@ namespace rayt {
 
             // Transform PDF from half-vector to solid angle
             Real dot_wo_wh = std::abs(glm::dot(wo_local, wh_local));
-            if (dot_wo_wh <= Real(0.0)) return Real(0.0);
-            return pdf_wh / (Real(4) * dot_wo_wh);
+            const Real pdfGgx = (dot_wo_wh > Real(0.0)) ? pdf_wh / (Real(4) * dot_wo_wh) : Real(0.0);
+
+            // Mixture with the multiple-scattering lobe (cosine-weighted), chosen with probability 1 - E(mu_o).
+            if (!m_msActive) return pdfGgx;
+            const Real pMs = Real(1) - eAt(wo_local.z);
+            const Real pdfMs = std::max(glm::dot(rec.n, wi), Real(0)) / constants::PI;
+            return (Real(1) - pMs) * pdfGgx + pMs * pdfMs;
         }
 
         /// @brief Returns false as this is a glossy material, not a perfect specular mirror.
