@@ -36,6 +36,19 @@ namespace rayt {
 
         LightType type() const override { return LightType::Area; }
 
+        std::optional<LightBounds> bounds() const override {
+            if (!m_shape || !m_material) return std::nullopt;
+            LightBounds b;
+            b.bounds = m_shape->bounds();
+            m_shape->normalBounds(b.w, b.cosThetaO);
+            b.twoSided = m_material->emitsTwoSided();
+            const Vector3& t = m_scale.rgb();
+            const Real tint = Real(0.2126) * t.x + Real(0.7152) * t.y + Real(0.0722) * t.z;
+            b.phi = m_material->emittedLuminance() * tint * m_shape->area() * (b.twoSided ? Real(2) : Real(1));
+            b.cosThetaE = Real(0);    // diffuse emitter: spreads over the hemisphere (cos(pi/2))
+            return b;
+        }
+
         std::optional<LightLiSample>
             sampleLi(const LightSampleContext& ctx, const Point2& u,
                 const SampledWavelengths& lambda,

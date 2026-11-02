@@ -13,6 +13,7 @@
 #include "Core/Forward.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/Ray.hpp"
+#include "Lights/LightBounds.hpp"
 
 namespace rayt {
 
@@ -84,6 +85,12 @@ namespace rayt {
         virtual ~Light() = default;
 
         virtual LightType type() const = 0;
+
+        /**
+         * @brief Emission bounds (position box, normal cone, power) used by power / spatial light
+         *        sampling. nullopt for infinite lights (they are handled separately by the samplers).
+         */
+        virtual std::optional<LightBounds> bounds() const { return std::nullopt; }
 
         /**
          * @brief Sample incident radiance arriving at a reference point.

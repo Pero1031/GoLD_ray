@@ -271,7 +271,7 @@ void App::init() {
     //std::cout << "[Scene] Area light added.\n";
 
     // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
-    m_scene->finalize("uniform");
+    m_scene->finalize();   // default light sampler: spatial importance (PBRT-style)
     std::cout << "[Scene] Finalized with "
         << m_scene->numLights() << " scene lights";
     if (m_scene->hasEnvLight()) {

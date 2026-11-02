@@ -37,6 +37,15 @@ namespace rayt {
         virtual Real area() const = 0;
 
         /**
+         * @brief Cone bounding the surface normals: axis w and cos of the half angle
+         *        (-1 = normals point in all directions, 1 = a single direction).
+         */
+        virtual void normalBounds(Vector3& w, Real& cosTheta) const {
+            w = Vector3(0, 0, 1);
+            cosTheta = Real(-1);
+        }
+
+        /**
          * @brief Sample a point uniformly on the shape's surface.
          *
          * @param u 2D uniform random sample in [0, 1)^2

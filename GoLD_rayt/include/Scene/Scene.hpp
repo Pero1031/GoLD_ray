@@ -72,19 +72,23 @@ namespace rayt {
          * This builds the light sampler and prepares the scene for rendering.
          * Must be called before rendering begins.
          *
-         * @param samplerType Type of light sampler to use (default: uniform)
+         * The environment light (if any) is part of the sampler's light list.
+         *
+         * @param samplerType "uniform", "power" (emitted power, alias table) or
+         *        "spatial" (default: power x distance x orientation importance at the shading point)
          */
-        void finalize(const std::string& samplerType = "uniform") {
+        void finalize(const std::string& samplerType = "spatial") {
+            std::vector<std::shared_ptr<Light>> all = m_lights;
+            if (m_envLight) all.push_back(m_envLight);
+
             if (samplerType == "uniform") {
-                m_lightSampler = std::make_unique<UniformLightSampler>(m_lights);
+                m_lightSampler = std::make_unique<UniformLightSampler>(all);
             }
             else if (samplerType == "power") {
-                // Future: power-based sampling
-                m_lightSampler = std::make_unique<PowerLightSampler>(m_lights);
+                m_lightSampler = std::make_unique<PowerLightSampler>(all);
             }
             else {
-                // Default to uniform
-                m_lightSampler = std::make_unique<UniformLightSampler>(m_lights);
+                m_lightSampler = std::make_unique<SpatialLightSampler>(all);
             }
         }
 
@@ -94,14 +98,14 @@ namespace rayt {
          * @brief Check if the scene has any lights (excluding environment).
          */
         bool hasLights() const {
-            return m_lightSampler && m_lightSampler->hasLights();
+            return !m_lights.empty();
         }
 
         /**
          * @brief Get the number of lights (excluding environment).
          */
         size_t numLights() const {
-            return m_lightSampler ? m_lightSampler->numLights() : 0;
+            return m_lights.size();
         }
 
         /**

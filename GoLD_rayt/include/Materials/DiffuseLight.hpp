@@ -61,6 +61,13 @@ namespace rayt {
             return Spectrum(0.0);
         }
 
+        Real emittedLuminance() const override {
+            const Vector3& c = m_emit.rgb();
+            return (Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z) * m_intensity;
+        }
+
+        bool emitsTwoSided() const override { return m_twoSided; }
+
     private:
         EmissionSpectrum m_emit;
         Real m_intensity = Real(1);

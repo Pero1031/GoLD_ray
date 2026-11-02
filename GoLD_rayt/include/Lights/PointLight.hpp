@@ -49,6 +49,18 @@ namespace rayt {
 
         LightType type() const override { return LightType::DeltaPosition; }
 
+        std::optional<LightBounds> bounds() const override {
+            LightBounds b;
+            b.bounds = AABB(m_p, m_p);
+            b.w = Vector3(0, 0, 1);
+            const Vector3& c = m_I.rgb();
+            b.phi = Real(4) * constants::PI * m_scale * (Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z);
+            b.cosThetaO = Real(-1);   // emits in all directions
+            b.cosThetaE = Real(-1);
+            b.twoSided = false;
+            return b;
+        }
+
         std::optional<LightLiSample>
         sampleLi(const LightSampleContext& ctx,
                  const Point2& /*u*/,

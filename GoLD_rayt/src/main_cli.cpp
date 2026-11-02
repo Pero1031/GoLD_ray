@@ -131,6 +131,7 @@ struct CliOptions {
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)
     std::string out;                   // default: result_<scene>.png ("gold" keeps result_gold_pbr.png)
+    std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
@@ -152,6 +153,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--abbe")  o.abbe = std::stod(value("--abbe"));
             else if (a == "--out")   o.out = value("--out");
             else if (a == "--light") o.light = value("--light");
+            else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--wb")    o.whiteBalance = true;
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
@@ -164,6 +166,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
         }
         if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio")
             throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals or studio");
+        if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
+            throw std::runtime_error("--light-sampler must be uniform, power or spatial");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
             throw std::runtime_error("--light must be d65, tungsten, candle or led");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
@@ -171,7 +175,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio] [--light d65|tungsten|candle|led] [--wb] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -327,14 +331,14 @@ static bool ReportLightCase(const std::string& name, const Vector3& expected,
 
 // Lambertian ground (a huge sphere, locally flat) with whatever `addLights` puts above it.
 static std::shared_ptr<Scene> MakeGroundScene(Real albedo,
-    const std::function<void(Aggregate&, Scene&)>& addLights)
+    const std::function<void(Aggregate&, Scene&)>& addLights, const char* lightSampler = "spatial")
 {
     auto world = std::make_shared<Aggregate>();
     world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0,
         std::make_shared<Lambertian>(RgbColor(albedo))));
     auto scene = std::make_shared<Scene>(world);
     addLights(*world, *scene);
-    scene->finalize("uniform");
+    scene->finalize(lightSampler);
     return scene;
 }
 
@@ -548,6 +552,32 @@ static int RunLightTests(const CliOptions& opt) {
                     MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
                         AddQuadLight(w, &s, c.corner, c.e1, c.e2, EmissionSpectrum(RgbColor(1.0)), 10.0, nee, c.twoSided); }),
                     Vector3(expected));
+            }
+        }
+    }
+
+    // Several lights of very different brightness at once. Every selection strategy must give the
+    // same (sum of the single-light closed forms) value; the standard error shows how efficient it is.
+    {
+        const Real dA = 6.0;
+        const Real sphereFar = albedo * 400.0 * (0.5 * 0.5) / (dA * dA);                         // bright far sphere
+        const Real pointNear = albedo / constants::PI * 2.0 * (0.9 / 1.5) / 2.25;               // dim near point (1.2, 0.9, 0)
+        const Point3 qc(0.4, 1.2, -0.4); const Vector3 qe1(1, 0, 0), qe2(0, 0, 0.8);
+        const Real quadNear = QuadGroundRadiance(qc, qe1, qe2, false, 3.0, albedo);              // dim near quad
+        const Real envLevel = albedo * 0.1;                                                      // uniform sky 0.1
+        const Real expected = sphereFar + pointNear + quadNear + envLevel;
+        auto dimEnv = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(0.1))));
+        std::cout << "[Lights]   (multi-light scene: far sphere " << sphereFar << " + point " << pointNear
+            << " + quad " << quadNear << " + sky " << envLevel << ")\n";
+        for (const bool withSky : { true, false }) {
+            for (const char* sampler : { "uniform", "power", "spatial" }) {
+                run(std::string(withSky ? "4 lights (with sky)" : "3 lights (no sky)") + ", light sampler = " + sampler,
+                    MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                        AddSphereLight(w, s, Point3(0, dA, 0), 0.5, EmissionSpectrum(RgbColor(1.0)), 400.0, true);
+                        s.addLight(std::make_shared<PointLight>(Point3(1.2, 0.9, 0), RgbColor(1.0), 2.0));
+                        AddQuadLight(w, &s, qc, qe1, qe2, EmissionSpectrum(RgbColor(1.0)), 3.0, true);
+                        if (withSky) s.setEnvLight(std::make_shared<EnvLight>(dimEnv, 1.0)); }, sampler),
+                    Vector3(withSky ? expected : expected - envLevel));
             }
         }
     }
@@ -800,7 +830,7 @@ static int RunMetalTests(const CliOptions& opt) {
                 std::make_shared<RoughConductor>(std::make_shared<color::ComplexIorTable>(t), 0.2)));
             auto scene = std::make_shared<Scene>(world);
             scene->setEnvLight(std::make_shared<EnvLight>(envMap, 1.0));
-            scene->finalize("uniform");
+            scene->finalize();
             return scene;
         };
         const auto sceneTrue = makeScene(ref);
@@ -1087,8 +1117,8 @@ int main(int argc, char** argv) {
     for (const auto& l : studioLights) scene->addLight(l);
 
     // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
-    scene->finalize("uniform");
-    std::cout << "[Scene] Finalized with "
+    scene->finalize(opt.lightSampler);
+    std::cout << "[Scene] Finalized (light sampler: " << opt.lightSampler << ") with "
         << scene->numLights() << " scene lights";
     if (scene->hasEnvLight()) {
         std::cout << " + environment light";

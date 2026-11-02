@@ -65,6 +65,11 @@ namespace rayt {
 
         Real area() const override { return m_area; }
 
+        void normalBounds(Vector3& w, Real& cosTheta) const override {
+            w = m_n;
+            cosTheta = Real(1);   // flat: one normal
+        }
+
         std::optional<ShapeSample> sampleSurface(const Point2& u) const override {
             if (m_area <= Real(0)) return std::nullopt;
             ShapeSample s;
