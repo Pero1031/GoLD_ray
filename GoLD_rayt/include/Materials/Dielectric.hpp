@@ -21,16 +21,66 @@
 
 namespace rayt {
 
+    /**
+     * @brief Dielectric (glass-like) material, smooth or rough, optionally dispersive.
+     *
+     * Dispersion (spectral mode only): the index of refraction depends on the wavelength via the
+     * Cauchy relation  n(l) = A + B / l^2  (l in micrometres), built from the refractive index at
+     * the d line (587.6 nm) and the Abbe number V_d = (n_d - 1) / (n_F - n_C).
+     * A path that meets a dispersive surface keeps only its first ("hero") wavelength, because
+     * different wavelengths take different directions (see prepareWavelengths()).
+     * In RGB mode, or when no Abbe number is given, the IOR is a constant.
+     */
     class Dielectric : public Material {
-        Real ior;      // Interior IOR
-        Real alpha_x;  // Roughness X
-        Real alpha_y;  // Roughness Y
+        Real iorRef;       // IOR at the d line (587.6 nm); the constant IOR when not dispersive
+        Real cauchyA = 0;  // Cauchy coefficient A (dimensionless)
+        Real cauchyB = 0;  // Cauchy coefficient B [um^2]; 0 means "not dispersive"
+        Real alpha_x;      // Roughness X
+        Real alpha_y;      // Roughness Y
+
+        // IOR to use for this path: the hero wavelength's IOR in spectral mode.
+        Real iorAt(const SampledWavelengths& lambda) const {
+#if defined(RAYT_SPECTRAL_MODE)
+            if (cauchyB != Real(0)) {
+                const Real um = lambda[0] * Real(1e-3);   // nm -> um
+                return cauchyA + cauchyB / (um * um);
+            }
+#else
+            (void)lambda;
+#endif
+            return iorRef;
+        }
 
     public:
-        Dielectric(Real ior, Real roughness, Real anisotropy = 0.0) : ior(ior) {
+        /**
+         * @param ior         IOR at the d line (587.6 nm).
+         * @param roughness   Perceptual roughness (0 = perfectly smooth).
+         * @param anisotropy  Anisotropy factor.
+         * @param abbeNumber  Abbe number V_d (typical: crown glass ~60, flint ~30, dense flint ~25,
+         *                    diamond ~55). Smaller = stronger dispersion. 0 = no dispersion.
+         */
+        Dielectric(Real ior, Real roughness, Real anisotropy = 0.0, Real abbeNumber = 0.0) : iorRef(ior) {
             Real aspect = std::sqrt(1.0 - anisotropy * 0.9);
             alpha_x = MicrofacetDistribution::roughnessToAlpha(roughness / aspect);
             alpha_y = MicrofacetDistribution::roughnessToAlpha(roughness * aspect);
+
+            if (abbeNumber > Real(0) && ior > Real(1)) {
+                // Fraunhofer lines in micrometres: d (587.6 nm), F (486.1 nm), C (656.3 nm).
+                constexpr Real lambdaD = Real(0.5876), lambdaF = Real(0.4861), lambdaC = Real(0.6563);
+                // n_F - n_C = (n_d - 1) / V_d = B * (1/lambda_F^2 - 1/lambda_C^2)
+                cauchyB = (ior - Real(1)) /
+                    (abbeNumber * (Real(1) / (lambdaF * lambdaF) - Real(1) / (lambdaC * lambdaC)));
+                cauchyA = ior - cauchyB / (lambdaD * lambdaD);
+            }
+        }
+
+        /// Dispersive surfaces keep a single wavelength per path (no-op otherwise / in RGB mode).
+        void prepareWavelengths(SampledWavelengths& lambda) const override {
+#if defined(RAYT_SPECTRAL_MODE)
+            if (cauchyB != Real(0)) lambda.terminateSecondary();
+#else
+            (void)lambda;
+#endif
         }
 
         // ---------------------------------------------------------------------
@@ -43,6 +93,8 @@ namespace rayt {
 
             // Delta lobes: eval() returns 0 (Dirac delta)
             if (isSmooth()) return Spectrum(0.0);
+
+            const Real ior = iorAt(lambda);
 
             Real cosThetaO = glm::dot(rec.n, wo);
             Real cosThetaI = glm::dot(rec.n, wi);
@@ -130,12 +182,16 @@ namespace rayt {
 
             BSDFSample bsdfSample;
 
+            const Real ior = iorAt(lambda);
             Real cosThetaO = glm::dot(rec.n, wo);
             bool entering = rec.frontFace;
 
             Real eta = entering ? (1.0 / ior) : ior;          // for refractOutward
             Real etap = entering ? ior : (1.0 / ior);          // for scaling in BTDF
-            Vector3 n_eff = entering ? rec.n : -rec.n;
+            // refractOutward() needs a normal on the same side as wo (dot(wo, n) > 0). rec.n already
+            // faces the incoming ray for entering AND exiting rays, so it must NOT be flipped here:
+            // flipping it for exiting rays bent the light back into the glass (it never came out).
+            Vector3 n_eff = rec.n;
 
             // --- Case A: Smooth (delta) ---
             if (isSmooth()) {
@@ -256,9 +312,12 @@ namespace rayt {
         // PDF
         // ---------------------------------------------------------------------
         Real pdf(const SurfaceInteraction& rec,
-            const Vector3& wo, const Vector3& wi) const override {
+            const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda) const override {
 
             if (isSmooth()) return 0.0;
+
+            const Real ior = iorAt(lambda);
 
             Real cosThetaO = glm::dot(rec.n, wo);
             Real cosThetaI = glm::dot(rec.n, wi);

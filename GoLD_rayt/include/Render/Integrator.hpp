@@ -96,8 +96,11 @@ namespace rayt {
                         Ray r = m_camera->getRay(u, v, lensSample);
 
                         // Each camera path carries its own set of wavelengths (spectral mode).
-                        const SampledWavelengths lambda = samplePathWavelengths();
-                        pixelColor += SpectrumToRGB(Li(r, scene, lambda), lambda);
+                        // Li() may drop the secondary wavelengths (dispersion), so convert with
+                        // the wavelengths *after* Li() has run (separate statements on purpose).
+                        SampledWavelengths lambda = samplePathWavelengths();
+                        const Spectrum Lpath = Li(r, scene, lambda);
+                        pixelColor += SpectrumToRGB(Lpath, lambda);
                     }
                     pixelColor /= Real(m_spp);
 
@@ -132,8 +135,10 @@ namespace rayt {
         /**
          * @brief Compute radiance along a ray using path tracing.
          * @param lambda Wavelengths carried by this path (spectral mode); unused in RGB mode.
+         *               In/out: a dispersive material drops the secondary wavelengths (pdf = 0),
+         *               so pass the same object to SpectrumToRGB afterwards.
          */
-        Spectrum Li(Ray r, const Scene& scene, const SampledWavelengths& lambda) const {
+        Spectrum Li(Ray r, const Scene& scene, SampledWavelengths& lambda) const {
             Spectrum L(0.0);        // Accumulated Radiance
             Spectrum beta(1.0);     // Throughput
 
@@ -172,6 +177,9 @@ namespace rayt {
 
                 // 現在のヒット点を保存
                 lastRec = rec;
+
+                // Dispersive materials reduce the path to a single wavelength before anything is evaluated.
+                rec.matPtr->prepareWavelengths(lambda);
 
                 // ========== Emissive Surface Hit ==========
                 // ※ wo = -r.direction
@@ -279,8 +287,9 @@ namespace rayt {
                     Ray r = m_camera->getRay(u, v, lensSample);
 
                     // Each camera path carries its own set of wavelengths (spectral mode).
-                    const SampledWavelengths lambda = samplePathWavelengths();
-                    Vector3 L = SpectrumToRGB(Li(r, scene, lambda), lambda);
+                    SampledWavelengths lambda = samplePathWavelengths();
+                    const Spectrum Lpath = Li(r, scene, lambda);   // may drop secondary wavelengths
+                    Vector3 L = SpectrumToRGB(Lpath, lambda);
 
                     // NaNチェック
                     if (math::hasNonFinite(L)) L = Vector3(0.0);
@@ -391,7 +400,7 @@ namespace rayt {
             // ========== MIS Weight ==========
             Real w = 1.0;
             if (!ls->isDelta) {
-                Real pdfBsdf = rec.matPtr->pdf(rec, wo, wi);
+                Real pdfBsdf = rec.matPtr->pdf(rec, wo, wi, lambda);
                 if (pdfBsdf > 0) {
                     w = math::powerHeuristic(pdfLight, pdfBsdf);
                 }

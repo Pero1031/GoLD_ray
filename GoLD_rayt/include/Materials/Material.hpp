@@ -182,14 +182,26 @@ namespace rayt {
          * @param rec The surface interaction details.
          * @param wo  The outgoing direction.
          * @param wi  The incident direction to evaluate.
+         * @param lambda The wavelengths the current path is carrying (only dispersive
+         *               materials depend on them; ignored in RGB mode).
          * @return Real The PDF value with respect to solid angle.
          */
         virtual Real pdf(const SurfaceInteraction& rec,
-            const Vector3& wo, const Vector3& wi) const = 0;
+            const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda) const = 0;
 
         // -----------------------------------------------------------
         // Optional Helpers
         // -----------------------------------------------------------
+
+        /**
+         * @brief Called by the integrator right after a hit, before eval/sample/emitted.
+         *
+         * A material whose behavior depends on the wavelength in a way that cannot be shared
+         * by all wavelengths of a path (dispersion) drops the secondary wavelengths here
+         * (lambda.terminateSecondary()). The default does nothing.
+         */
+        virtual void prepareWavelengths(SampledWavelengths& lambda) const {}
 
         /**
          * @brief Returns the emitted radiance for area lights.

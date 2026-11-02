@@ -248,7 +248,8 @@ namespace rayt {
          * @return The PDF value with respect to solid angle.
          */
         Real pdf(const SurfaceInteraction& rec,
-            const Vector3& wo, const Vector3& wi) const override {
+            const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda) const override {
 
             if (glm::dot(rec.gn, wi) <= 0 || glm::dot(rec.gn, wo) <= 0) return 0.0;
 
