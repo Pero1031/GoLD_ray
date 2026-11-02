@@ -160,6 +160,7 @@ struct CliOptions {
     std::string morphSpec;                 // --morph "12=1.0,15=0.5" : morph weights by index
     std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
+    bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
     bool pmxAll = false;                   // --pmx-all : also draw the "+" overlay materials
@@ -198,6 +199,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-all") o.pmxAll = true;
             else if (a == "--pmx-matte") o.pmxMatte = true;
             else if (a == "--pmx-light") o.pmxLight = true;
+            else if (a == "--pmx-studio") o.pmxStudio = true;
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
@@ -230,7 +232,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1162,7 +1164,7 @@ static std::shared_ptr<Material> MakePmxMaterial(const io::PmxMaterial& pm, cons
 
 /// PMX -> TriangleMesh in the renderer's convention (right-handed, +Y up, metres, feet on y = 0, x/z centered).
 /// MMD is left-handed with 1 unit ~ 8 cm; mirroring z fixes the handedness, yaw (degrees) turns the model about +Y.
-static std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight) {
+static std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize = nullptr) {
     constexpr Real kScale = 0.08;
     auto mesh = std::make_shared<TriangleMesh>();
     const Real yaw = glm::radians(yawDegrees), cy = std::cos(yaw), sy = std::sin(yaw);
@@ -1181,6 +1183,7 @@ static std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDe
     for (auto& p : mesh->p) p += shift;
     mesh->indices = m.indices;
     if (outHeight) *outHeight = hi.y - lo.y;
+    if (outSize) *outSize = hi - lo;
     return mesh;
 }
 
@@ -1803,7 +1806,8 @@ int main(int argc, char** argv) {
         if (opt.pmxInfoOnly) return 0;
 
         Real height = 1;
-        const std::shared_ptr<TriangleMesh> editableMesh = PmxToMesh(model, opt.pmxYaw, &height);
+        Vector3 modelSize(1.0);
+        const std::shared_ptr<TriangleMesh> editableMesh = PmxToMesh(model, opt.pmxYaw, &height, &modelSize);
         {
             // A translucent layer (blush ...) is a copy of the surface it covers, lying exactly on it. A ray that
             // passes through the layer must still find the surface below, so the layer is lifted 0.5 mm along
@@ -1874,10 +1878,35 @@ int main(int argc, char** argv) {
             << skippedOverlay << " overlay ('+') and " << skippedHidden << " fully transparent materials, " << translucentLayers << " translucent layers\n";
         worldList->add(std::make_shared<BVH>(std::move(prims)));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100, 0), 100.0, matFloor));
+        // Framing: the picture is 3:4 with a 35 degree vertical field of view; a wide pose (a raised leg) is
+        // fitted by its width as well as its height.
         const Real zoom = std::max(opt.pmxZoom, Real(0.1));
+        const Real extent = std::max(height, modelSize.x / Real(0.75));
         pmxCamTarget = Point3(0, height * opt.pmxFocus, 0);
-        pmxCamFrom = Point3(0, height * (opt.pmxFocus + 0.05 / zoom), height * 1.15 / (2 * std::tan(glm::radians(17.5))) / zoom);
+        pmxCamFrom = Point3(0, height * (opt.pmxFocus + 0.05 / zoom), extent * 1.22 / (2 * std::tan(glm::radians(17.5))) / zoom);
         pmxCamera = true;
+        if (opt.pmxStudio) {
+            // Studio: a dim backdrop, key / fill soft boxes and two rim lights; the HDR only adds a faint ambient.
+            if (envLight) envLight->setScale(0.10);
+            const Point3 target(0, height * 0.55, 0);
+            auto softbox = [&](const Point3& center, Real w, Real h, const EmissionSpectrum& e, Real radiance) {
+                const Vector3 n = glm::normalize(target - center);
+                const Vector3 e1 = glm::normalize(glm::cross(Vector3(0, 1, 0), n)) * w;
+                const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * h;
+                studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
+            };
+            const Real H = height;
+            softbox(Point3(-1.7, H * 1.05, 2.3), 1.3, 1.3, EmissionSpectrum::Blackbody(5200.0), 13.0);   // key: front-left, above, warm white
+            softbox(Point3(2.3, H * 0.60, 2.4), 1.8, 1.2, EmissionSpectrum(RgbColor(1.0)), 3.2);        // fill: front-right, soft, cool-neutral
+            softbox(Point3(-1.5, H * 1.10, -1.7), 0.5, 1.8, EmissionSpectrum(RgbColor(1.0)), 28.0);     // rim: back-left strip
+            softbox(Point3(1.8, H * 1.00, -1.6), 0.5, 1.8, EmissionSpectrum::Blackbody(7500.0), 22.0);  // rim: back-right strip, cooler
+            const Real wallZ = -(modelSize.z * 0.5 + 1.8);
+            worldList->add(std::make_shared<Quad>(Point3(-14, 0, wallZ), Vector3(28, 0, 0), Vector3(0, 12, 0),
+                std::make_shared<Lambertian>(RgbColor(0.16, 0.17, 0.21))));
+            // Dark glossy studio floor (normal +y: cross(z, x)) lying 1 mm above the plain floor: soft reflections of the lights and the figure.
+            worldList->add(std::make_shared<Quad>(Point3(-14, 0.001, wallZ), Vector3(0, 0, 16), Vector3(28, 0, 0),
+                std::make_shared<CoatedDiffuse>(RgbColor(0.09, 0.09, 0.11), Real(0.20), Real(1.0), Real(0))));
+        }
         if (opt.pmxLight) {
             // Softbox 1.0 x 0.7 m, 2.2 m from the focus point, front-left and a little above, facing it.
             const Point3 target = pmxCamTarget;
