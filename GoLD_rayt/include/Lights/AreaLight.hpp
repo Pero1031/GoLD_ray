@@ -42,7 +42,8 @@ namespace rayt {
                 bool /*allowIncompletePDF*/ = false) const override {
             if (!m_shape || !m_material) return std::nullopt;
 
-            auto shapeSample = m_shape->sampleSurface(u);
+            // pdf is already with respect to solid angle at ctx.p; frontFace is set for this view.
+            auto shapeSample = m_shape->sampleFrom(ctx.p, u);
             if (!shapeSample || shapeSample->pdf <= Real(0)) return std::nullopt;
 
             const SurfaceInteraction& pLight = shapeSample->si;
@@ -54,11 +55,7 @@ namespace rayt {
             Real invDist = math::safe_recip(math::safe_sqrt(dist2));
             Vector3 wi = d * invDist;
 
-            Real cosTheta = std::abs(glm::dot(pLight.gn, -wi));
-            if (cosTheta <= Real(0)) return std::nullopt;
-
-            Real pdfW = shapeSample->pdf * dist2 / cosTheta;
-            if (pdfW <= Real(0)) return std::nullopt;
+            Real pdfW = shapeSample->pdf;
 
             LightLiSample ls;
             ls.wi = wi;

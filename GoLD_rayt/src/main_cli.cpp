@@ -34,6 +34,7 @@
 #include "Scene/Hittable.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Geometry/Sphere.hpp"
+#include "Geometry/Quad.hpp"
 #include "Geometry/Frame.hpp"
 #include "Scene/Primitive.hpp"
 #include "Scene/Scene.hpp"
@@ -112,6 +113,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
 //             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
 //             No environment light (black background). Spectral mode shows metamerism best.
+//   studio  : gold / dispersive glass / red diffuse sphere lit by a tungsten rectangular softbox
+//             and a small cool-white LED sphere light (SPDs from EmissionSpectrum / CSV). No environment.
 //   metals  : metal spectral data tests (no image): file layouts / units, reflectance input,
 //             edge-tint accuracy against the Johnson tables, rendered gold. Samples = --spp x 1024.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -159,8 +162,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd or metals");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals or studio");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
             throw std::runtime_error("--light must be d65, tungsten, candle or led");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
@@ -168,7 +171,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals] [--light d65|tungsten|candle|led] [--wb] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio] [--light d65|tungsten|candle|led] [--wb] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -351,6 +354,47 @@ static void AddSphereLight(Aggregate& world, Scene& scene, const Point3& center,
     }
 }
 
+// Rectangular emitter (corner + two edges; emits toward cross(edge1, edge2)).
+static std::shared_ptr<Light> AddQuadLight(Aggregate& world, Scene* scene, const Point3& corner,
+    const Vector3& e1, const Vector3& e2, const EmissionSpectrum& color, Real intensity,
+    bool registerAsLight, bool twoSided = false)
+{
+    auto mat = std::make_shared<DiffuseLight>(color, intensity, twoSided);
+    auto shape = std::make_shared<Quad>(corner, e1, e2, mat);
+    std::shared_ptr<Light> light;
+    if (registerAsLight) {
+        light = std::make_shared<AreaLight>(shape, mat);
+        if (scene) scene->addLight(light);
+    }
+    world.add(std::make_shared<Primitive>(shape, mat, light));
+    return light;
+}
+
+// Independent reference for a quad light: radiance of the ground point at the origin (normal +y)
+//   Lo = albedo / pi * L * Integral cos(receiver) cos(light) / r^2 dA     (midpoint rule on the quad)
+static Real QuadGroundRadiance(const Point3& corner, const Vector3& e1, const Vector3& e2,
+    bool twoSided, Real L, Real albedo)
+{
+    const Vector3 nn = glm::cross(e1, e2);
+    const Real area = glm::length(nn);
+    const Vector3 n = nn / area;
+    const int N = 600;
+    Real E = 0;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            const Point3 q = corner + e1 * ((Real(i) + 0.5) / N) + e2 * ((Real(j) + 0.5) / N);
+            const Vector3 d = q;                         // from the origin to the light point
+            const Real r2 = glm::dot(d, d), r = std::sqrt(r2);
+            const Real cosR = d.y / r;                   // receiver normal +y
+            const Real cosL = glm::dot(n, -d) / r;       // > 0: the emitting side faces the receiver
+            if (cosR <= 0 || (cosL <= 0 && !twoSided)) continue;
+            E += cosR * std::abs(cosL) / r2;
+        }
+    }
+    E *= L * area / Real(N * N);
+    return albedo / constants::PI * E;
+}
+
 // Environment map: dim bluish sky that brightens upward + a small bright sun (elevation 50 deg).
 static std::shared_ptr<EnvMap> MakeSunSkyEnv(Vector3& sunDirOut) {
     const int W = 256, H = 128;
@@ -484,6 +528,28 @@ static int RunLightTests(const CliOptions& opt) {
             MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
                 AddSphereLight(w, s, Point3(0, 2, 0), 0.5, RgbColor(1.0, 0.4, 0.1), 10.0, nee); }),
             Vector3(overhead) * Vector3(1.0, 0.4, 0.1));
+    }
+
+    // Rectangular (quad) lights: reference = numerical integration over the quad.
+    //   (a) facing the ground, (b) tilted toward it, (c) facing away (must give 0), (d) two-sided, facing away.
+    {
+        struct QuadCase { const char* name; Point3 corner; Vector3 e1, e2; bool twoSided; };
+        const QuadCase cases[] = {
+            { "quad light overhead 1x1 at height 2, facing down", Point3(-0.5, 2, -0.5), Vector3(1, 0, 0), Vector3(0, 0, 1), false },
+            { "quad light tilted toward the receiver",             Point3(1.0, 1.0, -0.7), Vector3(0, 0, 1.4), Vector3(-0.5, 0.7, 0), false },
+            { "quad light facing AWAY (one-sided, expect 0)",      Point3(-0.5, 2, -0.5), Vector3(0, 0, 1), Vector3(1, 0, 0), false },
+            { "quad light facing away but two-sided",              Point3(-0.5, 2, -0.5), Vector3(0, 0, 1), Vector3(1, 0, 0), true },
+        };
+        for (const QuadCase& c : cases) {
+            const Real expected = QuadGroundRadiance(c.corner, c.e1, c.e2, c.twoSided, 10.0, albedo);
+            for (int variant = 0; variant < 2; ++variant) {
+                const bool nee = (variant == 0);
+                run(std::string(c.name) + (nee ? "  [NEE + MIS]" : "  [BSDF sampling only]"),
+                    MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                        AddQuadLight(w, &s, c.corner, c.e1, c.e2, EmissionSpectrum(RgbColor(1.0)), 10.0, nee, c.twoSided); }),
+                    Vector3(expected));
+            }
+        }
     }
 
     // Light source spectra (EmissionSpectrum). Unit-luminance lights: Y of the result equals the
@@ -790,7 +856,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
-    else if (opt.scene == "spd") {
+    else if (opt.scene == "spd" || opt.scene == "studio") {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -875,6 +941,7 @@ int main(int argc, char** argv) {
     auto worldList = std::make_shared<Aggregate>();
 
     EmissionSpectrum spdEmission;                                 // spd scene: spectrum of its sphere light
+    std::vector<std::shared_ptr<Light>> studioLights;             // studio scene lights, registered below
     std::shared_ptr<Light> spdLight;                              // spd scene: registered for NEE below
     std::vector<FurnaceObject> furnaceObjects;                    // what the furnace test checks
     std::vector<std::shared_ptr<Material>> furnaceMaterials;      // owns materials only used there
@@ -894,6 +961,30 @@ int main(int argc, char** argv) {
         worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGlassDisp));
         worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matFrosted));
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
+    }
+    else if (opt.scene == "studio") {
+        const Real r = 0.45;
+        worldList->add(std::make_shared<Sphere>(Point3(-1.15, 0, -1), r, matGoldMedium));
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), r, matGlassDisp));
+        worldList->add(std::make_shared<Sphere>(Point3(1.15, 0, -1), r, std::make_shared<Lambertian>(RgbColor(0.75, 0.2, 0.18))));
+        worldList->add(std::make_shared<Sphere>(Point3(0, -100.45, -1), 100.0, std::make_shared<Lambertian>(RgbColor(0.6, 0.6, 0.6))));
+
+        // Tungsten softbox above and behind the spheres (emits downward: cross(x, z) = -y).
+        studioLights.push_back(AddQuadLight(*worldList, nullptr, Point3(-1.8, 2.6, -2.0),
+            Vector3(2.4, 0, 0), Vector3(0, 0, 1.8), EmissionSpectrum::IlluminantA(), 7.0, true));
+
+        // Small cool-white LED (synthetic SPD from CSV) on the right.
+        color::SpectralCurve ledCurve;
+        std::string ledErr;
+        if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", ledCurve, &ledErr)) {
+            std::cerr << "[SPD] " << ledErr << "\n";
+            return 1;
+        }
+        auto ledMat = std::make_shared<DiffuseLight>(EmissionSpectrum::FromCurve(ledCurve), 30.0);
+        auto ledShape = std::make_shared<Sphere>(Point3(2.4, 1.4, 0.2), 0.3, ledMat);
+        auto ledLight = std::make_shared<AreaLight>(ledShape, ledMat);
+        worldList->add(std::make_shared<Primitive>(ledShape, ledMat, ledLight));
+        studioLights.push_back(ledLight);
     }
     else if (opt.scene == "spd") {
         // Five diffuse spheres with distinct reflectance spectra + gold, lit by one off-screen sphere light.
@@ -993,6 +1084,7 @@ int main(int argc, char** argv) {
     //std::cout << "[Scene] Area light added.\n";
 
     if (spdLight) scene->addLight(spdLight);
+    for (const auto& l : studioLights) scene->addLight(l);
 
     // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
     scene->finalize("uniform");
