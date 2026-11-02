@@ -23,6 +23,7 @@
 #include "Core/Math.hpp"
 #include "Core/SampledWavelengths.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Color/EmissionSpectrum.hpp"
 #include "Lights/Light.hpp"
 
 namespace rayt {
@@ -42,7 +43,7 @@ namespace rayt {
         PointLight() = default;
 
         PointLight(const Point3& position,
-            const RgbColor& intensity,
+            const EmissionSpectrum& intensity,
             Real scale = 1.0)
             : m_p(position), m_I(intensity), m_scale(scale) {}
 
@@ -78,7 +79,7 @@ namespace rayt {
             // Often modeled as intensity / r^2 (inverse-square falloff).
             // Here we put the falloff into Li directly (common in simple renderers).
             Real invDist2 = math::safe_recip(dist2);
-            ls.Li = (m_I.illuminant(lambda) * m_scale) * invDist2;
+            ls.Li = (m_I(lambda) * m_scale) * invDist2;
 
             return ls;
         }
@@ -95,7 +96,7 @@ namespace rayt {
 
     private:
         Point3 m_p = Point3(0.0);
-        RgbColor m_I = RgbColor(1.0); // intensity (arbitrary scale; evaluated per wavelength when rendering)
+        EmissionSpectrum m_I; // intensity (arbitrary scale; evaluated per wavelength when rendering)
         Real m_scale = Real(1.0);
     };
 } // namespace rayt

@@ -54,14 +54,17 @@
 // Lights
 #include "Lights/AreaLight.hpp"
 #include "Lights/PointLight.hpp"
+#include "Color/EmissionSpectrum.hpp"
 
 // IO
 #include "IO/ImageLoader.hpp"
 #include "IO/EnvMap.hpp"
 #include "IO/ComplexIorLoader.hpp"
+#include "IO/SpectralCurveLoader.hpp"
 #include "Color/IorRgbApprox.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <stdexcept>
@@ -317,7 +320,7 @@ static std::shared_ptr<Scene> MakeGroundScene(Real albedo,
 
 // Spherical emitter. registerAsLight = false leaves it out of the light list (no NEE: pure BSDF sampling).
 static void AddSphereLight(Aggregate& world, Scene& scene, const Point3& center, Real radius,
-    const RgbColor& color, Real intensity, bool registerAsLight)
+    const EmissionSpectrum& color, Real intensity, bool registerAsLight)
 {
     auto mat = std::make_shared<DiffuseLight>(color, intensity);
     auto shape = std::make_shared<Sphere>(center, radius, mat);
@@ -464,6 +467,71 @@ static int RunLightTests(const CliOptions& opt) {
             MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
                 AddSphereLight(w, s, Point3(0, 2, 0), 0.5, RgbColor(1.0, 0.4, 0.1), 10.0, nee); }),
             Vector3(overhead) * Vector3(1.0, 0.4, 0.1));
+    }
+
+    // Light source spectra (EmissionSpectrum). Unit-luminance lights: Y of the result equals the
+    // D65 point-light value above, only the color differs.
+    {
+        const Real pointY = albedo / constants::PI * 10.0 / 4.0;
+        const EmissionSpectrum tungsten = EmissionSpectrum::IlluminantA();
+        auto pointScene = [&](const EmissionSpectrum& e) {
+            return MakeGroundScene(albedo, [&](Aggregate&, Scene& s) {
+                s.addLight(std::make_shared<PointLight>(Point3(0, 2, 0), e, 10.0)); });
+        };
+
+        // (a) the SPD itself: CIE illuminant A has chromaticity xy = (0.4476, 0.4074).
+        color::CIE_XYZ sum;
+        for (int l = 380; l <= 780; ++l) {
+            const Real S = color::evaluateBlackbody(Real(l), 2856.0);
+            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931_MultiLobe(Real(l));
+            sum.X += c.X * S; sum.Y += c.Y * S; sum.Z += c.Z * S;
+        }
+        const Real x = sum.X / (sum.X + sum.Y + sum.Z), y = sum.Y / (sum.X + sum.Y + sum.Z);
+        const bool okA = std::abs(x - 0.4476) < 0.005 && std::abs(y - 0.4074) < 0.005;
+        std::cout << "[Lights]   blackbody 2856 K chromaticity: xy = (" << x << ", " << y
+            << ") vs CIE A (0.4476, 0.4074)   " << (okA ? "OK" : "FAIL") << "\n";
+        allPassed = okA && allPassed;
+
+        // (b) point light with the SPD: expected = sensor RGB of the SPD (Y = 1) x D65-light value.
+        run("point light, illuminant A (tungsten)", pointScene(tungsten), tungsten.rgb() * pointY);
+        run("point light, 1850 K candle blackbody", pointScene(EmissionSpectrum::Blackbody(1850.0)),
+            EmissionSpectrum::Blackbody(1850.0).rgb() * pointY);
+
+        // (c) CSV round trip: write a 10 nm SPD table (arbitrary scale), load it, same light.
+        const std::string csvPath = (std::filesystem::temp_directory_path() / "rayt_test_spd.csv").string();
+        {
+            std::ofstream f(csvPath);
+            f << "wavelength_nm,power\n";
+            for (int l = 300; l <= 900; l += 10) f << l << "," << 7.0 * color::evaluateBlackbody(Real(l), 2856.0) << "\n";
+        }
+        color::SpectralCurve curve;
+        std::string err;
+        if (io::loadSpectralCurveCsv(csvPath, curve, &err)) {
+            const EmissionSpectrum fromCsv = EmissionSpectrum::FromCurve(curve);
+            const Vector3 d = glm::abs(fromCsv.rgb() / tungsten.rgb() - Vector3(1.0));
+            const bool okC = std::max({ d.x, d.y, d.z }) < 0.005;
+            std::cout << "[Lights]   SPD from CSV (" << curve.size() << " rows) vs generated A: max RGB difference "
+                << std::max({ d.x, d.y, d.z }) * 100.0 << " %   " << (okC ? "OK" : "FAIL") << "\n";
+            allPassed = okC && allPassed;
+            run("point light, SPD loaded from CSV", pointScene(fromCsv), fromCsv.rgb() * pointY);
+        }
+        else {
+            std::cout << "[Lights]   SPD CSV load failed: " << err << "   FAIL\n";
+            allPassed = false;
+        }
+        std::error_code ec;
+        std::filesystem::remove(csvPath, ec);
+
+        // (d) the same SPD through a DiffuseLight sphere (NEE + MIS): expected = rgb x overhead value.
+        run("sphere light, illuminant A  [NEE + MIS]",
+            MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                AddSphereLight(w, s, Point3(0, 2, 0), 0.5, tungsten, 10.0, true); }),
+            tungsten.rgb() * overhead);
+
+        // (e) white balance on the tungsten light: the result must be neutral with the same luminance.
+        color::setWhiteBalance(tungsten);
+        run("point light, illuminant A with white balance (neutral)", pointScene(tungsten), Vector3(pointY));
+        color::resetWhiteBalance();
     }
 
     // Environment maps: reference = dense grid integration of EnvMap::eval.

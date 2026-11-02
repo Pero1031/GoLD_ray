@@ -21,6 +21,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 
 #include "Core/Precision.hpp"
 
@@ -54,6 +55,20 @@ namespace rayt::color {
         const int i = std::min(static_cast<int>(f), last);
         const Real t = f - Real(i);
         return kD65_SPD[i] + t * (kD65_SPD[i + 1] - kD65_SPD[i]);
+    }
+
+    /**
+     * @brief Relative spectral radiance of a blackbody (Planck's law) at a wavelength (nm).
+     *
+     * Only the shape matters (the caller normalizes), so the absolute prefactor is dropped.
+     * Illuminant A is a blackbody of 2856 K (xy = 0.4476, 0.4074).
+     * @param kelvin Temperature in K (> 0).
+     */
+    inline Real evaluateBlackbody(Real lambda_nm, Real kelvin) {
+        constexpr Real kC2 = Real(1.438777e7);          // hc/k in nm*K
+        const Real l = lambda_nm;
+        const Real l5 = l * l * l * l * l;
+        return Real(1e15) / (l5 * std::expm1(kC2 / (l * kelvin)));   // 1e15 keeps values near 1..100
     }
 
 } // namespace rayt::color
