@@ -175,9 +175,6 @@ namespace rayt {
                     break;
                 }
 
-                // 現在のヒット点を保存
-                lastRec = rec;
-
                 // The BSDFs below assume unit-length directions (wo = -r.d).
                 Assert(math::isNormalized(r.d) && "ray direction must be unit length");
 
@@ -201,6 +198,10 @@ namespace rayt {
                         L += beta * Le;
                     }
                 }
+
+                // Remember this vertex for the MIS weight of the NEXT hit (emitter or environment).
+                // It must happen AFTER the emissive-hit MIS above, which needs the PREVIOUS vertex.
+                lastRec = rec;
 
                 // ========== Next Event Estimation (NEE) ==========
                 if (!rec.matPtr->isSpecular()) {
@@ -392,7 +393,7 @@ namespace rayt {
             Real pdfLight = ls->pdf;  // PDF w.r.t. solid angle
 
             // ========== Visibility Test ==========
-            if (!visible(scene, rec, wi, ls->tMax)) {
+            if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {
                 return Ld;
             }
 
@@ -425,11 +426,29 @@ namespace rayt {
         static bool visible(const Scene& scene,
             const SurfaceInteraction& ref,
             const Vector3& wi,
-            Real tMax) {
-
-            Ray shadow = ref.SpawnRay(wi, tMax);
+            Real tMax,
+            const Point3& pLight) {
 
             SurfaceInteraction tmp;
+
+            // Infinite light (environment): the ray only has to escape the scene.
+            if (!std::isfinite(tMax)) {
+                return !scene.hit(ref.SpawnRay(wi), tmp);
+            }
+
+            // Finite light: aim the ray exactly at the sampled point from the *offset* origin and
+            // stop a relative 1e-4 short of it. An absolute epsilon is not enough here: moving the
+            // origin by RAY_EPSILON shifts the ray sideways, and where it meets the light's surface
+            // at a shallow angle the hit point moves along the ray by much more than that. The
+            // shadow ray then hits the light itself and every area-light sample is reported blocked.
+            const Point3 origin = ref.OffsetRayOrigin(wi);
+            const Vector3 toLight = pLight - origin;
+            const Real dist = glm::length(toLight);
+            if (dist <= Real(0)) return true;
+
+            Ray shadow(origin, toLight / dist, Real(0), ref.medium);
+            shadow.time = ref.time;
+            shadow.tMax = dist * (Real(1) - Real(1e-4));
             return !scene.hit(shadow, tmp);
         }
 
