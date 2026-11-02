@@ -361,3 +361,5 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Mesh assets (OBJ models are source data here, not build objects)
+!GoLD_rayt/assets/Meshes/*.obj
