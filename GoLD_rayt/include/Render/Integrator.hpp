@@ -365,12 +365,36 @@ namespace rayt {
             LightSampleContext ctx{ rec.p, rec.gn };
 
             // ========== Light Selection ==========
+            // An exhaustive sampler hands over every reachable light (probability 1 each).
+            if (sampler->samplesAll()) {
+                for (size_t i = 0; i < sampler->numLights(); ++i) {
+                    const Light* light = sampler->lightAt(i);
+                    const Real p = sampler->pmf(ctx, light);
+                    if (p > Real(0)) Ld += estimateDirect(scene, rec, wo, lambda, ctx, light, p);
+                }
+                return Ld;
+            }
+
             const auto sampled = sampler->sample(ctx, sampling::Random());
             if (!sampled || sampled->p <= Real(0)) return Ld;
+            return estimateDirect(scene, rec, wo, lambda, ctx, sampled->light, sampled->p);
+        }
+
+        /**
+         * @brief One NEE sample of `light`, which was selected with probability `pSelect`, with MIS.
+         */
+        Spectrum estimateDirect(const Scene& scene,
+                                const SurfaceInteraction& rec,
+                                const Vector3& wo,
+                                const SampledWavelengths& lambda,
+                                const LightSampleContext& ctx,
+                                const Light* light,
+                                Real pSelect) const {
+            Spectrum Ld(0.0);
 
             // ========== Sample Chosen Light ==========
             Point2 uLight(sampling::Random(), sampling::Random());
-            auto ls = sampled->light->sampleLi(ctx, uLight, lambda);
+            auto ls = light->sampleLi(ctx, uLight, lambda);
 
             if (!ls || ls->pdf <= 0 || isBlack(ls->Li)) {
                 return Ld;
@@ -379,7 +403,7 @@ namespace rayt {
             Vector3 wi = ls->wi;
             Assert(math::isNormalized(wi) && "light sample direction must be unit length");
             Spectrum Li = ls->Li;
-            const Real pdfLight = ls->pdf * sampled->p;   // density of this NEE sample, w.r.t. solid angle
+            const Real pdfLight = ls->pdf * pSelect;   // density of this NEE sample, w.r.t. solid angle
 
             // ========== Visibility Test ==========
             if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {

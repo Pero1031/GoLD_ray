@@ -223,8 +223,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh, bench, goldrough or pmx");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
-        if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial")
-            throw std::runtime_error("--light-sampler must be uniform, power or spatial");
+        if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial" && o.lightSampler != "all")
+            throw std::runtime_error("--light-sampler must be uniform, power, spatial or all");
         if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
             throw std::runtime_error("--light must be d65, tungsten, candle or led");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
@@ -232,7 +232,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -598,6 +598,7 @@ static int RunLightTests(const CliOptions& opt) {
         const QuadCase cases[] = {
             { "quad light overhead 1x1 at height 2, facing down", Point3(-0.5, 2, -0.5), Vector3(1, 0, 0), Vector3(0, 0, 1), false },
             { "quad light tilted toward the receiver",             Point3(1.0, 1.0, -0.7), Vector3(0, 0, 1.4), Vector3(-0.5, 0.7, 0), false },
+            { "quad light CLOSE strip 0.6x1.8 at height 0.3",      Point3(0.1, 0.3, -0.9), Vector3(0.6, 0, 0), Vector3(0, 0, 1.8), false },
             { "quad light facing AWAY (one-sided, expect 0)",      Point3(-0.5, 2, -0.5), Vector3(0, 0, 1), Vector3(1, 0, 0), false },
             { "quad light facing away but two-sided",              Point3(-0.5, 2, -0.5), Vector3(0, 0, 1), Vector3(1, 0, 0), true },
         };
@@ -627,7 +628,7 @@ static int RunLightTests(const CliOptions& opt) {
         std::cout << "[Lights]   (multi-light scene: far sphere " << sphereFar << " + point " << pointNear
             << " + quad " << quadNear << " + sky " << envLevel << ")\n";
         for (const bool withSky : { true, false }) {
-            for (const char* sampler : { "uniform", "power", "spatial" }) {
+            for (const char* sampler : { "uniform", "power", "spatial", "all" }) {
                 run(std::string(withSky ? "4 lights (with sky)" : "3 lights (no sky)") + ", light sampler = " + sampler,
                     MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
                         AddSphereLight(w, s, Point3(0, dA, 0), 0.5, EmissionSpectrum(RgbColor(1.0)), 400.0, true);

@@ -48,6 +48,11 @@ namespace rayt {
          */
         LightType type() const override { return LightType::Infinite; }
 
+        /// Irradiance of an unoccluded point: pi * (average luminance of the map) * scale.
+        Real irradianceEstimate() const override {
+            return m_envMap ? constants::PI * m_scale * m_envMap->averageLuminance() : Real(0);
+        }
+
         /**
          * @brief Sample the environment light for Next Event Estimation.
          *
