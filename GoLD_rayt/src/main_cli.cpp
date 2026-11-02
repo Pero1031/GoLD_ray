@@ -39,6 +39,7 @@
 #include "Accelerators/EmbreeMesh.hpp"
 #include "IO/ObjLoader.hpp"
 #include "IO/PmxLoader.hpp"
+#include "IO/PmxPose.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include "Geometry/Frame.hpp"
 #include "Scene/Primitive.hpp"
@@ -152,6 +153,9 @@ struct CliOptions {
     bool pmxList = false;                  // --pmx-list : print the .pmx files found in MMD_model/ and exit
     Real pmxZoom = 1;                      // --pmx-zoom Z : camera distance / Z
     Real pmxFocus = 0.5;                   // --pmx-focus f : look at this fraction of the model height (0.9 = face)
+    int poseIndex = -1;                    // --pose-index N (see --pose-list): apply a .vpd pose from MMD_model/pose
+    bool poseList = false;                 // --pose-list : print the .vpd files found and exit
+    bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
     bool pmxAll = false;                   // --pmx-all : also draw the "+" overlay materials
@@ -190,6 +194,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-all") o.pmxAll = true;
             else if (a == "--pmx-matte") o.pmxMatte = true;
             else if (a == "--pmx-light") o.pmxLight = true;
+            else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
+            else if (a == "--pose-list") o.poseList = true;
+            else if (a == "--pmx-check") o.pmxCheck = true;
             else if (a == "--pmx-zoom") o.pmxZoom = std::stod(value("--pmx-zoom"));
             else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
@@ -216,7 +223,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1063,20 +1070,23 @@ static std::filesystem::path PathFromUtf8(const std::string& s) {
     return std::filesystem::path(std::u8string(s.begin(), s.end()));
 }
 
-static std::vector<std::filesystem::path> FindPmxFiles() {
+static std::vector<std::filesystem::path> FindMmdFiles(const std::string& subdir, const std::string& extension) {
     namespace fs = std::filesystem;
     std::vector<fs::path> found;
-    for (const char* dir : { "../MMD_model", "MMD_model" }) {
+    for (const std::string base : { "../MMD_model", "MMD_model" }) {
+        const fs::path dir = subdir.empty() ? fs::path(base) : fs::path(base) / subdir;
         std::error_code ec;
         if (!fs::exists(dir, ec)) continue;
         for (const auto& e : fs::recursive_directory_iterator(dir, ec)) {
-            if (e.is_regular_file() && e.path().extension() == ".pmx") found.push_back(e.path());
+            if (e.is_regular_file() && e.path().extension() == extension) found.push_back(e.path());
         }
         if (!found.empty()) break;
     }
     std::sort(found.begin(), found.end());
     return found;
 }
+
+static std::vector<std::filesystem::path> FindPmxFiles() { return FindMmdFiles("", ".pmx"); }
 
 static Real SrgbToLinear(Real c) { return std::pow(std::clamp(c, Real(0), Real(1)), Real(2.2)); }
 
@@ -1165,6 +1175,103 @@ static std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDe
     mesh->indices = m.indices;
     if (outHeight) *outHeight = hi.y - lo.y;
     return mesh;
+}
+
+/// Skeleton summary and self-tests of the posing code (--pmx-check).
+static bool RunPmxChecks(const io::PmxModel& model) {
+    bool allPassed = true;
+    auto check = [&](const std::string& what, bool ok, const std::string& detail) {
+        std::cout << "[Pose]   " << what << ": " << detail << "   " << (ok ? "OK" : "FAIL") << "\n";
+        allPassed = allPassed && ok;
+    };
+
+    const size_t nb = model.bones.size();
+    int ik = 0, grantRot = 0, grantTrans = 0, afterPhysics = 0, roots = 0;
+    for (const auto& b : model.bones) {
+        ik += b.isIk(); grantRot += b.inheritsRotation(); grantTrans += b.inheritsTranslation(); afterPhysics += b.afterPhysics();
+        roots += (b.parent < 0);
+    }
+    int unskinned = 0;
+    for (const auto& v : model.vertices) if (v.bones[0] < 0) ++unskinned;
+    std::cout << "[Pose] skeleton: " << nb << " bones (" << roots << " roots, " << ik << " IK, " << grantRot << " rotation-grant, " << grantTrans
+        << " translation-grant, " << afterPhysics << " deformed after physics), " << unskinned << " vertices without bones\n";
+    {
+        std::map<int, int> usage;   // bones that actually move vertices
+        for (const auto& v : model.vertices) for (int k = 0; k < 4; ++k) if (v.bones[k] >= 0 && v.weights[k] > 0) ++usage[v.bones[k]];
+        int usedGrant = 0, usedIk = 0;
+        for (const auto& [bone, n] : usage) { usedGrant += model.bones[static_cast<size_t>(bone)].inheritsRotation(); usedIk += model.bones[static_cast<size_t>(bone)].isIk(); }
+        std::cout << "[Pose] skinning uses " << usage.size() << " bones, " << usedGrant << " of them grant-rotation bones, " << usedIk << " IK bones\n";
+    }
+
+    // 1. identity pose must reproduce the rest pose
+    {
+        io::VpdPose none;
+        io::VpdBone dummy; dummy.name = "__none__";
+        none.bones.push_back(dummy);
+        const io::PmxModel same = io::applyPose(model, none);
+        Real worst = 0;
+        for (size_t i = 0; i < model.vertices.size(); ++i) {
+            worst = std::max(worst, glm::length(Vector3(same.vertices[i].position) - Vector3(model.vertices[i].position)));
+            worst = std::max(worst, glm::length(Vector3(same.vertices[i].normal) - Vector3(model.vertices[i].normal)));
+        }
+        check("rest pose reproduced (max vertex / normal difference; normals are renormalized)", worst < 1e-5, std::to_string(worst));
+    }
+
+    // 2. rotate the root-most "center" bone by 90 degrees about +Y: everything under it must turn rigidly about its rest position
+    {
+        int center = -1;
+        for (size_t i = 0; i < nb; ++i) if (model.bones[i].name == "センター") { center = static_cast<int>(i); break; }
+        if (center < 0) { check("center bone test", false, "no bone named センター"); }
+        else {
+            io::VpdPose p;
+            io::VpdBone b; b.name = "センター"; b.qy = std::sin(constants::PI / 4); b.qw = std::cos(constants::PI / 4);
+            p.bones.push_back(b);
+            const io::PmxModel moved = io::applyPose(model, p);
+            const Vector3 c(model.bones[static_cast<size_t>(center)].position);
+            const glm::dmat3 R = glm::dmat3(glm::mat4_cast(glm::angleAxis(constants::PI / 2, glm::dvec3(0, 1, 0))));
+            // descendants of the center bone
+            std::vector<char> under(nb, 0);
+            for (size_t i = 0; i < nb; ++i) { int cur = static_cast<int>(i); for (size_t guard = 0; guard <= nb && cur >= 0; ++guard) { if (cur == center) { under[i] = 1; break; } cur = model.bones[static_cast<size_t>(cur)].parent; } }
+            int total = 0, matching = 0;
+            for (size_t i = 0; i < model.vertices.size(); ++i) {
+                const auto& v = model.vertices[i];
+                bool all = v.bones[0] >= 0;
+                for (int k = 0; k < 4 && all; ++k) if (v.bones[k] >= 0 && v.weights[k] > 0 && !under[static_cast<size_t>(v.bones[k])]) all = false;
+                if (!all) continue;
+                ++total;
+                const Vector3 expected = c + R * (Vector3(v.position) - c);
+                if (glm::length(Vector3(moved.vertices[i].position) - expected) < 1e-6) ++matching;
+            }
+            check("rotating センター by 90 deg about +Y turns " + std::to_string(total) + " vertices rigidly about its rest position", total > 0 && matching == total,
+                std::to_string(matching) + " of " + std::to_string(total) + " match");
+        }
+    }
+
+    // 3. grant bones: with an identity own rotation, a bone inheriting rotation with weight w must end up with q^w of its grant parent
+    {
+        int tested = 0, passed = 0;
+        for (size_t i = 0; i < nb && tested < 6; ++i) {
+            const auto& b = model.bones[i];
+            if (!b.inheritsRotation() || b.grantParent < 0) continue;
+            const auto& gp = model.bones[static_cast<size_t>(b.grantParent)];
+            if (gp.inheritsRotation()) continue;   // keep the test simple: a plain FK source
+            io::VpdPose p;
+            io::VpdBone vb; vb.name = gp.name; vb.qx = 0.3; vb.qy = 0.2; vb.qz = 0.1; vb.qw = std::sqrt(1 - 0.09 - 0.04 - 0.01);
+            p.bones.push_back(vb);
+            io::PoseReport rep;
+            io::applyPose(model, p, &rep);
+            const glm::dquat src = rep.effectiveRotation[static_cast<size_t>(b.grantParent)];
+            const glm::dquat expected = io::detail::quatPow(src, b.grantWeight);
+            const glm::dquat got = rep.effectiveRotation[i];
+            ++tested;
+            if (std::abs(std::abs(glm::dot(expected, got)) - 1.0) < 1e-9) ++passed;
+            std::cout << "[Pose]     grant " << model.bones[i].name << " <- " << gp.name << " x" << b.grantWeight << ": "
+                << (std::abs(std::abs(glm::dot(expected, got)) - 1.0) < 1e-9 ? "ok" : "MISMATCH") << "\n";
+        }
+        check("grant (append) rotation of " + std::to_string(tested) + " sample bones", tested == 0 || passed == tested, std::to_string(passed) + " of " + std::to_string(tested));
+    }
+    std::cout << "[Pose] checks: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed;
 }
 
 // Triangle mesh -> Hittable with the chosen intersection backend (own SAH BVH or Embree).
@@ -1466,6 +1573,13 @@ int main(int argc, char** argv) {
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
+    if (opt.scene == "pmx" && opt.poseList) {
+        const auto files = FindMmdFiles("pose", ".vpd");
+        for (size_t i = 0; i < files.size(); ++i)
+            std::cout << "[Pose] " << i << ": " << PathToUtf8(files[i].parent_path().filename()) << "/" << PathToUtf8(files[i].filename()) << "\n";
+        if (files.empty()) std::cout << "[Pose] no .vpd files found in MMD_model/pose\n";
+        return 0;
+    }
     if (opt.scene == "pmx" && opt.pmxList) {
         const auto files = FindPmxFiles();
         for (size_t i = 0; i < files.size(); ++i)
@@ -1602,6 +1716,25 @@ int main(int argc, char** argv) {
         std::string pmxErr;
         if (!io::loadPmx(files[pick], model, &pmxErr)) { std::cerr << "[PMX] load failed: " << pmxErr << "\n"; return 1; }
         PrintPmxInfo(model, files[pick]);
+        if (opt.pmxCheck) return RunPmxChecks(model) ? 0 : 2;
+
+        if (opt.poseIndex >= 0) {
+            const auto poses = FindMmdFiles("pose", ".vpd");
+            if (poses.empty()) { std::cerr << "[Pose] no .vpd files found in MMD_model/pose\n"; return 1; }
+            const auto& poseFile = poses[std::min(static_cast<size_t>(opt.poseIndex), poses.size() - 1)];
+            io::VpdPose vpd;
+            std::string poseErr;
+            if (!io::loadVpd(poseFile, vpd, &poseErr)) { std::cerr << "[Pose] load failed: " << poseErr << "\n"; return 1; }
+            io::PoseReport rep;
+            model = io::applyPose(model, vpd, &rep);
+            std::cout << "[Pose] " << PathToUtf8(poseFile.parent_path().filename()) << "/" << PathToUtf8(poseFile.filename()) << "  made for \"" << vpd.parentModel
+                << "\": " << vpd.bones.size() << " bones in the file, " << rep.applied << " applied";
+            if (!rep.missing.empty()) {
+                std::cout << ", " << rep.missing.size() << " not in this model:";
+                for (const auto& n : rep.missing) std::cout << " " << n;
+            }
+            std::cout << "\n";
+        }
         if (opt.pmxInfoOnly) return 0;
 
         Real height = 1;
