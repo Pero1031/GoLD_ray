@@ -51,6 +51,10 @@
 #include "Materials/RoughConductor.hpp"
 #include "Materials/Dielectric.hpp"
 
+// Lights
+#include "Lights/AreaLight.hpp"
+#include "Lights/PointLight.hpp"
+
 // IO
 #include "IO/ImageLoader.hpp"
 #include "IO/EnvMap.hpp"
@@ -58,6 +62,7 @@
 #include "Color/IorRgbApprox.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <stdexcept>
 #include <vector>
@@ -98,6 +103,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             its expected value (1.0 for lossless materials; a value below/above means energy is
 //             lost/created, i.e. a bug). Prints OK/FAIL per object and exits with code 2 on FAIL.
 //             Debug builds also assert that all ray directions have unit length.
+//   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
+//             radiance of one ray is compared with a closed-form / independent numerical value
+//             (point light, sphere area light with and without NEE, colored emission, environment
+//             maps). Samples per test = --spp x 4096. Exits with code 2 on FAIL.
 // Without options the behavior is the same as before (gold scene, constants above).
 // -----------------------------------------------------------------------------
 struct CliOptions {
@@ -135,14 +144,14 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace")
-            throw std::runtime_error("--scene must be gold, glass or furnace");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights")
+            throw std::runtime_error("--scene must be gold, glass, furnace or lights");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
             throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -240,6 +249,253 @@ static void TracePixelDebug(const Scene& scene, const Camera& camera, int px, in
 }
 
 // -----------------------------------------------------------------------------
+// Light tests (--scene lights)
+// -----------------------------------------------------------------------------
+
+// Mean linear RGB (and its standard error) of Li() along one fixed ray.
+static void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth,
+    Vector3& mean, Vector3& se, int& badSamples)
+{
+    PathIntegrator integrator(nullptr, maxDepth, 1);
+    double sx = 0, sy = 0, sz = 0, qx = 0, qy = 0, qz = 0;
+    int bad = 0;
+
+    // OpenMP 2.0 (MSVC): scalar reductions and a signed int loop counter only.
+#pragma omp parallel for reduction(+:sx,sy,sz,qx,qy,qz,bad)
+    for (int i = 0; i < n; ++i) {
+#if defined(RAYT_SPECTRAL_MODE)
+        SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
+#else
+        SampledWavelengths lambda;
+#endif
+        const Spectrum L = integrator.Li(ray, scene, lambda);
+        const Vector3 c = SpectrumToRGB(L, lambda);
+        if (math::hasNonFinite(c)) { ++bad; continue; }
+        sx += c.x; sy += c.y; sz += c.z;
+        qx += c.x * c.x; qy += c.y * c.y; qz += c.z * c.z;
+    }
+
+    const double inv = 1.0 / double(n);
+    mean = Vector3(sx, sy, sz) * inv;
+    const Vector3 var(std::max(0.0, qx * inv - mean.x * mean.x),
+        std::max(0.0, qy * inv - mean.y * mean.y),
+        std::max(0.0, qz * inv - mean.z * mean.z));
+    se = Vector3(std::sqrt(var.x * inv), std::sqrt(var.y * inv), std::sqrt(var.z * inv));
+    badSamples = bad;
+}
+
+// Passes when every channel is within 4 standard errors (+0.5 % of the value) of the expectation.
+static bool ReportLightCase(const std::string& name, const Vector3& expected,
+    const Vector3& mean, const Vector3& se, int bad)
+{
+    bool ok = (bad == 0);
+    for (int c = 0; c < 3; ++c) {
+        ok = ok && std::abs(mean[c] - expected[c]) <= 4.0 * se[c] + 0.005 * std::abs(expected[c]) + 1e-6;
+    }
+    std::cout << "[Lights]   " << name << "\n"
+        << "             expected (" << expected.x << ", " << expected.y << ", " << expected.z << ")"
+        << "   got (" << mean.x << ", " << mean.y << ", " << mean.z << ") +- ("
+        << se.x << ", " << se.y << ", " << se.z << ")"
+        << "   ratio (" << mean.x / expected.x << ", " << mean.y / expected.y << ", " << mean.z / expected.z << ")"
+        << (bad ? "  NaN samples: " + std::to_string(bad) : std::string())
+        << "   " << (ok ? "OK" : "FAIL") << "\n";
+    return ok;
+}
+
+// Lambertian ground (a huge sphere, locally flat) with whatever `addLights` puts above it.
+static std::shared_ptr<Scene> MakeGroundScene(Real albedo,
+    const std::function<void(Aggregate&, Scene&)>& addLights)
+{
+    auto world = std::make_shared<Aggregate>();
+    world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0,
+        std::make_shared<Lambertian>(RgbColor(albedo))));
+    auto scene = std::make_shared<Scene>(world);
+    addLights(*world, *scene);
+    scene->finalize("uniform");
+    return scene;
+}
+
+// Spherical emitter. registerAsLight = false leaves it out of the light list (no NEE: pure BSDF sampling).
+static void AddSphereLight(Aggregate& world, Scene& scene, const Point3& center, Real radius,
+    const RgbColor& color, Real intensity, bool registerAsLight)
+{
+    auto mat = std::make_shared<DiffuseLight>(color, intensity);
+    auto shape = std::make_shared<Sphere>(center, radius, mat);
+    if (registerAsLight) {
+        auto light = std::make_shared<AreaLight>(shape, mat);
+        world.add(std::make_shared<Primitive>(shape, mat, light));
+        scene.addLight(light);
+    }
+    else {
+        world.add(std::make_shared<Primitive>(shape, mat));
+    }
+}
+
+// Environment map: dim bluish sky that brightens upward + a small bright sun (elevation 50 deg).
+static std::shared_ptr<EnvMap> MakeSunSkyEnv(Vector3& sunDirOut) {
+    const int W = 256, H = 128;
+    const Real elev = glm::radians(50.0), azim = glm::radians(30.0);
+    const Vector3 sun(std::cos(elev) * std::cos(azim), std::sin(elev), std::cos(elev) * std::sin(azim));
+    sunDirOut = sun;
+
+    std::vector<Vector3> px(static_cast<size_t>(W) * H);
+    for (int y = 0; y < H; ++y) {
+        const Real theta = constants::PI * (Real(y) + 0.5) / Real(H);     // row 0 = zenith
+        for (int x = 0; x < W; ++x) {
+            const Real phi = 2.0 * constants::PI * (Real(x) + 0.5) / Real(W) - constants::PI;
+            const Vector3 d(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+            Vector3 c = Vector3(0.8, 0.9, 1.0) * (0.2 + 0.3 * std::max(d.y, 0.0));
+            if (std::acos(std::clamp(glm::dot(d, sun), -1.0, 1.0)) < 0.05) c += Vector3(500.0, 450.0, 400.0);
+            px[static_cast<size_t>(y) * W + x] = c;
+        }
+    }
+    return std::make_shared<EnvMap>(Image(W, H, std::move(px)));
+}
+
+// Independent reference: radiance leaving a white-ish Lambertian ground point (normal +y) under
+// an environment map = albedo / pi * Integral_{upper hemisphere} Le(w) cos(theta) dw, evaluated
+// on a dense (theta, phi) grid with EnvMap::eval (no importance sampling involved).
+static Vector3 GroundRadianceFromEnv(const EnvMap& env, Real albedo) {
+    const int nTheta = 1024, nPhi = 2048;
+    Vector3 E(0.0);
+    for (int i = 0; i < nTheta; ++i) {
+        const Real theta = 0.5 * constants::PI * (Real(i) + 0.5) / Real(nTheta);
+        const Real dTheta = 0.5 * constants::PI / Real(nTheta);
+        const Real dPhi = 2.0 * constants::PI / Real(nPhi);
+        for (int j = 0; j < nPhi; ++j) {
+            const Real phi = 2.0 * constants::PI * (Real(j) + 0.5) / Real(nPhi);
+            const Vector3 d(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+            E += env.eval(d) * (std::cos(theta) * std::sin(theta) * dTheta * dPhi);
+        }
+    }
+    return E * (albedo / constants::PI);
+}
+
+// Consistency of EnvMap::sample()/pdf(): the pdf integrates to 1, sample() and pdf() agree, and
+// Le/pdf estimates the same integral as the grid.
+static bool CheckEnvSampling(const EnvMap& env, const std::string& label, int n) {
+    // Integral of pdf over the sphere on a deterministic (theta, phi) grid (a small bright sun
+    // would make a Monte Carlo estimate of this far too noisy).
+    double pdfIntegral = 0.0;
+    Vector3 gridLe(0.0);   // Integral Le dw by the same grid
+    {
+        const int nTheta = 1024, nPhi = 2048;
+        const double dTheta = constants::PI / nTheta, dPhi = 2.0 * constants::PI / nPhi;
+        for (int i = 0; i < nTheta; ++i) {
+            const Real theta = (Real(i) + 0.5) * dTheta;
+            for (int j = 0; j < nPhi; ++j) {
+                const Real phi = (Real(j) + 0.5) * dPhi;
+                const Vector3 d(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+                pdfIntegral += env.pdf(d) * std::sin(theta) * dTheta * dPhi;
+                gridLe += env.eval(d) * (std::sin(theta) * dTheta * dPhi);
+            }
+        }
+    }
+
+    Vector3 isLe(0.0);
+    int mismatches = 0;   // sample() and pdf() disagree (> 0.1 %)
+    int isCount = 0;
+
+    for (int i = 0; i < n; ++i) {
+        Vector3 wi(0.0);
+        Real pdf = 0;
+        const Vector3 Le = env.sample(Point2f(float(sampling::Random()), float(sampling::Random())), wi, pdf);
+        if (pdf > 0) {
+            isLe += Le / pdf;
+            if (std::abs(env.pdf(wi) - pdf) > 1e-3 * pdf) ++mismatches;   // only at texel borders (float round-off)
+            ++isCount;
+        }
+    }
+    isLe /= double(n);
+    const double mismatchRate = double(mismatches) / std::max(isCount, 1);
+
+    const bool okPdf = std::abs(pdfIntegral - 1.0) < 0.01;
+    const bool okMatch = mismatchRate < 1e-3;
+    const bool okLe = std::abs(isLe.y - gridLe.y) <= 0.03 * std::abs(gridLe.y);
+    std::cout << "[Lights]   env sampling (" << label << "): Integral pdf dw = " << pdfIntegral
+        << (okPdf ? " OK" : " FAIL") << ";  sample()/pdf() mismatch rate = " << mismatchRate
+        << (okMatch ? " OK" : " FAIL") << ";  Integral Le dw (G): grid " << gridLe.y
+        << " vs importance " << isLe.y << (okLe ? " OK" : " FAIL") << "\n";
+    return okPdf && okMatch && okLe;
+}
+
+static int RunLightTests(const CliOptions& opt) {
+    const int n = opt.spp * 4096;   // samples per test (default --spp 256 -> about 1M)
+    const int depth = std::max(opt.maxDepth, 4);
+    std::cout << "[Lights] " << n << " samples per test, albedo 0.5 ground, probe ray hits the origin\n";
+    bool allPassed = true;
+    const Real albedo = 0.5;
+
+    const Ray probe(Point3(-3, 3, 0), glm::normalize(Vector3(1, -1, 0)));
+    auto run = [&](const std::string& name, const std::shared_ptr<Scene>& scene, const Vector3& expected) {
+        Vector3 mean, se;
+        int bad = 0;
+        EstimateRadiance(*scene, probe, n, depth, mean, se, bad);
+        allPassed = ReportLightCase(name, expected, mean, se, bad) && allPassed;
+    };
+
+    // Overhead light at distance d = 2 from the probe point.
+    // Point light:   Lo = albedo / pi * I / d^2
+    run("point light I=10, d=2",
+        MakeGroundScene(albedo, [](Aggregate&, Scene& s) {
+            s.addLight(std::make_shared<PointLight>(Point3(0, 2, 0), RgbColor(1.0), 10.0)); }),
+        Vector3(albedo / constants::PI * 10.0 / 4.0));
+
+    // Sphere light (radius R, radiance L, center distance d, angle theta to the normal):
+    //   E = pi L (R/d)^2 cos(theta)   ->   Lo = albedo L (R/d)^2 cos(theta)
+    const Real overhead = albedo * 10.0 * (0.5 * 0.5) / 4.0;                       // theta = 0, d = 2
+    const Real oblique = albedo * 10.0 * (0.25 / 4.5) * (1.5 / std::sqrt(4.5));    // center (1.5, 1.5, 0)
+    for (int variant = 0; variant < 2; ++variant) {
+        const bool nee = (variant == 0);
+        const std::string tag = nee ? "NEE + MIS" : "BSDF sampling only";
+        run("sphere light overhead, R=0.5 L=10  [" + tag + "]",
+            MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                AddSphereLight(w, s, Point3(0, 2, 0), 0.5, RgbColor(1.0), 10.0, nee); }),
+            Vector3(overhead));
+        run("sphere light oblique,  R=0.5 L=10  [" + tag + "]",
+            MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                AddSphereLight(w, s, Point3(1.5, 1.5, 0), 0.5, RgbColor(1.0), 10.0, nee); }),
+            Vector3(oblique));
+        run("sphere light overhead, big R=1.2 L=10  [" + tag + "]",
+            MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                AddSphereLight(w, s, Point3(0, 2.5, 0), 1.2, RgbColor(1.0), 10.0, nee); }),
+            Vector3(albedo * 10.0 * (1.2 * 1.2) / (2.5 * 2.5)));
+        run("colored sphere light (1, .4, .1)*10  [" + tag + "]",
+            MakeGroundScene(albedo, [&](Aggregate& w, Scene& s) {
+                AddSphereLight(w, s, Point3(0, 2, 0), 0.5, RgbColor(1.0, 0.4, 0.1), 10.0, nee); }),
+            Vector3(overhead) * Vector3(1.0, 0.4, 0.1));
+    }
+
+    // Environment maps: reference = dense grid integration of EnvMap::eval.
+    Vector3 sunDir(0.0);
+    auto sunEnv = MakeSunSkyEnv(sunDir);
+    allPassed = CheckEnvSampling(*sunEnv, "synthetic sun + sky", n / 4) && allPassed;
+    run("environment: synthetic sun + sky (importance sampled)",
+        MakeGroundScene(albedo, [&](Aggregate&, Scene& s) {
+            s.setEnvLight(std::make_shared<EnvLight>(sunEnv, 1.0)); }),
+        GroundRadianceFromEnv(*sunEnv, albedo));
+    run("environment: synthetic sun + sky, scale 2",
+        MakeGroundScene(albedo, [&](Aggregate&, Scene& s) {
+            s.setEnvLight(std::make_shared<EnvLight>(sunEnv, 2.0)); }),
+        GroundRadianceFromEnv(*sunEnv, albedo) * 2.0);
+
+    try {
+        auto hdr = std::make_shared<EnvMap>(io::loadHDR(opt.env));
+        allPassed = CheckEnvSampling(*hdr, opt.env, n / 4) && allPassed;
+        run("environment: " + opt.env,
+            MakeGroundScene(albedo, [&](Aggregate&, Scene& s) {
+                s.setEnvLight(std::make_shared<EnvLight>(hdr, 1.0)); }),
+            GroundRadianceFromEnv(*hdr, albedo));
+    }
+    catch (const std::exception& e) {
+        std::cout << "[Lights]   (skipped HDR test: " << e.what() << ")\n";
+    }
+
+    std::cout << "[Lights] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
+}
+
+// -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -251,6 +507,8 @@ int main(int argc, char** argv) {
     std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
         << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
+
+    if (opt.scene == "lights") return RunLightTests(opt);
 
     // --------------------------------------------------
     // 2. 環境マップ (EnvMap) 読み込み
