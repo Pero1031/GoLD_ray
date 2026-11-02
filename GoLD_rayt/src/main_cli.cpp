@@ -140,6 +140,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
 //             maps). Samples per test = --spp x 4096. Exits with code 2 on FAIL.
+//   aov     : denoiser feature tests (no image): the albedo / normal recorded for a camera path on
+//             a diffuse surface, a coated sphere, a light, through smooth glass and for escaping rays.
 // Without options the behavior is the same as before (gold scene, constants above).
 // -----------------------------------------------------------------------------
 struct CliOptions {
@@ -160,6 +162,7 @@ struct CliOptions {
     std::string morphSpec;                 // --morph "12=1.0,15=0.5" : morph weights by index
     std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
+    bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)
@@ -200,6 +203,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pmx-matte") o.pmxMatte = true;
             else if (a == "--pmx-light") o.pmxLight = true;
             else if (a == "--pmx-studio") o.pmxStudio = true;
+            else if (a == "--aov") o.aov = true;
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
@@ -219,8 +223,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, spd, metals, studio, mesh, bench, goldrough or pmx");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, spd, metals, studio, mesh, bench, goldrough or pmx");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial" && o.lightSampler != "all")
@@ -232,7 +236,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--pmx-light] [--pmx-studio] [--aov] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -542,6 +546,98 @@ static bool CheckEnvSampling(const EnvMap& env, const std::string& label, int n)
         << (okMatch ? " OK" : " FAIL") << ";  Integral Le dw (G): grid " << gridLe.y
         << " vs importance " << isLe.y << (okLe ? " OK" : " FAIL") << "\n";
     return okPdf && okMatch && okLe;
+}
+
+// -----------------------------------------------------------------------------
+// AOV tests (--scene aov): the albedo / normal features recorded for the denoiser
+// -----------------------------------------------------------------------------
+static int RunAovTests() {
+    bool allPassed = true;
+    const Vector3 groundAlbedo(0.3, 0.5, 0.7), coatedAlbedo(0.8, 0.2, 0.1), lightColor(1.0, 0.4, 0.1);
+    const int maxDepth = 8;
+
+    auto buildScene = [&](bool withSky) {
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, std::make_shared<Lambertian>(RgbColor(groundAlbedo))));
+        world->add(std::make_shared<Sphere>(Point3(-1.5, 0.5, 0), 0.5, std::make_shared<Dielectric>(1.5, 0.0)));
+        world->add(std::make_shared<Sphere>(Point3(1.5, 0.5, 0), 0.5,
+            std::make_shared<CoatedDiffuse>(RgbColor(coatedAlbedo), Real(0.4))));
+        auto scene = std::make_shared<Scene>(world);
+        AddSphereLight(*world, *scene, Point3(0, 3, -3), 0.5, EmissionSpectrum(RgbColor(lightColor)), 10.0, true);
+        if (withSky) {
+            auto sky = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(0.5))));
+            scene->setEnvLight(std::make_shared<EnvLight>(sky, 1.0));
+        }
+        scene->finalize("spatial");
+        return scene;
+    };
+    const auto sceneSky = buildScene(true);
+    const auto sceneNoSky = buildScene(false);
+
+    struct Result { int n = 0, valid = 0; Vector3 albedo = Vector3(0.0), normal = Vector3(0.0); int nearGround = 0; };
+    auto trace = [&](const Scene& scene, const Ray& ray, int n) {
+        Result res;
+        PathIntegrator integrator(nullptr, maxDepth, 1);
+        for (int i = 0; i < n; ++i) {
+#if defined(RAYT_SPECTRAL_MODE)
+            SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
+#else
+            SampledWavelengths lambda;
+#endif
+            PathAOV aov;
+            integrator.Li(ray, scene, lambda, &aov);
+            ++res.n;
+            if (!aov.valid) continue;
+            ++res.valid;
+            res.albedo += aov.albedo;
+            res.normal += aov.normal;
+            if (glm::length(aov.albedo - groundAlbedo) < 1e-6) ++res.nearGround;
+        }
+        if (res.valid > 0) { res.albedo /= Real(res.valid); res.normal /= Real(res.valid); }
+        return res;
+    };
+    auto report = [&](const std::string& name, bool ok) {
+        std::cout << "[Aov]   " << name << "   " << (ok ? "OK" : "FAIL") << "\n";
+        allPassed = allPassed && ok;
+    };
+    auto close = [](const Vector3& a, const Vector3& b, Real tol) { return glm::length(a - b) <= tol; };
+
+    std::cout << "[Aov] albedo / normal features of a camera path\n";
+
+    {   // diffuse ground (a huge sphere, so its normal is +y only to within 0.002)
+        const Result r = trace(*sceneSky, Ray(Point3(0.5, 2, 2), Vector3(0, -1, 0)), 200);
+        report("diffuse ground: albedo = material color, normal = +y",
+            r.valid == r.n && close(r.albedo, groundAlbedo, 1e-6) && close(r.normal, Vector3(0, 1, 0), 5e-3));
+    }
+    {   // coated diffuse sphere, hit head-on (normal points back at the ray origin)
+        const Result r = trace(*sceneSky, Ray(Point3(1.5, 0.5, 3), Vector3(0, 0, -1)), 200);
+        report("coated diffuse sphere: albedo = base color, normal = +z",
+            r.valid == r.n && close(r.albedo, coatedAlbedo, 1e-6) && close(r.normal, Vector3(0, 0, 1), 1e-6));
+    }
+    {   // emitter: the hue of the emission, scaled to a maximum of 1
+        const Result r = trace(*sceneSky, Ray(Point3(0, 3, 0), Vector3(0, 0, -1)), 200);
+        report("sphere light: albedo = emission hue (max 1), normal = +z",
+            r.valid == r.n && close(r.albedo, lightColor, 1e-6) && close(r.normal, Vector3(0, 0, 1), 1e-6));
+    }
+    {   // smooth glass sphere over the ground: the ray is followed through it, so nearly every path ends
+        // with the ground color (the rest are Fresnel reflections that escape to the sky). If the glass
+        // itself were recorded, the albedo would be white (the Material default) and this fraction ~0.
+        const Result r = trace(*sceneSky, Ray(Point3(-1.5, 3, 0), Vector3(0, -1, 0)), 2000);
+        const double groundFraction = double(r.nearGround) / double(r.n);
+        std::cout << "[Aov]     (through glass: " << 100.0 * groundFraction << " % of the paths record the ground color)\n";
+        // (about 1 path in 2000 bounces around inside the sphere until the depth limit and records nothing)
+        report("smooth glass is skipped: albedo is the ground behind it", r.valid >= 0.99 * r.n && groundFraction > 0.85);
+    }
+    {   // a ray that leaves the scene
+        const Result sky = trace(*sceneSky, Ray(Point3(0, 5, 5), Vector3(0, 1, 0)), 2000);
+        report("escaping ray with an environment light: albedo = environment color, normal = 0",
+            sky.valid == sky.n && close(sky.albedo, Vector3(0.5), 0.03) && close(sky.normal, Vector3(0.0), 1e-9));
+        const Result none = trace(*sceneNoSky, Ray(Point3(0, 5, 5), Vector3(0, 1, 0)), 50);
+        report("escaping ray without environment: no feature recorded", none.valid == 0);
+    }
+
+    std::cout << "[Aov] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
 }
 
 static int RunLightTests(const CliOptions& opt) {
@@ -1582,6 +1678,7 @@ int main(int argc, char** argv) {
         << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
 
     if (opt.scene == "lights") return RunLightTests(opt);
+    if (opt.scene == "aov") return RunAovTests();
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2130,6 +2227,7 @@ int main(int argc, char** argv) {
     // 7. レンダラー生成
     // --------------------------------------------------
     Film film(imageWidth, imageHeight);
+    if (opt.aov) film.enableAOVs();
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
     auto integrator = std::make_unique<PathIntegrator>(
@@ -2150,6 +2248,13 @@ int main(int argc, char** argv) {
     std::cout << "[Output] Saving images..." << std::endl;
     film.save(opt.out);
     // film.save("result_gold_pbr.hdr");
+    if (opt.aov) {
+        const std::string stem = std::filesystem::path(opt.out).replace_extension("").string();
+        const std::string ext = std::filesystem::path(opt.out).extension().string();
+        const std::string aovExt = (ext == ".hdr") ? ".hdr" : ".png";
+        film.saveAlbedo(stem + "_albedo" + aovExt);
+        film.saveNormal(stem + "_normal" + aovExt);
+    }
 
     bool furnacePassed = true;
     if (opt.scene == "furnace") {

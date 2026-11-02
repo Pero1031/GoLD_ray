@@ -36,6 +36,18 @@
 
 namespace rayt {
 
+    /**
+     * @brief Denoiser auxiliary features of one camera path (see Film::enableAOVs).
+     *
+     * Recorded at the first vertex that is not perfectly specular, so glass and mirrors show what is
+     * seen through / in them; a path that escapes to the environment records the environment color.
+     */
+    struct PathAOV {
+        Vector3 albedo = Vector3(0.0);   ///< lighting-free color, [0,1]
+        Vector3 normal = Vector3(0.0);   ///< shading normal facing the ray (zero for the environment)
+        bool valid = false;
+    };
+
     // Abstract base class for all rendering algorithms.
     class Integrator {
     public:
@@ -77,6 +89,7 @@ namespace rayt {
 
             std::atomic<int> linesCompleted(0);
             const int totalLines = height;
+            const bool wantAOVs = film.hasAOVs();
 
 #pragma omp parallel for schedule(dynamic, 1)
             for (int j = 0; j < height; ++j) {
@@ -85,6 +98,7 @@ namespace rayt {
 
                 for (int i = 0; i < width; ++i) {
                     Vector3 pixelColor(0.0);   // linear sRGB
+                    Vector3 pixelAlbedo(0.0), pixelNormal(0.0);
 
                     for (int s = 0; s < m_spp; ++s) {
                         // アンチエイリアシング用のジッター
@@ -99,10 +113,17 @@ namespace rayt {
                         // Li() may drop the secondary wavelengths (dispersion), so convert with
                         // the wavelengths *after* Li() has run (separate statements on purpose).
                         SampledWavelengths lambda = samplePathWavelengths();
-                        const Spectrum Lpath = Li(r, scene, lambda);
+                        PathAOV aov;
+                        const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr);
                         pixelColor += SpectrumToRGB(Lpath, lambda);
+                        if (wantAOVs && aov.valid) {
+                            pixelAlbedo += aov.albedo;
+                            pixelNormal += aov.normal;
+                        }
                     }
                     pixelColor /= Real(m_spp);
+                    pixelAlbedo /= Real(m_spp);
+                    pixelNormal /= Real(m_spp);
 
                     // NaN除去（デバッグ用）
                     if (math::hasNonFinite(pixelColor)) {
@@ -115,6 +136,7 @@ namespace rayt {
 
                     // 上下反転して保存
                     film.setPixel(i, height - 1 - j, pixelColor);
+                    if (wantAOVs) film.setAOV(i, height - 1 - j, pixelAlbedo, pixelNormal);
                 }
 
                 // 行完了時に進捗更新（スレッドセーフ）
@@ -137,8 +159,9 @@ namespace rayt {
          * @param lambda Wavelengths carried by this path (spectral mode); unused in RGB mode.
          *               In/out: a dispersive material drops the secondary wavelengths (pdf = 0),
          *               so pass the same object to SpectrumToRGB afterwards.
+         * @param aov    If not null, receives the denoiser features of this path (albedo, normal).
          */
-        Spectrum Li(Ray r, const Scene& scene, SampledWavelengths& lambda) const {
+        Spectrum Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov = nullptr) const {
             Spectrum L(0.0);        // Accumulated Radiance
             Spectrum beta(1.0);     // Throughput
 
@@ -156,6 +179,11 @@ namespace rayt {
 
                     if (scene.hasEnvLight()) {  // 環境光があるとき
                         Spectrum envL = scene.envLight()->Le(r, lambda);  // 環境光の評価
+
+                        if (aov && !aov->valid) {   // seen directly (or through glass): the background color
+                            aov->albedo = glm::clamp(SpectrumToRGB(envL, lambda), Vector3(0.0), Vector3(1.0));
+                            aov->valid = true;
+                        }
 
                         if (hasLastBsdf && !lastSpecular) {  // BSFF評価済みかつ鏡面反射ではない
                             // MIS with BSDF sampling
@@ -191,6 +219,13 @@ namespace rayt {
 
                 // The BSDFs below assume unit-length directions (wo = -r.d).
                 Assert(math::isNormalized(r.d) && "ray direction must be unit length");
+
+                // Denoiser features: the first vertex that is not a perfect mirror / smooth glass.
+                if (aov && !aov->valid && !rec.matPtr->isSpecular()) {
+                    aov->albedo = rec.matPtr->aovAlbedo(rec);
+                    aov->normal = rec.n;
+                    aov->valid = true;
+                }
 
                 // Dispersive materials reduce the path to a single wavelength before anything is evaluated.
                 rec.matPtr->prepareWavelengths(lambda);

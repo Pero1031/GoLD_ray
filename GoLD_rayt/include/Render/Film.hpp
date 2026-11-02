@@ -60,6 +60,25 @@ namespace rayt {
         // clear buffer
         void clear();
 
+        // ---- Auxiliary buffers (AOVs) for denoising -------------------------------------------
+        // Lighting-free color (albedo) and surface normal of what each pixel sees, each averaged over
+        // the pixel's samples. Off by default; the integrator fills them when they are enabled.
+
+        void enableAOVs();
+        bool hasAOVs() const { return !m_albedo.empty(); }
+
+        /// Overwrites the AOVs of a pixel (albedo in [0,1], normal in [-1,1]; (0,0,0) = none).
+        void setAOV(int x, int y, const Vector3& albedo, const Vector3& normal);
+
+        const Vector3* getAlbedoData() const { return m_albedo.data(); }
+        const Vector3* getNormalData() const { return m_normal.data(); }
+
+        /// .hdr: linear floats; .png/.bmp/.jpg: albedo sRGB-encoded.
+        void saveAlbedo(const std::string& filename) const;
+
+        /// .hdr: floats in [-1,1]; .png/.bmp/.jpg: remapped to [0,1] (n * 0.5 + 0.5), no encoding.
+        void saveNormal(const std::string& filename) const;
+
         /**
          * @brief Returns the width of the film in pixels.
          */
@@ -97,6 +116,13 @@ namespace rayt {
          * (SpectrumToRGB) before it reaches the film, so the film is always RGB.
          */
         std::vector<Vector3> m_pixels;
+
+        std::vector<Vector3> m_albedo;   ///< empty unless enableAOVs() was called
+        std::vector<Vector3> m_normal;
+
+        /// Writes an AOV buffer; `encodeSrgb` for color, `remapSigned` for normals (see saveAlbedo / saveNormal).
+        void saveBuffer(const std::string& filename, const std::vector<Vector3>& data,
+            bool encodeSrgb, bool remapSigned) const;
     };
 
 } // namespace rayt

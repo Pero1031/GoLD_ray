@@ -52,6 +52,10 @@ namespace rayt {
         /// Makes the surface a translucent layer: stopped with probability opacity x texture alpha.
         void setTranslucent(Real opacity) { m_translucent = true; m_opacity = opacity; }
 
+        Vector3 aovAlbedo(const SurfaceInteraction& rec) const override {
+            return glm::clamp(albedoAt(rec).rgb(), Vector3(0.0), Vector3(1.0));
+        }
+
         Real opacity(const SurfaceInteraction& rec) const override {
             if (!m_translucent) return Real(1);
             return m_opacity * (m_tex ? m_tex->alpha(rec.uv.x, rec.uv.y) : Real(1));

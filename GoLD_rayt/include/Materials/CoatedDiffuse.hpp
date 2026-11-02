@@ -121,6 +121,11 @@ namespace rayt {
 
         bool isSpecular() const override { return false; }
 
+        /// The base color (also the reflectance color of the metallic blend).
+        Vector3 aovAlbedo(const SurfaceInteraction& rec) const override {
+            return glm::clamp(albedoAt(rec).rgb(), Vector3(0.0), Vector3(1.0));
+        }
+
     private:
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
             if (!m_tex) return m_albedo;
