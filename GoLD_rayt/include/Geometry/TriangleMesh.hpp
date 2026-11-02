@@ -137,18 +137,24 @@ namespace rayt {
         bool hit(const Ray& r, SurfaceInteraction& rec) const override {
             Real t, u, v;
             if (!intersect(r, t, u, v)) return false;
-
-            rec.t = t;
-            rec.p = r.at(t);
-            rec.setFaceNormal(r.d, m_ng);
-            if (m_mesh->hasNormals()) {
-                const Real w = Real(1) - u - v;
-                const Vector3 ns = glm::normalize(w * m_mesh->n[static_cast<size_t>(m_i0)]
-                    + u * m_mesh->n[static_cast<size_t>(m_i1)] + v * m_mesh->n[static_cast<size_t>(m_i2)]);
-                rec.n = rec.frontFace ? ns : -ns;
-            }
-            rec.matPtr = m_material.get();
+            fill(r, t, u, v, rec);
             return true;
+        }
+
+        /**
+         * @brief Builds the hit record for a hit that was found elsewhere (Embree, single precision).
+         *
+         * (t, u, v) are the external distance and barycentric weights of p1 and p2. They are
+         * re-evaluated with this triangle's own (Real precision) test when that confirms the hit;
+         * otherwise (an edge case where float and double disagree) the given values are used as is,
+         * so an external hit is never lost.
+         */
+        void fillHit(const Ray& r, Real t, Real u, Real v, SurfaceInteraction& rec) const {
+            Ray refine = r;
+            refine.tMax = t * Real(1.0001) + Real(1e-6);
+            Real t2, u2, v2;
+            if (intersect(refine, t2, u2, v2)) { t = t2; u = u2; v = v2; }
+            fill(r, t, u, v, rec);
         }
 
         bool occluded(const Ray& r) const override {
@@ -199,6 +205,20 @@ namespace rayt {
         }
 
     private:
+        /// Fills the hit record for a hit at distance t with barycentric weights (u, v).
+        void fill(const Ray& r, Real t, Real u, Real v, SurfaceInteraction& rec) const {
+            rec.t = t;
+            rec.p = r.at(t);
+            rec.setFaceNormal(r.d, m_ng);
+            if (m_mesh->hasNormals()) {
+                const Real w = Real(1) - u - v;
+                const Vector3 ns = glm::normalize(w * m_mesh->n[static_cast<size_t>(m_i0)]
+                    + u * m_mesh->n[static_cast<size_t>(m_i1)] + v * m_mesh->n[static_cast<size_t>(m_i2)]);
+                rec.n = rec.frontFace ? ns : -ns;
+            }
+            rec.matPtr = m_material.get();
+        }
+
         /// Moller-Trumbore. On success t is the distance and (u, v) the barycentric weights of p1, p2.
         bool intersect(const Ray& r, Real& t, Real& u, Real& v) const {
             const Point3& a = m_p0;
