@@ -93,6 +93,15 @@ namespace rayt {
         virtual std::optional<LightBounds> bounds() const { return std::nullopt; }
 
         /**
+         * @brief Rough irradiance an infinite light delivers to an unoccluded point (luminance units).
+         *
+         * Lets the spatial light sampler weigh an infinite light against bounded lights, whose
+         * LightBounds::importance is of the same kind (about L * solid angle). 0 = unknown, which
+         * makes the sampler fall back to a fixed share. Only used for lights without bounds().
+         */
+        virtual Real irradianceEstimate() const { return Real(0); }
+
+        /**
          * @brief Sample incident radiance arriving at a reference point.
          *
          * This function is the core interface for Next Event Estimation (NEE).

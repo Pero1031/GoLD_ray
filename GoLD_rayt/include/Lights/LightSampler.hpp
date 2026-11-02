@@ -54,6 +54,11 @@ namespace rayt {
 
         virtual size_t numLights() const = 0;
         bool hasLights() const { return numLights() > 0; }
+
+        /// True for a sampler that does not choose: the integrator samples every light i < numLights()
+        /// returned by lightAt(i) with pmf(ctx, light) > 0 (probability 1 each) at every shading point.
+        virtual bool samplesAll() const { return false; }
+        virtual const Light* lightAt(size_t /*i*/) const { return nullptr; }
     };
 
     // ---------------------------------------------------------------------------------------
@@ -121,6 +126,24 @@ namespace rayt {
             if (m_unbounded.empty()) return Real(0);
             return boundedUsable ? nu / (nu + Real(1)) : Real(1);
         }
+
+        /**
+         * Probability of the unbounded group when the bounded lights have a combined importance
+         * `boundedTotal` at the shading point: the unbounded lights' irradiance against the bounded
+         * lights' importance (both are about "L x solid angle"). A dim sky then no longer takes half
+         * of all samples. Each group keeps at least kMinGroupShare so a wrong estimate cannot starve it;
+         * lights that cannot estimate their strength give the fixed share of pUnbounded().
+         */
+        Real pUnboundedByImportance(Real boundedTotal) const {
+            if (m_unbounded.empty()) return Real(0);
+            if (boundedTotal <= Real(0)) return Real(1);
+            Real eu = 0;
+            for (const Light* l : m_unbounded) eu += l->irradianceEstimate();
+            if (eu <= Real(0)) return pUnbounded(true);
+            return std::clamp(eu / (eu + boundedTotal), kMinGroupShare, Real(1) - kMinGroupShare);
+        }
+
+        static constexpr Real kMinGroupShare = Real(0.05);
 
     private:
         std::vector<const Light*> m_bounded, m_unbounded;
@@ -240,7 +263,7 @@ namespace rayt {
             if (nb > kStack) { heapBuf.resize(nb); imp = heapBuf.data(); }
             const Real total = importances(ctx, imp);
 
-            const Real pU = m_set.pUnbounded(total > Real(0));
+            const Real pU = m_set.pUnboundedByImportance(total);
             if (nu > 0 && u < pU) {
                 const size_t i = std::min(static_cast<size_t>(u / pU * Real(nu)), nu - 1);
                 return SampledLight{ m_set.unbounded(i), pU / Real(nu) };
@@ -270,7 +293,7 @@ namespace rayt {
             Real* imp = stackBuf.data();
             if (nb > kStack) { heapBuf.resize(nb); imp = heapBuf.data(); }
             const Real total = importances(ctx, imp);
-            const Real pU = m_set.pUnbounded(total > Real(0));
+            const Real pU = m_set.pUnboundedByImportance(total);
 
             if (idx < 0) return pU / Real(m_set.numUnbounded());
             if (total <= Real(0)) return Real(0);
@@ -292,6 +315,47 @@ namespace rayt {
         }
 
         BoundedLightSet m_set;
+    };
+
+    // ---------------------------------------------------------------------------------------
+    // Exhaustive (every light that can reach the point, probability 1 each)
+    // ---------------------------------------------------------------------------------------
+    /**
+     * With few lights, one shadow ray per light is often cheaper than the noise of picking one at
+     * random: the variance of "choose light i with probability p_i" is V_i / p_i, with p_i = 1 it is V_i.
+     * A bounded light whose LightBounds::importance is 0 cannot reach the point and is skipped
+     * (pmf 0); everything else, the environment light included, has pmf 1. O(N) shadow rays per
+     * shading point, so only for a handful of lights.
+     */
+    class ExhaustiveLightSampler : public LightSampler {
+    public:
+        explicit ExhaustiveLightSampler(const std::vector<std::shared_ptr<Light>>& lights)
+            : m_set(lights)
+        {
+            for (size_t i = 0; i < m_set.numBounded(); ++i) m_all.push_back(m_set.bounded(i));
+            for (size_t i = 0; i < m_set.numUnbounded(); ++i) m_all.push_back(m_set.unbounded(i));
+        }
+
+        // Not used (samplesAll() is true); returns the first reachable light for completeness.
+        std::optional<SampledLight> sample(const LightSampleContext& ctx, Real) const override {
+            for (const Light* l : m_all) if (pmf(ctx, l) > Real(0)) return SampledLight{ l, Real(1) };
+            return std::nullopt;
+        }
+
+        Real pmf(const LightSampleContext& ctx, const Light* light) const override {
+            const int idx = m_set.find(light);
+            if (idx == std::numeric_limits<int>::min()) return Real(0);
+            if (idx < 0) return Real(1);
+            return m_set.bounds(static_cast<size_t>(idx)).importance(ctx.p, ctx.gn) > Real(0) ? Real(1) : Real(0);
+        }
+
+        size_t numLights() const override { return m_all.size(); }
+        bool samplesAll() const override { return true; }
+        const Light* lightAt(size_t i) const override { return m_all[i]; }
+
+    private:
+        BoundedLightSet m_set;
+        std::vector<const Light*> m_all;
     };
 
 } // namespace rayt

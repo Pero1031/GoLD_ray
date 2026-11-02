@@ -123,11 +123,15 @@ namespace rayt {
             return pdfUV / (Real(2) * constants::PI * constants::PI * sinTheta);
         }
 
+        /// Luminance averaged over the sphere (solid-angle weighted), before any light scale.
+        Real averageLuminance() const { return m_avgLuminance; }
+
     private:
         Image m_img;
 
         // 2D importance distribution (built from luminance * sinθ)
         std::unique_ptr<Distribution2D> m_dist;
+        Real m_avgLuminance = 0;
 
         static Real luminance(const Vector3& rgb) {
             // Rec.709 / sRGB luminance weights (common choice)
@@ -241,6 +245,7 @@ namespace rayt {
             // Build weights = luminance * sin(theta)
             std::vector<float> weights;
             weights.resize(size_t(w) * size_t(h));
+            double lumSum = 0, sinSum = 0;   // for the sphere average of the luminance
 
             for (int y = 0; y < h; ++y) {
                 // v coordinate at pixel center (match sampleBilinear convention)
@@ -260,8 +265,11 @@ namespace rayt {
                     // Clamp negative luminance (just in case)
                     float wt = static_cast<float>(std::max(lum, Real(0))) * sinT;
                     weights[size_t(y) * size_t(w) + size_t(x)] = wt;
+                    lumSum += double(wt);
+                    sinSum += double(sinT);
                 }
             }
+            if (sinSum > 0) m_avgLuminance = Real(lumSum / sinSum);
 
             m_dist = std::make_unique<Distribution2D>(weights.data(), w, h);
         }

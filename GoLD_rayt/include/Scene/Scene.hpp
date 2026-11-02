@@ -79,7 +79,8 @@ namespace rayt {
          *
          * The environment light (if any) is part of the sampler's light list.
          *
-         * @param samplerType "uniform", "power" (emitted power, alias table) or
+         * @param samplerType "uniform", "power" (emitted power, alias table), "all" (sample every
+         *        reachable light at each point: few lights only) or
          *        "spatial" (default: power x distance x orientation importance at the shading point)
          */
         void finalize(const std::string& samplerType = "spatial") {
@@ -91,6 +92,9 @@ namespace rayt {
             }
             else if (samplerType == "power") {
                 m_lightSampler = std::make_unique<PowerLightSampler>(all);
+            }
+            else if (samplerType == "all") {
+                m_lightSampler = std::make_unique<ExhaustiveLightSampler>(all);
             }
             else {
                 m_lightSampler = std::make_unique<SpatialLightSampler>(all);
