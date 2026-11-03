@@ -154,6 +154,13 @@ namespace rayt {
             return m_lights;
         }
 
+        /// Every light the sampler knows: the scene lights plus the environment light (for photon emission).
+        std::vector<std::shared_ptr<Light>> allLights() const {
+            std::vector<std::shared_ptr<Light>> all = m_lights;
+            if (m_envLight) all.push_back(m_envLight);
+            return all;
+        }
+
     private:
         /**
          * @brief The root of the spatial acceleration structure.

@@ -160,6 +160,12 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             absorption (default 40: a 6 cm glass is colorless at 1, so the tint is exaggerated); 0 = no absorption.
 //             --water-sky: lit by the environment map (--env) instead of softboxes, no wall, camera looking down at --cam-elev
 //             degrees (default 38) from --cam-yaw (default: the side of the map's brightest spot), to see the caustic on the table.
+//             --caustics N: caustic photon map with N emitted photons (Render/CausticPhotonMap.hpp) for clean caustics even
+//             from small / concentrated lights; --caustic-radius m = gather radius (default 0.0015, in the test 0.004).
+//             --water-lamp: one small point light (left, about 33 degrees up) instead of the softboxes / wall, camera looking down on
+//             the caustic behind the glass (same --cam-elev / --cam-yaw). A point light can only be seen with --caustics.
+//   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
+//             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -225,6 +231,9 @@ struct CliOptions {
     int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
     Real absorbScale = 40;             // water: multiplies the absorption of pure water (1 = physical; a glass of water is then colorless)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
+    bool waterLamp = false;            // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
+    long long causticPhotons = 0;     // water: photons emitted for the caustic photon map (0 = off, caustics by BSDF sampling only)
+    Real causticRadius = -1;           // gather radius of the caustic photon map (m); < 0: the scene's default (water 1.5 mm, caustic test 4 mm)
     Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
     Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
@@ -268,6 +277,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
             else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
             else if (a == "--water-sky") o.waterSky = true;
+            else if (a == "--water-lamp") o.waterLamp = true;
+            else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
+            else if (a == "--caustic-radius") o.causticRadius = std::stod(value("--caustic-radius"));
             else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));
             else if (a == "--cam-yaw") o.camYaw = std::stod(value("--cam-yaw"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
@@ -306,8 +318,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob or water");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water or caustic");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -323,7 +335,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water] [--absorb-scale S] [--water-sky] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -488,9 +500,10 @@ static void TracePixelDebug(const Scene& scene, const Camera& camera, int px, in
 
 // Mean linear RGB (and its standard error) of Li() along one fixed ray.
 static void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth,
-    Vector3& mean, Vector3& se, int& badSamples)
+    Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics = nullptr)
 {
     PathIntegrator integrator(nullptr, maxDepth, 1);
+    integrator.setCausticMap(caustics);
     double sx = 0, sy = 0, sz = 0, qx = 0, qy = 0, qz = 0;
     int bad = 0;
 
@@ -865,6 +878,54 @@ static int RunVolumeTests(const CliOptions& opt) {
     }
 
     std::cout << "[Volume] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
+}
+
+// -----------------------------------------------------------------------------
+// Caustic photon map test (--scene caustic)
+// -----------------------------------------------------------------------------
+// A glass sphere (radius 5 cm) on a diffuse floor under a uniform white sky. The floor radiance at a few points near the sphere is
+// estimated twice: by plain path tracing (caustics found by BSDF sampling: unbiased, a reference because a uniform sky is easy
+// to hit) and by path tracing + caustic photons (L S+ D from the photon map, the same paths dropped from the BSDF sampling).
+// The two must agree. Photons emitted = --spp x 8000 (about 2 M by default).
+static int RunCausticTests(const CliOptions& opt) {
+    auto sky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+    auto world = std::make_shared<Aggregate>();
+    world->add(std::make_shared<Quad>(Point3(-5, 0, -5), Vector3(0, 0, 10), Vector3(10, 0, 0), std::make_shared<Lambertian>(RgbColor(0.5))));   // normal +y
+    const Real R = 0.05;
+    const Point3 center(0, R + 0.0005, 0);
+    world->add(std::make_shared<Sphere>(center, R, std::make_shared<Dielectric>(Real(1.5), Real(0.0))));
+    auto scene = std::make_shared<Scene>(world);
+    scene->setEnvLight(sky);
+    scene->finalize("spatial");
+
+    CausticPhotonParams P;
+    P.numPhotons = static_cast<long long>(opt.spp) * 8000;
+    P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(0.004);
+    P.targetCenter = center;
+    P.targetRadius = R * Real(1.05);
+    CausticPhotonMap map;
+    map.build(*scene, P);
+
+    const int n = opt.spp * 4096;
+    const int depth = 64;
+    bool allPassed = true;
+    std::cout << "[Caustic] " << n << " samples per estimate, floor albedo 0.5, uniform sky 1: no caustic at all would give 0.5\n";
+    const Point3 targets[] = { Point3(0.0, 0, 0.0), Point3(0.0, 0, 0.08), Point3(0.10, 0, 0.0), Point3(0.04, 0, -0.03), Point3(-0.07, 0, -0.07) };
+    for (const Point3& T : targets) {
+        const Point3 from = T + Vector3(0.0, 0.15, 0.30);
+        const Ray ray(from, glm::normalize(Vector3(T - from)));
+        Vector3 meanA, seA, meanB, seB; int badA = 0, badB = 0;
+        EstimateRadiance(*scene, ray, n, depth, meanA, seA, badA, nullptr);
+        EstimateRadiance(*scene, ray, n, depth, meanB, seB, badB, &map);
+        bool ok = (badA == 0 && badB == 0);
+        for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanA[c] - meanB[c]) <= 4.0 * std::sqrt(seA[c] * seA[c] + seB[c] * seB[c]) + 0.03 * meanA[c];
+        allPassed = allPassed && ok;
+        std::cout << "[Caustic]   floor point (" << T.x << ", " << T.z << "):  path tracing " << meanA.y << " +- " << seA.y
+            << "   with photons " << meanB.y << " +- " << seB.y << "   ratio R/G/B " << meanB.x / meanA.x << " / " << meanB.y / meanA.y
+            << " / " << meanB.z / meanA.z << (ok ? "   OK" : "   FAIL") << "\n";
+    }
+    std::cout << "[Caustic] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
 
@@ -2189,6 +2250,7 @@ int main(int argc, char** argv) {
     if (opt.scene == "sss") return RunSssTests(opt);
     if (opt.scene == "skinlayers") return RunSkinLayers(opt);
     if (opt.scene == "volume") return RunVolumeTests(opt);
+    if (opt.scene == "caustic") return RunCausticTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2343,6 +2405,8 @@ int main(int argc, char** argv) {
     bool probeView = false;                                       // metalprobe scene: distant narrow-FOV camera
     bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
     bool waterView = false;                                       // water scene: close camera on the tumbler
+    Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
+    Real causticTargetRadius = 0;
 
     if (opt.scene == "gold") {
         // リストに対して add する
@@ -2786,7 +2850,7 @@ int main(int argc, char** argv) {
         // Table and the striped wall behind (white / dark stripes, 12 mm wide).
         worldList->add(std::make_shared<Quad>(Point3(-2, 0, -2), Vector3(0, 0, 4), Vector3(4, 0, 0),
             std::make_shared<Lambertian>(RgbColor(0.55))));                                         // normal +y
-        if (!opt.waterSky) {   // under the open sky there is no wall: it would shade the table from half of the environment
+        if (!opt.waterSky && !opt.waterLamp) {   // under the open sky there is no wall: it would shade the table from half of the environment
             auto stripeWhite = std::make_shared<Lambertian>(RgbColor(0.80));
             auto stripeDark = std::make_shared<Lambertian>(RgbColor(0.04));
             const Real sw = 0.012;
@@ -2802,12 +2866,20 @@ int main(int argc, char** argv) {
             const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * h;
             studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
         };
-        if (!opt.waterSky) {
+        if (opt.waterLamp) {
+            const Point3 lamp(-0.20, 0.22, 0.16);
+            studioLights.push_back(std::make_shared<PointLight>(lamp, RgbColor(1.0, 0.97, 0.92), Real(0.8)));
+            envPeakDir = glm::normalize(Vector3(lamp - target));   // the camera azimuth follows the light, like --water-sky
+            if (opt.causticPhotons <= 0) std::cout << "[Water] note: a point light casts no caustic without --caustics (it cannot be hit by BSDF sampling)\n";
+        }
+        else if (!opt.waterSky) {
             softbox(Point3(-0.30, 0.28, 0.22), 0.22, 0.22, EmissionSpectrum(RgbColor(1.0, 0.97, 0.92)), 9.0);   // key: above-left-front
             softbox(Point3(0.35, 0.12, 0.30), 0.25, 0.20, EmissionSpectrum(RgbColor(1.0)), 1.2);               // fill: front-right, dim
             softbox(Point3(0.30, 0.09, 0.00), 0.04, 0.18, EmissionSpectrum(RgbColor(1.0)), 20.0);              // strip on the right: rim light on the glass edge
         }
         waterView = true;
+        causticCenter = Point3(0.0, y0 + gH * 0.5, 0.0);                                  // the tumbler is the only specular object
+        causticTargetRadius = std::sqrt(rOutTop * rOutTop + gH * gH * 0.25) * Real(1.02);
     }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
@@ -2945,6 +3017,17 @@ int main(int argc, char** argv) {
     }
     std::cout << ".\n";
 
+    // Caustic photon map (water scene, --caustics N): photons from the lights through the tumbler onto the table.
+    CausticPhotonMap causticMap;
+    if (opt.scene == "water" && opt.causticPhotons > 0) {
+        CausticPhotonParams P;
+        P.numPhotons = opt.causticPhotons;
+        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(0.0015);
+        P.targetCenter = causticCenter;
+        P.targetRadius = causticTargetRadius;
+        causticMap.build(*scene, P);
+    }
+
     // -------------------------------------------------------------------------
     // 3. カメラ設定
     // -------------------------------------------------------------------------
@@ -2967,7 +3050,7 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.0, 0.075, 0.40);
         lookAt = Point3(0.0, 0.048, 0.0);
         fovDeg = 22.0;
-        if (opt.waterSky) {   // looking down at the table beside / behind the tumbler, where the caustic lands
+        if (opt.waterSky || opt.waterLamp) {   // looking down at the table beside / behind the tumbler, where the caustic lands
             const Real elev = glm::radians(opt.camElev >= 0 ? opt.camElev : Real(38));
             const Real yaw = (opt.camYaw < 1e8) ? glm::radians(opt.camYaw)
                 : std::atan2(envPeakDir.x, envPeakDir.z) + glm::radians(Real(35));   // on the sun's side, turned 35 degrees: the caustic falls behind
@@ -3020,6 +3103,7 @@ int main(int argc, char** argv) {
     );
 
     integrator->setMaxVolumeEvents(opt.volumeCap);
+    integrator->setCausticMap(&causticMap);   // ignored while the map is empty
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
 
