@@ -1522,7 +1522,7 @@ static int RunBvhBenchmark(const CliOptions& opt) {
     std::cout << "[Bench] " << nRays << " random rays per mesh, single thread (use a Release build)\n";
 
     auto white = std::make_shared<Lambertian>(RgbColor(1.0));
-    for (const int subdiv : { 5, 6, 7 }) {
+    for (const int subdiv : { 1, 2, 3, 4, 5, 6, 7 }) {   // 80 ... 328k triangles (small meshes show the per-ray overhead)
         const auto mesh = std::make_shared<const TriangleMesh>(TriangleMesh::Icosphere(subdiv, 1.0, Point3(0.0), true));
         std::vector<std::shared_ptr<Hittable>> prims;
         for (size_t i = 0; i < mesh->numTriangles(); ++i) prims.push_back(std::make_shared<Triangle>(mesh, i, white));
@@ -1582,6 +1582,34 @@ static int RunBvhBenchmark(const CliOptions& opt) {
             << double(nRays) / 1e6 / (ms(e3, e4) / 1000.0) << " Mray/s;  " << hitsEmbree << " hits, " << embreeMismatch
             << " differ from the double BVH (|dt|>1e-6)   " << (embreeOk ? "OK" : "FAIL") << "\n";
         (void)occEmbree;
+
+        // Embree without the robust (watertight) flag: how much of its time is that flag?
+        {
+            EmbreeMesh fast(mesh, white, /*robust=*/false);
+            int h = 0;
+            const auto f0 = clock::now();
+            for (size_t i = 0; i < rays.size(); ++i) h += fast.hit(rays[i], rec) ? 1 : 0;
+            const auto f1 = clock::now();
+            std::cout << "[Bench]     Embree (no robust flag): closest hit " << double(nRays) / 1e6 / (ms(f0, f1) / 1000.0)
+                << " Mray/s (x" << ms(c1, c2) / ms(f0, f1) << " vs flat BVH, " << h << " hits)\n";
+        }
+
+        // All threads at once, as in a render: do both backends scale?
+        {
+            const int count = static_cast<int>(rays.size());
+            int hf = 0, he = 0;
+            const auto m0 = clock::now();
+#pragma omp parallel for reduction(+:hf) schedule(static)
+            for (int i = 0; i < count; ++i) { SurfaceInteraction r2; hf += flat.hit(rays[static_cast<size_t>(i)], r2) ? 1 : 0; }
+            const auto m1 = clock::now();
+#pragma omp parallel for reduction(+:he) schedule(static)
+            for (int i = 0; i < count; ++i) { SurfaceInteraction r2; he += embree.hit(rays[static_cast<size_t>(i)], r2) ? 1 : 0; }
+            const auto m2 = clock::now();
+            const double flatMt = double(nRays) / 1e6 / (ms(m0, m1) / 1000.0), embreeMt = double(nRays) / 1e6 / (ms(m1, m2) / 1000.0);
+            std::cout << "[Bench]     all threads: flat BVH " << flatMt << " Mray/s (x" << ms(c1, c2) / ms(m0, m1) << " of one thread),  Embree "
+                << embreeMt << " Mray/s (x" << ms(e2, e3) / ms(m1, m2) << " of one thread),  Embree / flat x" << embreeMt / flatMt
+                << "  (" << hf << " / " << he << " hits)\n";
+        }
 
         if (subdiv == 6) {
             // Coherent rays (camera-like scanline order from one point) on the same BVH: shows how much
@@ -1798,6 +1826,11 @@ int main(int argc, char** argv) {
     std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
         << " spp=" << opt.spp << " maxDepth=" << opt.maxDepth << " out=" << opt.out << "\n";
+    if (opt.accel == "embree" && opt.scene != "mesh" && opt.scene != "bench") {
+        // Embree is wired up for single-material triangle meshes only (the mesh and bench scenes); the PMX scene
+        // (many materials, alpha cut-outs) and the primitive scenes always use their own BVH / lists.
+        std::cout << "[Accel] note: --accel embree has no effect in the '" << opt.scene << "' scene\n";
+    }
 
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "aov") return RunAovTests();

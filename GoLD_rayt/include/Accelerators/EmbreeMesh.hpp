@@ -45,7 +45,8 @@ namespace rayt {
 
     class EmbreeMesh : public Hittable {
     public:
-        EmbreeMesh(const std::shared_ptr<const TriangleMesh>& mesh, const std::shared_ptr<Material>& material) {
+        /// @param robust true (default): watertight intersection test (RTC_SCENE_FLAG_ROBUST), a little slower
+        EmbreeMesh(const std::shared_ptr<const TriangleMesh>& mesh, const std::shared_ptr<Material>& material, bool robust = true) {
             RTCDevice device = detail::embreeDevice();
             if (!device) throw std::runtime_error("Embree: rtcNewDevice failed (is embree4.dll next to the exe?)");
 
@@ -53,7 +54,7 @@ namespace rayt {
                 m_tris.push_back(std::make_shared<Triangle>(mesh, i, material));
 
             m_scene = rtcNewScene(device);
-            rtcSetSceneFlags(m_scene, RTC_SCENE_FLAG_ROBUST);
+            rtcSetSceneFlags(m_scene, robust ? RTC_SCENE_FLAG_ROBUST : RTC_SCENE_FLAG_NONE);
             rtcSetSceneBuildQuality(m_scene, RTC_BUILD_QUALITY_HIGH);
 
             RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
