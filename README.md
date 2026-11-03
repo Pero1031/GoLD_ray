@@ -117,7 +117,7 @@ polarization. A rough dielectric does not compensate multiple scattering yet.
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped) or `.hdr` (linear float) |
-| `--accel own\|embree` | own SAH BVH or Embree for triangle meshes |
+| `--accel own\|embree` | own SAH BVH or Embree for single-material triangle meshes (`mesh` and `bench` scenes only; other scenes print a note and ignore it) |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |
 
@@ -246,7 +246,8 @@ area lights.
 ## 7. What could come next
 
 - **Sampling efficiency**: adaptive sampling (spend samples where the noise is), low-discrepancy sequences
-  (Sobol / blue noise), looking into why Embree is slower on alpha-cut-out hair.
+  (Sobol / blue noise), and using Embree in the PMX scene (it is only wired up for single-material meshes; the
+  PMX scene needs per-triangle materials and alpha cut-outs).
 - **Metals**: Sellmeier / Lorentz-Drude models, thin films, spectral upsampling of saturated colors, fitting `(n, k)`
   to measured reflectance at several angles.
 - **Characters**: VMD motion and temporal denoising for animation, IK, hair / skirt physics, better hair and
