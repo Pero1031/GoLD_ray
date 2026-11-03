@@ -140,8 +140,11 @@ about 2 minutes.
   iterative traversal) or **Embree**.
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the denoised image matches
   roughly the error of 230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
-- **GUI**: a small Dear ImGui viewer with progressive accumulation (exposure, pause, reset). It has not been run
-  in spectral mode.
+- **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Scene (three gold spheres or glass
+  spheres on a floor), environment map (every `.hdr` in `assets/env`), roughness of the center gold sphere, exposure
+  (EV), samples per frame, sample limit, pause / reset, and "Save image" (PNG with the exposure, plus a linear HDR).
+  It renders in whichever mode `RenderMode.hpp` selects (RGB or spectral) and shows it in the panel. It does not
+  load characters, use SSS or denoise.
 
 ---
 
@@ -238,6 +241,7 @@ the number of samples; run in Release for speed). They run in both RGB and spect
 | `--scene aov` | the albedo / normal features of a camera path |
 | `--scene sss` | the radial profile, a white furnace over skin, and the profile across a shadow edge against a numerical integral |
 | `--scene bench` | BVH benchmark: recursive reference vs the SAH BVH vs Embree (speed, and that the hits agree); use a Release build |
+| GUI build: `GoLD_rayt.exe --selftest` | scripted check of the GUI features (scene and environment switches, roughness, exposure, samples per frame, pause, sample limit, saving); `--selftest-keep` keeps the saved image |
 
 Bugs found this way (and fixed): refraction that never left a glass sphere, an unnormalized camera ray that made
 rough gold ~22 % too dark, area lights that were always shadowed at grazing angles, and wrong MIS weights for

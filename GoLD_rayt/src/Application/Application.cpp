@@ -9,6 +9,10 @@
 #include "Application/Application.hpp"
 
 #include <imgui.h>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <ctime>
 #include <iostream>
 #include <vector>
 #include <filesystem>
@@ -128,7 +132,7 @@ void App::init() {
     std::cout << "[Render] mode = " << rayt::kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
 
     // --------------------------------------------------
-    // 1. UI & OpenGL テクスチャ初期化
+    // 1. UI and OpenGL texture
     // --------------------------------------------------
     m_uiLayer.init(m_window);
 
@@ -140,51 +144,76 @@ void App::init() {
     glBindTexture(GL_TEXTURE_2D, 0);
 
     // --------------------------------------------------
-    // 2. 環境マップ (EnvMap) 読み込み
+    // 2. Materials, environment maps, scene
     // --------------------------------------------------
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
-    
-    std::shared_ptr<EnvMap> envMap = nullptr;  // 環境マップクラスをインスタンス化
-    std::shared_ptr<EnvLight> envLight = nullptr;
+    loadMaterials();
+    buildScene();
 
-    try {
-        std::cout << "[EnvMap] Loading: " << ENV_HDR_PATH << std::endl;
-        auto envImg = io::loadHDR(ENV_HDR_PATH);   // HDRでダウンロード
-        envMap = std::make_shared<EnvMap>(std::move(envImg));
-        std::cout << "[EnvMap] Success.\n";
+    // --------------------------------------------------
+    // 3. Camera, film, integrator
+    // --------------------------------------------------
+    Point3 lookFrom(0, 0.5, 2.5);
+    Point3 lookAt(0, 0, -1);
+    Vector3 vUp(0, 1, 0);
 
-        // EnvMapからEnvLightを作成 (スケール1.0)
-        envLight = std::make_shared<EnvLight>(envMap, 1.0);
-        std::cout << "[EnvLight] Created from environment map.\n";
+    Real distToFocus = glm::length(lookFrom - lookAt);
+    Real aperture = 0.0; // pinhole
+    Real vfov = 35.0;
+    Real aspect = static_cast<Real>(m_width) / static_cast<Real>(m_height);
+
+    m_camera = std::make_shared<Camera>(
+        lookFrom, lookAt, vUp,
+        vfov, aspect, aperture, distToFocus
+    );
+
+    m_film = std::make_unique<Film>(m_width, m_height);
+
+    // PathIntegrator(camera, maxDepth, spp)
+    m_integrator = std::make_unique<PathIntegrator>(
+        m_camera,
+        m_settings.maxDepth,
+        m_settings.targetSpp
+    );
+
+    std::cout << "[Integrator] PathIntegrator created (maxDepth="
+        << m_settings.maxDepth << ", spp=" << m_settings.targetSpp << ").\n";
+}
+
+void App::loadMaterials() {
+    // Environment maps: every .hdr in assets/env (index 0 = none). The default is the one named by
+    // ENV_HDR_PATH when it exists (it is not tracked by Git), otherwise the first one found.
+    m_envPaths.assign(1, "");
+    m_settings.envNames.assign(1, "None (black)");
+    {
+        std::error_code ec;
+        std::vector<std::filesystem::path> found;
+        for (const auto& entry : std::filesystem::directory_iterator("assets/env", ec)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".hdr") found.push_back(entry.path());
+        }
+        std::sort(found.begin(), found.end());
+        for (const auto& path : found) {
+            m_envPaths.push_back(path.generic_string());
+            m_settings.envNames.push_back(path.filename().string());
+        }
+        m_settings.env = 0;
+        for (size_t i = 1; i < m_envPaths.size(); ++i) {
+            if (m_envPaths[i] == ENV_HDR_PATH) m_settings.env = static_cast<int>(i);
+        }
+        if (m_settings.env == 0 && m_envPaths.size() > 1) m_settings.env = 1;
+        std::cout << "[EnvMap] " << (m_envPaths.size() - 1) << " map(s) found in assets/env\n";
     }
-    catch (const std::exception& e) {
-        std::cerr << "[EnvMap] Failed: " << e.what() << "\n";
-        std::cerr << "[EnvMap] Fallback to black background.\n";
-        envMap = nullptr;
-        envLight = nullptr;
-    }
 
-    // --------------------------------------------------
-    // 3. マテリアル作成 
-    // --------------------------------------------------
-
-    // 拡散反射の床
-    auto matFloor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5));
-
-    // --------------------------------------------------
-    // 金の光学定数 (Au) をCSVからロード
-    // The table is handed to the material as-is: spectral mode evaluates it per wavelength,
-    // RGB mode reduces it to RGB eta/k by CMF integration.
-    // --------------------------------------------------
-    auto auTable = std::make_shared<rayt::color::ComplexIorTable>();
+    // Gold optical constants (Au) from the CSV. The table is handed to the material as-is: spectral mode
+    // evaluates it per wavelength, RGB mode reduces it to RGB eta/k by CMF integration.
+    m_auTable = std::make_shared<rayt::color::ComplexIorTable>();
     std::string auErr;
-
-    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *auTable, &auErr)) {
+    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *m_auTable, &auErr)) {
         std::cerr << "[Au IOR] Failed: " << auErr << "\n";
         std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
 
         // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
-        auTable->assign({
+        m_auTable->assign({
             { 450.0, 1.45, 1.77 },
             { 550.0, 0.42, 2.45 },
             { 650.0, 0.16, 3.48 },
@@ -197,7 +226,7 @@ void App::init() {
     // Log the RGB reduction of the table (what RGB mode renders with).
     {
         Vector3 eta_rgb(1.0), k_rgb(0.0);
-        rayt::color::integrateIorToRgb_CMF(*auTable, eta_rgb, k_rgb);
+        rayt::color::integrateIorToRgb_CMF(*m_auTable, eta_rgb, k_rgb);
         std::cout << "[Au IOR] RGB (CMF-integrated) eta=("
             << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
             << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
@@ -207,127 +236,83 @@ void App::init() {
             << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.z, k_rgb.z) << ")\n";
     }
 
-    // 3段階の粗さ
-    // 0.01: ほぼ鏡 (MirrorConductorと比較用)
-    // 0.20: 少しぼやけた金属
-    // 0.50: マットな金属（ブラスト仕上げ風）
-    auto matGoldSmooth = std::make_shared<RoughConductor>(auTable, 0.01);
-    auto matGoldMedium = std::make_shared<RoughConductor>(auTable, 0.20);
-    auto matGoldRough = std::make_shared<RoughConductor>(auTable, 0.50);
+    // Three gold spheres: almost a mirror (0.01) / the one the roughness slider controls / matte (0.50).
+    m_goldSmooth = std::make_shared<RoughConductor>(m_auTable, 0.01);
+    m_goldCenter = std::make_shared<RoughConductor>(m_auTable, Real(m_settings.roughness));
+    m_goldRough = std::make_shared<RoughConductor>(m_auTable, 0.50);
+    m_appliedRoughness = m_settings.roughness;
 
-    auto matGlass = std::make_shared<Dielectric>(6.0, 0.01); // 粗さ0 = 完全透明
-    auto matFrosted = std::make_shared<Dielectric>(1.2, 0.2); // 粗さ0.2 = すりガラス
+    m_glass = std::make_shared<Dielectric>(6.0, 0.01);     // roughness ~0 = clear
+    m_frosted = std::make_shared<Dielectric>(1.2, 0.2);    // roughness 0.2 = frosted
+    m_floor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5));
+}
 
-    // --------------------------------------------------
-    // 4. シーン構築
-    // --------------------------------------------------
+std::shared_ptr<EnvLight> App::loadEnv(int index) {
+    if (index <= 0 || index >= static_cast<int>(m_envPaths.size())) return nullptr;
+    if (const auto it = m_envCache.find(index); it != m_envCache.end()) return it->second;
+
+    std::shared_ptr<EnvLight> light;
+    try {
+        std::cout << "[EnvMap] Loading: " << m_envPaths[static_cast<size_t>(index)] << std::endl;
+        auto envImg = io::loadHDR(m_envPaths[static_cast<size_t>(index)]);
+        auto envMap = std::make_shared<EnvMap>(std::move(envImg));
+        light = std::make_shared<EnvLight>(envMap, 1.0);
+        std::cout << "[EnvMap] Success.\n";
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[EnvMap] Failed: " << e.what() << "\n";
+        std::cerr << "[EnvMap] Fallback to black background.\n";
+    }
+    m_envCache[index] = light;   // a failed load is cached as well, so it is not retried every time
+    return light;
+}
+
+void App::buildScene() {
     auto worldList = std::make_shared<Aggregate>();
 
-    // リストに対して add する
-    //worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
-    //worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
-    //worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
+    if (m_settings.scene == 0) {
+        worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, m_goldSmooth));
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, m_goldCenter));
+        worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, m_goldRough));
+    }
+    else {
+        worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, m_glass));
+        worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, m_frosted));
+    }
 
-    // ガラス
-    worldList->add(std::make_shared<Sphere>(Point3(0.7, 0, -1), 0.5, matGlass));
+    // A big sphere is the floor.
+    worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, m_floor));
 
-    // すりガラス
-    worldList->add(std::make_shared<Sphere>(Point3(-0.7, 0, -1), 0.5, matFrosted));
-
-
-    // 大きな球で床を作製
-    //worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
-
-    // Area Light (メッシュに紐付いた光源) を作成してシーンに配置
-    /*auto lightMat = std::make_shared<DiffuseLight>(Spectrum(700.0, 300.0, 0.0));
-    auto lightShape = std::make_shared<Sphere>(Point3(5.0, 10.0, 6.0),0.5, lightMat);
-    auto areaLight = std::make_shared<AreaLight>(lightShape, lightMat, Spectrum(1.0));
-    auto lightPrim = std::make_shared<Primitive>(lightShape, lightMat, areaLight);
-    worldList->add(lightPrim);*/
-
-    // --------------------------------------------------
-    // 5. Scene作成と光源設定
-    // --------------------------------------------------
     m_scene = std::make_shared<Scene>(worldList);
 
-    // 環境光を設定（存在する場合）
-    if (envLight) {
+    if (auto envLight = loadEnv(m_settings.env)) {
         m_scene->setEnvLight(envLight);
         std::cout << "[Scene] Environment light set.\n";
     }
 
-    // オプション: ポイントライトや他の光源を追加
-    // 例: シーン内にポイントライトを追加する場合
-    
-    /*auto pointLight = std::make_shared<PointLight>(
-        Point3(5, 3, 3),           // 位置
-        Spectrum(7000, 3000, 0)       // 強度
-    );
-    m_scene->addLight(pointLight);
-    std::cout << "[Scene] Point light added.\n";*/
-
-    // エリアライトの設定
-    //m_scene->addLight(areaLight);
-    //std::cout << "[Scene] Area light added.\n";
-
-    // IMPORTANT: シーンをファイナライズ（LightSamplerを構築）
-    m_scene->finalize();   // default light sampler: spatial importance (PBRT-style)
-    std::cout << "[Scene] Finalized with "
+    // IMPORTANT: finalize builds the LightSampler (default: spatial importance, PBRT-style).
+    m_scene->finalize();
+    std::cout << "[Scene] " << (m_settings.scene == 0 ? "gold spheres" : "glass spheres") << ", finalized with "
         << m_scene->numLights() << " scene lights";
-    if (m_scene->hasEnvLight()) {
-        std::cout << " + environment light";
-    }
+    if (m_scene->hasEnvLight()) std::cout << " + environment light";
     std::cout << ".\n";
-
-    // --------------------------------------------------
-    // 6. カメラ設定 
-    // --------------------------------------------------
-    Point3 lookFrom(0, 0.5, 2.5); 
-    Point3 lookAt(0, 0, -1);
-    Vector3 vUp(0, 1, 0);
-
-    Real distToFocus = glm::length(lookFrom - lookAt);
-    Real aperture = 0.0; // ピンホール
-    Real vfov = 35.0;    
-    Real aspect = static_cast<Real>(m_width) / static_cast<Real>(m_height);
-
-    m_camera = std::make_shared<Camera>(
-        lookFrom, lookAt, vUp,
-        vfov, aspect, aperture, distToFocus
-    );
-
-    // --------------------------------------------------
-    // 7. レンダラー生成
-    // --------------------------------------------------
-    m_film = std::make_unique<Film>(m_width, m_height);
-
-    // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
-    m_integrator = std::make_unique<PathIntegrator>(
-        m_camera,
-        m_settings.maxDepth,  // 最大深度
-        m_settings.targetSpp     // プログレッシブ用のspp
-    );
-
-    std::cout << "[Integrator] PathIntegrator created (maxDepth="
-        << m_settings.maxDepth << ", spp=" << m_settings.targetSpp << ").\n";
 }
 
-// テクスチャ更新 
 void App::updateTexture() {
     const auto* pixels = m_film->getData();
     float scale = 1.0f / std::max(1, m_currentSpp);
 
     static std::vector<unsigned char> displayBuffer;
-    if (displayBuffer.size() != m_width * m_height * 4)
-        displayBuffer.resize(m_width * m_height * 4);
+    if (displayBuffer.size() != static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 4)
+        displayBuffer.resize(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 4);
+
+    const Real exposureStops = Real(m_settings.exposure);   // from the UI slider
+    m_shownExposure = m_settings.exposure;
 
     #pragma omp parallel for
     for (int i = 0; i < m_width * m_height; ++i) {
-        // ... (前のコードと同じ変換処理) ...
-        // 省略せずに書く場合は前回のコードを参照
         rayt::Vector3 s = pixels[i] * static_cast<rayt::Real>(scale);
-        // Gamma correction & Tone mapping...
-        const Real exposureStops = Real(0); // ここはUIや設定から渡す想定
+        // Exposure -> Reinhard tone mapping -> sRGB encoding
         s = rayt::color::toDisplaySRGB_Reinhard(s, exposureStops);
 
         displayBuffer[i * 4 + 0] = (unsigned char)(255.0f * rayt::math::saturate((float)s[0]));
@@ -340,39 +325,182 @@ void App::updateTexture() {
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, displayBuffer.data());
 }
 
-// メインループ 
+void App::saveImage() const {
+    const int spp = std::max(1, m_currentSpp);
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_s(&local, &now);
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local);
+    const std::string base = std::string("gui_") + stamp + "_" + std::to_string(spp) + "spp";
+
+    const float average = 1.0f / static_cast<float>(spp);
+    m_film->save(base + ".png", average * std::pow(2.0f, m_settings.exposure));   // exposure in stops = a factor 2^EV on the radiance
+    m_film->save(base + ".hdr", average);                                         // linear, not tone mapped
+    std::cout << "[GUI] saved " << base << ".png / .hdr\n";
+}
+
+// Main loop
 void App::run() {
     while (!glfwWindowShouldClose(m_window)) {
-        glfwPollEvents();
-
-        if (m_settings.requestReset) {
-            m_film->clear();
-            m_currentSpp = 0;
-            m_settings.requestReset = false;
-        }
-
-        if (!m_settings.paused && m_currentSpp < m_settings.targetSpp) {
-            m_integrator->renderOnePass(*m_scene, *m_film, m_currentSpp);
-            m_currentSpp++;
-            updateTexture();
-        }
-
-        m_uiLayer.beginFrame();
-        m_uiLayer.draw(m_settings);
-
-        {
-            ImGui::Begin("Viewport");
-            ImVec2 size = ImGui::GetContentRegionAvail();
-            ImGui::Image((void*)(intptr_t)m_renderTexture, size, ImVec2(0, 0), ImVec2(1, 1));
-            ImGui::End();
-        }
-
-        int w, h;
-        glfwGetFramebufferSize(m_window, &w, &h);
-        glViewport(0, 0, w, h);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        m_uiLayer.endFrame();
-        glfwSwapBuffers(m_window);
+        frame();
     }
+}
+
+// One iteration of the main loop: apply the UI requests, render the passes, update the texture, draw the UI.
+void App::frame() {
+    glfwPollEvents();
+
+    // The scene or the environment map changed: rebuild (the accumulation restarts).
+    if (m_settings.requestRebuild) {
+        buildScene();
+        m_settings.requestRebuild = false;
+        m_settings.requestReset = true;
+    }
+
+    // The center gold sphere's roughness changed. This happens between two render passes, so no ray is in flight.
+    if (m_settings.roughness != m_appliedRoughness) {
+        m_goldCenter->setRoughness(Real(m_settings.roughness));
+        m_appliedRoughness = m_settings.roughness;
+        m_settings.requestReset = true;
+    }
+
+    bool textureDirty = false;
+    if (m_settings.requestReset) {
+        m_film->clear();
+        m_currentSpp = 0;
+        m_settings.requestReset = false;
+        textureDirty = true;
+    }
+
+    if (!m_settings.paused) {
+        for (int i = 0; i < m_settings.sppPerFrame && m_currentSpp < m_settings.targetSpp; ++i) {
+            m_integrator->renderOnePass(*m_scene, *m_film, m_currentSpp);
+            ++m_currentSpp;
+            textureDirty = true;
+        }
+    }
+
+    // A new exposure only needs the tone mapping again, not new samples (also while paused or finished).
+    if (m_settings.exposure != m_shownExposure) textureDirty = true;
+    if (textureDirty) updateTexture();
+
+    if (m_settings.requestSave) {
+        saveImage();
+        m_settings.requestSave = false;
+    }
+    m_settings.currentSpp = m_currentSpp;
+
+    m_uiLayer.beginFrame();
+    m_uiLayer.draw(m_settings);
+
+    {
+        ImGui::Begin("Viewport");
+        // Keep the aspect ratio of the image and center it in the window.
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const float aspect = static_cast<float>(m_width) / static_cast<float>(m_height);
+        ImVec2 size = avail;
+        if (size.x / aspect > size.y) size.x = size.y * aspect; else size.y = size.x / aspect;
+        if (size.x > 1.0f && size.y > 1.0f) {
+            ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail.x - size.x) * 0.5f,
+                                       ImGui::GetCursorPosY() + (avail.y - size.y) * 0.5f));
+            ImGui::Image((void*)(intptr_t)m_renderTexture, size, ImVec2(0, 0), ImVec2(1, 1));
+        }
+        ImGui::End();
+    }
+
+    int w, h;
+    glfwGetFramebufferSize(m_window, &w, &h);
+    glViewport(0, 0, w, h);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    m_uiLayer.endFrame();
+    glfwSwapBuffers(m_window);
+}
+
+bool App::selfTest(bool keepSavedFiles) {
+    bool allPassed = true;
+    auto check = [&](const std::string& what, bool ok, const std::string& detail = "") {
+        std::cout << "[SelfTest] " << what << (detail.empty() ? "" : ": " + detail) << "   " << (ok ? "OK" : "FAIL") << "\n";
+        allPassed = allPassed && ok;
+    };
+    auto anyPixel = [&]() {
+        const Vector3* d = m_film->getData();
+        for (int i = 0; i < m_width * m_height; ++i) if (d[i].x > 0 || d[i].y > 0 || d[i].z > 0) return true;
+        return false;
+    };
+
+    // Every frame() renders sppPerFrame passes of the current scene.
+    m_settings.sppPerFrame = 1;
+    for (int i = 0; i < 3; ++i) frame();
+    check("3 frames of 1 pass accumulate 3 spp", m_currentSpp == 3, std::to_string(m_currentSpp) + " spp");
+    check("the film has light in it", anyPixel());
+
+    m_settings.sppPerFrame = 4;
+    frame();
+    check("SPP / frame = 4 adds 4 passes", m_currentSpp == 7, std::to_string(m_currentSpp) + " spp");
+
+    m_settings.exposure = 1.0f;
+    frame();
+    check("a new exposure does not restart the accumulation", m_currentSpp == 11 && m_shownExposure == 1.0f,
+        std::to_string(m_currentSpp) + " spp, shown exposure " + std::to_string(m_shownExposure));
+
+    m_settings.roughness = 0.6f;
+    frame();
+    check("a new roughness restarts the accumulation", m_currentSpp == 4 && m_appliedRoughness == 0.6f,
+        std::to_string(m_currentSpp) + " spp");
+
+    const auto glassScene = m_scene;
+    m_settings.scene = 1;
+    m_settings.requestRebuild = true;
+    frame();
+    check("the glass scene replaces the scene and restarts", m_scene != glassScene && m_currentSpp == 4, std::to_string(m_currentSpp) + " spp");
+
+    const int envIndex = m_settings.env;
+    m_settings.env = 0;
+    m_settings.requestRebuild = true;
+    frame();
+    check("environment 'None' removes the environment light", !m_scene->hasEnvLight());
+    if (m_envPaths.size() > 1) {
+        m_settings.env = std::max(1, envIndex);
+        m_settings.requestRebuild = true;
+        frame();
+        check("an environment map adds the environment light", m_scene->hasEnvLight(), m_settings.envNames[static_cast<size_t>(m_settings.env)]);
+    }
+    m_settings.scene = 0;
+    m_settings.requestRebuild = true;
+    frame();
+
+    // Save: gui_<time>_<spp>spp.png and .hdr in the working directory.
+    std::error_code ec;
+    std::vector<std::filesystem::path> before;
+    for (const auto& e : std::filesystem::directory_iterator(".", ec)) before.push_back(e.path());
+    m_settings.requestSave = true;
+    frame();
+    std::vector<std::filesystem::path> created;
+    for (const auto& e : std::filesystem::directory_iterator(".", ec))
+        if (std::find(before.begin(), before.end(), e.path()) == before.end()) created.push_back(e.path());
+    bool png = false, hdr = false;
+    for (const auto& f : created) {
+        png = png || (f.extension() == ".png" && f.filename().string().rfind("gui_", 0) == 0 && std::filesystem::file_size(f) > 0);
+        hdr = hdr || (f.extension() == ".hdr" && f.filename().string().rfind("gui_", 0) == 0 && std::filesystem::file_size(f) > 0);
+    }
+    check("'Save image' writes a PNG and an HDR", png && hdr);
+    for (const auto& f : created) {
+        if (keepSavedFiles) std::cout << "[SelfTest] kept " << f.filename().string() << "\n";
+        else std::filesystem::remove(f, ec);
+    }
+
+    // Pause and the sample limit.
+    const int spp = m_currentSpp;
+    m_settings.paused = true;
+    frame();
+    check("pause stops the accumulation", m_currentSpp == spp);
+    m_settings.paused = false;
+    m_settings.targetSpp = spp;
+    frame();
+    check("the sample limit stops the accumulation", m_currentSpp == spp);
+
+    std::cout << "[SelfTest] RESULT: " << (allPassed ? "PASS" : "FAIL") << std::endl;
+    return allPassed;
 }

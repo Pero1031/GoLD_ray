@@ -206,6 +206,19 @@ namespace rayt {
             initMultipleScattering();
         }
 
+        /**
+         * @brief Changes the roughness after construction (the GUI roughness slider).
+         *
+         * Recomputes the multiple-scattering table row. Not thread safe: call it between render
+         * passes, never while rays are being traced.
+         * @param roughness Roughness value [0, 1].
+         * @param anisotropy Anisotropy factor [-1, 1] (0 for isotropic).
+         */
+        void setRoughness(Real roughness, Real anisotropy = 0.0) {
+            initRoughness(roughness, anisotropy);
+            initMultipleScattering();
+        }
+
         /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
         void setMultipleScattering(bool enabled) {
             m_msEnabled = enabled;
