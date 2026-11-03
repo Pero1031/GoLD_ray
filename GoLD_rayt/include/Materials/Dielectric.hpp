@@ -17,6 +17,7 @@
 
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
+#include "Materials/Medium.hpp"
 #include "Microfacet/GGX.hpp"
 
 namespace rayt {
@@ -37,6 +38,7 @@ namespace rayt {
         Real cauchyB = 0;  // Cauchy coefficient B [um^2]; 0 means "not dispersive"
         Real alpha_x;      // Roughness X
         Real alpha_y;      // Roughness Y
+        std::shared_ptr<const Medium> m_medium;   // medium inside the surface (null = a plain glass boundary)
 
         // IOR to use for this path: the hero wavelength's IOR in spectral mode.
         Real iorAt(const SampledWavelengths& lambda) const {
@@ -59,6 +61,11 @@ namespace rayt {
          * @param abbeNumber  Abbe number V_d (typical: crown glass ~60, flint ~30, dense flint ~25,
          *                    diamond ~55). Smaller = stronger dispersion. 0 = no dispersion.
          */
+        /// Fills the inside of this closed surface with a participating medium (volumetric random walk).
+        /// The mesh must be closed with outward normals; the outside is vacuum.
+        void setMedium(std::shared_ptr<const Medium> medium) { m_medium = std::move(medium); }
+        const Medium* mediumInside() const override { return m_medium.get(); }
+
         Dielectric(Real ior, Real roughness, Real anisotropy = 0.0, Real abbeNumber = 0.0) : iorRef(ior) {
             Real aspect = std::sqrt(1.0 - anisotropy * 0.9);
             alpha_x = MicrofacetDistribution::roughnessToAlpha(roughness / aspect);

@@ -335,6 +335,9 @@
     <ClInclude Include="include\Materials\LayeredSkin.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Materials\Medium.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Microfacet\GGXAlbedo.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
