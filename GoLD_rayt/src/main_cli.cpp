@@ -171,6 +171,11 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             that glitters on the waves; --sea-hdr = the --env map instead), camera 2 m above the water looking toward the
 //             sun (--cam-yaw to turn). --sea-steep s = wave steepness (rough sea), --sea-seed n = another wave set.
 //             No caustics on the seabed yet (that needs the photon map in absorbing media).
+//   pool    : a shallow tiled swimming pool (3.2 x 5.2 m, --pool-depth m) in the --env map (the park HDR by default), seen from
+//             the deck. Water = a rippled open sheet (IOR 1.333, physical absorption, --pool-steep s) over a tiled basin; a
+//             sun (--pool-sun-elev / --pool-sun-az, 1.2 degree radius) is added to the map's own light and its caustic network
+//             on the tiles comes from the caustic photon map (--caustics N, default 8 M; 0 = off; --caustic-radius, default
+//             0.015 m). The map's sky has no photons: its light through the water is found by BSDF sampling (Light::photonCaustics).
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -240,11 +245,15 @@ struct CliOptions {
     Real seaDepth = 2.5;               // sea: depth of the water above the sand (m)
     Real seaSteep = 0.03;              // sea: steepness k*A of every wave component (about 0.1 rms slope in total)
     unsigned seaSeed = 1;              // sea: random seed of the wave set and the rocks
+    Real poolDepth = 0.9;              // pool: water depth (m)
+    Real poolSteep = 0.025;            // pool: steepness k*A of every ripple (about 0.07 rms slope in total)
+    Real poolSunElev = 50;             // pool: elevation of the sun (degrees)
+    Real poolSunAz = 25;               // pool: azimuth of the sun about +y, 0 = +z (the camera stands at +z looking toward -z)
     bool seaHdr = false;               // sea: light with the --env map instead of the procedural sky
     Real seaSunElev = 14;              // sea: elevation of the procedural sky's sun (degrees)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
     bool waterLamp = false;            // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
-    long long causticPhotons = 0;     // water: photons emitted for the caustic photon map (0 = off, caustics by BSDF sampling only)
+    long long causticPhotons = -1;    // water / pool: photons emitted for the caustic photon map (water: off unless > 0; pool: 8 M unless 0 = off)
     Real causticRadius = -1;           // gather radius of the caustic photon map (m); < 0: the scene's default (water 1.5 mm, caustic test 4 mm)
     Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
     Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
@@ -290,6 +299,10 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
             else if (a == "--sea-depth") o.seaDepth = std::stod(value("--sea-depth"));
             else if (a == "--sea-steep") o.seaSteep = std::stod(value("--sea-steep"));
+            else if (a == "--pool-depth") o.poolDepth = std::stod(value("--pool-depth"));
+            else if (a == "--pool-steep") o.poolSteep = std::stod(value("--pool-steep"));
+            else if (a == "--pool-sun-elev") o.poolSunElev = std::stod(value("--pool-sun-elev"));
+            else if (a == "--pool-sun-az") o.poolSunAz = std::stod(value("--pool-sun-az"));
             else if (a == "--sea-hdr") o.seaHdr = true;
             else if (a == "--sea-sun-elev") o.seaSunElev = std::stod(value("--sea-sun-elev"));
             else if (a == "--sea-seed") o.seaSeed = static_cast<unsigned>(std::stoul(value("--sea-seed")));
@@ -335,8 +348,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic or sea");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea or pool");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -352,7 +365,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1941,6 +1954,53 @@ static bool LoadWaterAbsorption(color::SpectralCurve& sigmaA) {
     return true;
 }
 
+// Water surface of a pool: gentle ripples on the rectangle |x| <= w/2, |z| <= d/2 at y = 0, a sum of 14 plane waves (wavelengths
+// 0.12-1 m, any direction, k * A = steep each) on a regular grid; analytic normals, one open sheet facing up.
+static TriangleMesh MakePoolSurface(Real w, Real d, Real steep, unsigned seed, Real spacing) {
+    struct Wave { Real dx, dz, k, A, phase; };
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> U(0.0, 1.0);
+    std::vector<Wave> waves;
+    for (int i = 0; i < 14; ++i) {
+        Wave v;
+        const Real lambda = std::exp(std::log(Real(0.12)) + (std::log(Real(1.0)) - std::log(Real(0.12))) * Real(U(rng)));
+        const Real ang = Real(2) * constants::PI * Real(U(rng));
+        v.dx = std::cos(ang); v.dz = std::sin(ang);
+        v.k = Real(2) * constants::PI / lambda;
+        v.A = steep / v.k;
+        v.phase = Real(2) * constants::PI * Real(U(rng));
+        waves.push_back(v);
+    }
+    const int nx = std::max(1, static_cast<int>(std::ceil(w / spacing))), nz = std::max(1, static_cast<int>(std::ceil(d / spacing)));
+    TriangleMesh m;
+    for (int j = 0; j <= nz; ++j) {
+        for (int i = 0; i <= nx; ++i) {
+            const Real x = -w / 2 + w * Real(i) / Real(nx), z = -d / 2 + d * Real(j) / Real(nz);
+            Real y = 0, nxs = 0, nzs = 0;
+            for (const Wave& v : waves) {
+                const Real ph = v.k * (v.dx * x + v.dz * z) + v.phase;
+                y += v.A * std::cos(ph);
+                nxs += v.k * v.A * v.dx * std::sin(ph);   // -dy/dx
+                nzs += v.k * v.A * v.dz * std::sin(ph);   // -dy/dz
+            }
+            m.p.push_back(Point3(x, y, z));
+            m.n.push_back(glm::normalize(Vector3(nxs, 1, nzs)));
+        }
+    }
+    auto at = [&](int i, int j) { return j * (nx + 1) + i; };
+    auto addTriangle = [&](int a, int b, int c) {
+        const Vector3 cr = glm::cross(Vector3(m.p[b] - m.p[a]), Vector3(m.p[c] - m.p[a]));
+        if (glm::dot(cr, m.n[a]) < Real(0)) std::swap(b, c);   // counter-clockwise seen from above
+        m.indices.insert(m.indices.end(), { a, b, c });
+    };
+    for (int j = 0; j < nz; ++j)
+        for (int i = 0; i < nx; ++i) {
+            addTriangle(at(i, j), at(i + 1, j), at(i + 1, j + 1));
+            addTriangle(at(i, j), at(i + 1, j + 1), at(i, j + 1));
+        }
+    return m;
+}
+
 // Sea surface: a sum of Gerstner (trochoidal) waves, evaluated on a polar grid around the origin whose rings grow geometrically
 // (fine near the camera, coarse toward the horizon). Wavelengths 0.5-64 m, four random components per octave, directions spread
 // around the wind direction (normal distribution), the longest waves damped (Phillips-like cutoff for a 7 m/s wind). `steep` is
@@ -2524,6 +2584,7 @@ int main(int argc, char** argv) {
     bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
     bool waterView = false;                                       // water scene: close camera on the tumbler
     bool seaView = false;                                         // sea scene: camera 2 m above the water
+    bool poolView = false;                                        // pool scene: camera on the deck
     Real seaViewAz = 0;                                           // sea scene: azimuth of the view direction (about +y, 0 = +z)
     Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
     Real causticTargetRadius = 0;
@@ -3044,6 +3105,61 @@ int main(int argc, char** argv) {
         }
         seaView = true;
     }
+    else if (opt.scene == "pool") {
+        // Metres. Basin 3.2 x 5.2 m, water level y = 0, deck 12 cm above it, the floor at -depth. The camera stands on the deck at +z
+        // looking toward -z. The water is one open rippled sheet carrying the absorbing medium; the sun is an area light that
+        // takes its caustics from the photon map, the HDR sky (flagged off below) keeps BSDF sampling.
+        const Real W = 3.2, D = 5.2, H = opt.poolDepth, deckH = 0.12, L = 300;
+        TriangleMesh surface = MakePoolSurface(W, D, opt.poolSteep, opt.seaSeed, Real(0.015));
+        std::cout << "[Pool] surface " << surface.numTriangles() << " triangles, depth " << H << " m, ripple steepness " << opt.poolSteep << "\n";
+        auto water = std::make_shared<Dielectric>(Real(1.333), Real(0.0));
+        const Real poolAbsorb = opt.absorbScale >= 0 ? opt.absorbScale : Real(1);
+        if (poolAbsorb > 0) {
+            color::SpectralCurve sigmaA;
+            if (!LoadWaterAbsorption(sigmaA)) return 1;
+            auto absorbing = std::make_shared<AbsorbingMedium>(sigmaA, poolAbsorb);
+            water->setMedium(absorbing);
+            const Real d = Real(2) * H;
+            std::cout << "[Pool] absorption x" << poolAbsorb << ": transmittance over " << d << " m  450 nm " << std::exp(-absorbing->sigmaA(450) * d)
+                << ", 550 nm " << std::exp(-absorbing->sigmaA(550) * d) << ", 650 nm " << std::exp(-absorbing->sigmaA(650) * d) << "\n";
+        }
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(surface)), water, opt.accel));
+
+        // Basin: checkered floor (0.4 m tiles), plain walls, a deck all around.
+        auto tileA = std::make_shared<Lambertian>(RgbColor(0.80, 0.86, 0.90));
+        auto tileB = std::make_shared<Lambertian>(RgbColor(0.55, 0.68, 0.78));
+        const Real tile = 0.4;
+        const int nTx = static_cast<int>(std::lround(W / tile)), nTz = static_cast<int>(std::lround(D / tile));
+        for (int i = 0; i < nTx; ++i)
+            for (int j = 0; j < nTz; ++j)
+                worldList->add(std::make_shared<Quad>(Point3(-W / 2 + Real(i) * (W / nTx), -H, -D / 2 + Real(j) * (D / nTz)),
+                    Vector3(0, 0, D / nTz), Vector3(W / nTx, 0, 0), ((i + j) % 2 == 0) ? tileA : tileB));   // normal +y
+        auto wallMat = std::make_shared<Lambertian>(RgbColor(0.70, 0.82, 0.88));
+        const Real wallH = H + deckH;
+        worldList->add(std::make_shared<Quad>(Point3(-W / 2, -H, -D / 2), Vector3(0, 0, D), Vector3(0, wallH, 0), wallMat));
+        worldList->add(std::make_shared<Quad>(Point3(W / 2, -H, -D / 2), Vector3(0, 0, D), Vector3(0, wallH, 0), wallMat));
+        worldList->add(std::make_shared<Quad>(Point3(-W / 2, -H, -D / 2), Vector3(W, 0, 0), Vector3(0, wallH, 0), wallMat));
+        worldList->add(std::make_shared<Quad>(Point3(-W / 2, -H, D / 2), Vector3(W, 0, 0), Vector3(0, wallH, 0), wallMat));
+        auto deck = std::make_shared<Lambertian>(RgbColor(0.42, 0.40, 0.37));
+        worldList->add(std::make_shared<Quad>(Point3(-L, deckH, -L), Vector3(0, 0, L - D / 2), Vector3(2 * L, 0, 0), deck));   // beyond -z
+        worldList->add(std::make_shared<Quad>(Point3(-L, deckH, D / 2), Vector3(0, 0, L - D / 2), Vector3(2 * L, 0, 0), deck));   // beyond +z
+        worldList->add(std::make_shared<Quad>(Point3(-L, deckH, -D / 2), Vector3(0, 0, D), Vector3(L - W / 2, 0, 0), deck));     // beyond -x
+        worldList->add(std::make_shared<Quad>(Point3(W / 2, deckH, -D / 2), Vector3(0, 0, D), Vector3(L - W / 2, 0, 0), deck));  // beyond +x
+
+        // Sun: a sphere light 300 m away, 1.2 degree radius (larger and dimmer than the real one: see the sea scene).
+        const Real sunAz = glm::radians(opt.poolSunAz), sunEl = glm::radians(opt.poolSunElev);
+        const Vector3 sunDir(std::cos(sunEl) * std::sin(sunAz), std::sin(sunEl), std::cos(sunEl) * std::cos(sunAz));
+        const Real sunDist = 300, sunRadius = sunDist * std::tan(glm::radians(Real(1.2)));
+        auto sunMat = std::make_shared<DiffuseLight>(EmissionSpectrum(RgbColor(1.0, 0.95, 0.85)), Real(4000));   // irradiance about 4.3 on a horizontal surface
+        auto sunShape = std::make_shared<Sphere>(Point3(sunDir * sunDist), sunRadius, sunMat);
+        auto sunLight = std::make_shared<AreaLight>(sunShape, sunMat);
+        worldList->add(std::make_shared<Primitive>(sunShape, sunMat, sunLight));
+        studioLights.push_back(sunLight);
+
+        causticCenter = Point3(0.0, 0.0, 0.0);   // the water sheet is the only specular object
+        causticTargetRadius = std::sqrt(W * W + D * D) * Real(0.5) * Real(1.02);
+        poolView = true;
+    }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
         // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
@@ -3148,6 +3264,12 @@ int main(int argc, char** argv) {
 
     if (opt.scene == "blob" && opt.bgGray >= 0) scene->setCameraBackground(Vector3(opt.bgGray));
 
+    // Pool: the sun takes its caustics from the photon map, the sky of the map does not (it is estimated better by BSDF sampling).
+    if (envLight && opt.scene == "pool") {
+        envLight->setPhotonCaustics(false);
+        envLight->setScale(Real(0.5));   // the sun should dominate (sun : sky about 4 : 1), as in a real pool: that is what makes the caustic network
+    }
+
     // 環境光を設定（存在する場合）
     if (envLight) {
         scene->setEnvLight(envLight);
@@ -3180,12 +3302,14 @@ int main(int argc, char** argv) {
     }
     std::cout << ".\n";
 
-    // Caustic photon map (water scene, --caustics N): photons from the lights through the tumbler onto the table.
+    // Caustic photon map (water / pool scene, --caustics N): photons from the lights through the water onto the table / the basin.
     CausticPhotonMap causticMap;
-    if (opt.scene == "water" && opt.causticPhotons > 0) {
+    long long nCausticPhotons = opt.causticPhotons;
+    if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
+    if ((opt.scene == "water" || opt.scene == "pool") && nCausticPhotons > 0) {
         CausticPhotonParams P;
-        P.numPhotons = opt.causticPhotons;
-        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(0.0015);
+        P.numPhotons = nCausticPhotons;
+        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : 0.0015);
         P.targetCenter = causticCenter;
         P.targetRadius = causticTargetRadius;
         causticMap.build(*scene, P);
@@ -3208,6 +3332,11 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.0, 0.075, 0.30);
         lookAt = Point3(0.0, 0.032, 0.0);
         fovDeg = 30.0;
+    }
+    if (poolView) {   // standing at the near end of the pool, eye 1.2 m above the deck, looking down the pool
+        lookFrom = Point3(0.5, 1.35, 3.1);
+        lookAt = Point3(0.0, -0.1, -2.0);   // the horizon of the map stays in the upper part of the frame
+        fovDeg = 52.0;
     }
     if (seaView) {
         const Real pitch = glm::radians(Real(-2));
@@ -3263,7 +3392,8 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
-    if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;     // bounces between the surface and the seabed
+    if (opt.scene == "pool" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the basin
+    if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the seabed
     if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
     if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
     auto integrator = std::make_unique<PathIntegrator>(
