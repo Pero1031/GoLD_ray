@@ -34,6 +34,7 @@
 #include "Core/SampledWavelengths.hpp"
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
+#include "Materials/SubsurfaceTable.hpp"
 #include "Color/SpectralConversion.hpp"
 
 namespace rayt {
@@ -95,6 +96,13 @@ namespace rayt {
         SubsurfaceProfile(const Vector3& scatterDistance, Real eta = Real(1.4))
             : m_distance(scatterDistance), m_eta(eta) {}
 
+        /// A tabulated profile (e.g. of a layered skin, Materials/LayeredSkin.hpp) instead of Burley's analytic one.
+        SubsurfaceProfile(std::shared_ptr<const sss::LayeredTable> table, Real eta = Real(1.4))
+            : m_distance(Vector3(1e-3)), m_eta(eta), m_layered(std::move(table)) {}
+
+        /// Non-null when the profile comes from a table; the probe then uses it and ignores the scatter distance.
+        const sss::LayeredTable* layered() const { return m_layered.get(); }
+
         Real eta() const { return m_eta; }
         const Vector3& scatterDistanceRgb() const { return m_distance; }
 
@@ -112,6 +120,7 @@ namespace rayt {
     private:
         Vector3 m_distance;
         Real m_eta;
+        std::shared_ptr<const sss::LayeredTable> m_layered;
     };
 
     /**

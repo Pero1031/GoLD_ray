@@ -60,6 +60,7 @@
 #include "Materials/CoatedDiffuse.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/RoughConductor.hpp"
+#include "Materials/LayeredSkin.hpp"
 #include "Materials/Dielectric.hpp"
 
 // Lights
@@ -144,6 +145,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //   skindemo: a skin-colored sphere and ring (centimeter scale) under a key light, a fill and a back light, to see
 //             subsurface scattering. Plain diffuse-like skin without options; --sss = real skin scatter distances
 //             (3.7 / 1.4 / 0.7 mm for R / G / B), --sss-scale S multiplies them (3 = anime-like glow).
+//   skinlayers: Monte Carlo radial profile of a layered skin (epidermis with melanin over a dermis with blood), written to a
+//             table (--skin-out) for skindemo --skin-table; prints the profile per RGB channel, the Burley profile with the
+//             same albedo and mean radius, and a check against diffusion theory. --melanin --blood --oxygen --epidermis-mm
+//             --photons --single-layer. skindemo --skin-table f.csv renders it, --skin-matched the matched Burley profile.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -192,6 +197,15 @@ struct CliOptions {
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
     std::string metal = "Au";          // metalprobe scene: Au | Ag | Cu (Johnson tables)
     Real probeRoughness = 0.01;        // metalprobe scene: --roughness r of the metal sphere
+    Real melanin = 0.04;               // skinlayers: melanosome volume fraction of the epidermis
+    Real bloodFraction = 0.02;         // skinlayers: blood volume fraction of the dermis
+    Real oxygen = 0.75;                // skinlayers: oxygen saturation of the blood
+    Real epidermisMm = 0.1;            // skinlayers: epidermis thickness (mm)
+    long long photons = 2000000;       // skinlayers: photons per wavelength
+    bool singleLayer = false;          // skinlayers: dermis only (homogeneous), for comparison
+    std::string skinOut = "assets/Skin/skin_layers.csv";   // skinlayers: output table
+    std::string skinTable;             // skindemo: layered profile table (--skin-table file.csv)
+    bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
 };
@@ -214,6 +228,15 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--light") o.light = value("--light");
             else if (a == "--metal") o.metal = value("--metal");
             else if (a == "--roughness") o.probeRoughness = std::stod(value("--roughness"));
+            else if (a == "--melanin") o.melanin = std::stod(value("--melanin"));
+            else if (a == "--blood") o.bloodFraction = std::stod(value("--blood"));
+            else if (a == "--oxygen") o.oxygen = std::stod(value("--oxygen"));
+            else if (a == "--epidermis-mm") o.epidermisMm = std::stod(value("--epidermis-mm"));
+            else if (a == "--photons") o.photons = std::stoll(value("--photons"));
+            else if (a == "--single-layer") o.singleLayer = true;
+            else if (a == "--skin-out") o.skinOut = value("--skin-out");
+            else if (a == "--skin-table") o.skinTable = value("--skin-table");
+            else if (a == "--skin-matched") o.skinMatched = true;
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
@@ -250,8 +273,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe or skindemo");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo or skinlayers");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -267,7 +290,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -636,6 +659,76 @@ static bool CheckEnvSampling(const EnvMap& env, const std::string& label, int n)
         << (okMatch ? " OK" : " FAIL") << ";  Integral Le dw (G): grid " << gridLe.y
         << " vs importance " << isLe.y << (okLe ? " OK" : " FAIL") << "\n";
     return okPdf && okMatch && okLe;
+}
+
+// -----------------------------------------------------------------------------
+// Layered skin profile (--scene skinlayers)
+// -----------------------------------------------------------------------------
+static int RunSkinLayers(const CliOptions& opt) {
+    using namespace rayt::skin;
+    constexpr int kBins = 128;
+    constexpr double kRMin = 1e-5, kRMax = 0.03;
+    std::vector<double> wavelengths;
+    for (double nm = 420; nm <= 700; nm += 20) wavelengths.push_back(nm);
+
+    // ---- check: a homogeneous semi-infinite medium against diffusion theory (index matched) ----
+    {
+        const double mua = 100, musp = 4000;
+        const auto r = simulateRadialProfile({ Layer{ 0, mua, musp } }, kBins, kRMin, kRMax, std::max(200000ll, opt.photons / 10), 1);
+        const double a = musp / (musp + mua), q = std::sqrt(3 * (1 - a));
+        const double rdDiffusion = a / 2 * (1 + std::exp(-4.0 / 3.0 * q)) * std::exp(-q);
+        std::cout << "[SkinLayers] check, homogeneous mua=100/m mu_s'=4000/m: Monte Carlo Rd = " << r.reflected
+            << " (+ " << r.lostOutside << " beyond 3 cm), diffusion theory (approximate) " << rdDiffusion
+            << ", energy " << r.reflected + r.lostOutside + r.absorbed << " (must be 1)\n";
+    }
+
+    SkinModel model;
+    model.melanin = opt.melanin;
+    model.blood = opt.bloodFraction;
+    model.oxygen = opt.oxygen;
+    model.epidermis = opt.epidermisMm * 1e-3;
+    model.singleLayer = opt.singleLayer;
+    std::cout << "[SkinLayers] " << (model.singleLayer ? "dermis only" : "epidermis + dermis") << ": melanin " << model.melanin
+        << ", blood " << model.blood << ", oxygen " << model.oxygen << ", epidermis " << opt.epidermisMm << " mm, "
+        << opt.photons << " photons per wavelength\n";
+
+    std::vector<std::vector<double>> density;
+    std::vector<double> edges;
+    for (double nm : wavelengths) {
+        const auto layers = layersAt(model, nm);
+        const auto res = simulateRadialProfile(layers, kBins, kRMin, kRMax, opt.photons, 12345 + static_cast<uint64_t>(nm));
+        edges = res.edges;
+        density.push_back(res.density);
+        std::cout << "[SkinLayers]   " << nm << " nm: dermis mu_a " << layers.back().mua / 100 << " /cm, Rd " << res.reflected
+            << ", beyond 3 cm " << res.lostOutside << ", energy " << res.reflected + res.lostOutside + res.absorbed << "\n";
+    }
+
+    std::filesystem::create_directories(std::filesystem::path(opt.skinOut).parent_path());
+    std::ostringstream note;
+    note << "melanin " << model.melanin << " blood " << model.blood << " oxygen " << model.oxygen << " epidermis_mm " << opt.epidermisMm
+        << (model.singleLayer ? " single-layer" : "") << " photons " << opt.photons;
+    if (!saveTableCsv(opt.skinOut, wavelengths, edges, density, note.str())) { std::cerr << "[SkinLayers] cannot write " << opt.skinOut << "\n"; return 1; }
+    std::cout << "[SkinLayers] table written: " << opt.skinOut << "\n";
+
+    const auto table = buildLayeredTable(wavelengths, edges, density);
+    const char* names[3] = { "R", "G", "B" };
+    std::cout << "[SkinLayers] RGB profiles (D65 projection)         albedo  mean r   r50     r90    Burley l (matched)\n";
+    for (int c = 0; c < 3; ++c) {
+        const auto& t = *table->rgb[c];
+        std::cout << "[SkinLayers]   " << names[c] << "                                          " << t.albedo() << "  "
+            << t.meanRadius() * 1000 << " mm  " << t.sampleRadius(0.5) * 1000 << " mm  " << t.sampleRadius(0.9) * 1000 << " mm  "
+            << matchedScatterDistance(t) * 1000 << " mm\n";
+    }
+    std::cout << "[SkinLayers] share of the light that leaves within r of the entry point: table vs Burley with the same albedo and mean radius\n";
+    for (int c = 0; c < 3; ++c) {
+        const auto& t = *table->rgb[c];
+        const Real l = matchedScatterDistance(t), d = l / sss::shape(t.albedo());
+        std::cout << "[SkinLayers]   " << names[c] << ":";
+        for (double rmm : { 0.25, 0.5, 1.0, 2.0, 4.0, 8.0 })
+            std::cout << "  " << rmm << "mm " << std::fixed << std::setprecision(2) << t.cdf(rmm * 1e-3) << "/" << sss::cdf(rmm * 1e-3, d);
+        std::cout << std::defaultfloat << "\n";
+    }
+    return 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -1909,6 +2002,7 @@ int main(int argc, char** argv) {
     if (opt.scene == "lights") return RunLightTests(opt);
     if (opt.scene == "aov") return RunAovTests();
     if (opt.scene == "sss") return RunSssTests(opt);
+    if (opt.scene == "skinlayers") return RunSkinLayers(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2424,13 +2518,33 @@ int main(int argc, char** argv) {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
         // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
         // profile) for both, because the exit point of the light is only searched on surfaces with the same profile.
-        auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.50), Real(0.4), Real(0));
-        if (opt.sss) {
-            auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001) * opt.sssScale, Real(1.4));
-            skin->setSubsurface(profile);
+        RgbColor skinColor(0.80, 0.52, 0.42);
+        std::shared_ptr<const SubsurfaceProfile> skinProfile;
+        if (!opt.skinTable.empty()) {   // a layered-skin table: the table, or Burley's profile with the same albedo and mean radius
+            std::string tableErr;
+            const auto table = skin::loadTableCsv(opt.skinTable, &tableErr);
+            if (!table) { std::cerr << "[SkinDemo] " << tableErr << "\n"; return 1; }
+            const Vector3 A(table->rgb[0]->albedo(), table->rgb[1]->albedo(), table->rgb[2]->albedo());
+            skinColor = RgbColor(A);
+            if (opt.skinMatched) {
+                const Vector3 ell(skin::matchedScatterDistance(*table->rgb[0]), skin::matchedScatterDistance(*table->rgb[1]),
+                    skin::matchedScatterDistance(*table->rgb[2]));
+                skinProfile = std::make_shared<SubsurfaceProfile>(ell, Real(1.4));
+                std::cout << "[SkinDemo] Burley profile matched to " << opt.skinTable << ": albedo (" << A.x << ", " << A.y << ", " << A.z
+                    << "), scatter distance (mm) (" << ell.x * 1000 << ", " << ell.y * 1000 << ", " << ell.z * 1000 << ")\n";
+            }
+            else {
+                skinProfile = std::make_shared<SubsurfaceProfile>(table, Real(1.4));
+                std::cout << "[SkinDemo] layered skin profile from " << opt.skinTable << ": albedo (" << A.x << ", " << A.y << ", " << A.z << ")\n";
+            }
+        }
+        else if (opt.sss) {
+            skinProfile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001) * opt.sssScale, Real(1.4));
             std::cout << "[SkinDemo] subsurface scattering on (scale " << opt.sssScale << ")\n";
         }
         else std::cout << "[SkinDemo] no subsurface scattering (plain coated diffuse)\n";
+        auto skin = std::make_shared<CoatedDiffuse>(skinColor, Real(0.50), Real(0.4), Real(0));
+        if (skinProfile) skin->setSubsurface(skinProfile);
         skinMaterial = skin;
 
         worldList->add(std::make_shared<Sphere>(Point3(-0.065, 0.03, 0.0), 0.03, skin));

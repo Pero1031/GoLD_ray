@@ -329,6 +329,12 @@
     <ClInclude Include="include\Materials\Subsurface.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Materials\SubsurfaceTable.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Materials\LayeredSkin.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Microfacet\GGXAlbedo.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

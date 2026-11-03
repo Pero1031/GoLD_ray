@@ -48,6 +48,20 @@ namespace rayt {
 
         SubsurfaceParams params;
         material->subsurfaceParams(po, lambda, params);
+        if (const sss::LayeredTable* layered = profile->layered()) {   // tabulated profile: replaces Burley's per channel
+            for (int c = 0; c < kSssChannels; ++c) {
+                params.table[static_cast<size_t>(c)] = layered->forChannel(c, lambda);
+                params.albedo[c] = params.table[static_cast<size_t>(c)]->albedo();
+            }
+        }
+        const auto sampleR = [&params](int c, Real u) {
+            const sss::ChannelTable* t = params.table[static_cast<size_t>(c)];
+            return t ? t->sampleRadius(u) : sss::sampleRadius(u, params.d[c]);
+        };
+        const auto profileAt = [&params](int c, Real r) {
+            const sss::ChannelTable* t = params.table[static_cast<size_t>(c)];
+            return t ? t->profile(r) : sss::profile(r, params.d[c]);
+        };
 
         const frame::Frame frame(po.n);
         const std::array<Vector3, 3> axes = { frame.s, frame.t, frame.n };
@@ -55,9 +69,9 @@ namespace rayt {
 
         // --- 1. radius and angle -------------------------------------------------------------
         const int channel = std::min(static_cast<int>(sampling::Random() * Real(kSssChannels)), kSssChannels - 1);
-        const Real r = sss::sampleRadius(sampling::Random(), params.d[channel]);
+        const Real r = sampleR(channel, sampling::Random());
         Real rMax = 0;
-        for (int c = 0; c < kSssChannels; ++c) rMax = std::max(rMax, sss::sampleRadius(Real(0.999), params.d[c]));
+        for (int c = 0; c < kSssChannels; ++c) rMax = std::max(rMax, sampleR(c, Real(0.999)));
         if (r >= rMax) return false;   // the 0.1 % tail that is cut off
         const Real phi = Real(2) * constants::PI * sampling::Random();
 
@@ -101,7 +115,7 @@ namespace rayt {
         Real pdf = 0;
         for (int axis = 0; axis < 3; ++axis) {
             Real channels = 0;
-            for (int c = 0; c < kSssChannels; ++c) channels += sss::profile(rProj[static_cast<size_t>(axis)], params.d[c]);
+            for (int c = 0; c < kSssChannels; ++c) channels += profileAt(c, rProj[static_cast<size_t>(axis)]);
             pdf += channels / Real(kSssChannels) * std::abs(nLocal[axis]) * axisProb[static_cast<size_t>(axis)];
         }
         pdf /= Real(nFound);
@@ -109,7 +123,7 @@ namespace rayt {
 
         const Real distance = glm::length(dv);
         weight = Spectrum(0.0);
-        for (int c = 0; c < kSssChannels; ++c) weight[c] = params.albedo[c] * sss::profile(distance, params.d[c]) / pdf;
+        for (int c = 0; c < kSssChannels; ++c) weight[c] = params.albedo[c] * profileAt(c, distance) / pdf;
 
         // --- the exit vertex: outward normal, the exit lobe as its material --------------------
         exitVertex = pi;
