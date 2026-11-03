@@ -154,6 +154,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //   blob    : a closed mesh (--mesh file.obj, default an icosphere of 5 cm) of glass filled with a homogeneous scattering
 //             medium (--sigma-t 1/m, --albedo, --phase-g, --glass-roughness), lit by the environment (--env); --bg-gray v
 //             shows a uniform gray backdrop to camera rays that touch nothing. --volume-cap limits collisions per path.
+//   water   : a glass tumbler of water (metres) in front of a striped wall, lit by softboxes. Water = smooth dielectric (IOR 1.333)
+//             with the measured absorption spectrum of pure water (Pope & Fry 1997, assets/Water) applied as a per-wavelength
+//             transmittance (AbsorbingMedium: red is absorbed first, deep water turns cyan). --absorb-scale S multiplies the
+//             absorption (default 40: a 6 cm glass is colorless at 1, so the tint is exaggerated); 0 = no absorption.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -217,6 +221,7 @@ struct CliOptions {
     std::string mesh;                  // blob: closed OBJ mesh with outward normals (default: an icosphere)
     Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)
     int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
+    Real absorbScale = 40;             // water: multiplies the absorption of pure water (1 = physical; a glass of water is then colorless)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
@@ -256,6 +261,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--mesh") o.mesh = value("--mesh");
             else if (a == "--bg-gray") o.bgGray = std::stod(value("--bg-gray"));
             else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
+            else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
@@ -292,8 +298,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume or blob");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob or water");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -309,7 +315,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water] [--absorb-scale S] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -774,9 +780,9 @@ static int RunVolumeTests(const CliOptions& opt) {
         return std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
     };
     // Index-matched slab (z in [0, thickness], infinite sideways) of a medium under a uniform white sky.
-    auto slab = [&](Real sigmaT, Real albedo, Real thickness, Real g = 0) {
+    auto slabOf = [&](std::shared_ptr<const Medium> medium, Real thickness) {
         auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));   // IOR 1: no reflection, no refraction
-        boundary->setMedium(std::make_shared<HomogeneousMedium>(sigmaT, albedo, g));
+        boundary->setMedium(std::move(medium));
         auto world = std::make_shared<Aggregate>();
         world->add(std::make_shared<Quad>(Point3(-50, -50, 0), Vector3(0, 100, 0), Vector3(100, 0, 0), boundary));          // normal -z
         world->add(std::make_shared<Quad>(Point3(-50, -50, thickness), Vector3(100, 0, 0), Vector3(0, 100, 0), boundary));  // normal +z
@@ -784,6 +790,9 @@ static int RunVolumeTests(const CliOptions& opt) {
         scene->setEnvLight(whiteSky());
         scene->finalize("spatial");
         return scene;
+    };
+    auto slab = [&](Real sigmaT, Real albedo, Real thickness, Real g = 0) {
+        return slabOf(std::make_shared<HomogeneousMedium>(sigmaT, albedo, g), thickness);
     };
     const Ray alongZ(Point3(0, 0, -1), Vector3(0, 0, 1));
     auto run = [&](const std::string& name, const Scene& scene, const Ray& ray, Real expected, bool informational = false) {
@@ -796,6 +805,18 @@ static int RunVolumeTests(const CliOptions& opt) {
     for (Real tau : { Real(1), Real(3) }) {
         const auto scene = slab(100, 0, tau / Real(100));
         run("absorbing slab, sigma_t d = " + std::to_string(int(tau)) + ": transmittance exp(-sigma_t d)", *scene, alongZ, std::exp(-tau));
+    }
+
+    // ---- 1b. AbsorbingMedium (transmittance weight, no collisions) must agree with Beer-Lambert as well -----------
+    {
+        color::SpectralCurve flat;   // sigma_a = 100/m at every wavelength
+        flat.add(300, 100); flat.add(900, 100); flat.finalize();
+        for (Real tau : { Real(1), Real(3) }) {
+            const auto scene = slabOf(std::make_shared<AbsorbingMedium>(flat), tau / Real(100));
+            run("AbsorbingMedium slab, sigma_a d = " + std::to_string(int(tau)) + ": transmittance exp(-sigma_a d)", *scene, alongZ, std::exp(-tau));
+        }
+        const auto scene = slabOf(std::make_shared<AbsorbingMedium>(flat, Real(0.5)), Real(0.04));   // scale 0.5: sigma_a d = 2
+        run("AbsorbingMedium slab, scale 0.5, sigma_a d = 2: transmittance exp(-2)", *scene, alongZ, std::exp(Real(-2)));
     }
 
     // ---- 2. white furnace: a medium without absorption inside a lossless boundary returns the sky -----------
@@ -1786,6 +1807,54 @@ static std::shared_ptr<Hittable> MakeMeshHittable(const std::shared_ptr<const Tr
     return BuildMeshBVH(mesh, material);
 }
 
+// Surface of revolution about the y axis. `profile` is a polyline of (radius, height) points ordered counter-clockwise
+// with the solid on the left, so the outward normal of a segment is (dy, -dr). The segment from the last point back to the
+// first is not generated: both must lie on the axis (r = 0), otherwise the mesh is open. Every segment has its own
+// vertices; the normal is flat along the profile and smooth around the axis (analytic, so a coarse ring count is enough).
+static TriangleMesh MakeLatheMesh(const std::vector<Point2>& profile, int segments) {
+    TriangleMesh m;
+    for (size_t s = 0; s + 1 < profile.size(); ++s) {
+        const Point2 a = profile[s], b = profile[s + 1];
+        const Real dr = b.x - a.x, dy = b.y - a.y, len = std::hypot(dr, dy);
+        if (len <= Real(0)) continue;
+        const Real nr = dy / len, ny = -dr / len;
+        const int base = static_cast<int>(m.p.size());
+        for (const Point2& q : { a, b }) {
+            for (int j = 0; j < segments; ++j) {
+                const Real phi = Real(2) * constants::PI * Real(j) / Real(segments);
+                m.p.push_back(Point3(q.x * std::cos(phi), q.y, q.x * std::sin(phi)));
+                m.n.push_back(Vector3(nr * std::cos(phi), ny, nr * std::sin(phi)));
+            }
+        }
+        auto addTriangle = [&](int i0, int i1, int i2) {
+            const Vector3 c = glm::cross(Vector3(m.p[i1] - m.p[i0]), Vector3(m.p[i2] - m.p[i0]));
+            if (glm::length(c) < Real(1e-14)) return;                 // degenerate: two vertices on the axis
+            if (glm::dot(c, m.n[i0]) < Real(0)) std::swap(i1, i2);    // counter-clockwise seen from outside
+            m.indices.insert(m.indices.end(), { i0, i1, i2 });
+        };
+        for (int j = 0; j < segments; ++j) {
+            const int j1 = (j + 1) % segments;
+            addTriangle(base + j, base + j1, base + segments + j1);
+            addTriangle(base + j, base + segments + j1, base + segments + j);
+        }
+    }
+    return m;
+}
+
+// Absorption coefficient of pure water (1/m) from the table in assets/Water (the file is in 1/cm).
+static bool LoadWaterAbsorption(color::SpectralCurve& sigmaA) {
+    color::SpectralCurve perCm;
+    std::string err;
+    if (!io::loadSpectralCurveCsv("assets/Water/pope_fry_1997_absorption.csv", perCm, &err)) {
+        std::cerr << "[Water] " << err << "\n";
+        return false;
+    }
+    sigmaA = color::SpectralCurve();
+    for (const auto& s : perCm.samples()) sigmaA.add(s.lambda_nm, s.value * Real(100));
+    sigmaA.finalize();
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // BVH benchmark (--scene bench): the reference recursive BVH vs the SAH flat BVH
 // -----------------------------------------------------------------------------
@@ -2145,7 +2214,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo") {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "water") {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -2242,6 +2311,7 @@ int main(int argc, char** argv) {
     bool blobView = false;                                        // blob scene: telephoto camera at 1 m
     bool probeView = false;                                       // metalprobe scene: distant narrow-FOV camera
     bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
+    bool waterView = false;                                       // water scene: close camera on the tumbler
 
     if (opt.scene == "gold") {
         // リストに対して add する
@@ -2642,6 +2712,68 @@ int main(int argc, char** argv) {
         worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(blob)), glass, opt.accel));
         blobView = true;
     }
+    else if (opt.scene == "water") {
+        // Everything is in metres: a tumbler (10 cm tall, 6-7.6 cm wide) filled to 8 cm, standing 0.5 mm above a table, in front
+        // of a wall of vertical stripes (their mirror-reversed, squeezed image is the classic sign of a water-filled cylinder).
+        // The water is a separate closed mesh 0.2 mm inside the glass, so every interface is air | dielectric and no nested
+        // dielectric bookkeeping is needed; the thin air gap is invisible at this scale.
+        const Real y0 = Real(0.0005);                       // glass base above the table
+        const Real gH = 0.100, gBase = 0.008, fill = 0.080, gap = 0.0002;
+        const Real rOutBot = 0.030, rOutTop = 0.038, rInBot = 0.0275, rInTop = 0.035;
+        auto rInAt = [&](Real y) { return rInBot + (rInTop - rInBot) * (y - gBase) / (gH - gBase); };
+        const int rings = 192;
+
+        // Glass: outer wall, flat rim, inner wall, floor of the cavity (counter-clockwise, solid on the left).
+        TriangleMesh glassMesh = MakeLatheMesh({ Point2(0, 0), Point2(rOutBot, 0), Point2(rOutTop, gH), Point2(rInTop, gH),
+            Point2(rInBot, gBase), Point2(0, gBase) }, rings);
+        // Water: bottom, side, flat free surface.
+        const Real yb = gBase + gap;
+        TriangleMesh waterMesh = MakeLatheMesh({ Point2(0, yb), Point2(rInAt(yb) - gap, yb), Point2(rInAt(fill) - gap, fill), Point2(0, fill) }, rings);
+        glassMesh.transform(glm::dmat3(1.0), Vector3(0, y0, 0));
+        waterMesh.transform(glm::dmat3(1.0), Vector3(0, y0, 0));
+        std::cout << "[Water] glass " << glassMesh.numTriangles() << " triangles, volume " << glassMesh.signedVolume() * 1e6
+            << " cm^3; water " << waterMesh.numTriangles() << " triangles, volume " << waterMesh.signedVolume() * 1e6
+            << " cm^3 (both must be > 0: closed, outward)\n";
+
+        auto glass = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+        auto water = std::make_shared<Dielectric>(Real(1.333), Real(0.0));
+        if (opt.absorbScale > 0) {
+            color::SpectralCurve sigmaA;
+            if (!LoadWaterAbsorption(sigmaA)) return 1;
+            auto absorbing = std::make_shared<AbsorbingMedium>(sigmaA, opt.absorbScale);
+            water->setMedium(absorbing);
+            const Real d = Real(2) * rInAt(0.04);   // light path across the glass at half height
+            std::cout << "[Water] absorption x" << opt.absorbScale << " (1 = physical). Transmittance over the " << d * 100 << " cm path across the glass: "
+                << "450 nm " << std::exp(-absorbing->sigmaA(450) * d) << ", 550 nm " << std::exp(-absorbing->sigmaA(550) * d)
+                << ", 650 nm " << std::exp(-absorbing->sigmaA(650) * d) << "   (RGB-mode coefficients, 1/m: "
+                << absorbing->sigmaRgb().x << ", " << absorbing->sigmaRgb().y << ", " << absorbing->sigmaRgb().z << ")\n";
+        }
+        else std::cout << "[Water] no absorption (--absorb-scale 0): clear refractive water\n";
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(glassMesh)), glass, opt.accel));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(waterMesh)), water, opt.accel));
+
+        // Table and the striped wall behind (white / dark stripes, 12 mm wide).
+        worldList->add(std::make_shared<Quad>(Point3(-2, 0, -2), Vector3(0, 0, 4), Vector3(4, 0, 0),
+            std::make_shared<Lambertian>(RgbColor(0.55))));                                         // normal +y
+        auto stripeWhite = std::make_shared<Lambertian>(RgbColor(0.80));
+        auto stripeDark = std::make_shared<Lambertian>(RgbColor(0.04));
+        const Real sw = 0.012;
+        for (int k = -30; k < 30; ++k)
+            worldList->add(std::make_shared<Quad>(Point3(Real(k) * sw, 0, -0.14), Vector3(sw, 0, 0), Vector3(0, 0.35, 0),
+                (k % 2 == 0) ? stripeWhite : stripeDark));
+
+        const Point3 target(0.0, 0.05, 0.0);
+        auto softbox = [&](const Point3& center, Real w, Real h, const EmissionSpectrum& e, Real radiance) {
+            const Vector3 n = glm::normalize(target - center);
+            const Vector3 e1 = glm::normalize(glm::cross(Vector3(0, 1, 0), n)) * w;
+            const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * h;
+            studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
+        };
+        softbox(Point3(-0.30, 0.28, 0.22), 0.22, 0.22, EmissionSpectrum(RgbColor(1.0, 0.97, 0.92)), 9.0);   // key: above-left-front
+        softbox(Point3(0.35, 0.12, 0.30), 0.25, 0.20, EmissionSpectrum(RgbColor(1.0)), 1.2);               // fill: front-right, dim
+        softbox(Point3(0.30, 0.09, 0.00), 0.04, 0.18, EmissionSpectrum(RgbColor(1.0)), 20.0);              // strip on the right: rim light on the glass edge
+        waterView = true;
+    }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
         // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
@@ -2796,6 +2928,11 @@ int main(int argc, char** argv) {
         lookAt = Point3(0.0, 0.032, 0.0);
         fovDeg = 30.0;
     }
+    if (waterView) {
+        lookFrom = Point3(0.0, 0.075, 0.40);
+        lookAt = Point3(0.0, 0.048, 0.0);
+        fovDeg = 22.0;
+    }
     if (probeView) {
         // Distance 100, unit sphere filling 96 % of the image height: the view direction differs from
         // the optical axis by < 0.6 degrees, so the incidence angle is read off the hit normal.
@@ -2830,6 +2967,7 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
+    if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
     if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
     auto integrator = std::make_unique<PathIntegrator>(
         camera,

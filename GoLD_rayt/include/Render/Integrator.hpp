@@ -191,7 +191,12 @@ namespace rayt {
                 // reaches it (the transmittance cancels with the sampling density: the weight stays 1).
                 // At a collision the path scatters with probability = albedo and is absorbed otherwise
                 // (an unbiased analog walk), and no light is sampled there (the boundary hides the lights).
-                if (r.medium) {
+                if (r.medium && r.medium->attenuatesContinuously()) {
+                    // Purely absorbing medium (clear water): the survivor fraction of the segment is a weight, not an event.
+                    if (hit) beta *= r.medium->transmittance(rec.t, lambda);
+                    else break;   // a ray inside a closed boundary that escapes: a leaky mesh, nothing sensible to add
+                }
+                else if (r.medium) {
                     const Medium& med = *r.medium;
                     const Real tSurface = hit ? rec.t : constants::INFINITY_VAL;
                     const Real tCollision = med.sampleDistance(sampling::Random());
