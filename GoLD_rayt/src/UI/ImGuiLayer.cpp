@@ -11,6 +11,10 @@
 
 #include "ImGuiLayer.hpp"
 #include "Core/RenderSettings.hpp"
+#include "Core/RenderMode.hpp"
+
+#include <algorithm>
+#include <string>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -151,14 +155,45 @@ void ImGuiLayer::draw(RenderSettings& s) {
 
     ImGui::Text("Application Average: %.3f ms/frame (%.1f FPS)",
         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+    ImGui::Text("Render mode: %s  (compile-time switch: Core/RenderMode.hpp)", rayt::kRenderModeName);
     ImGui::Separator();
 
+    // --- Scene ---
+    if (ImGui::Combo("Scene", &s.scene, "Gold spheres\0Glass spheres\0")) s.requestRebuild = true;
+    if (ImGui::BeginCombo("Environment", s.envNames[static_cast<size_t>(s.env)].c_str())) {
+        for (int i = 0; i < static_cast<int>(s.envNames.size()); ++i) {
+            const bool selected = (i == s.env);
+            if (ImGui::Selectable(s.envNames[static_cast<size_t>(i)].c_str(), selected) && !selected) {
+                s.env = i;
+                s.requestRebuild = true;
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (s.scene == 0) {
+        // The material is changed between two render passes by the application loop (it also restarts the accumulation).
+        ImGui::SliderFloat("Center gold roughness", &s.roughness, 0.01f, 1.0f, "%.2f");
+    }
+    ImGui::Separator();
+
+    // --- Rendering ---
     ImGui::Checkbox("Paused", &s.paused);
     ImGui::SliderInt("SPP / frame", &s.sppPerFrame, 1, 64);
-    // ... 他の項目 ...
+    ImGui::InputInt("Max SPP", &s.targetSpp, 64, 1024);
+    s.targetSpp = std::max(1, s.targetSpp);
+    ImGui::ProgressBar(std::min(1.0f, static_cast<float>(s.currentSpp) / static_cast<float>(s.targetSpp)), ImVec2(-1.0f, 0.0f),
+        (std::to_string(s.currentSpp) + " / " + std::to_string(s.targetSpp) + " spp").c_str());
 
     if (ImGui::Button("Reset accumulation")) {
         s.requestReset = true;
+    }
+    ImGui::Separator();
+
+    // --- Display and output ---
+    ImGui::SliderFloat("Exposure (EV)", &s.exposure, -6.0f, 6.0f, "%.1f");
+    if (ImGui::Button("Save image")) {
+        s.requestSave = true;   // writes gui_<time>_<spp>spp.png (with the exposure above) and .hdr (linear, raw)
     }
 
     ImGui::End(); // End Render Settings
