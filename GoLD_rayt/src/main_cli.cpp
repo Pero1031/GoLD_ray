@@ -22,6 +22,7 @@
 // 自作ヘッダー
 // Project Headers
 // Core
+#include <iomanip>
 #include "Core/Core.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/Sampling.hpp"
@@ -137,6 +138,12 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             rays = --spp x 2000. Use a Release build for meaningful speeds.
 //   metals  : metal spectral data tests (no image): file layouts / units, reflectance input,
 //             edge-tint accuracy against the Johnson tables, rendered gold. Samples = --spp x 1024.
+//   metalprobe: a smooth metal sphere (--metal Au|Ag|Cu) inside a uniform emissive shell with the spectrum of
+//             --light. One specular bounce, so the mean film color per angle of incidence (printed) is
+//             F(theta) x light. Build it in RGB and in spectral mode and compare with tools/metal_accuracy.py.
+//   skindemo: a skin-colored sphere and ring (centimeter scale) under a key light, a fill and a back light, to see
+//             subsurface scattering. Plain diffuse-like skin without options; --sss = real skin scatter distances
+//             (3.7 / 1.4 / 0.7 mm for R / G / B), --sss-scale S multiplies them (3 = anime-like glow).
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -183,6 +190,8 @@ struct CliOptions {
     std::string accel = "own";             // own | embree (triangle mesh intersection)
     std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
+    std::string metal = "Au";          // metalprobe scene: Au | Ag | Cu (Johnson tables)
+    Real probeRoughness = 0.01;        // metalprobe scene: --roughness r of the metal sphere
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
 };
@@ -203,6 +212,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--abbe")  o.abbe = std::stod(value("--abbe"));
             else if (a == "--out")   o.out = value("--out");
             else if (a == "--light") o.light = value("--light");
+            else if (a == "--metal") o.metal = value("--metal");
+            else if (a == "--roughness") o.probeRoughness = std::stod(value("--roughness"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
@@ -239,8 +250,10 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough or pmx");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe or skindemo");
+        if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
+            throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")
@@ -254,7 +267,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -318,6 +331,65 @@ static bool CheckFurnace(const Scene& scene, const Camera& camera, const Film& f
     }
     std::cout << "[Furnace] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed;
+}
+
+// Light spectrum chosen with --light (spd and metalprobe scenes). Returns false when the SPD file cannot be read.
+static bool MakeLightEmission(const std::string& light, EmissionSpectrum& out) {
+    if (light == "d65")           out = EmissionSpectrum(RgbColor(1.0));
+    else if (light == "tungsten") out = EmissionSpectrum::IlluminantA();
+    else if (light == "candle")   out = EmissionSpectrum::Blackbody(1850.0);
+    else {
+        color::SpectralCurve curve;
+        std::string err;
+        if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", curve, &err)) {
+            std::cerr << "[SPD] " << err << "\n";
+            return false;
+        }
+        out = EmissionSpectrum::FromCurve(curve);
+    }
+    return true;
+}
+
+// metalprobe report: mean film color of the metal sphere per angle of incidence (one specular
+// bounce off a uniform emitter, so the value is F(theta) x light). Bins are +- 1.5 degrees wide.
+static void ReportMetalProbe(const Scene& scene, const Camera& camera, const Film& film,
+    const Material* metal, const std::string& label)
+{
+    const Real centersDeg[] = { 0, 15, 30, 45, 60, 70, 75, 80, 85 };
+    constexpr int kBins = static_cast<int>(sizeof(centersDeg) / sizeof(centersDeg[0]));
+    constexpr Real kHalfWidthDeg = 1.5;
+    struct Acc { Vector3 sum = Vector3(0.0); Real cosSum = 0; long long n = 0; };
+    Acc acc[kBins];
+
+    const int w = film.width();
+    const int h = film.height();
+    for (int j = 0; j < h; ++j) {
+        for (int i = 0; i < w; ++i) {
+            const Ray r = camera.getRay((Real(i) + 0.5) / Real(w), (Real(j) + 0.5) / Real(h), Point2(0.5, 0.5));
+            SurfaceInteraction rec;
+            if (!scene.hit(r, rec) || rec.matPtr != metal) continue;
+            const Real cosTheta = std::abs(glm::dot(r.d, rec.n));
+            const Real thetaDeg = std::acos(std::min(cosTheta, Real(1))) * Real(180) / constants::PI;
+            for (int b = 0; b < kBins; ++b) {
+                if (std::abs(thetaDeg - centersDeg[b]) > kHalfWidthDeg) continue;
+                Acc& a = acc[b];
+                a.sum += film.getData()[static_cast<size_t>(h - 1 - j) * static_cast<size_t>(w) + static_cast<size_t>(i)];
+                a.cosSum += cosTheta;
+                a.n++;
+            }
+        }
+    }
+
+    std::cout << "\n[MetalProbe] " << label << ": mean linear RGB per angle of incidence\n";
+    std::cout << std::fixed << std::setprecision(4);
+    for (int b = 0; b < kBins; ++b) {
+        if (acc[b].n == 0) continue;
+        const Vector3 mean = acc[b].sum / Real(acc[b].n);
+        std::cout << "[MetalProbe]   theta " << std::setw(4) << std::setprecision(1) << centersDeg[b]
+            << "  mean cos " << std::setprecision(4) << (acc[b].cosSum / Real(acc[b].n))
+            << "  RGB (" << mean.x << ", " << mean.y << ", " << mean.z << ")  [" << acc[b].n << " px]\n";
+    }
+    std::cout.unsetf(std::ios::floatfield);
 }
 
 // Debug aid: follow a few light paths of one pixel and print which object each bounce hits.
@@ -1870,7 +1942,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh") {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo") {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -1961,6 +2033,10 @@ int main(int argc, char** argv) {
     std::shared_ptr<Light> spdLight;                              // spd scene: registered for NEE below
     std::vector<FurnaceObject> furnaceObjects;                    // what the furnace test checks
     std::vector<std::shared_ptr<Material>> furnaceMaterials;      // owns materials only used there
+    std::shared_ptr<Material> probeMetal;                         // metalprobe scene: the metal sphere's material
+    std::shared_ptr<Material> skinMaterial;                       // skindemo scene: keeps the shared skin material alive
+    bool probeView = false;                                       // metalprobe scene: distant narrow-FOV camera
+    bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
 
     if (opt.scene == "gold") {
         // リストに対して add する
@@ -2307,18 +2383,7 @@ int main(int argc, char** argv) {
         worldList->add(std::make_shared<Sphere>(Point3(1.4, 0, -1), r, lambertian(0.15, 0.60, 0.20)));    // green
         worldList->add(std::make_shared<Sphere>(Point3(0, -100.3, -1), 100.0, lambertian(0.7, 0.7, 0.7)));
 
-        if (opt.light == "d65")           spdEmission = EmissionSpectrum(RgbColor(1.0));
-        else if (opt.light == "tungsten") spdEmission = EmissionSpectrum::IlluminantA();
-        else if (opt.light == "candle")   spdEmission = EmissionSpectrum::Blackbody(1850.0);
-        else {
-            color::SpectralCurve curve;
-            std::string err;
-            if (!io::loadSpectralCurveCsv("assets/Illuminants/led_synthetic_coolwhite.csv", curve, &err)) {
-                std::cerr << "[SPD] " << err << "\n";
-                return 1;
-            }
-            spdEmission = EmissionSpectrum::FromCurve(curve);
-        }
+        if (!MakeLightEmission(opt.light, spdEmission)) return 1;
         std::cout << "[SPD] light = " << opt.light << ", sensor RGB of the light = ("
             << spdEmission.rgb().x << ", " << spdEmission.rgb().y << ", " << spdEmission.rgb().z << ")"
             << (opt.whiteBalance ? ", film white-balanced to it" : "") << "\n";
@@ -2329,6 +2394,70 @@ int main(int argc, char** argv) {
         auto lightShape = std::make_shared<Sphere>(Point3(-2.2, 3.0, 1.5), 0.8, lightMat);
         spdLight = std::make_shared<AreaLight>(lightShape, lightMat);
         worldList->add(std::make_shared<Primitive>(lightShape, lightMat, spdLight));
+    }
+    else if (opt.scene == "metalprobe") {
+        // A smooth metal sphere (radius 1) seen from far away (nearly orthographic) inside a large
+        // two-sided emissive shell: pixel ring radius rho = sin(theta of incidence), one specular bounce.
+        // The shell is not a registered light (no NEE needed: the metal is almost a mirror).
+        if (!MakeLightEmission(opt.light, spdEmission)) return 1;
+        auto table = std::make_shared<rayt::color::ComplexIorTable>();
+        std::string err;
+        const std::string path = "assets/Metal_data/Johnson_" + opt.metal + ".csv";
+        if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+            std::cerr << "[MetalProbe] cannot load " << path << ": " << err << "\n";
+            return 1;
+        }
+        probeMetal = std::make_shared<RoughConductor>(table, opt.probeRoughness);
+        std::cout << "[MetalProbe] metal = " << opt.metal << ", light = " << opt.light
+            << ", sensor RGB of the light = (" << spdEmission.rgb().x << ", " << spdEmission.rgb().y
+            << ", " << spdEmission.rgb().z << ")\n";
+
+        worldList->add(std::make_shared<Sphere>(Point3(0, 0, 0), 1.0, probeMetal));
+        auto shellMat = std::make_shared<DiffuseLight>(spdEmission, 1.0, true);
+        auto shell = std::make_shared<Sphere>(Point3(0, 0, 0), 300.0, shellMat);
+        worldList->add(std::make_shared<Primitive>(shell, shellMat));
+
+        opt.lightSampler = "uniform";   // there is no light to sample
+        probeView = true;
+    }
+    else if (opt.scene == "skindemo") {
+        // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
+        // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
+        // profile) for both, because the exit point of the light is only searched on surfaces with the same profile.
+        auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.50), Real(0.4), Real(0));
+        if (opt.sss) {
+            auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001) * opt.sssScale, Real(1.4));
+            skin->setSubsurface(profile);
+            std::cout << "[SkinDemo] subsurface scattering on (scale " << opt.sssScale << ")\n";
+        }
+        else std::cout << "[SkinDemo] no subsurface scattering (plain coated diffuse)\n";
+        skinMaterial = skin;
+
+        worldList->add(std::make_shared<Sphere>(Point3(-0.065, 0.03, 0.0), 0.03, skin));
+
+        TriangleMesh ring;
+        std::string objErr;
+        if (!io::loadObj("assets/Meshes/torus.obj", ring, &objErr)) { std::cerr << "[SkinDemo] " << objErr << "\n"; return 1; }
+        ring.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(Real(65)), Vector3(1, 0, 0))) * Real(0.05),
+            Vector3(0.065, 0.036, 0.0));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(ring)), skin, opt.accel));
+
+        worldList->add(std::make_shared<Quad>(Point3(-0.6, 0, -0.6), Vector3(0, 0, 1.2), Vector3(1.2, 0, 0),
+            std::make_shared<Lambertian>(RgbColor(0.30, 0.30, 0.32))));                              // floor (normal +y)
+        worldList->add(std::make_shared<Quad>(Point3(-0.6, 0, -0.30), Vector3(1.2, 0, 0), Vector3(0, 0.8, 0),
+            std::make_shared<Lambertian>(RgbColor(0.10, 0.10, 0.12))));                              // dark backdrop (normal +z)
+
+        const Point3 target(0.0, 0.03, 0.0);
+        auto softbox = [&](const Point3& center, Real w, Real h, const EmissionSpectrum& e, Real radiance) {
+            const Vector3 n = glm::normalize(target - center);
+            const Vector3 e1 = glm::normalize(glm::cross(Vector3(0, 1, 0), n)) * w;
+            const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * h;
+            studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
+        };
+        softbox(Point3(-0.34, 0.18, 0.14), 0.25, 0.25, EmissionSpectrum(RgbColor(1.0)), 8.0);             // key: from the left, so the terminator is mid-picture
+        softbox(Point3(0.35, 0.10, 0.30), 0.30, 0.20, EmissionSpectrum(RgbColor(1.0)), 1.0);              // fill: front-right, dim
+        softbox(Point3(0.10, 0.32, -0.16), 0.25, 0.06, EmissionSpectrum(RgbColor(1.0, 0.93, 0.85)), 60.0); // back light: strip above-behind, out of frame
+        skinView = true;
     }
     else {
         // furnace: no floor, so the only light path is environment <-> object.
@@ -2411,14 +2540,27 @@ int main(int argc, char** argv) {
     Point3 lookFrom(0, 0.5, 2.5); // 少し高い位置から見下ろす
     Point3 lookAt(0, 0, -1);
     Vector3 vUp(0, 1, 0);
+    Real fovDeg = 35.0;
     if (pmxCamera) { lookFrom = pmxCamFrom; lookAt = pmxCamTarget; }
+    if (skinView) {
+        lookFrom = Point3(0.0, 0.075, 0.30);
+        lookAt = Point3(0.0, 0.032, 0.0);
+        fovDeg = 30.0;
+    }
+    if (probeView) {
+        // Distance 100, unit sphere filling 96 % of the image height: the view direction differs from
+        // the optical axis by < 0.6 degrees, so the incidence angle is read off the hit normal.
+        lookFrom = Point3(0, 0, 100);
+        lookAt = Point3(0, 0, 0);
+        fovDeg = Real(2) * std::atan(Real(1) / Real(0.96) / Real(100)) * Real(180) / constants::PI;
+    }
 
     Real distToFocus = glm::length(lookFrom - lookAt);
     Real aperture = 0.0; // ピンホールカメラ（ボケなし）でテスト
 
     auto camera = std::make_shared<Camera>(
         lookFrom, lookAt, vUp,
-        35.0, // FOV
+        fovDeg, // FOV
         double(imageWidth) / imageHeight,
         aperture,
         distToFocus
@@ -2472,6 +2614,11 @@ int main(int argc, char** argv) {
     bool furnacePassed = true;
     if (opt.scene == "furnace") {
         furnacePassed = CheckFurnace(*scene, *camera, film, furnaceObjects);
+    }
+
+    if (opt.scene == "metalprobe") {
+        ReportMetalProbe(*scene, *camera, film, probeMetal.get(),
+            opt.metal + " under " + opt.light + " r=" + std::to_string(opt.probeRoughness).substr(0, 4) + std::string(" [") + kRenderModeName + "]");
     }
 
     std::cout << "[System] Finished." << std::endl;
