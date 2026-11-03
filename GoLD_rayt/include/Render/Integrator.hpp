@@ -29,6 +29,7 @@
 #include "Render/Film.hpp"
 #include "Render/Camera.hpp"
 #include "Render/SubsurfaceProbe.hpp"
+#include "Render/CausticPhotonMap.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Lights/PointLight.hpp"
@@ -79,6 +80,15 @@ namespace rayt {
         /// biases the image; volumeCapHits() counts them so that the bias can be checked).
         void setMaxVolumeEvents(int n) { m_maxVolumeEvents = n; }
         long long volumeCapHits() const { return m_volumeCapHits.load(); }
+
+        /**
+         * @brief Caustics from a photon map (null = off: caustics are then found by BSDF sampling only).
+         *
+         * With a map the integrator adds the photon estimate at every non-specular vertex and drops the light that a
+         * BSDF-sampled ray finds through a chain of specular bounces that started at such a vertex (L S+ D paths), so
+         * nothing is counted twice. Every specular object must lie inside the map's target sphere. An empty map is ignored.
+         */
+        void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && !map->empty()) ? map : nullptr; }
 
         // レンダリングループの実装
         virtual void render(const Scene& scene, Film& film) override {
@@ -176,6 +186,9 @@ namespace rayt {
             Real lastPdf = 0;
             bool lastSpecular = false;
             bool hasLastBsdf = false;
+            // True from a non-specular scattering vertex on until the next non-specular event, as long as only perfectly
+            // specular bounces follow: light found now would be an L S+ D path, which the caustic photon map accounts for.
+            bool fromReceiver = false;
 
             SurfaceInteraction lastRec;
             int passThrough = 0;
@@ -208,6 +221,7 @@ namespace rayt {
                         r = Ray(p, dir, Real(0), &med);   // p is inside the medium: nothing to skip (an epsilon would hide nearby surfaces)
                         hasLastBsdf = true;
                         lastSpecular = true;   // no NEE was done here: a light hit next is not MIS weighted
+                        fromReceiver = false;  // photons are not traced through scattering media: what follows is counted here
                         --depth;               // a collision in a medium is not a surface bounce
                         continue;
                     }
@@ -243,8 +257,8 @@ namespace rayt {
                             }
                             L += beta * envL * w;
                         }
-                        else {
-                            // Camera ray or specular path: no MIS
+                        else if (!(m_caustics && fromReceiver)) {
+                            // Camera ray or specular path: no MIS (an L S+ D path is left to the caustic photons)
                             L += beta * envL;
                         }
                     }
@@ -288,7 +302,7 @@ namespace rayt {
                         }
                         L += beta * Le * w;
                     }
-                    else {
+                    else if (!(m_caustics && fromReceiver)) {
                         L += beta * Le;
                     }
                 }
@@ -305,6 +319,8 @@ namespace rayt {
                     // ========== Next Event Estimation (NEE) ==========
                     if (!rec.matPtr->isSpecular()) {
                         L += beta * sampleAllLights(scene, rec, -r.d, lambda);
+                        // Caustic light (L S+ D) at this vertex from the photon map (not inside a medium: no photons there)
+                        if (m_caustics && !r.medium) L += beta * m_caustics->radiance(rec, -r.d, lambda);
                     }
 
                     // ========== BSDF Sampling for Next Path Vertex ==========
@@ -335,6 +351,10 @@ namespace rayt {
                 lastPdf = pdf;
                 lastSpecular = bsdfSample->isSpecular();
                 hasLastBsdf = true;
+                // A non-delta bounce starts a chain that belongs to the photons; a delta lobe of a material that also has
+                // diffuse lobes (a coat) is not a photon path (photons only continue through purely specular materials).
+                if (!lastSpecular) { if (!r.medium) fromReceiver = true; }
+                else if (!rec.matPtr->isSpecular()) fromReceiver = false;
 
                 // 鏡面反射（デルタ分布）かどうかの判定
                 if (bsdfSample->isSpecular()) {
@@ -440,6 +460,7 @@ namespace rayt {
         int m_spp;
         int m_maxVolumeEvents = 100000;
         mutable std::atomic<long long> m_volumeCapHits{ 0 };
+        const CausticPhotonMap* m_caustics = nullptr;
 
         /**
          * @brief Wavelengths for one camera path.
