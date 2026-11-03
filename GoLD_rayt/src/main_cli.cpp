@@ -149,6 +149,11 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             table (--skin-out) for skindemo --skin-table; prints the profile per RGB channel, the Burley profile with the
 //             same albedo and mean radius, and a check against diffusion theory. --melanin --blood --oxygen --epidermis-mm
 //             --photons --single-layer. skindemo --skin-table f.csv renders it, --skin-matched the matched Burley profile.
+//   volume  : volumetric random walk tests (no image): Beer-Lambert transmittance of an absorbing slab, white furnaces of
+//             scattering media (slab, glass sphere), and the reflectance of a semi-infinite slab against a standalone Monte Carlo.
+//   blob    : a closed mesh (--mesh file.obj, default an icosphere of 5 cm) of glass filled with a homogeneous scattering
+//             medium (--sigma-t 1/m, --albedo, --phase-g, --glass-roughness), lit by the environment (--env); --bg-gray v
+//             shows a uniform gray backdrop to camera rays that touch nothing. --volume-cap limits collisions per path.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -205,6 +210,13 @@ struct CliOptions {
     bool singleLayer = false;          // skinlayers: dermis only (homogeneous), for comparison
     std::string skinOut = "assets/Skin/skin_layers.csv";   // skinlayers: output table
     std::string skinTable;             // skindemo: layered profile table (--skin-table file.csv)
+    Real sigmaT = 128;                 // blob: extinction coefficient of the medium (1/m)
+    Real mediumAlbedo = 0.99;          // blob: single-scattering albedo of the medium
+    Real phaseG = 0;                   // blob: Henyey-Greenstein anisotropy (0 = isotropic)
+    Real glassRoughness = 0.224;       // blob: perceptual roughness of the glass boundary
+    std::string mesh;                  // blob: closed OBJ mesh with outward normals (default: an icosphere)
+    Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)
+    int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
@@ -237,6 +249,13 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--skin-out") o.skinOut = value("--skin-out");
             else if (a == "--skin-table") o.skinTable = value("--skin-table");
             else if (a == "--skin-matched") o.skinMatched = true;
+            else if (a == "--sigma-t") o.sigmaT = std::stod(value("--sigma-t"));
+            else if (a == "--albedo") o.mediumAlbedo = std::stod(value("--albedo"));
+            else if (a == "--phase-g") o.phaseG = std::stod(value("--phase-g"));
+            else if (a == "--glass-roughness") o.glassRoughness = std::stod(value("--glass-roughness"));
+            else if (a == "--mesh") o.mesh = value("--mesh");
+            else if (a == "--bg-gray") o.bgGray = std::stod(value("--bg-gray"));
+            else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
@@ -273,8 +292,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo or skinlayers");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume or blob");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -290,7 +309,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -729,6 +748,95 @@ static int RunSkinLayers(const CliOptions& opt) {
         std::cout << std::defaultfloat << "\n";
     }
     return 0;
+}
+
+// -----------------------------------------------------------------------------
+// Volumetric random walk tests (--scene volume)
+// -----------------------------------------------------------------------------
+static bool ReportVolumeCase(const std::string& name, Real expected, const Vector3& mean, const Vector3& se, int bad, bool informational = false) {
+    bool ok = (bad == 0);
+    for (int c = 0; c < 3; ++c) ok = ok && std::abs(mean[c] - expected) <= 4.0 * se[c] + 0.005 * std::abs(expected) + 1e-6;
+    std::cout << "[Volume]   " << name << "\n"
+        << "             expected " << expected << "   got (" << mean.x << ", " << mean.y << ", " << mean.z << ") +- ("
+        << se.x << ", " << se.y << ", " << se.z << ")   ratio " << mean.y / expected
+        << (bad ? "  NaN samples: " + std::to_string(bad) : std::string())
+        << (informational ? "   (information)" : (ok ? "   OK" : "   FAIL")) << "\n";
+    return informational || ok;
+}
+
+static int RunVolumeTests(const CliOptions& opt) {
+    bool allPassed = true;
+    const int n = opt.spp * 1024;   // samples per test (default --spp 256 -> about 260k)
+    const int depth = 512;          // surface bounces; collisions inside the medium are not counted
+    std::cout << "[Volume] " << n << " samples per test\n";
+
+    auto whiteSky = [] {
+        return std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+    };
+    // Index-matched slab (z in [0, thickness], infinite sideways) of a medium under a uniform white sky.
+    auto slab = [&](Real sigmaT, Real albedo, Real thickness, Real g = 0) {
+        auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));   // IOR 1: no reflection, no refraction
+        boundary->setMedium(std::make_shared<HomogeneousMedium>(sigmaT, albedo, g));
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Quad>(Point3(-50, -50, 0), Vector3(0, 100, 0), Vector3(100, 0, 0), boundary));          // normal -z
+        world->add(std::make_shared<Quad>(Point3(-50, -50, thickness), Vector3(100, 0, 0), Vector3(0, 100, 0), boundary));  // normal +z
+        auto scene = std::make_shared<Scene>(world);
+        scene->setEnvLight(whiteSky());
+        scene->finalize("spatial");
+        return scene;
+    };
+    const Ray alongZ(Point3(0, 0, -1), Vector3(0, 0, 1));
+    auto run = [&](const std::string& name, const Scene& scene, const Ray& ray, Real expected, bool informational = false) {
+        Vector3 mean, se; int bad = 0;
+        EstimateRadiance(scene, ray, n, depth, mean, se, bad);
+        allPassed = ReportVolumeCase(name, expected, mean, se, bad, informational) && allPassed;
+    };
+
+    // ---- 1. Beer-Lambert: a purely absorbing slab transmits exp(-sigma_t d) of the sky behind it --------------
+    for (Real tau : { Real(1), Real(3) }) {
+        const auto scene = slab(100, 0, tau / Real(100));
+        run("absorbing slab, sigma_t d = " + std::to_string(int(tau)) + ": transmittance exp(-sigma_t d)", *scene, alongZ, std::exp(-tau));
+    }
+
+    // ---- 2. white furnace: a medium without absorption inside a lossless boundary returns the sky -----------
+    run("scattering slab, albedo 1, sigma_t d = 5, isotropic: white furnace", *slab(100, 1, 0.05), alongZ, 1);
+    run("scattering slab, albedo 1, sigma_t d = 5, g = 0.8: white furnace", *slab(100, 1, 0.05, 0.8), alongZ, 1);
+    run("scattering slab, albedo 1, sigma_t d = 5, g = -0.5, slanted ray: white furnace", *slab(100, 1, 0.05, -0.5),
+        Ray(Point3(0, 0, -1), glm::normalize(Vector3(0.6, 0.0, 0.8))), 1);
+    {
+        auto glass = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+        glass->setMedium(std::make_shared<HomogeneousMedium>(Real(200), Real(1), Real(0)));
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.05), glass));
+        auto scene = std::make_shared<Scene>(world);
+        scene->setEnvLight(whiteSky());
+        scene->finalize("spatial");
+        run("glass sphere (IOR 1.5) filled with a medium, sigma_t R = 10, albedo 1: white furnace (centre ray)", *scene, alongZ, 1);
+        run("glass sphere, same, off-centre ray", *scene, Ray(Point3(0.03, 0, -1), Vector3(0, 0, 1)), 1);
+
+        auto rough = std::make_shared<Dielectric>(Real(1.5), Real(0.224));
+        rough->setMedium(std::make_shared<HomogeneousMedium>(Real(200), Real(1), Real(0)));
+        auto worldRough = std::make_shared<Aggregate>();
+        worldRough->add(std::make_shared<Sphere>(Point3(0.0), Real(0.05), rough));
+        auto sceneRough = std::make_shared<Scene>(worldRough);
+        sceneRough->setEnvLight(whiteSky());
+        sceneRough->finalize("spatial");
+        run("rough glass sphere (roughness 0.224): single-scattering GGX loses energy at every boundary hit", *sceneRough, alongZ, 1, true);
+    }
+
+    // ---- 3. semi-infinite slab against the standalone Monte Carlo of the layered skin code ------------------
+    // Under a uniform sky the radiance along the normal is the directional-hemispherical reflectance at normal
+    // incidence (reciprocity), which a pencil beam entering at the origin measures as the total exit weight.
+    {
+        const double mua = 100, musp = 4000;
+        const auto ref = skin::simulateRadialProfile({ skin::Layer{ 0, mua, musp } }, 128, 1e-5, 0.03, 4000000, 99);
+        const Real expected = Real(ref.reflected + ref.lostOutside);
+        run("semi-infinite slab, mu_a 100/m, mu_s' 4000/m (albedo 0.9756): reflectance vs standalone Monte Carlo " + std::to_string(expected),
+            *slab(Real(mua + musp), Real(musp / (mua + musp)), Real(0.5)), alongZ, expected);
+    }
+
+    std::cout << "[Volume] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
 }
 
 // -----------------------------------------------------------------------------
@@ -1988,7 +2096,7 @@ int main(int argc, char** argv) {
     if (!ParseArgs(argc, argv, opt)) return 1;
     const int imageWidth = opt.width;
     // The pmx scene is a standing figure: 3:4 portrait instead of 16:9.
-    const double heightPerWidth = (opt.scene == "pmx") ? 4.0 / 3.0 : double(IMAGE_HEIGHT) / IMAGE_WIDTH;
+    const double heightPerWidth = (opt.scene == "pmx") ? 4.0 / 3.0 : (opt.scene == "blob") ? 0.75 : double(IMAGE_HEIGHT) / IMAGE_WIDTH;
     const int imageHeight = std::max(1, static_cast<int>(std::lround(double(opt.width) * heightPerWidth)));
     std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << imageWidth << "x" << imageHeight
@@ -2003,6 +2111,7 @@ int main(int argc, char** argv) {
     if (opt.scene == "aov") return RunAovTests();
     if (opt.scene == "sss") return RunSssTests(opt);
     if (opt.scene == "skinlayers") return RunSkinLayers(opt);
+    if (opt.scene == "volume") return RunVolumeTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2129,6 +2238,8 @@ int main(int argc, char** argv) {
     std::vector<std::shared_ptr<Material>> furnaceMaterials;      // owns materials only used there
     std::shared_ptr<Material> probeMetal;                         // metalprobe scene: the metal sphere's material
     std::shared_ptr<Material> skinMaterial;                       // skindemo scene: keeps the shared skin material alive
+    std::shared_ptr<Material> blobMaterial;                       // blob scene: the glass + medium material
+    bool blobView = false;                                        // blob scene: telephoto camera at 1 m
     bool probeView = false;                                       // metalprobe scene: distant narrow-FOV camera
     bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
 
@@ -2514,6 +2625,23 @@ int main(int argc, char** argv) {
         opt.lightSampler = "uniform";   // there is no light to sample
         probeView = true;
     }
+    else if (opt.scene == "blob") {
+        // A closed mesh of glass (outward normals) filled with a homogeneous scattering medium: the light enters through the
+        // glass, random-walks inside and leaves through the glass again. Lit by the environment light only.
+        TriangleMesh blob;
+        if (!opt.mesh.empty()) {
+            std::string objErr;
+            if (!io::loadObj(opt.mesh, blob, &objErr)) { std::cerr << "[Blob] " << objErr << "\n"; return 1; }
+        }
+        else blob = TriangleMesh::Icosphere(4, 0.025, Point3(0.0), true);
+        auto glass = std::make_shared<Dielectric>(Real(1.5), opt.glassRoughness);
+        glass->setMedium(std::make_shared<HomogeneousMedium>(opt.sigmaT, opt.mediumAlbedo, opt.phaseG));
+        blobMaterial = glass;
+        std::cout << "[Blob] " << blob.numTriangles() << " triangles, volume " << blob.signedVolume() * 1e6 << " cm^3 (must be > 0: closed, outward), sigma_t "
+            << opt.sigmaT << " /m, albedo " << opt.mediumAlbedo << ", g " << opt.phaseG << ", glass roughness " << opt.glassRoughness << "\n";
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(blob)), glass, opt.accel));
+        blobView = true;
+    }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
         // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
@@ -2616,6 +2744,8 @@ int main(int argc, char** argv) {
     // --------------------------------------------------
     auto scene = std::make_shared<Scene>(worldList);
 
+    if (opt.scene == "blob" && opt.bgGray >= 0) scene->setCameraBackground(Vector3(opt.bgGray));
+
     // 環境光を設定（存在する場合）
     if (envLight) {
         scene->setEnvLight(envLight);
@@ -2656,6 +2786,11 @@ int main(int argc, char** argv) {
     Vector3 vUp(0, 1, 0);
     Real fovDeg = 35.0;
     if (pmxCamera) { lookFrom = pmxCamFrom; lookAt = pmxCamTarget; }
+    if (blobView) {   // 1 m away, a 400 mm lens on a 24 mm sensor height: about 3.4 degrees
+        lookFrom = Point3(0.0, 0.0, 1.0);
+        lookAt = Point3(0.0, 0.0, 0.0);
+        fovDeg = 3.44;
+    }
     if (skinView) {
         lookFrom = Point3(0.0, 0.075, 0.30);
         lookAt = Point3(0.0, 0.032, 0.0);
@@ -2695,12 +2830,14 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
+    if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
     auto integrator = std::make_unique<PathIntegrator>(
         camera,
         opt.maxDepth,  // 最大深度
         opt.spp        // プログレッシブ用のspp
     );
 
+    integrator->setMaxVolumeEvents(opt.volumeCap);
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
 
@@ -2709,6 +2846,10 @@ int main(int argc, char** argv) {
     // -------------------------------------------------------------------------
     std::cout << "[Render] Start PBR rendering..." << std::endl;
     integrator->render(*scene, film);
+    if (opt.scene == "blob") {
+        std::cout << "[Blob] paths cut by the limit of " << opt.volumeCap << " collisions: " << integrator->volumeCapHits()
+            << (integrator->volumeCapHits() ? "  (these paths are lost: raise --volume-cap)" : "  (none: no cutoff bias)") << "\n";
+    }
 
     std::cout << "[Output] Saving images..." << std::endl;
     film.save(opt.out);

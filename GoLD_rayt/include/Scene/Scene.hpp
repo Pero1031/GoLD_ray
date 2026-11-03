@@ -124,6 +124,12 @@ namespace rayt {
             return m_envLight != nullptr;
         }
 
+        /// Radiance seen by camera rays that leave the scene without touching anything (a uniform backdrop that
+        /// does not light the scene). Rays that scatter or refract first still see the environment light.
+        void setCameraBackground(const Vector3& rgb) { m_cameraBackground = rgb; m_hasCameraBackground = true; }
+        bool hasCameraBackground() const { return m_hasCameraBackground; }
+        const Vector3& cameraBackground() const { return m_cameraBackground; }
+
         /**
          * @brief Get the environment light.
          */
@@ -157,6 +163,9 @@ namespace rayt {
 
         // member for light sources
         std::vector<std::shared_ptr<Light>> m_lights;
+
+        Vector3 m_cameraBackground = Vector3(0.0);
+        bool m_hasCameraBackground = false;
 
         // Optional environment/infinite light
         std::shared_ptr<EnvLight> m_envLight;

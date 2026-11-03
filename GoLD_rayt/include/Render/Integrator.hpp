@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "Materials/Medium.hpp"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -72,6 +74,11 @@ namespace rayt {
     public:
         PathIntegrator(std::shared_ptr<Camera> camera, int maxDepth, int spp)
             : m_camera(camera), m_maxDepth(maxDepth), m_spp(spp) {}
+
+        /// Safety limit of collisions inside participating media per path (paths that reach it are dropped, which
+        /// biases the image; volumeCapHits() counts them so that the bias can be checked).
+        void setMaxVolumeEvents(int n) { m_maxVolumeEvents = n; }
+        long long volumeCapHits() const { return m_volumeCapHits.load(); }
 
         // レンダリングループの実装
         virtual void render(const Scene& scene, Film& film) override {
@@ -172,11 +179,42 @@ namespace rayt {
 
             SurfaceInteraction lastRec;
             int passThrough = 0;
+            int volumeEvents = 0;   // collisions inside participating media (not counted in depth)
 
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
-                if (!scene.hit(r, rec)) {  // 交差判定：ミスったとき
+                const bool hit = scene.hit(r, rec);
+
+                // ========== Participating medium (random walk) ==========
+                // The next collision is at the sampled free-flight distance; if the surface comes first the ray
+                // reaches it (the transmittance cancels with the sampling density: the weight stays 1).
+                // At a collision the path scatters with probability = albedo and is absorbed otherwise
+                // (an unbiased analog walk), and no light is sampled there (the boundary hides the lights).
+                if (r.medium) {
+                    const Medium& med = *r.medium;
+                    const Real tSurface = hit ? rec.t : constants::INFINITY_VAL;
+                    const Real tCollision = med.sampleDistance(sampling::Random());
+                    if (tCollision < tSurface) {
+                        if (++volumeEvents > m_maxVolumeEvents) { ++m_volumeCapHits; break; }
+                        if (sampling::Random() >= med.albedo()) break;   // absorbed
+                        const Point3 p = r.o + r.d * tCollision;
+                        const Vector3 dir = med.samplePhase(r.d, Point2(sampling::Random(), sampling::Random()));
+                        r = Ray(p, dir, Real(0), &med);   // p is inside the medium: nothing to skip (an epsilon would hide nearby surfaces)
+                        hasLastBsdf = true;
+                        lastSpecular = true;   // no NEE was done here: a light hit next is not MIS weighted
+                        --depth;               // a collision in a medium is not a surface bounce
+                        continue;
+                    }
+                }
+                if (hit) rec.medium = r.medium;   // whatever the ray hits is surrounded by the ray's medium
+
+                if (!hit) {  // 交差判定：ミスったとき
+
+                    if (!hasLastBsdf && scene.hasCameraBackground()) {   // a camera ray that touched nothing: the backdrop
+                        L += beta * RgbToIlluminantSpectrum(scene.cameraBackground(), lambda);
+                        break;
+                    }
 
                     if (scene.hasEnvLight()) {  // 環境光があるとき
                         Spectrum envL = scene.envLight()->Le(r, lambda);  // 環境光の評価
@@ -331,7 +369,22 @@ namespace rayt {
 
                 // 5. レイの更新
                 // r = Ray(rec.p + rec.n * constants::RAY_EPSILON, wi);  old
-                r = rec.SpawnRay(wi);
+                // A closed boundary with a medium inside: the new direction goes to the inside or the outside.
+                // gn faces the incoming ray, frontFace says that this side is the outside of the surface.
+                if (const Medium* inner = rec.matPtr->mediumInside()) {
+                    const bool wiOnRaySide = glm::dot(wi, rec.gn) > 0;
+                    rec.medium = (wiOnRaySide == rec.frontFace) ? nullptr : inner;
+                }
+                if (rec.medium) {
+                    // The new ray travels in a medium: start exactly on the surface (tMin keeps it from hitting that
+                    // surface again) instead of offsetting the origin, which would skip the first collisions: the
+                    // epsilon (10 um) is a visible fraction of the mean free path of skin-like media (~0.2 mm).
+                    r = Ray(rec.p, wi, constants::RAY_EPSILON, rec.medium);
+                    r.time = rec.time;
+                }
+                else {
+                    r = rec.SpawnRay(wi);
+                }
             }
 
             return L;
@@ -380,6 +433,8 @@ namespace rayt {
         std::shared_ptr<Camera> m_camera;
         int m_maxDepth;
         int m_spp;
+        int m_maxVolumeEvents = 100000;
+        mutable std::atomic<long long> m_volumeCapHits{ 0 };
 
         /**
          * @brief Wavelengths for one camera path.

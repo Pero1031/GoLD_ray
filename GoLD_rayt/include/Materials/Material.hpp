@@ -265,6 +265,10 @@ namespace rayt {
         /// The profile shared by all surfaces light may leave from after entering this one (null = no SSS).
         virtual const SubsurfaceProfile* subsurface() const { return nullptr; }
 
+        /// The participating medium inside this (closed) surface, or null. The integrator puts a ray that
+        /// crosses the surface inwards into this medium and takes it out again when it leaves.
+        virtual const Medium* mediumInside() const { return nullptr; }
+
         /// Pseudo material for the exit vertex of a subsurface path (valid when subsurface() is not null).
         virtual const Material* subsurfaceExit() const { return nullptr; }
 
