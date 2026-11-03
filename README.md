@@ -171,6 +171,8 @@ GoLD_rayt.exe --scene pmx --pmx-index 4 --pose-index 0 --expr shy --pmx-yaw -25 
               --pmx-zoom 4.0 --pmx-focus 0.79 --width 420 --spp 128 --sss --denoise --out face.png
 ```
 
+The algorithm, parameters, verification and limits are written up in [docs/SSS.md](docs/SSS.md) (Japanese).
+
 Not done: IK, physics (hair, skirt), VMD motion, toon / outline rendering, ears and other thin parts of the skin
 (transmission was not checked), a random-walk reference for the SSS approximation.
 
