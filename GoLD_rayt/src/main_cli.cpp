@@ -158,6 +158,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             with the measured absorption spectrum of pure water (Pope & Fry 1997, assets/Water) applied as a per-wavelength
 //             transmittance (AbsorbingMedium: red is absorbed first, deep water turns cyan). --absorb-scale S multiplies the
 //             absorption (default 40: a 6 cm glass is colorless at 1, so the tint is exaggerated); 0 = no absorption.
+//             --water-sky: lit by the environment map (--env) instead of softboxes, no wall, camera looking down at --cam-elev
+//             degrees (default 38) from --cam-yaw (default: the side of the map's brightest spot), to see the caustic on the table.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
 //             radiance of one ray is compared with a closed-form / independent numerical value
 //             (point light, sphere area light with and without NEE, colored emission, environment
@@ -222,6 +224,9 @@ struct CliOptions {
     Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)
     int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
     Real absorbScale = 40;             // water: multiplies the absorption of pure water (1 = physical; a glass of water is then colorless)
+    bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
+    Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
+    Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
     bool whiteBalance = false;         // spd scene: white-balance the film to the light
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
@@ -262,6 +267,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--bg-gray") o.bgGray = std::stod(value("--bg-gray"));
             else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
             else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
+            else if (a == "--water-sky") o.waterSky = true;
+            else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));
+            else if (a == "--cam-yaw") o.camYaw = std::stod(value("--cam-yaw"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
             else if (a == "--no-ms") o.noMs = true;
@@ -315,7 +323,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water] [--absorb-scale S] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water] [--absorb-scale S] [--water-sky] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -2207,6 +2215,7 @@ int main(int argc, char** argv) {
 
     std::shared_ptr<EnvMap> envMap = nullptr;  // 環境マップクラスをインスタンス化
     std::shared_ptr<EnvLight> envLight = nullptr;
+    Vector3 envPeakDir(0, 1, 0);   // water scene: direction of the brightest spot of the environment map
 
     if (opt.scene == "furnace") {
         // Uniform white environment: radiance (1,1,1) in every direction.
@@ -2214,12 +2223,34 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "water") {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || (opt.scene == "water" && !opt.waterSky)) {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
         std::cout << "[EnvMap] Loading: " << opt.env << std::endl;
         auto envImg = io::loadHDR(opt.env);   // HDRでダウンロード
+        if (opt.scene == "water") {
+            // Brightest spot of the map (the "sun"): where the caustic comes from. Same mapping as EnvMap::uvToDir (row 0 = north pole).
+            const int w = envImg.width(), h = envImg.height();
+            auto dirOf = [&](int x, int y) {
+                const Real theta = constants::PI * (Real(y) + Real(0.5)) / Real(h);
+                const Real phi = Real(2) * constants::PI * (Real(x) + Real(0.5)) / Real(w) - constants::PI;
+                return Vector3(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+            };
+            auto lum = [&](int x, int y) { const Vector3& c = envImg.at(x, y); return 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z; };
+            int bx = 0, by = 0; double best = -1;
+            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) if (lum(x, y) > best) { best = lum(x, y); bx = x; by = y; }
+            envPeakDir = dirOf(bx, by);
+            double total = 0, inCone = 0;   // power (radiance x solid angle) of the whole map and within 6 degrees of the peak
+            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+                const double p = lum(x, y) * std::sin(constants::PI * (Real(y) + Real(0.5)) / Real(h));
+                total += p;
+                if (glm::dot(dirOf(x, y), envPeakDir) > std::cos(glm::radians(6.0))) inCone += p;
+            }
+            std::cout << "[Water] brightest spot of " << opt.env << ": radiance " << best << ", elevation "
+                << glm::degrees(std::asin(envPeakDir.y)) << " deg, azimuth " << glm::degrees(std::atan2(envPeakDir.x, envPeakDir.z))
+                << " deg (about +y, 0 = +z); " << 100.0 * inCone / total << " % of the map's power lies within 6 deg of it\n";
+        }
         envMap = std::make_shared<EnvMap>(std::move(envImg));
         std::cout << "[EnvMap] Success.\n";
 
@@ -2755,12 +2786,14 @@ int main(int argc, char** argv) {
         // Table and the striped wall behind (white / dark stripes, 12 mm wide).
         worldList->add(std::make_shared<Quad>(Point3(-2, 0, -2), Vector3(0, 0, 4), Vector3(4, 0, 0),
             std::make_shared<Lambertian>(RgbColor(0.55))));                                         // normal +y
-        auto stripeWhite = std::make_shared<Lambertian>(RgbColor(0.80));
-        auto stripeDark = std::make_shared<Lambertian>(RgbColor(0.04));
-        const Real sw = 0.012;
-        for (int k = -30; k < 30; ++k)
-            worldList->add(std::make_shared<Quad>(Point3(Real(k) * sw, 0, -0.14), Vector3(sw, 0, 0), Vector3(0, 0.35, 0),
-                (k % 2 == 0) ? stripeWhite : stripeDark));
+        if (!opt.waterSky) {   // under the open sky there is no wall: it would shade the table from half of the environment
+            auto stripeWhite = std::make_shared<Lambertian>(RgbColor(0.80));
+            auto stripeDark = std::make_shared<Lambertian>(RgbColor(0.04));
+            const Real sw = 0.012;
+            for (int k = -30; k < 30; ++k)
+                worldList->add(std::make_shared<Quad>(Point3(Real(k) * sw, 0, -0.14), Vector3(sw, 0, 0), Vector3(0, 0.35, 0),
+                    (k % 2 == 0) ? stripeWhite : stripeDark));
+        }
 
         const Point3 target(0.0, 0.05, 0.0);
         auto softbox = [&](const Point3& center, Real w, Real h, const EmissionSpectrum& e, Real radiance) {
@@ -2769,9 +2802,11 @@ int main(int argc, char** argv) {
             const Vector3 e2 = glm::normalize(glm::cross(n, e1)) * h;
             studioLights.push_back(AddQuadLight(*worldList, nullptr, center - e1 * 0.5 - e2 * 0.5, e1, e2, e, radiance, true));
         };
-        softbox(Point3(-0.30, 0.28, 0.22), 0.22, 0.22, EmissionSpectrum(RgbColor(1.0, 0.97, 0.92)), 9.0);   // key: above-left-front
-        softbox(Point3(0.35, 0.12, 0.30), 0.25, 0.20, EmissionSpectrum(RgbColor(1.0)), 1.2);               // fill: front-right, dim
-        softbox(Point3(0.30, 0.09, 0.00), 0.04, 0.18, EmissionSpectrum(RgbColor(1.0)), 20.0);              // strip on the right: rim light on the glass edge
+        if (!opt.waterSky) {
+            softbox(Point3(-0.30, 0.28, 0.22), 0.22, 0.22, EmissionSpectrum(RgbColor(1.0, 0.97, 0.92)), 9.0);   // key: above-left-front
+            softbox(Point3(0.35, 0.12, 0.30), 0.25, 0.20, EmissionSpectrum(RgbColor(1.0)), 1.2);               // fill: front-right, dim
+            softbox(Point3(0.30, 0.09, 0.00), 0.04, 0.18, EmissionSpectrum(RgbColor(1.0)), 20.0);              // strip on the right: rim light on the glass edge
+        }
         waterView = true;
     }
     else if (opt.scene == "skindemo") {
@@ -2932,6 +2967,15 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.0, 0.075, 0.40);
         lookAt = Point3(0.0, 0.048, 0.0);
         fovDeg = 22.0;
+        if (opt.waterSky) {   // looking down at the table beside / behind the tumbler, where the caustic lands
+            const Real elev = glm::radians(opt.camElev >= 0 ? opt.camElev : Real(38));
+            const Real yaw = (opt.camYaw < 1e8) ? glm::radians(opt.camYaw)
+                : std::atan2(envPeakDir.x, envPeakDir.z) + glm::radians(Real(35));   // on the sun's side, turned 35 degrees: the caustic falls behind
+            lookAt = Point3(0.0, 0.03, 0.0);
+            lookFrom = lookAt + Vector3(std::cos(elev) * std::sin(yaw), std::sin(elev), std::cos(elev) * std::cos(yaw)) * Real(0.38);
+            fovDeg = 30.0;
+            std::cout << "[Water] camera: elevation " << glm::degrees(elev) << " deg, azimuth " << glm::degrees(yaw) << " deg\n";
+        }
     }
     if (probeView) {
         // Distance 100, unit sphere filling 96 % of the image height: the view direction differs from
