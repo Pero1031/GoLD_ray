@@ -83,6 +83,7 @@
 #include <sstream>
 #include <functional>
 #include <map>
+#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -164,6 +165,12 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             from small / concentrated lights; --caustic-radius m = gather radius (default 0.0015, in the test 0.004).
 //             --water-lamp: one small point light (left, about 33 degrees up) instead of the softboxes / wall, camera looking down on
 //             the caustic behind the glass (same --cam-elev / --cam-yaw). A point light can only be seen with --caustics.
+//   sea     : prototype of a shallow tropical sea at sunrise: a Gerstner-wave surface (polar mesh, ~410k triangles, fine waves
+//             fade out with distance) of smooth water (IOR 1.333, physical absorption of pure water) over sand and rocks
+//             --sea-depth m above the seabed, lit by a procedural sky (blue gradient, a 1.2 degree sun at --sea-sun-elev degrees
+//             that glitters on the waves; --sea-hdr = the --env map instead), camera 2 m above the water looking toward the
+//             sun (--cam-yaw to turn). --sea-steep s = wave steepness (rough sea), --sea-seed n = another wave set.
+//             No caustics on the seabed yet (that needs the photon map in absorbing media).
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -229,7 +236,12 @@ struct CliOptions {
     std::string mesh;                  // blob: closed OBJ mesh with outward normals (default: an icosphere)
     Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)
     int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
-    Real absorbScale = 40;             // water: multiplies the absorption of pure water (1 = physical; a glass of water is then colorless)
+    Real absorbScale = -1;             // water / sea: multiplies the absorption of pure water (1 = physical); < 0: the scene's default (water 40, sea 1)
+    Real seaDepth = 2.5;               // sea: depth of the water above the sand (m)
+    Real seaSteep = 0.03;              // sea: steepness k*A of every wave component (about 0.1 rms slope in total)
+    unsigned seaSeed = 1;              // sea: random seed of the wave set and the rocks
+    bool seaHdr = false;               // sea: light with the --env map instead of the procedural sky
+    Real seaSunElev = 14;              // sea: elevation of the procedural sky's sun (degrees)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
     bool waterLamp = false;            // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
     long long causticPhotons = 0;     // water: photons emitted for the caustic photon map (0 = off, caustics by BSDF sampling only)
@@ -276,6 +288,11 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--bg-gray") o.bgGray = std::stod(value("--bg-gray"));
             else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
             else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
+            else if (a == "--sea-depth") o.seaDepth = std::stod(value("--sea-depth"));
+            else if (a == "--sea-steep") o.seaSteep = std::stod(value("--sea-steep"));
+            else if (a == "--sea-hdr") o.seaHdr = true;
+            else if (a == "--sea-sun-elev") o.seaSunElev = std::stod(value("--sea-sun-elev"));
+            else if (a == "--sea-seed") o.seaSeed = static_cast<unsigned>(std::stoul(value("--sea-seed")));
             else if (a == "--water-sky") o.waterSky = true;
             else if (a == "--water-lamp") o.waterLamp = true;
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
@@ -318,8 +335,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water or caustic");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic or sea");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -335,7 +352,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1924,6 +1941,80 @@ static bool LoadWaterAbsorption(color::SpectralCurve& sigmaA) {
     return true;
 }
 
+// Sea surface: a sum of Gerstner (trochoidal) waves, evaluated on a polar grid around the origin whose rings grow geometrically
+// (fine near the camera, coarse toward the horizon). Wavelengths 0.5-64 m, four random components per octave, directions spread
+// around the wind direction (normal distribution), the longest waves damped (Phillips-like cutoff for a 7 m/s wind). `steep` is
+// k * A of every component. A component that the local ring spacing cannot resolve (fewer than ~2-5 samples per wavelength) fades
+// out, so the distance does not alias. Normals are analytic; the mesh is one open sheet facing up (t = 0, a still frame).
+struct SeaParams {
+    Real steep = Real(0.03);
+    unsigned seed = 1;
+    Real windDeg = Real(0);       // direction the waves travel to, as an angle in the x-z plane (atan2(z, x))
+    Real rInner = Real(0.8), rOuter = Real(3000);
+    int rings = 400, sectors = 512;
+};
+
+static TriangleMesh MakeSeaMesh(const SeaParams& P) {
+    struct Wave { Real dx, dz, k, A, phase, lambda; };
+    std::mt19937 rng(P.seed);
+    std::uniform_real_distribution<double> U(0.0, 1.0);
+    std::normal_distribution<double> N(0.0, 1.0);
+    const Real Lwind = Real(5);   // V^2 / g for V = 7 m/s
+    std::vector<Wave> waves;
+    for (int octave = 0; octave < 8; ++octave) {
+        for (int j = 0; j < 4; ++j) {
+            Wave w;
+            w.lambda = Real(0.5) * std::pow(Real(2), Real(octave) + Real(U(rng)));
+            w.k = Real(2) * constants::PI / w.lambda;
+            const Real spread = std::clamp(Real(N(rng)) * glm::radians(Real(35)), -glm::radians(Real(80)), glm::radians(Real(80)));
+            const Real ang = glm::radians(P.windDeg) + spread;
+            w.dx = std::cos(ang); w.dz = std::sin(ang);
+            const Real kL = w.k * Lwind;
+            w.A = P.steep * std::exp(Real(-0.5) / (kL * kL)) / w.k;
+            w.phase = Real(2) * constants::PI * Real(U(rng));
+            waves.push_back(w);
+        }
+    }
+
+    const Real Q = Real(0.5);   // Gerstner steepness: the sum of Q k A stays below 1, so crests do not loop
+    const Real growth = std::pow(P.rOuter / P.rInner, Real(1) / Real(P.rings - 1));
+    TriangleMesh m;
+    auto addVertex = [&](Real r, Real theta) {
+        const Real x0 = r * std::cos(theta), z0 = r * std::sin(theta);
+        const Real spacing = std::max(r, P.rInner) * (growth - Real(1));   // radial distance to the next ring here
+        Real dx = 0, dy = 0, dz = 0, nx = 0, ny = 1, nz = 0;
+        for (const Wave& w : waves) {
+            const Real fade = std::clamp((w.lambda / spacing - Real(2)) / Real(3), Real(0), Real(1));
+            if (fade <= Real(0)) continue;
+            const Real ph = w.k * (w.dx * x0 + w.dz * z0) + w.phase;
+            const Real c = std::cos(ph), s = std::sin(ph), a = fade * w.A;
+            dx -= Q * a * w.dx * s;  dz -= Q * a * w.dz * s;  dy += a * c;
+            nx -= w.k * a * w.dx * c;  nz -= w.k * a * w.dz * c;  ny -= Q * w.k * a * s;
+        }
+        m.p.push_back(Point3(x0 + dx, dy, z0 + dz));
+        m.n.push_back(glm::normalize(Vector3(nx, ny, nz)));
+    };
+    auto addTriangle = [&](int a, int b, int c) {
+        const Vector3 cr = glm::cross(Vector3(m.p[b] - m.p[a]), Vector3(m.p[c] - m.p[a]));
+        if (glm::length(cr) < Real(1e-14)) return;
+        if (glm::dot(cr, m.n[a]) < Real(0)) std::swap(b, c);   // counter-clockwise seen from above
+        m.indices.insert(m.indices.end(), { a, b, c });
+    };
+
+    addVertex(Real(0), Real(0));   // center
+    for (int i = 0; i < P.rings; ++i)
+        for (int j = 0; j < P.sectors; ++j)
+            addVertex(P.rInner * std::pow(growth, Real(i)), Real(2) * constants::PI * Real(j) / Real(P.sectors));
+    auto ring = [&](int i, int j) { return 1 + i * P.sectors + (j % P.sectors); };
+    for (int j = 0; j < P.sectors; ++j) addTriangle(0, ring(0, j), ring(0, j + 1));
+    for (int i = 0; i + 1 < P.rings; ++i)
+        for (int j = 0; j < P.sectors; ++j) {
+            addTriangle(ring(i, j), ring(i, j + 1), ring(i + 1, j + 1));
+            addTriangle(ring(i, j), ring(i + 1, j + 1), ring(i + 1, j));
+        }
+    return m;
+}
+
 // -----------------------------------------------------------------------------
 // BVH benchmark (--scene bench): the reference recursive BVH vs the SAH flat BVH
 // -----------------------------------------------------------------------------
@@ -2285,13 +2376,40 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[EnvMap] Uniform white environment (furnace test).\n";
     }
+    else if (opt.scene == "sea" && !opt.seaHdr) {
+        // Procedural sky (equirectangular, row 0 = zenith): horizon-to-zenith blue gradient, a warm glow around a low sun and the
+        // sun disc itself (angular radius 1.2 degrees, radiance 4000: irradiance about 5.5, versus about 2 from the sky). The disc
+        // is larger and dimmer than the real sun on purpose: a smaller, brighter one makes the caustics on the seabed (found by
+        // random bounces only) far too spiky. Below the horizon the sky continues as the horizon color, seen in tilted waves.
+        const Real sunAz = (opt.camYaw < 1e8 ? glm::radians(opt.camYaw) : Real(0)) + glm::radians(Real(15));
+        const Real sunEl = glm::radians(opt.seaSunElev);
+        envPeakDir = Vector3(std::cos(sunEl) * std::sin(sunAz), std::sin(sunEl), std::cos(sunEl) * std::cos(sunAz));
+        const int W = 2048, H = 1024;
+        std::vector<Vector3> px(static_cast<size_t>(W) * static_cast<size_t>(H));
+        const Vector3 horizon(0.85, 0.88, 0.95), zenith(0.14, 0.32, 0.75);
+        for (int y = 0; y < H; ++y) {
+            const Real theta = constants::PI * (Real(y) + Real(0.5)) / Real(H);
+            for (int x = 0; x < W; ++x) {
+                const Real phi = Real(2) * constants::PI * (Real(x) + Real(0.5)) / Real(W) - constants::PI;
+                const Vector3 d(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+                Vector3 c = (d.y >= 0) ? glm::mix(horizon, zenith, std::pow(std::min(d.y, Real(1)), Real(0.4))) : horizon * Real(0.8);
+                const Real angle = std::acos(std::clamp(glm::dot(d, envPeakDir), Real(-1), Real(1)));
+                c += Vector3(1.0, 0.62, 0.30) * Real(1.2) * std::exp(-angle * angle / Real(0.125));
+                if (angle < glm::radians(Real(1.2))) c = Vector3(4000.0, 3700.0, 3200.0);
+                px[static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)] = c;
+            }
+        }
+        envMap = std::make_shared<EnvMap>(Image(W, H, std::move(px)));
+        envLight = std::make_shared<EnvLight>(envMap, 1.0);
+        std::cout << "[Sea] procedural sky: sun at elevation " << opt.seaSunElev << " deg, azimuth " << glm::degrees(sunAz) << " deg\n";
+    }
     else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || (opt.scene == "water" && !opt.waterSky)) {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
         std::cout << "[EnvMap] Loading: " << opt.env << std::endl;
         auto envImg = io::loadHDR(opt.env);   // HDRでダウンロード
-        if (opt.scene == "water") {
+        if (opt.scene == "water" || opt.scene == "sea") {
             // Brightest spot of the map (the "sun"): where the caustic comes from. Same mapping as EnvMap::uvToDir (row 0 = north pole).
             const int w = envImg.width(), h = envImg.height();
             auto dirOf = [&](int x, int y) {
@@ -2405,6 +2523,8 @@ int main(int argc, char** argv) {
     bool probeView = false;                                       // metalprobe scene: distant narrow-FOV camera
     bool skinView = false;                                        // skindemo scene: close camera at centimeter scale
     bool waterView = false;                                       // water scene: close camera on the tumbler
+    bool seaView = false;                                         // sea scene: camera 2 m above the water
+    Real seaViewAz = 0;                                           // sea scene: azimuth of the view direction (about +y, 0 = +z)
     Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
     Real causticTargetRadius = 0;
 
@@ -2832,13 +2952,14 @@ int main(int argc, char** argv) {
 
         auto glass = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
         auto water = std::make_shared<Dielectric>(Real(1.333), Real(0.0));
-        if (opt.absorbScale > 0) {
+        const Real waterAbsorb = opt.absorbScale >= 0 ? opt.absorbScale : Real(40);
+        if (waterAbsorb > 0) {
             color::SpectralCurve sigmaA;
             if (!LoadWaterAbsorption(sigmaA)) return 1;
-            auto absorbing = std::make_shared<AbsorbingMedium>(sigmaA, opt.absorbScale);
+            auto absorbing = std::make_shared<AbsorbingMedium>(sigmaA, waterAbsorb);
             water->setMedium(absorbing);
             const Real d = Real(2) * rInAt(0.04);   // light path across the glass at half height
-            std::cout << "[Water] absorption x" << opt.absorbScale << " (1 = physical). Transmittance over the " << d * 100 << " cm path across the glass: "
+            std::cout << "[Water] absorption x" << waterAbsorb << " (1 = physical). Transmittance over the " << d * 100 << " cm path across the glass: "
                 << "450 nm " << std::exp(-absorbing->sigmaA(450) * d) << ", 550 nm " << std::exp(-absorbing->sigmaA(550) * d)
                 << ", 650 nm " << std::exp(-absorbing->sigmaA(650) * d) << "   (RGB-mode coefficients, 1/m: "
                 << absorbing->sigmaRgb().x << ", " << absorbing->sigmaRgb().y << ", " << absorbing->sigmaRgb().z << ")\n";
@@ -2880,6 +3001,48 @@ int main(int argc, char** argv) {
         waterView = true;
         causticCenter = Point3(0.0, y0 + gH * 0.5, 0.0);                                  // the tumbler is the only specular object
         causticTargetRadius = std::sqrt(rOutTop * rOutTop + gH * gH * 0.25) * Real(1.02);
+    }
+    else if (opt.scene == "sea") {
+        // Metres. The water is ONE open sheet: a ray that refracts into it carries the absorbing medium (Ray::medium) until it
+        // crosses a water surface again, so the seabed under it needs no closed boundary. The camera looks along the map's sun.
+        const Real sunAz = std::atan2(envPeakDir.x, envPeakDir.z);
+        seaViewAz = (opt.camYaw < 1e8) ? glm::radians(opt.camYaw) : sunAz - glm::radians(Real(15));   // sun slightly right of center
+        SeaParams P;
+        P.steep = opt.seaSteep;
+        P.seed = opt.seaSeed;
+        P.windDeg = glm::degrees(std::atan2(-std::cos(seaViewAz), -std::sin(seaViewAz)));   // waves run toward the camera
+        TriangleMesh seaMesh = MakeSeaMesh(P);
+        std::cout << "[Sea] surface " << seaMesh.numTriangles() << " triangles, camera azimuth " << glm::degrees(seaViewAz) << " deg, wave steepness "
+            << opt.seaSteep << ", depth " << opt.seaDepth << " m\n";
+
+        auto water = std::make_shared<Dielectric>(Real(1.333), Real(0.0));
+        const Real seaAbsorb = opt.absorbScale >= 0 ? opt.absorbScale : Real(1);
+        if (seaAbsorb > 0) {
+            color::SpectralCurve sigmaA;
+            if (!LoadWaterAbsorption(sigmaA)) return 1;
+            auto absorbing = std::make_shared<AbsorbingMedium>(sigmaA, seaAbsorb);
+            water->setMedium(absorbing);
+            const Real d = Real(2) * opt.seaDepth;   // down and up again
+            std::cout << "[Sea] absorption x" << seaAbsorb << ": transmittance over " << d << " m  450 nm " << std::exp(-absorbing->sigmaA(450) * d)
+                << ", 550 nm " << std::exp(-absorbing->sigmaA(550) * d) << ", 650 nm " << std::exp(-absorbing->sigmaA(650) * d) << "\n";
+        }
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(seaMesh)), water, opt.accel));
+
+        // Seabed: sand, with dark rocks (half-buried spheres) that show the refraction and the absorption with depth.
+        worldList->add(std::make_shared<Quad>(Point3(-3000, -opt.seaDepth, -3000), Vector3(0, 0, 6000), Vector3(6000, 0, 0),
+            std::make_shared<Lambertian>(RgbColor(0.65, 0.58, 0.42))));   // normal +y
+        auto rockA = std::make_shared<Lambertian>(RgbColor(0.16, 0.15, 0.14));
+        auto rockB = std::make_shared<Lambertian>(RgbColor(0.30, 0.27, 0.22));
+        std::mt19937 rockRng(opt.seaSeed + 77);
+        std::uniform_real_distribution<double> U(0.0, 1.0);
+        for (int i = 0; i < 120; ++i) {
+            const Real dist = Real(2.5) + Real(70) * Real(U(rockRng)) * Real(U(rockRng));
+            const Real ang = Real(2) * constants::PI * Real(U(rockRng));
+            const Real rad = Real(0.15) + Real(0.5) * Real(U(rockRng)) * Real(U(rockRng));
+            worldList->add(std::make_shared<Sphere>(Point3(dist * std::cos(ang), -opt.seaDepth + Real(0.25) * rad, dist * std::sin(ang)), rad,
+                (i % 3 == 0) ? rockB : rockA));
+        }
+        seaView = true;
     }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
@@ -3046,6 +3209,12 @@ int main(int argc, char** argv) {
         lookAt = Point3(0.0, 0.032, 0.0);
         fovDeg = 30.0;
     }
+    if (seaView) {
+        const Real pitch = glm::radians(Real(-2));
+        lookFrom = Point3(0.0, 2.0, 0.0);
+        lookAt = lookFrom + Vector3(std::sin(seaViewAz) * std::cos(pitch), std::sin(pitch), std::cos(seaViewAz) * std::cos(pitch)) * Real(10);
+        fovDeg = 40.0;
+    }
     if (waterView) {
         lookFrom = Point3(0.0, 0.075, 0.40);
         lookAt = Point3(0.0, 0.048, 0.0);
@@ -3094,6 +3263,7 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
+    if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;     // bounces between the surface and the seabed
     if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
     if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
     auto integrator = std::make_unique<PathIntegrator>(
