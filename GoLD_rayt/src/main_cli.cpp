@@ -166,6 +166,7 @@ struct CliOptions {
     std::string morphSpec;                 // --morph "12=1.0,15=0.5" : morph weights by index
     std::string exprFile;                  // --expr file.txt : "name = weight" lines (UTF-8) from MMD_model/expression
     bool pmxCheck = false;                 // --pmx-check : skeleton summary + pose self-tests, then exit
+    bool pmxBench = false;                 // --pmx-bench : time the stages of one pose update (morphs, pose + skinning, mesh, BVH), then exit
     std::string studioLook = "default";    // --studio-look default|warm|cool|dramatic|soft : lighting of --pmx-studio
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
@@ -221,6 +222,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
+            else if (a == "--pmx-bench") o.pmxBench = true;
             else if (a == "--morph-list") o.morphList = true;
             else if (a == "--morph") o.morphSpec = value("--morph");
             else if (a == "--expr") o.exprFile = value("--expr");
@@ -252,7 +254,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx] [--light d65|tungsten|candle|led] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -2038,6 +2040,7 @@ int main(int argc, char** argv) {
         }
         if (havePose) for (const auto& [name, w] : vpd.morphs) setMorph(name, w, "pose file");
 
+        const io::PmxModel restModel = opt.pmxBench ? model : io::PmxModel();   // the rest pose, kept for --pmx-bench
         std::vector<io::VpdBone> morphBones;
         if (!morphWeights.empty()) {
             model = io::applyMorphs(model, morphWeights, &morphBones);
@@ -2062,6 +2065,35 @@ int main(int argc, char** argv) {
         Real height = 1;
         Vector3 modelSize(1.0);
         const std::shared_ptr<TriangleMesh> editableMesh = PmxToMesh(model, opt.pmxYaw, &height, &modelSize);
+        if (opt.pmxBench) {
+            // The cost of one pose update, stage by stage: what an interactive posing tool pays for every new pose,
+            // before a single ray is traced.
+            using clock = std::chrono::steady_clock;
+            const int reps = 10;
+            auto timeIt = [&](const char* what, const std::function<void()>& fn) {
+                fn();   // warm-up
+                const auto t0 = clock::now();
+                for (int i = 0; i < reps; ++i) fn();
+                const double ms = std::chrono::duration<double, std::milli>(clock::now() - t0).count() / reps;
+                std::cout << "[PmxBench]   " << what << ": " << ms << " ms\n";
+                return ms;
+            };
+            std::cout << "[PmxBench] " << model.vertices.size() << " vertices, " << model.indices.size() / 3 << " triangles, "
+                << model.bones.size() << " bones; mean of " << reps << " runs, one thread\n";
+            double common = 0;
+            io::PmxModel morphed = restModel;
+            if (!morphWeights.empty()) {
+                common += timeIt("morphs (vertex / UV / material / bone)", [&]() { std::vector<io::VpdBone> b; morphed = io::applyMorphs(restModel, morphWeights, &b); });
+            }
+            common += timeIt("pose: bones (FK + grant) and linear blend skinning", [&]() { io::PoseReport r; const io::PmxModel posed = io::applyPose(morphed, vpd, &r); (void)posed; });
+            common += timeIt("convert to the renderer mesh (mirror, rotate, normals)", [&]() { Real h = 1; Vector3 sz(1.0); const auto m = PmxToMesh(model, opt.pmxYaw, &h, &sz); (void)m; });
+            const std::shared_ptr<const TriangleMesh> constMesh = editableMesh;
+            auto white = std::make_shared<Lambertian>(RgbColor(1.0));
+            const double ownBvh = timeIt("own SAH BVH build (incl. one Triangle object per face)", [&]() { auto b = BuildMeshBVH(constMesh, white); (void)b; });
+            const double embreeBuild = timeIt("Embree scene build (incl. one Triangle object per face)", [&]() { EmbreeMesh e(constMesh, white); });
+            std::cout << "[PmxBench] one pose update: " << common + ownBvh << " ms with the own BVH, " << common + embreeBuild << " ms with Embree\n";
+            return 0;
+        }
         {
             // A translucent layer (blush ...) is a copy of the surface it covers, lying exactly on it. A ray that
             // passes through the layer must still find the surface below, so the layer is lifted 0.5 mm along
