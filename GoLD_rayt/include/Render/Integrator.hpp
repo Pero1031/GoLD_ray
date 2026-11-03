@@ -257,7 +257,7 @@ namespace rayt {
                             }
                             L += beta * envL * w;
                         }
-                        else if (!(m_caustics && fromReceiver)) {
+                        else if (!(m_caustics && fromReceiver && scene.envLight()->photonCaustics())) {
                             // Camera ray or specular path: no MIS (an L S+ D path is left to the caustic photons)
                             L += beta * envL;
                         }
@@ -302,7 +302,7 @@ namespace rayt {
                         }
                         L += beta * Le * w;
                     }
-                    else if (!(m_caustics && fromReceiver)) {
+                    else if (!(m_caustics && fromReceiver && rec.areaLight && rec.areaLight->photonCaustics())) {
                         L += beta * Le;
                     }
                 }
@@ -319,8 +319,8 @@ namespace rayt {
                     // ========== Next Event Estimation (NEE) ==========
                     if (!rec.matPtr->isSpecular()) {
                         L += beta * sampleAllLights(scene, rec, -r.d, lambda);
-                        // Caustic light (L S+ D) at this vertex from the photon map (not inside a medium: no photons there)
-                        if (m_caustics && !r.medium) L += beta * m_caustics->radiance(rec, -r.d, lambda);
+                        // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
+                        if (m_caustics && photonsAllowedIn(r.medium)) L += beta * m_caustics->radiance(rec, -r.d, lambda);
                     }
 
                     // ========== BSDF Sampling for Next Path Vertex ==========
@@ -353,7 +353,7 @@ namespace rayt {
                 hasLastBsdf = true;
                 // A non-delta bounce starts a chain that belongs to the photons; a delta lobe of a material that also has
                 // diffuse lobes (a coat) is not a photon path (photons only continue through purely specular materials).
-                if (!lastSpecular) { if (!r.medium) fromReceiver = true; }
+                if (!lastSpecular) { if (photonsAllowedIn(r.medium)) fromReceiver = true; }
                 else if (!rec.matPtr->isSpecular()) fromReceiver = false;
 
                 // 鏡面反射（デルタ分布）かどうかの判定

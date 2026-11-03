@@ -173,6 +173,19 @@ namespace rayt {
             const SampledWavelengths& lambda) const {
             return Spectrum(0.0);
         }
+
+        /**
+         * @brief Whether the caustics of this light (L S+ D paths) come from the caustic photon map.
+         *
+         * True (default): the photon map emits photons from this light and the integrator drops the light that BSDF sampling finds
+         * through a specular chain. False: they are found by BSDF sampling as usual. A concentrated light (a sun) needs the photons;
+         * a smooth sky does not, and is estimated better without them. Only matters while a photon map is in use.
+         */
+        bool photonCaustics() const { return m_photonCaustics; }
+        void setPhotonCaustics(bool on) { m_photonCaustics = on; }
+
+    private:
+        bool m_photonCaustics = true;
     };
 
 } // namespace rayt

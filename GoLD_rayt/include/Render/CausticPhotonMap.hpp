@@ -67,6 +67,10 @@
 
 namespace rayt {
 
+    /// Photons are traced and gathered in air and inside purely absorbing media (their transmittance is a weight); a scattering
+    /// medium is not traced, so neither tracing nor gathering happens inside one.
+    inline bool photonsAllowedIn(const Medium* medium) { return !medium || medium->attenuatesContinuously(); }
+
     struct CausticPhotonParams {
         long long numPhotons = 1000000;   ///< photons emitted (the number stored is smaller: misses and direct light are dropped)
         Real radius = Real(0.0015);       ///< gather radius (m)
@@ -96,7 +100,8 @@ namespace rayt {
             m_radius = P.radius;
             m_photons.clear();
             m_start.clear();
-            const auto lights = scene.allLights();
+            std::vector<std::shared_ptr<Light>> lights;   // only the lights whose caustics belong to the photons
+            for (const auto& l : scene.allLights()) if (l->photonCaustics()) lights.push_back(l);
             if (lights.empty() || P.targetRadius <= Real(0) || P.numPhotons <= 0) return;
 
             const PowerLightSampler sampler(lights);
@@ -276,7 +281,7 @@ namespace rayt {
                 if (!isBlack(rec.matPtr->emitted(rec, -r.d, lambda))) return;
 
                 if (!rec.matPtr->isSpecular()) {
-                    if (specularBounces > 0 && !r.medium) {
+                    if (specularBounces > 0) {   // (a scattering medium ended the photon above; an absorbing one is fine)
                         const Vector3 rgb = SpectrumToRGB(power * beta, lambda);
                         if (!math::hasNonFinite(rgb)) {
                             Photon ph;
