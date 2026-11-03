@@ -141,6 +141,7 @@
     <ClInclude Include="include\Lights\Light.hpp" />
     <ClInclude Include="include\Lights\LightSampler.hpp" />
     <ClInclude Include="include\Lights\PointLight.hpp" />
+    <ClInclude Include="include\Materials\CoatedDiffuse.hpp" />
     <ClInclude Include="include\Materials\Dielectric.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\Fresnel.hpp" />
@@ -165,6 +166,27 @@
     <ClInclude Include="include\stb\stb_image.h" />
     <ClInclude Include="include\stb\stb_image_write.h" />
     <ClInclude Include="src\UI\ImGuiLayer.hpp" />
+    <ClInclude Include="include\Accelerators\EmbreeMesh.hpp" />
+    <ClInclude Include="include\Color\ConductorFromReflectance.hpp" />
+    <ClInclude Include="include\Color\EmissionSpectrum.hpp" />
+    <ClInclude Include="include\Color\Illuminants.hpp" />
+    <ClInclude Include="include\Color\SpectralConversion.hpp" />
+    <ClInclude Include="include\Color\SpectralCurve.hpp" />
+    <ClInclude Include="include\Core\RenderMode.hpp" />
+    <ClInclude Include="include\Core\Texture.hpp" />
+    <ClInclude Include="include\Geometry\Quad.hpp" />
+    <ClInclude Include="include\Geometry\TriangleMesh.hpp" />
+    <ClInclude Include="include\IO\ObjLoader.hpp" />
+    <ClInclude Include="include\IO\PmxLoader.hpp" />
+    <ClInclude Include="include\IO\PmxMorph.hpp" />
+    <ClInclude Include="include\IO\PmxPose.hpp" />
+    <ClInclude Include="include\IO\SpectralCurveLoader.hpp" />
+    <ClInclude Include="include\IO\VpdLoader.hpp" />
+    <ClInclude Include="include\Lights\LightBounds.hpp" />
+    <ClInclude Include="include\Materials\Subsurface.hpp" />
+    <ClInclude Include="include\Microfacet\GGXAlbedo.hpp" />
+    <ClInclude Include="include\Render\Denoiser.hpp" />
+    <ClInclude Include="include\Render\SubsurfaceProbe.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
