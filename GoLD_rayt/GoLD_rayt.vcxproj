@@ -184,6 +184,8 @@
     <ClInclude Include="include\IO\VpdLoader.hpp" />
     <ClInclude Include="include\Lights\LightBounds.hpp" />
     <ClInclude Include="include\Materials\Subsurface.hpp" />
+    <ClInclude Include="include\Materials\SubsurfaceTable.hpp" />
+    <ClInclude Include="include\Materials\LayeredSkin.hpp" />
     <ClInclude Include="include\Microfacet\GGXAlbedo.hpp" />
     <ClInclude Include="include\Render\Denoiser.hpp" />
     <ClInclude Include="include\Render\SubsurfaceProbe.hpp" />

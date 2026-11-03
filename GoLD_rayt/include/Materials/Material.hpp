@@ -10,6 +10,9 @@
 
 #pragma once
 
+#include <array>
+#include "Materials/SubsurfaceTable.hpp"
+
 #include <optional>
 
 #include "Core/Types.hpp"
@@ -148,6 +151,8 @@ namespace rayt {
     struct SubsurfaceParams {
         Spectrum albedo = Spectrum(0.0);   ///< total diffuse reflectance A of the profile
         Spectrum d = Spectrum(1.0);        ///< length scale of Burley's profile (m)
+        /// Tabulated profile per channel (set when the SubsurfaceProfile has a LayeredTable); null = Burley's profile with d.
+        std::array<const sss::ChannelTable*, 4> table = { nullptr, nullptr, nullptr, nullptr };
     };
 
     /**
