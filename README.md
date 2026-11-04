@@ -6,12 +6,67 @@
 (`--scene gold`), a lamp inside a cut-glass tumbler (`--scene crystal --crystal-inside`), a glass of water lit by a
 point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`). The caustics use a photon map.</sub>
 
-A lightweight 3D path tracer built from scratch in C++20, focused on **spectral rendering of metals**
-(gold first), with a hobby branch that renders MMD characters (skin subsurface scattering, posing,
-expressions).
+A 3D path tracer built from scratch in C++20 as a **graduation thesis project on the appearance of metals**:
+**spectral rendering of metals** (gold first) and a **quantitative comparison of that against RGB rendering**
+(see the [thesis summary](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals) below). A side
+project renders MMD characters (skin subsurface scattering, posing, expressions) as a hard test asset.
 
-> Windows / Visual Studio 2022 / x64 / CPU only. A learning project: the code favors readability
-> and verification (every major piece has a numerical test) over raw speed.
+> Windows / Visual Studio 2022 / x64 / CPU only. The code favors readability and verification (every major
+> piece has a numerical test) over raw speed.
+
+## Thesis summary: how much does RGB rendering get wrong for metals?
+
+The question: *how far is an RGB renderer from a spectral one for gold, copper and silver, and why?* Both
+modes are the same engine with the same optical constants (Johnson & Christy tables), switched at compile time
+(`RenderMode.hpp`), so the difference is only the RGB approximation.
+
+**Method.** The reference is a 1 nm integration of `Fresnel(λ, θ)^n x light spectrum x film sensor`. The RGB
+model is the engine's own RGB reduction of the tables. The metric is CIEDE2000 (ΔE00; about 1 is "visible side
+by side", 2-3 "obviously different"). The Python model ([`tools/metal_accuracy.py`](tools/metal_accuracy.py))
+was checked against the real engine with a probe scene (`--scene metalprobe`, both builds): the RGB build matches
+the RGB model within ΔE00 0.07 and the spectral build matches the 1 nm integral within 0.12 (angles below 80°;
+one 32-pixel bin of silver under D65 reaches 0.45, which is color noise).
+
+**Result** (ΔE00, RGB vs spectral):
+
+| Condition | Gold (Au) | Copper (Cu) | Silver (Ag) |
+|---|---|---|---|
+| D65 light, one reflection, all angles | 0.2 - **2.1** | 0.0 - 0.3 | 0.00 |
+| other lights (tungsten A, candle, LED), one reflection | **2 - 6** | 1.8 - 2.8 | <= 0.07 |
+| D65, metal reflecting metal 3 / 4 / 6 times | **3.7 / 6.9 / 12.7** | 1.4 / 2.3 / 4.4 | <= 0.01 |
+
+![Reflectance of Au, Ag and Cu against the flat per-channel value of the RGB model](docs/img/metal_reflectance_spectra.png)
+
+![RGB error against the number of bounces and the light temperature](docs/img/metal_rgb_error.png)
+
+- **Silver**: RGB is enough; its reflectance is flat over the visible range.
+- **Gold is the worst case.** Its spectral red value under D65 is 1.036 (above 1, because the sRGB red sensor
+  has a negative lobe in the blue-green where gold reflects little). A Fresnel `(eta, k)` model cannot exceed 1,
+  so the reduction clamps it to 0.975: red is about 6 % low (ΔE00 2.1). The error grows when the light is not
+  D65 (the RGB model fixes each channel's reflectance under D65) and when reflections accumulate (`F(λ)^n`
+  sharpens the spectrum).
+- **Incidence angle is not the main cause.** The hypothesis that RGB fails at grazing angles was tested and
+  rejected for these three metals.
+- **Rough metals** (multiple-scattering term): gold under tungsten light grows from 3.0 (smooth) to 6.3 at
+  roughness 1.0, and copper under D65 from 0.1 to 1.1. A prototype that builds the multiple-scattering color from
+  the spectrum (not merged) reduced the D65 cases (copper 1.09 to 0.11, gold 1.55 to 0.53), but errors from a
+  non-D65 light cannot be fixed inside an RGB renderer.
+- **Practical rule**: use the RGB build for previews and D65 scenes; use the spectral build when the light is
+  not D65 or the metal itself is the subject. In a Release build the spectral mode is about as fast.
+
+**Limits.** The Kulla-Conty multiple-scattering compensation is itself an approximation (the true color of a
+rough metal was not compared); polarization, thin films and the error of the optical-constant tables are not
+modeled (the Johnson & Christy tables are taken as the truth); all values are converged expectations, so noise
+at equal render time is not compared.
+
+Full write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
+[`metal_accuracy_results.txt`](docs/metal_accuracy_results.txt),
+[`metal_probe_compare.txt`](docs/metal_probe_compare.txt),
+[`metal_probe_rough_compare.txt`](docs/metal_probe_rough_compare.txt). Reproduce the analysis (seconds):
+
+```bash
+python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_results.txt
+```
 
 ## Aurisidus
 
@@ -25,6 +80,7 @@ expressions).
 
 ## Contents
 
+0. [Thesis summary: RGB vs spectral error for metals](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals)
 1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
 2. [Quick start](#2-quick-start)
 3. [The renderer in general](#3-the-renderer-in-general)
@@ -68,7 +124,8 @@ Rebuild everything after changing it (the `Spectrum` type itself changes). In RG
 reduced to an RGB `(eta, k)` by integrating it with the color matching functions, so both modes render the
 same table. Measured on the gold scene: spectral and RGB differ by about 2.5/255 (spectral slightly
 warmer); in a furnace test they agree within ~0.5 %. A Release build is about as fast in spectral mode as in
-RGB mode; Debug is about 3x slower.
+RGB mode; Debug is about 3x slower. The systematic study of this difference (which metal, light, angle and
+number of bounces) is in the [thesis summary](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals).
 
 ### Try it
 
