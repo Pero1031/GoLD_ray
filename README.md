@@ -1,5 +1,11 @@
 # GoLD_rayt
 
+![GoLD_rayt: spectral gold, dispersion and caustics, water](docs/img/hero_grid_2x2.png)
+
+<sub>All four images were rendered by this project on the CPU in spectral mode (OIDN-denoised): gold spheres
+(`--scene gold`), a lamp inside a cut-glass tumbler (`--scene crystal --crystal-inside`), a glass of water lit by a
+point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`). The caustics use a photon map.</sub>
+
 A lightweight 3D path tracer built from scratch in C++20, focused on **spectral rendering of metals**
 (gold first), with a hobby branch that renders MMD characters (skin subsurface scattering, posing,
 expressions).
