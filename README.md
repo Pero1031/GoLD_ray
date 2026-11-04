@@ -6,19 +6,24 @@
 (`--scene gold`), a lamp inside a cut-glass tumbler (`--scene crystal --crystal-inside`), a glass of water lit by a
 point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`). The caustics use a photon map.</sub>
 
-A 3D path tracer built from scratch in C++20 as a **graduation thesis project on the appearance of metals**:
-**spectral rendering of metals** (gold first) and a **quantitative comparison of that against RGB rendering**
-(see the [thesis summary](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals) below). A side
-project renders MMD characters (skin subsurface scattering, posing, expressions) as a hard test asset.
+A 3D path tracer built from scratch in C++20, focused on **spectral rendering of metals** (gold first).
+
+**Background.** This renderer was built for the author's graduation research: gold was measured with a
+spectroradiometer (SR-5100), the color difference between RGB and spectral rendering was quantified (with
+Mitsuba), and the goal was rendering software that overcomes that difference. It has been extended since, aiming at
+a **perceptually based renderer** and as a way to learn renderer development. Beyond metals it covers a computational
+[study of the RGB-vs-spectral error](#how-much-does-rgb-rendering-get-wrong-for-metals), dispersion and caustics
+(photon map), water, and MMD characters (skin subsurface scattering, posing, expressions).
 
 > Windows / Visual Studio 2022 / x64 / CPU only. The code favors readability and verification (every major
 > piece has a numerical test) over raw speed.
 
-## Thesis summary: how much does RGB rendering get wrong for metals?
+## How much does RGB rendering get wrong for metals?
 
-The question: *how far is an RGB renderer from a spectral one for gold, copper and silver, and why?* Both
-modes are the same engine with the same optical constants (Johnson & Christy tables), switched at compile time
-(`RenderMode.hpp`), so the difference is only the RGB approximation.
+The question of the graduation research (answered there with Mitsuba), re-tried in this renderer: *how far is an
+RGB renderer from a spectral one for gold, copper and silver, and why?* Both modes are the same engine with the same optical constants (Johnson & Christy tables),
+switched at compile time (`RenderMode.hpp`), so the difference is only the RGB approximation. Here it is a
+comparison between two renderings against a 1 nm integral, not a comparison with measurements.
 
 **Method.** The reference is a 1 nm integration of `Fresnel(λ, θ)^n x light spectrum x film sensor`. The RGB
 model is the engine's own RGB reduction of the tables. The metric is CIEDE2000 (ΔE00; about 1 is "visible side
@@ -80,7 +85,7 @@ python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_
 
 ## Contents
 
-0. [Thesis summary: RGB vs spectral error for metals](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals)
+0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals)
 1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
 2. [Quick start](#2-quick-start)
 3. [The renderer in general](#3-the-renderer-in-general)
@@ -125,7 +130,7 @@ reduced to an RGB `(eta, k)` by integrating it with the color matching functions
 same table. Measured on the gold scene: spectral and RGB differ by about 2.5/255 (spectral slightly
 warmer); in a furnace test they agree within ~0.5 %. A Release build is about as fast in spectral mode as in
 RGB mode; Debug is about 3x slower. The systematic study of this difference (which metal, light, angle and
-number of bounces) is in the [thesis summary](#thesis-summary-how-much-does-rgb-rendering-get-wrong-for-metals).
+number of bounces) is in the [RGB-vs-spectral study](#how-much-does-rgb-rendering-get-wrong-for-metals).
 
 ### Try it
 
