@@ -176,6 +176,10 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             sun (--pool-sun-elev / --pool-sun-az, 1.2 degree radius) is added to the map's own light and its caustic network
 //             on the tiles comes from the caustic photon map (--caustics N, default 8 M; 0 = off; --caustic-radius, default
 //             0.015 m). The map's sky has no photons: its light through the water is found by BSDF sampling (Light::photonCaustics).
+//   crystal : prototype of faceted glass on a dark stage: a hexagonal crystal column, a cut-glass tumbler (8 flat facets), an
+//             octagonal block and a pyramid on a wooden-colored disc in a black space, lit by one small point light (the
+//             flat facets throw sharp-edged polygonal caustics). Dispersive glass (--abbe V, default 20; spectral mode only) gives
+//             the rainbow edges. Caustics come from the photon map (--caustics N default 16 M, --caustic-radius default 0.0006 m).
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -348,8 +352,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea or pool");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool" && o.scene != "crystal")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea, pool or crystal");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -365,7 +369,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -1954,6 +1958,40 @@ static bool LoadWaterAbsorption(color::SpectralCurve& sigmaA) {
     return true;
 }
 
+// Surface of revolution with FLAT facets: the profile (same convention as MakeLatheMesh: (radius, height) points, counter-clockwise,
+// solid on the left) is revolved into `sides` planar facets, each with its own vertices and its own face normal, so the faces
+// refract light in one direction and throw sharp-edged caustics. sides = 6 turns a straight profile into a hexagonal column,
+// and a profile that ends on the axis into a pyramid top.
+static TriangleMesh MakeFacetedLathe(const std::vector<Point2>& profile, int sides) {
+    TriangleMesh m;
+    for (size_t s = 0; s + 1 < profile.size(); ++s) {
+        const Point2 a = profile[s], b = profile[s + 1];
+        const Real dr = b.x - a.x, dy = b.y - a.y, len = std::hypot(dr, dy);
+        if (len <= Real(0)) continue;
+        const Real nr = dy / len, ny = -dr / len;   // outward normal of the profile segment
+        for (int j = 0; j < sides; ++j) {
+            const Real t0 = Real(2) * constants::PI * Real(j) / Real(sides), t1 = Real(2) * constants::PI * Real(j + 1) / Real(sides);
+            const Real tm = Real(0.5) * (t0 + t1);
+            const Vector3 ref(nr * std::cos(tm), ny, nr * std::sin(tm));
+            auto P = [](const Point2& q, Real t) { return Point3(q.x * std::cos(t), q.y, q.x * std::sin(t)); };
+            const Point3 p00 = P(a, t0), p01 = P(a, t1), p10 = P(b, t0), p11 = P(b, t1);
+            auto addTriangle = [&](const Point3& q0, Point3 q1, Point3 q2) {
+                Vector3 cr = glm::cross(Vector3(q1 - q0), Vector3(q2 - q0));
+                if (glm::length(cr) < Real(1e-14)) return;                // degenerate (a vertex pair on the axis)
+                if (glm::dot(cr, ref) < Real(0)) { std::swap(q1, q2); cr = -cr; }   // counter-clockwise seen from outside
+                const Vector3 n = glm::normalize(cr);
+                const int base = static_cast<int>(m.p.size());
+                m.p.push_back(q0); m.p.push_back(q1); m.p.push_back(q2);
+                m.n.push_back(n); m.n.push_back(n); m.n.push_back(n);
+                m.indices.insert(m.indices.end(), { base, base + 1, base + 2 });
+            };
+            addTriangle(p00, p01, p11);
+            addTriangle(p00, p11, p10);
+        }
+    }
+    return m;
+}
+
 // Water surface of a pool: gentle ripples on the rectangle |x| <= w/2, |z| <= d/2 at y = 0, a sum of 14 plane waves (wavelengths
 // 0.12-1 m, any direction, k * A = steep each) on a regular grid; analytic normals, one open sheet facing up.
 static TriangleMesh MakePoolSurface(Real w, Real d, Real steep, unsigned seed, Real spacing) {
@@ -2463,7 +2501,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[Sea] procedural sky: sun at elevation " << opt.seaSunElev << " deg, azimuth " << glm::degrees(sunAz) << " deg\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || (opt.scene == "water" && !opt.waterSky)) {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "crystal" || (opt.scene == "water" && !opt.waterSky)) {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -2585,6 +2623,7 @@ int main(int argc, char** argv) {
     bool waterView = false;                                       // water scene: close camera on the tumbler
     bool seaView = false;                                         // sea scene: camera 2 m above the water
     bool poolView = false;                                        // pool scene: camera on the deck
+    bool crystalView = false;                                     // crystal scene: camera above the disc
     Real seaViewAz = 0;                                           // sea scene: azimuth of the view direction (about +y, 0 = +z)
     Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
     Real causticTargetRadius = 0;
@@ -3160,6 +3199,41 @@ int main(int argc, char** argv) {
         causticTargetRadius = std::sqrt(W * W + D * D) * Real(0.5) * Real(1.02);
         poolView = true;
     }
+    else if (opt.scene == "crystal") {
+        // Metres. A 40 cm wide disc in an empty black space; faceted glass objects on it (all inside a 15 cm sphere around
+        // (0, 4 cm, 0): the photon targeting sphere), one small warm point light above. The flat facets bend light in one
+        // direction each, so the caustics are polygons with sharp edges; dispersion splits their rims into colors.
+        auto glass = std::make_shared<Dielectric>(Real(1.9), Real(0.0), Real(0.0), opt.abbe);   // heavy flint: strong bending, total internal reflection
+        const Real y0 = Real(0.0004);   // glass rests a hair above the disc (no coplanar surfaces)
+        auto place = [&](TriangleMesh mesh, Real x, Real z, Real yawDeg) {
+            mesh.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(yawDeg), Vector3(0, 1, 0))), Vector3(x, y0, z));
+            worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), glass, opt.accel));
+        };
+        // hexagonal crystal column with a pyramid top
+        place(MakeFacetedLathe({ Point2(0, 0), Point2(0.018, 0), Point2(0.018, 0.07), Point2(0, 0.098) }, 6), -0.03, -0.02, 10);
+        // cut-glass tumbler: 8 flat facets outside and inside, 7 cm tall
+        place(MakeFacetedLathe({ Point2(0, 0), Point2(0.026, 0), Point2(0.032, 0.07), Point2(0.029, 0.07), Point2(0.0235, 0.008), Point2(0, 0.008) }, 8),
+            0.065, 0.025, 0);
+        // low octagonal block
+        place(MakeFacetedLathe({ Point2(0, 0), Point2(0.022, 0), Point2(0.022, 0.028), Point2(0, 0.028) }, 8), -0.075, 0.055, 22);
+        // four-sided pyramid
+        place(MakeFacetedLathe({ Point2(0, 0), Point2(0.028, 0), Point2(0, 0.045) }, 4), 0.03, -0.075, 20);
+        // cut gem (10 facets, pavilion tip down): total internal reflection throws beams and rainbows
+        place(MakeFacetedLathe({ Point2(0, 0), Point2(0.024, 0.020), Point2(0.024, 0.024), Point2(0.013, 0.033), Point2(0, 0.033) }, 10), -0.11, -0.03, 5);
+        // ball lens: a smooth sphere focuses the light into a hot spot behind it
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, y0 + 0.02, 0.07), Real(0.02), glass));
+
+        // the disc (a closed lathe, 1 cm thick), wooden color
+        auto disc = std::make_shared<Lambertian>(RgbColor(0.42, 0.28, 0.17));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(
+            { Point2(0, -0.01), Point2(0.2, -0.01), Point2(0.2, 0), Point2(0, 0) }, 96)), disc, opt.accel));
+
+        // A low, dim light: the floor stays dark so that the light concentrated by the glass (10-50 times brighter) stands out.
+        studioLights.push_back(std::make_shared<PointLight>(Point3(-0.20, 0.22, 0.14), RgbColor(1.0, 0.96, 0.88), Real(0.6)));   // irradiance about 3.6 on the floor
+        causticCenter = Point3(0.0, 0.04, 0.0);
+        causticTargetRadius = Real(0.15);
+        crystalView = true;
+    }
     else if (opt.scene == "skindemo") {
         // Everything is in metres: a 3 cm sphere and a 2.5 cm ring (OBJ torus scaled by 0.05) on a floor, so the
         // 1-4 mm scatter distances of skin are a visible fraction of the objects. One material (hence one SSS
@@ -3306,10 +3380,11 @@ int main(int argc, char** argv) {
     CausticPhotonMap causticMap;
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
-    if ((opt.scene == "water" || opt.scene == "pool") && nCausticPhotons > 0) {
+    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = 16000000;
+    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal") && nCausticPhotons > 0) {
         CausticPhotonParams P;
         P.numPhotons = nCausticPhotons;
-        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : 0.0015);
+        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? 0.0006 : 0.0015);
         P.targetCenter = causticCenter;
         P.targetRadius = causticTargetRadius;
         causticMap.build(*scene, P);
@@ -3332,6 +3407,11 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.0, 0.075, 0.30);
         lookAt = Point3(0.0, 0.032, 0.0);
         fovDeg = 30.0;
+    }
+    if (crystalView) {
+        lookFrom = Point3(0.0, 0.26, 0.31);
+        lookAt = Point3(0.01, 0.025, 0.0);
+        fovDeg = 32.0;
     }
     if (poolView) {   // standing at the near end of the pool, eye 1.2 m above the deck, looking down the pool
         lookFrom = Point3(0.5, 1.35, 3.1);
@@ -3392,7 +3472,8 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
-    if (opt.scene == "pool" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the basin
+    if (opt.scene == "crystal" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;   // several faceted bodies: many interfaces per path
+    if (opt.scene == "pool" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;   // bounces between the surface and the basin
     if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the seabed
     if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
     if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
