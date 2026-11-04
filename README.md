@@ -101,36 +101,6 @@ Full write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_
 python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_results.txt
 ```
 
-## Gallery
-
-More renders from the same engine (CPU, OIDN-denoised). The color-of-light comparison is under
-[Spectral vs RGB](#spectral-vs-rgb), the skin under [Character rendering](#4-character-rendering-hobby).
-
-**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map with eight independent
-photon sets averaged). Every ray of the lamp leaves through the glass, so all the light on the table is caustic:
-sharp-edged polygons from the flat facets, with colored rims from dispersion.
-
-![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
-
-**A caustic through a prism** (`--scene manifold`, point light): without caustics, with the photon map, and with the
-*specular manifold NEE*, a prototype that solves the refraction path through the prism's flat faces instead of
-estimating it with photons. The photon map blurs the edge of the dispersed band over its gather radius; the solved
-path keeps it sharp. Both estimators agree within a few percent on the smooth parts of the pattern (checked at
-sample points and over the whole floor by `--scene manifoldtest`).
-
-![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
-
-**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): physically based hair,
-eyes, metal ornaments and skin with subsurface scattering, under studio lights, in a pose read from a VPD file.
-
-![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
-
-<sub>Model: サンドローネ (Sandrone; miHoYo, modified by 观海), used according to the model's terms of use (no redistribution, no
-commercial use): the model is not part of this repository, only these renderings are shown. Pose: アラベスクポーズ
-by mototo=toto. These are rendering tests of this project and have no connection with the model's authors.</sub>
-
----
-
 ## Aurisidus
 
 > **Aurisidus** is a coined term derived from Latin
@@ -143,7 +113,7 @@ by mototo=toto. These are rendering tests of this project and have no connection
 
 ## Contents
 
-0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals), [Gallery](#gallery)
+0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals)
 1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
 2. [Quick start](#2-quick-start)
 3. [The renderer in general](#3-the-renderer-in-general)
@@ -151,7 +121,8 @@ by mototo=toto. These are rendering tests of this project and have no connection
 5. [How it works](#5-how-it-works)
 6. [Verification](#6-verification)
 7. [What could come next](#7-what-could-come-next)
-8. [Third-party code and data](#8-third-party-code-and-data)
+8. [Gallery](#8-gallery)
+9. [Third-party code and data](#9-third-party-code-and-data)
 
 ---
 
@@ -223,7 +194,7 @@ polarization. A rough dielectric does not compensate multiple scattering yet.
 **Requirements**
 
 - Windows 10/11 x64, **Visual Studio 2022** (toolset v143), C++20, OpenMP, a CPU with **AVX2**.
-- Libraries are bundled under `librarys/` and `GoLD_rayt/external/` (see [section 8](#8-third-party-code-and-data)).
+- Libraries are bundled under `librarys/` and `GoLD_rayt/external/` (see [section 9](#9-third-party-code-and-data)).
 
 **Build and run**
 
@@ -402,7 +373,37 @@ area lights.
 
 ---
 
-## 8. Third-party code and data
+## 8. Gallery
+
+More renders from the same engine (CPU, OIDN-denoised). The color-of-light comparison is under
+[Spectral vs RGB](#spectral-vs-rgb), the skin under [Character rendering](#4-character-rendering-hobby).
+
+**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map with eight independent
+photon sets averaged). Every ray of the lamp leaves through the glass, so all the light on the table is caustic:
+sharp-edged polygons from the flat facets, with colored rims from dispersion.
+
+![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
+
+**A caustic through a prism** (`--scene manifold`, point light): without caustics, with the photon map, and with the
+*specular manifold NEE*, a prototype that solves the refraction path through the prism's flat faces instead of
+estimating it with photons. The photon map blurs the edge of the dispersed band over its gather radius; the solved
+path keeps it sharp. Both estimators agree within a few percent on the smooth parts of the pattern (checked at
+sample points and over the whole floor by `--scene manifoldtest`).
+
+![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
+
+**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): physically based hair,
+eyes, metal ornaments and skin with subsurface scattering, under studio lights, in a pose read from a VPD file.
+
+![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
+
+<sub>Model: サンドローネ (Sandrone; miHoYo, modified by 观海), used according to the model's terms of use (no redistribution, no
+commercial use): the model is not part of this repository, only these renderings are shown. Pose: アラベスクポーズ
+by mototo=toto. These are rendering tests of this project and have no connection with the model's authors.</sub>
+
+---
+
+## 9. Third-party code and data
 
 | Component | Use | License |
 |---|---|---|
