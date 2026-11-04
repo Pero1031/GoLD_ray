@@ -163,6 +163,9 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             degrees (default 38) from --cam-yaw (default: the side of the map's brightest spot), to see the caustic on the table.
 //             --caustics N: caustic photon map with N emitted photons (Render/CausticPhotonMap.hpp) for clean caustics even
 //             from small / concentrated lights; --caustic-radius m = gather radius (default 0.0015, in the test 0.004).
+//             --caustic-passes P: P passes of spp / P samples, each with its own independent photon set, the images averaged: the
+//             grain of a photon map does not shrink with spp (the photons are fixed), but it does shrink as 1/sqrt(P), at the
+//             memory of one photon set (each pass pays the photon tracing time once).
 //             --water-lamp: one small point light (left, about 33 degrees up) instead of the softboxes / wall, camera looking down on
 //             the caustic behind the glass (same --cam-elev / --cam-yaw). A point light can only be seen with --caustics.
 //   sea     : prototype of a shallow tropical sea at sunrise: a Gerstner-wave surface (polar mesh, ~410k triangles, fine waves
@@ -261,7 +264,8 @@ struct CliOptions {
     bool crystalInside = false;        // crystal: the lamp sits inside the tumbler (no water, no other light): beams radiate through the facets
     bool waterLamp = false;           // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
     long long causticPhotons = -1;    // water / pool: photons emitted for the caustic photon map (water: off unless > 0; pool: 8 M unless 0 = off)
-    Real causticRadius = -1;           // gather radius of the caustic photon map (m); < 0: the scene's default (water 1.5 mm, caustic test 4 mm)
+    int causticPasses = 1;             // water / pool / crystal: render in P passes with independent photon sets (spp / P each), images averaged
+    Real causticRadius = -1;          // gather radius of the caustic photon map (m); < 0: the scene's default (water 1.5 mm, caustic test 4 mm)
     Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
     Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
@@ -317,7 +321,8 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--water-lamp") o.waterLamp = true;
             else if (a == "--crystal-inside") o.crystalInside = true;
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
-            else if (a == "--caustic-radius") o.causticRadius = std::stod(value("--caustic-radius"));
+            else if (a == "--caustic-passes") o.causticPasses = std::stoi(value("--caustic-passes"));
+            else if (a == "--caustic-radius")o.causticRadius = std::stod(value("--caustic-radius"));
             else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));
             else if (a == "--cam-yaw") o.camYaw = std::stod(value("--cam-yaw"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
@@ -373,7 +378,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--caustic-passes P] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -3444,16 +3449,18 @@ int main(int argc, char** argv) {
 
     // Caustic photon map (water / pool scene, --caustics N): photons from the lights through the water onto the table / the basin.
     CausticPhotonMap causticMap;
+    CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
+    bool causticOn = false;
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
     if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = opt.crystalInside ? 24000000 : 16000000;
     if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal") && nCausticPhotons > 0) {
-        CausticPhotonParams P;
-        P.numPhotons = nCausticPhotons;
-        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
-        P.targetCenter = causticCenter;
-        P.targetRadius = causticTargetRadius;
-        causticMap.build(*scene, P);
+        causticParams.numPhotons = nCausticPhotons;
+        causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
+        causticParams.targetCenter = causticCenter;
+        causticParams.targetRadius = causticTargetRadius;
+        causticMap.build(*scene, causticParams);
+        causticOn = true;
     }
 
     // -------------------------------------------------------------------------
@@ -3543,22 +3550,49 @@ int main(int argc, char** argv) {
     if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the seabed
     if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
     if (opt.scene == "blob" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 256;   // surface bounces inside a glass blob: no cutoff bias
+    // --caustic-passes P: P independent photon sets, spp / P samples per pass, the images averaged (see the render below)
+    const int causticPasses = (causticOn && opt.causticPasses > 1) ? opt.causticPasses : 1;
+    const int sppPerPass = (causticPasses > 1) ? std::max(1, opt.spp / causticPasses) : opt.spp;
     auto integrator = std::make_unique<PathIntegrator>(
         camera,
         opt.maxDepth,  // 最大深度
-        opt.spp        // プログレッシブ用のspp
+        sppPerPass     // プログレッシブ用のspp
     );
 
     integrator->setMaxVolumeEvents(opt.volumeCap);
     integrator->setCausticMap(&causticMap);   // ignored while the map is empty
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
+    if (causticPasses > 1)
+        std::cout << "[Caustics] " << causticPasses << " passes of " << sppPerPass << " spp, each with its own " << causticParams.numPhotons
+            << " photons (" << double(causticPasses) * double(causticParams.numPhotons) / 1e6 << " M in total, memory of one set)\n";
 
     // -------------------------------------------------------------------------
     // 6. レンダリング実行 & 保存
     // -------------------------------------------------------------------------
     std::cout << "[Render] Start PBR rendering..." << std::endl;
-    integrator->render(*scene, film);
+    if (causticPasses > 1) {
+        // The noise of a photon map is frozen: more samples per pixel re-read the same photons and do not remove it. Independent
+        // photon sets per pass decorrelate it, so the average of the passes improves by 1/sqrt(passes) at the memory of one set.
+        // The last pass renders into `film` (so the denoiser features come from it); the earlier ones go to a scratch film.
+        std::vector<Vector3> sum(static_cast<size_t>(imageWidth) * static_cast<size_t>(imageHeight), Vector3(0.0));
+        for (int pass = 0; pass < causticPasses; ++pass) {
+            if (pass > 0) causticMap.build(*scene, causticParams);   // a fresh photon set (the random number streams continue)
+            std::cout << "[Caustics] pass " << pass + 1 << " / " << causticPasses << "\n";
+            if (pass + 1 < causticPasses) {
+                Film scratch(imageWidth, imageHeight);
+                integrator->render(*scene, scratch);
+                for (size_t i = 0; i < sum.size(); ++i) sum[i] += scratch.getData()[i];
+            }
+            else integrator->render(*scene, film);
+        }
+        for (int y = 0; y < imageHeight; ++y)
+            for (int x = 0; x < imageWidth; ++x) {
+                const size_t i = static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x);
+                film.setPixel(x, y, (sum[i] + film.getData()[i]) / Real(causticPasses));
+            }
+    }
+    else integrator->render(*scene, film);
     if (opt.scene == "blob") {
         std::cout << "[Blob] paths cut by the limit of " << opt.volumeCap << " collisions: " << integrator->volumeCapHits()
             << (integrator->volumeCapHits() ? "  (these paths are lost: raise --volume-cap)" : "  (none: no cutoff bias)") << "\n";
