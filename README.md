@@ -3,7 +3,7 @@
 ![GoLD_rayt: spectral gold, dispersion and caustics, water, and RGB vs spectral gold](docs/img/hero.png)
 
 <sub>All images were rendered by this project on the CPU (OIDN-denoised). Top, in spectral mode: gold spheres
-(`--scene gold`), a lamp inside a cut-glass tumbler (`--scene crystal --crystal-inside`), a glass of water lit by a
+(`--scene gold`), cut-glass pieces lit from outside by a point light (`--scene crystal`), a glass of water lit by a
 point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`); the caustics use a photon map.
 Bottom: the same gold bowl under a tungsten light (`--scene goldbowl --light tungsten`) rendered by the RGB build and by
 the spectral build, and the CIEDE2000 difference between the two
@@ -101,6 +101,47 @@ Full write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_
 python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_results.txt
 ```
 
+## Gallery
+
+More renders from the same engine (CPU, OIDN-denoised).
+
+**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map with eight independent
+photon sets averaged). Every ray of the lamp leaves through the glass, so all the light on the table is caustic:
+sharp-edged polygons from the flat facets, with colored rims from dispersion.
+
+![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
+
+**The color of the light** (`--scene spd --light d65|tungsten|led`, `--wb` = white balance): five colored diffuse
+spheres and a gold one under one sphere light, rendered with the spectrum of the light. In the spectral renderer the
+whole scene takes the color of the light and the spheres change by different amounts; white balancing the film brings the neutral surfaces back but not the colors. The RGB mode (middle right) matches the
+white but not the colors, by design.
+
+![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/gallery_lights.png)
+
+**A caustic through a prism** (`--scene manifold`, point light): without caustics, with the photon map, and with the
+*specular manifold NEE*, a prototype that solves the refraction path through the prism's flat faces instead of
+estimating it with photons. The photon map blurs the edge of the dispersed band over its gather radius; the solved
+path keeps it sharp. Both estimators agree within a few percent on the smooth parts of the pattern (checked at
+sample points and over the whole floor by `--scene manifoldtest`).
+
+![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
+
+**Skin** (`--scene skindemo`, [docs/SSS.md](docs/SSS.md)): a sphere and a torus with the same skin material, without
+subsurface scattering, with the real skin scattering distances, and with them tripled for an anime-like softness.
+
+![Subsurface scattering of skin: off, real distances, three times the distances](docs/img/gallery_skin_sss.png)
+
+**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): physically based hair,
+eyes, metal ornaments and skin with subsurface scattering, under studio lights, in a pose read from a VPD file.
+
+![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
+
+<sub>Model: 桑多涅 (miHoYo; modified by 观海), used according to the model's terms of use (no redistribution, no
+commercial use): the model is not part of this repository, only these renderings are shown. Pose: アラベスクポーズ
+by mototo=toto. These are rendering tests of this project and have no connection with the model's authors.</sub>
+
+---
+
 ## Aurisidus
 
 > **Aurisidus** is a coined term derived from Latin
@@ -113,7 +154,7 @@ python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_
 
 ## Contents
 
-0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals)
+0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals), [Gallery](#gallery)
 1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
 2. [Quick start](#2-quick-start)
 3. [The renderer in general](#3-the-renderer-in-general)
