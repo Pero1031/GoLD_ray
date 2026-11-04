@@ -106,6 +106,11 @@ namespace rayt {
             return 0.0;
         }
 
+        /// Position and radiant intensity (W/sr, scale included): for estimators that handle the light themselves
+        /// (specular manifold NEE).
+        const Point3& position() const { return m_p; }
+        Spectrum intensity(const SampledWavelengths& lambda) const { return m_I(lambda) * m_scale; }
+
     private:
         Point3 m_p = Point3(0.0);
         EmissionSpectrum m_I; // intensity (arbitrary scale; evaluated per wavelength when rendering)

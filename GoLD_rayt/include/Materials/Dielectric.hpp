@@ -81,6 +81,28 @@ namespace rayt {
             }
         }
 
+        /// Index of refraction at a wavelength in nm (the constant IOR when not dispersive or in RGB mode).
+        Real iorAtNm(Real nm) const {
+#if defined(RAYT_SPECTRAL_MODE)
+            if (cauchyB != Real(0)) {
+                const Real um = nm * Real(1e-3);
+                return cauchyA + cauchyB / (um * um);
+            }
+#else
+            (void)nm;
+#endif
+            return iorRef;
+        }
+
+        /// True if the IOR depends on the wavelength (spectral mode with an Abbe number).
+        bool isDispersive() const {
+#if defined(RAYT_SPECTRAL_MODE)
+            return cauchyB != Real(0);
+#else
+            return false;
+#endif
+        }
+
         /// Dispersive surfaces keep a single wavelength per path (no-op otherwise / in RGB mode).
         void prepareWavelengths(SampledWavelengths& lambda) const override {
 #if defined(RAYT_SPECTRAL_MODE)
