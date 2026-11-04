@@ -103,20 +103,14 @@ python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_
 
 ## Gallery
 
-More renders from the same engine (CPU, OIDN-denoised).
+More renders from the same engine (CPU, OIDN-denoised). The color-of-light comparison is under
+[Spectral vs RGB](#spectral-vs-rgb), the skin under [Character rendering](#4-character-rendering-hobby).
 
 **A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map with eight independent
 photon sets averaged). Every ray of the lamp leaves through the glass, so all the light on the table is caustic:
 sharp-edged polygons from the flat facets, with colored rims from dispersion.
 
 ![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
-
-**The color of the light** (`--scene spd --light d65|tungsten|led`, `--wb` = white balance): five colored diffuse
-spheres and a gold one under one sphere light, rendered with the spectrum of the light. In the spectral renderer the
-whole scene takes the color of the light and the spheres change by different amounts; white balancing the film brings the neutral surfaces back but not the colors. The RGB mode (middle right) matches the
-white but not the colors, by design.
-
-![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/gallery_lights.png)
 
 **A caustic through a prism** (`--scene manifold`, point light): without caustics, with the photon map, and with the
 *specular manifold NEE*, a prototype that solves the refraction path through the prism's flat faces instead of
@@ -126,17 +120,12 @@ sample points and over the whole floor by `--scene manifoldtest`).
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
 
-**Skin** (`--scene skindemo`, [docs/SSS.md](docs/SSS.md)): a sphere and a torus with the same skin material, without
-subsurface scattering, with the real skin scattering distances, and with them tripled for an anime-like softness.
-
-![Subsurface scattering of skin: off, real distances, three times the distances](docs/img/gallery_skin_sss.png)
-
 **A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): physically based hair,
 eyes, metal ornaments and skin with subsurface scattering, under studio lights, in a pose read from a VPD file.
 
 ![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
 
-<sub>Model: 桑多涅 (miHoYo; modified by 观海), used according to the model's terms of use (no redistribution, no
+<sub>Model: サンドローネ (Sandrone; miHoYo, modified by 观海), used according to the model's terms of use (no redistribution, no
 commercial use): the model is not part of this repository, only these renderings are shown. Pose: アラベスクポーズ
 by mototo=toto. These are rendering tests of this project and have no connection with the model's authors.</sub>
 
@@ -200,6 +189,14 @@ same table. Measured on the gold scene: spectral and RGB differ by about 2.5/255
 warmer); in a furnace test they agree within ~0.5 %. A Release build is about as fast in spectral mode as in
 RGB mode; Debug is about 3x slower. The systematic study of this difference (which metal, light, angle and
 number of bounces) is in the [RGB-vs-spectral study](#how-much-does-rgb-rendering-get-wrong-for-metals).
+
+**The color of the light as a picture** (`--scene spd --light d65|tungsten|led`, `--wb` = white balance): five colored diffuse
+spheres and a gold one under one sphere light, rendered with the spectrum of the light. In the spectral renderer the
+whole scene takes the color of the light and the spheres change by different amounts; white balancing the film
+brings the neutral surfaces back but not the colors. The RGB mode (middle right) matches the white but not the
+colors, by design.
+
+![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/light_spectrum_spheres.png)
 
 ### Try it
 
@@ -312,6 +309,11 @@ GoLD_rayt.exe --scene pmx --pmx-index 4 --pose-index 0 --expr shy --pmx-yaw -25 
 ```
 
 The algorithm, parameters, verification and limits are written up in [docs/SSS.md](docs/SSS.md) (Japanese).
+
+A sphere and a torus with the same skin material (`--scene skindemo`, no character needed), without
+subsurface scattering, with the real skin scattering distances, and with them tripled for an anime-like softness.
+
+![Subsurface scattering of skin: off, real distances, three times the distances](docs/img/skin_sss.png)
 
 Not done: IK, physics (hair, skirt), VMD motion, toon / outline rendering, ears and other thin parts of the skin
 (transmission was not checked), a random-walk reference for the SSS approximation.
