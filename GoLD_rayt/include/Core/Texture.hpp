@@ -53,6 +53,19 @@ namespace rayt {
             return tex;
         }
 
+        /// Builds a texture from 8-bit sRGB RGBA texels (row 0 = top), e.g. a procedural pattern. nullptr if the size does not match.
+        static std::shared_ptr<Texture2D> fromRgba8(int w, int h, std::vector<unsigned char> rgba) {
+            if (w <= 0 || h <= 0 || rgba.size() != static_cast<size_t>(w) * static_cast<size_t>(h) * 4) return nullptr;
+            auto tex = std::make_shared<Texture2D>();
+            tex->m_w = w;
+            tex->m_h = h;
+            tex->m_rgba = std::move(rgba);
+            for (size_t i = 3; i < tex->m_rgba.size(); i += 4) {
+                if (tex->m_rgba[i] < 255) { tex->m_hasAlpha = true; break; }
+            }
+            return tex;
+        }
+
         int width() const { return m_w; }
         int height() const { return m_h; }
         bool hasAlpha() const { return m_hasAlpha; }
