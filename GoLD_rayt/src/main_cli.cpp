@@ -185,6 +185,12 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             the rainbow edges. Caustics come from the photon map (--caustics N default 16 M, --caustic-radius default 0.0006 m).
 //             --crystal-inside: the lamp sits INSIDE the empty tumbler and is the only light (all of its light leaves through the
 //             glass facets as beams; default 24 M photons, radius 0.0012 m).
+//   manifold: PROTOTYPE of a deterministic caustic: a dispersive triangular prism (--abbe) and one point light on a gray disc. The
+//             caustic of the point light through the two refractions is solved exactly (specular manifold NEE, Render/SpecularNee.hpp:
+//             Newton's method on Snell's law, no photons, no blur) with --caustic-method manifold (default); photons = the caustic photon
+//             map for comparison (--caustics N); none = direct light only (the prism's shadow).
+//   manifoldtest: no image: the prism caustic at a few lit floor points from the manifold estimator against the photon map (they
+//             must agree), plus solver statistics.
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -261,7 +267,8 @@ struct CliOptions {
     bool seaHdr = false;               // sea: light with the --env map instead of the procedural sky
     Real seaSunElev = 14;              // sea: elevation of the procedural sky's sun (degrees)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
-    bool crystalInside = false;        // crystal: the lamp sits inside the tumbler (no water, no other light): beams radiate through the facets
+    std::string causticMethod = "manifold";   // manifold scene: how the prism's caustic is computed: manifold (specular manifold NEE) | photons | none
+    bool crystalInside = false;       // crystal: the lamp sits inside the tumbler (no water, no other light): beams radiate through the facets
     bool waterLamp = false;           // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
     long long causticPhotons = -1;    // water / pool: photons emitted for the caustic photon map (water: off unless > 0; pool: 8 M unless 0 = off)
     int causticPasses = 1;             // water / pool / crystal: render in P passes with independent photon sets (spp / P each), images averaged
@@ -320,6 +327,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--water-sky") o.waterSky = true;
             else if (a == "--water-lamp") o.waterLamp = true;
             else if (a == "--crystal-inside") o.crystalInside = true;
+            else if (a == "--caustic-method") o.causticMethod = value("--caustic-method");
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
             else if (a == "--caustic-passes") o.causticPasses = std::stoi(value("--caustic-passes"));
             else if (a == "--caustic-radius")o.causticRadius = std::stod(value("--caustic-radius"));
@@ -361,8 +369,10 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool" && o.scene != "crystal")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea, pool or crystal");
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool" && o.scene != "crystal" && o.scene != "manifold" && o.scene != "manifoldtest")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea, pool, crystal, manifold or manifoldtest");
+        if (o.causticMethod != "manifold" && o.causticMethod != "photons" && o.causticMethod != "none")
+            throw std::runtime_error("--caustic-method must be manifold, photons or none");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         if (o.accel != "own" && o.accel != "embree")
@@ -378,7 +388,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--caustic-passes P] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal|manifold|manifoldtest] [--caustic-method manifold|photons|none] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--caustic-passes P] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -543,10 +553,11 @@ static void TracePixelDebug(const Scene& scene, const Camera& camera, int px, in
 
 // Mean linear RGB (and its standard error) of Li() along one fixed ray.
 static void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth,
-    Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics = nullptr)
+    Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics = nullptr, const SpecularNee* nee = nullptr)
 {
     PathIntegrator integrator(nullptr, maxDepth, 1);
     integrator.setCausticMap(caustics);
+    integrator.setSpecularNee(nee);
     double sx = 0, sy = 0, sz = 0, qx = 0, qy = 0, qz = 0;
     int bad = 0;
 
@@ -2469,6 +2480,165 @@ static bool RunMeshChecks(const CliOptions& opt) {
 // -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
+// A closed prism: the polygon `xz` (counter-clockwise or not: the winding is fixed per face) extruded from y = 0 to `height`, flat faces
+// with their own normals (outward). The body of the specular manifold NEE prototype.
+static TriangleMesh MakePrismMesh(const std::vector<Point2>& xz, Real height) {
+    TriangleMesh m;
+    Point2 c(0, 0);
+    for (const Point2& q : xz) c += q;
+    c /= Real(xz.size());
+    auto addTriangle = [&](const Point3& a, Point3 b, Point3 d, const Vector3& outward) {
+        Vector3 cr = glm::cross(Vector3(b - a), Vector3(d - a));
+        if (glm::length(cr) < Real(1e-14)) return;
+        if (glm::dot(cr, outward) < Real(0)) { std::swap(b, d); cr = -cr; }
+        const Vector3 n = glm::normalize(cr);
+        const int base = static_cast<int>(m.p.size());
+        m.p.push_back(a); m.p.push_back(b); m.p.push_back(d);
+        m.n.push_back(n); m.n.push_back(n); m.n.push_back(n);
+        m.indices.insert(m.indices.end(), { base, base + 1, base + 2 });
+    };
+    for (size_t i = 0; i < xz.size(); ++i) {
+        const Point2 q0 = xz[i], q1 = xz[(i + 1) % xz.size()];
+        const Point3 b0(q0.x, 0, q0.y), b1(q1.x, 0, q1.y), t0(q0.x, height, q0.y), t1(q1.x, height, q1.y);
+        const Point2 mid = Real(0.5) * (q0 + q1) - c;
+        const Vector3 out(mid.x, 0, mid.y);
+        addTriangle(b0, b1, t1, out);
+        addTriangle(b0, t1, t0, out);
+        addTriangle(Point3(c.x, 0, c.y), b0, b1, Vector3(0, -1, 0));
+        addTriangle(Point3(c.x, height, c.y), t0, t1, Vector3(0, 1, 0));
+    }
+    return m;
+}
+
+// The prototype scene of the specular manifold NEE: a dispersive triangular prism (IOR 1.55, --abbe) standing on a wooden-gray disc, one
+// point light beside it. Shared by --scene manifold (image) and --scene manifoldtest (comparison with the photon map).
+struct PrismWorld {
+    std::shared_ptr<Aggregate> world;
+    std::shared_ptr<const TriangleMesh> mesh;
+    std::shared_ptr<Dielectric> glass;
+    // The light shines on the left face at about 45 degrees from its normal (near the minimum deviation of a 60 degree prism): at 30 degrees
+    // the ray would hit the second face beyond the critical angle (IOR 1.75) and no two-refraction path would exist at all.
+    Point3 lamp = Point3(-0.19, 0.11, -0.064);
+};
+
+static PrismWorld BuildPrismWorld(const CliOptions& opt, const std::string& accel) {
+    PrismWorld w;
+    w.world = std::make_shared<Aggregate>();
+    w.glass = std::make_shared<Dielectric>(Real(1.55), Real(0.0), Real(0.0), opt.abbe);
+    std::vector<Point2> tri;
+    for (int k = 0; k < 3; ++k) {
+        const Real ang = glm::radians(Real(90 + 120 * k));
+        tri.push_back(Point2(Real(0.035) * std::cos(ang), Real(0.035) * std::sin(ang)));
+    }
+    TriangleMesh prism = MakePrismMesh(tri, Real(0.07));
+    prism.transform(glm::dmat3(1.0), Vector3(0, 0.0004, 0));   // a hair above the floor: no coplanar surfaces
+    w.mesh = std::make_shared<const TriangleMesh>(std::move(prism));
+    w.world->add(MakeMeshHittable(w.mesh, w.glass, accel));
+    w.world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(
+        { Point2(0, -0.01), Point2(0.35, -0.01), Point2(0.35, 0), Point2(0, 0) }, 96)),
+        std::make_shared<Lambertian>(RgbColor(0.55)), accel));
+    return w;
+}
+
+// --scene manifoldtest: the caustic of a point light through the prism, computed by the specular manifold NEE and by the caustic photon
+// map (the existing, independent estimator), at a few lit floor points. The difference to the plain render (direct light only) is the
+// caustic part of each; the two must agree (the photon map blurs, so points in smooth parts of the pattern are used).
+static int RunManifoldTests(const CliOptions& opt) {
+    PrismWorld pw = BuildPrismWorld(opt, "own");
+    auto lamp = std::make_shared<PointLight>(pw.lamp, RgbColor(1.0, 0.96, 0.90), Real(0.6));
+    auto scene = std::make_shared<Scene>(pw.world);
+    scene->addLight(lamp);
+    scene->finalize("uniform");
+    SpecularNee nee(pw.mesh, pw.glass, *scene);
+    std::cout << "[Manifold] prism: " << nee.numFacets() << " triangles, " << nee.numLights() << " point light(s)\n";
+
+    // Lit floor points (x >= 5 cm: a camera ray from above and behind cannot clip the prism) found with the manifold estimator itself.
+    auto floorMat = std::make_shared<Lambertian>(RgbColor(0.55));
+    SurfaceInteraction rec;
+    rec.n = rec.gn = Vector3(0, 1, 0);
+    rec.matPtr = floorMat.get();
+    const Vector3 wo = glm::normalize(Vector3(0.3, 1.0, 0.5));
+    struct Cand { Point3 p; Real lum; };
+    std::vector<Cand> cands;
+    Real maxLum = 0;
+    auto lumAt = [&](const Point3& p, int samples = 24) {   // mean luminance of the manifold estimate at a floor point (the wavelengths vary)
+        rec.p = p;
+        Real lum = 0;
+        for (int s = 0; s < samples; ++s) {
+#if defined(RAYT_SPECTRAL_MODE)
+            SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
+#else
+            SampledWavelengths lambda;
+#endif
+            const Vector3 c = SpectrumToRGB(nee.sample(*scene, rec, wo, lambda), lambda);
+            lum += Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z;
+        }
+        return lum / Real(samples);
+    };
+    for (int iz = -20; iz <= 5; ++iz) {
+        for (int ix = 0; ix <= 27; ++ix) {
+            const Point3 p(0.05 + 0.01 * ix, 0, 0.01 * iz);
+            const Real lum = lumAt(p);
+            cands.push_back({ p, lum });
+            maxLum = std::max(maxLum, lum);
+        }
+    }
+    std::cout << "[Manifold] scanned " << cands.size() << " floor points, brightest manifold radiance " << maxLum << "\n";
+    std::vector<Point3> points;
+    for (const Cand& c : cands) {
+        if (c.lum < Real(0.1) * maxLum || c.lum > Real(0.5) * maxLum) continue;   // mid-level, away from the brightest focus lines
+        // Smooth neighborhood: the photon map blurs over its gather radius (3 mm), the manifold estimate does not, so near an edge of the
+        // pattern (where the focusing diverges, e.g. with a single IOR) the two cannot agree. Keep points whose value varies by < 15 % over 3 mm
+        // (128 samples each: with dispersion one sample carries one wavelength, so the estimate itself fluctuates by several percent).
+        bool smooth = true;
+        const Real centre = lumAt(c.p, 128);
+        for (const Vector3& d : { Vector3(0.003, 0, 0), Vector3(-0.003, 0, 0), Vector3(0, 0, 0.003), Vector3(0, 0, -0.003) })
+            if (std::abs(lumAt(c.p + d, 128) - centre) > Real(0.15) * centre) { smooth = false; break; }
+        if (!smooth) continue;
+        bool spaced = true;   // (not "far": a macro in the Windows headers)
+        for (const Point3& q : points) if (glm::length(Vector3(q - c.p)) < Real(0.04)) { spaced = false; break; }
+        if (spaced) points.push_back(c.p);
+        if (points.size() >= 6) break;
+    }
+    if (points.empty()) { std::cout << "[Manifold] no lit floor point found: FAIL\n"; return 2; }
+
+    CausticPhotonParams P;
+    P.numPhotons = 16000000;
+    P.radius = Real(0.003);
+    P.targetCenter = Point3(0, 0.035, 0);
+    P.targetRadius = Real(0.06);
+    P.onlyTransmissions = 2;   // the manifold NEE handles the chain T T only (other chains: reflections, total internal reflection, ... are not in it)
+    CausticPhotonMap map;
+    map.build(*scene, P);
+
+    const int n = opt.spp * 256;
+    bool allPassed = true;
+    for (const Point3& p : points) {
+        const Point3 from = p + Vector3(0.0, 0.20, 0.12);
+        const Ray ray(from, glm::normalize(Vector3(p - from)));
+        Vector3 m0, s0, mM, sM, mP, sP; int b0 = 0, bM = 0, bP = 0;
+        EstimateRadiance(*scene, ray, n, 32, m0, s0, b0, nullptr, nullptr);
+        EstimateRadiance(*scene, ray, n, 32, mM, sM, bM, nullptr, &nee);
+        EstimateRadiance(*scene, ray, n, 32, mP, sP, bP, &map, nullptr);
+        auto lum = [](const Vector3& c) { return Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z; };
+        const Real dM = lum(mM) - lum(m0), dP = lum(mP) - lum(m0);
+        const Real se = std::sqrt(lum(sM) * lum(sM) + lum(sP) * lum(sP));
+        // a real comparison needs a caustic signal in the photon map (a pass between two zeros proves nothing) and a manifold solution
+        const bool signal = std::abs(dP) > 5 * lum(sP);
+        const bool ok = (b0 + bM + bP == 0) && signal && std::abs(dM - dP) <= 4 * se + Real(0.10) * std::abs(dP);
+        allPassed = allPassed && ok;
+        std::cout << "[Manifold]   floor point (" << p.x << ", " << p.z << "):  direct only " << lum(m0) << "   caustic: manifold " << dM
+            << "   photon map " << dP << "   ratio " << (dP != 0 ? dM / dP : Real(0)) << (ok ? "   OK" : "   FAIL") << "\n";
+    }
+    const auto& c = nee.counters();
+    std::cout << "[Manifold] solver: " << nee.solutions() << " solutions in " << nee.queries() << " receiver evaluations\n"
+        << "[Manifold]   pairs tried " << c.pairs << " -> Newton converged " << c.converged << " -> inside the facets " << c.insideFacets
+        << " -> real refraction " << c.refraction << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
+    if (nee.solutions() == 0) allPassed = false;
+    std::cout << "[Manifold] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
+}
+
 int main(int argc, char** argv) {
 
     CliOptions opt;
@@ -2492,6 +2662,7 @@ int main(int argc, char** argv) {
     if (opt.scene == "skinlayers") return RunSkinLayers(opt);
     if (opt.scene == "volume") return RunVolumeTests(opt);
     if (opt.scene == "caustic") return RunCausticTests(opt);
+    if (opt.scene == "manifoldtest") return RunManifoldTests(opt);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2553,7 +2724,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[Sea] procedural sky: sun at elevation " << opt.seaSunElev << " deg, azimuth " << glm::degrees(sunAz) << " deg\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "crystal" || (opt.scene == "water" && !opt.waterSky)) {
+    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "crystal" || opt.scene == "manifold" || (opt.scene == "water" && !opt.waterSky)) {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -2676,6 +2847,9 @@ int main(int argc, char** argv) {
     bool seaView = false;                                         // sea scene: camera 2 m above the water
     bool poolView = false;                                        // pool scene: camera on the deck
     bool crystalView = false;                                     // crystal scene: camera above the disc
+    bool manifoldView = false;                                    // manifold scene: camera above the prism and its caustic
+    std::shared_ptr<const TriangleMesh> manifoldMesh;             // manifold scene: the prism (the body of the specular manifold NEE)
+    std::shared_ptr<Dielectric> manifoldGlass;
     Real seaViewAz = 0;                                           // sea scene: azimuth of the view direction (about +y, 0 = +z)
     Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
     Real causticTargetRadius = 0;
@@ -3251,6 +3425,17 @@ int main(int argc, char** argv) {
         causticTargetRadius = std::sqrt(W * W + D * D) * Real(0.5) * Real(1.02);
         poolView = true;
     }
+    else if (opt.scene == "manifold") {
+        // Metres. A dispersive prism and a point light on a gray disc (BuildPrismWorld, shared with the manifoldtest).
+        PrismWorld pw = BuildPrismWorld(opt, opt.accel);
+        worldList = pw.world;
+        manifoldMesh = pw.mesh;
+        manifoldGlass = pw.glass;
+        studioLights.push_back(std::make_shared<PointLight>(pw.lamp, RgbColor(1.0, 0.96, 0.90), Real(0.6)));
+        causticCenter = Point3(0.0, 0.035, 0.0);        // only used by --caustic-method photons
+        causticTargetRadius = Real(0.06);
+        manifoldView = true;
+    }
     else if (opt.scene == "crystal") {
         // Metres. A 40 cm wide disc in an empty black space; faceted glass objects on it (all inside a 15 cm sphere around
         // (0, 4 cm, 0): the photon targeting sphere), one small warm point light above. The flat facets bend light in one
@@ -3454,13 +3639,21 @@ int main(int argc, char** argv) {
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
     if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = opt.crystalInside ? 24000000 : 16000000;
-    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal") && nCausticPhotons > 0) {
+    if (opt.scene == "manifold") nCausticPhotons = (opt.causticMethod == "photons") ? (nCausticPhotons > 0 ? nCausticPhotons : 16000000) : 0;   // the manifold NEE replaces the photons
+    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold") && nCausticPhotons > 0) {
         causticParams.numPhotons = nCausticPhotons;
         causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
         causticParams.targetCenter = causticCenter;
         causticParams.targetRadius = causticTargetRadius;
         causticMap.build(*scene, causticParams);
         causticOn = true;
+    }
+
+    // Specular manifold NEE (manifold scene, --caustic-method manifold): the point light's caustic through the prism, solved exactly.
+    std::unique_ptr<SpecularNee> specularNee;
+    if (opt.scene == "manifold" && opt.causticMethod == "manifold" && manifoldMesh) {
+        specularNee = std::make_unique<SpecularNee>(manifoldMesh, manifoldGlass, *scene);
+        std::cout << "[Manifold] specular manifold NEE: " << specularNee->numFacets() << " triangles, " << specularNee->numLights() << " point light(s)\n";
     }
 
     // -------------------------------------------------------------------------
@@ -3480,6 +3673,11 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.0, 0.075, 0.30);
         lookAt = Point3(0.0, 0.032, 0.0);
         fovDeg = 30.0;
+    }
+    if (manifoldView) {   // the caustic lands behind-right of the prism (x > 0, z < 0): look at it from the +z side
+        lookFrom = Point3(0.16, 0.26, 0.30);
+        lookAt = Point3(0.12, 0.0, -0.06);
+        fovDeg = 38.0;
     }
     if (crystalView) {
         lookFrom = Point3(0.0, 0.26, 0.31);
@@ -3545,7 +3743,8 @@ int main(int argc, char** argv) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
 
     // 新しいPathIntegratorのコンストラクタ: (camera, maxDepth, spp)
-    if (opt.scene == "crystal" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;   // several faceted bodies: many interfaces per path
+    if (opt.scene == "manifold" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 32;   // the prism itself is crossed by the path tracer too
+    if (opt.scene == "crystal" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;  // several faceted bodies: many interfaces per path
     if (opt.scene == "pool" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;   // bounces between the surface and the basin
     if (opt.scene == "sea" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 48;    // bounces between the surface and the seabed
     if (opt.scene == "water" && opt.maxDepth == MAX_DEPTH) opt.maxDepth = 64;   // 8 interfaces to cross per pass through the tumbler
@@ -3561,6 +3760,7 @@ int main(int argc, char** argv) {
 
     integrator->setMaxVolumeEvents(opt.volumeCap);
     integrator->setCausticMap(&causticMap);   // ignored while the map is empty
+    integrator->setSpecularNee(specularNee.get());
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
     if (causticPasses > 1)

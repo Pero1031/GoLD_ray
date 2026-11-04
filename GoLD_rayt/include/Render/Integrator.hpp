@@ -30,6 +30,7 @@
 #include "Render/Camera.hpp"
 #include "Render/SubsurfaceProbe.hpp"
 #include "Render/CausticPhotonMap.hpp"
+#include "Render/SpecularNee.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Lights/PointLight.hpp"
@@ -89,6 +90,10 @@ namespace rayt {
          * nothing is counted twice. Every specular object must lie inside the map's target sphere. An empty map is ignored.
          */
         void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && !map->empty()) ? map : nullptr; }
+
+        /// Specular manifold NEE for point lights seen through a flat-faced glass body (null = off). It adds the caustic of
+        /// those lights at every non-specular vertex, computed exactly; do not use it together with a caustic photon map.
+        void setSpecularNee(const SpecularNee* nee) { m_specularNee = nee; }
 
         // レンダリングループの実装
         virtual void render(const Scene& scene, Film& film) override {
@@ -321,6 +326,8 @@ namespace rayt {
                         L += beta * sampleAllLights(scene, rec, -r.d, lambda);
                         // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
                         if (m_caustics && photonsAllowedIn(r.medium)) L += beta * m_caustics->radiance(rec, -r.d, lambda);
+                        // The same caustic of point lights, solved exactly through a flat-faced glass body (manifold NEE)
+                        if (m_specularNee && !r.medium) L += beta * m_specularNee->sample(scene, rec, -r.d, lambda);
                     }
 
                     // ========== BSDF Sampling for Next Path Vertex ==========
@@ -461,6 +468,7 @@ namespace rayt {
         int m_maxVolumeEvents = 100000;
         mutable std::atomic<long long> m_volumeCapHits{ 0 };
         const CausticPhotonMap* m_caustics = nullptr;
+        const SpecularNee* m_specularNee = nullptr;
 
         /**
          * @brief Wavelengths for one camera path.
