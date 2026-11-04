@@ -82,6 +82,9 @@ namespace rayt {
         /// >= 0: store only photons whose chain is exactly this many specular bounces, ALL of them transmissions (T^k). For tests that
         /// compare the map with an estimator of one chain type (the specular manifold NEE handles T T only); -1 = every chain.
         int onlyTransmissions = -1;
+        /// Do not store a photon whose chain is exactly two transmissions through these materials (a T T chain of a body that the specular
+        /// manifold NEE solves exactly: SpecularNee::materials()), so that the two estimators do not count it twice. Empty = store them.
+        std::vector<const Material*> skipTransmissionPairs;
     };
 
     class CausticPhotonMap {
@@ -283,6 +286,8 @@ namespace rayt {
             Ray r(origin, dir, constants::RAY_EPSILON, nullptr);
             int specularBounces = 0;
             bool onlyTransmissions = true;   // every specular bounce so far was a transmission
+            const Material* firstMaterial = nullptr;    // the materials of the first two specular bounces (for skipTransmissionPairs)
+            const Material* secondMaterial = nullptr;
             for (int depth = 0; depth < P.maxDepth; ++depth) {
                 SurfaceInteraction rec;
                 if (!scene.hit(r, rec)) return;
@@ -301,7 +306,13 @@ namespace rayt {
                 if (!isBlack(rec.matPtr->emitted(rec, -r.d, lambda))) return;
 
                 if (!rec.matPtr->isSpecular()) {
-                    const bool chainWanted = P.onlyTransmissions < 0 || (onlyTransmissions && specularBounces == P.onlyTransmissions);
+                    bool chainWanted = P.onlyTransmissions < 0 || (onlyTransmissions && specularBounces == P.onlyTransmissions);
+                    if (chainWanted && onlyTransmissions && specularBounces == 2 && !P.skipTransmissionPairs.empty()) {
+                        const auto& skip = P.skipTransmissionPairs;
+                        const bool solved = std::find(skip.begin(), skip.end(), firstMaterial) != skip.end()
+                                         && std::find(skip.begin(), skip.end(), secondMaterial) != skip.end();
+                        if (solved) chainWanted = false;   // the manifold NEE accounts for this T T chain
+                    }
                     if (specularBounces > 0 && chainWanted) {   // (a scattering medium ended the photon above; an absorbing one is fine)
                         const Vector3 rgb = SpectrumToRGB(power * beta, lambda);
                         if (!math::hasNonFinite(rgb)) {
@@ -321,6 +332,8 @@ namespace rayt {
                 const auto s = rec.matPtr->sample(rec, -r.d, u, lambda);
                 if (!s || !s->isSpecular()) return;
                 if (!s->isTransmission()) onlyTransmissions = false;
+                if (specularBounces == 0) firstMaterial = rec.matPtr;
+                else if (specularBounces == 1) secondMaterial = rec.matPtr;
                 beta *= s->f;
                 if (isBlack(beta)) return;
                 ++specularBounces;

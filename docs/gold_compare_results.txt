@@ -1,0 +1,4 @@
+RGB build vs spectral build, scene goldbowl: CIEDE2000 on the displayed sRGB images (lit pixels only)
+d65       bowl box: dE00 mean  1.19   median  1.06   95th percentile  2.41   max 24.87   | whole image: mean  0.51   95th percentile  1.56
+tungsten  bowl box: dE00 mean  2.32   median  2.33   95th percentile  4.42   max 22.64   | whole image: mean  0.74   95th percentile  3.48
+candle    bowl box: dE00 mean  0.81   median  0.70   95th percentile  1.82   max 18.12   | whole image: mean  0.34   95th percentile  1.25
