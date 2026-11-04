@@ -127,6 +127,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             --light (d65 | tungsten = illuminant A | candle = 1850 K blackbody | led = synthetic
 //             SPD loaded from assets/Illuminants/*.csv); --wb white-balances the film to that light.
 //             No environment light (black background). Spectral mode shows metamerism best.
+//   goldbowl: a gold bowl with a gold ball in it, a white reference ball and a gray floor under one sphere light (--light as in spd):
+//             light reflected between gold surfaces under a non-D65 light is where RGB and spectral rendering differ most.
 //   pmx     : an MMD model from MMD_model/ (--pmx-list, --pmx-index N, --pmx-info, --pmx-yaw deg). Diffuse textures (uv, repeat, bilinear)
 //             and alpha cut-outs; "+" overlay materials are skipped unless --pmx-all. HDR environment lighting.
 //   goldrough: gold spheres of roughness 0.4 / 0.7 / 1.0 under the HDR environment; --no-ms = without the
@@ -189,8 +191,12 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             caustic of the point light through the two refractions is solved exactly (specular manifold NEE, Render/SpecularNee.hpp:
 //             Newton's method on Snell's law, no photons, no blur) with --caustic-method manifold (default); photons = the caustic photon
 //             map for comparison (--caustics N); none = direct light only (the prism's shadow).
+//             Also for --scene crystal --crystal-inside --caustic-method manifold: the lamp inside the empty tumbler, every ray through
+//             the wall is a T T chain solved exactly (the wall chord must stay in the glass: the chord across the cavity is rejected); the
+//             photon map (--caustics N, default 8 M) then only carries the other chains (it skips the T T chains of the registered bodies).
 //   manifoldtest: no image: the prism caustic at a few lit floor points from the manifold estimator against the photon map (they
 //             must agree), plus solver statistics.
+//   manifoldcup: the same comparison for a hollow faceted tumbler with a lamp inside (T T through the wall).
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -267,7 +273,9 @@ struct CliOptions {
     bool seaHdr = false;               // sea: light with the --env map instead of the procedural sky
     Real seaSunElev = 14;              // sea: elevation of the procedural sky's sun (degrees)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
-    std::string causticMethod = "manifold";   // manifold scene: how the prism's caustic is computed: manifold (specular manifold NEE) | photons | none
+    // manifold / crystal scenes: how the caustic of the point light is computed: manifold (specular manifold NEE for the T T chains, plus the photon map
+    // for the other chains when --caustics N > 0) | photons | none. Empty: the scene's default (manifold: manifold; crystal: photons).
+    std::string causticMethod;
     bool crystalInside = false;       // crystal: the lamp sits inside the tumbler (no water, no other light): beams radiate through the facets
     bool waterLamp = false;           // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
     long long causticPhotons = -1;    // water / pool: photons emitted for the caustic photon map (water: off unless > 0; pool: 8 M unless 0 = off)
@@ -369,9 +377,9 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             }
             else throw std::runtime_error("unknown option: " + a);
         }
-        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool" && o.scene != "crystal" && o.scene != "manifold" && o.scene != "manifoldtest")
-            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea, pool, crystal, manifold or manifoldtest");
-        if (o.causticMethod != "manifold" && o.causticMethod != "photons" && o.causticMethod != "none")
+        if (o.scene != "gold" && o.scene != "glass" && o.scene != "furnace" && o.scene != "lights" && o.scene != "aov" && o.scene != "sss" && o.scene != "spd" && o.scene != "metals" && o.scene != "studio" && o.scene != "mesh" && o.scene != "bench" && o.scene != "goldrough" && o.scene != "pmx" && o.scene != "metalprobe" && o.scene != "skindemo" && o.scene != "skinlayers" && o.scene != "volume" && o.scene != "blob" && o.scene != "water" && o.scene != "caustic" && o.scene != "sea" && o.scene != "pool" && o.scene != "crystal" && o.scene != "manifold" && o.scene != "manifoldtest" && o.scene != "manifoldcup" && o.scene != "goldbowl")
+            throw std::runtime_error("--scene must be gold, glass, furnace, lights, aov, sss, spd, metals, studio, mesh, bench, goldrough, pmx, metalprobe, skindemo, skinlayers, volume, blob, water, caustic, sea, pool, crystal, manifold, manifoldtest, manifoldcup or goldbowl");
+        if (!o.causticMethod.empty() && o.causticMethod != "manifold" && o.causticMethod != "photons" && o.causticMethod != "none")
             throw std::runtime_error("--caustic-method must be manifold, photons or none");
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
@@ -388,7 +396,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal|manifold|manifoldtest] [--caustic-method manifold|photons|none] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--caustic-passes P] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal|manifold|manifoldtest|manifoldcup] [--caustic-method manifold|photons|none] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--caustic-passes P] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -2543,14 +2551,42 @@ static PrismWorld BuildPrismWorld(const CliOptions& opt, const std::string& acce
 // --scene manifoldtest: the caustic of a point light through the prism, computed by the specular manifold NEE and by the caustic photon
 // map (the existing, independent estimator), at a few lit floor points. The difference to the plain render (direct light only) is the
 // caustic part of each; the two must agree (the photon map blurs, so points in smooth parts of the pattern are used).
-static int RunManifoldTests(const CliOptions& opt) {
-    PrismWorld pw = BuildPrismWorld(opt, "own");
-    auto lamp = std::make_shared<PointLight>(pw.lamp, RgbColor(1.0, 0.96, 0.90), Real(0.6));
-    auto scene = std::make_shared<Scene>(pw.world);
+static int RunManifoldTests(const CliOptions& opt, bool cup) {
+    // The two cases: the prism with a lamp beside it, or a hollow faceted tumbler (8 flat facets outside and inside, as in the crystal scene)
+    // with a lamp inside it: every ray of the lamp that reaches the floor crosses the wall (T T), and a chord across the cavity must be rejected.
+    std::shared_ptr<Aggregate> world;
+    std::vector<SpecularNee::Body> bodies;
+    Point3 lampPos, photonCenter;
+    Real lampScale = 0.6;
+    if (!cup) {
+        PrismWorld pw = BuildPrismWorld(opt, "own");
+        world = pw.world;
+        bodies.push_back({ pw.mesh, pw.glass });
+        lampPos = pw.lamp;
+        photonCenter = Point3(0, 0.035, 0);
+    }
+    else {
+        world = std::make_shared<Aggregate>();
+        auto glass = std::make_shared<Dielectric>(Real(1.9), Real(0.0), Real(0.0), opt.abbe);
+        TriangleMesh tumbler = MakeFacetedLathe({ Point2(0, 0), Point2(0.026, 0), Point2(0.032, 0.07), Point2(0.029, 0.07),
+            Point2(0.0235, 0.008), Point2(0, 0.008) }, 8);
+        tumbler.transform(glm::dmat3(1.0), Vector3(0, 0.0004, 0));
+        auto mesh = std::make_shared<const TriangleMesh>(std::move(tumbler));
+        world->add(MakeMeshHittable(mesh, glass, "own"));
+        world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(
+            { Point2(0, -0.01), Point2(0.35, -0.01), Point2(0.35, 0), Point2(0, 0) }, 96)),
+            std::make_shared<Lambertian>(RgbColor(0.55)), "own"));
+        bodies.push_back({ mesh, glass });
+        lampPos = Point3(0.004, 0.0354, 0.002);   // inside the cavity, a little off the axis (the exact axis would be a degenerate focus)
+        lampScale = 0.12;
+        photonCenter = Point3(0, 0.04, 0);
+    }
+    auto lamp = std::make_shared<PointLight>(lampPos, RgbColor(1.0, 0.96, 0.90), lampScale);
+    auto scene = std::make_shared<Scene>(world);
     scene->addLight(lamp);
     scene->finalize("uniform");
-    SpecularNee nee(pw.mesh, pw.glass, *scene);
-    std::cout << "[Manifold] prism: " << nee.numFacets() << " triangles, " << nee.numLights() << " point light(s)\n";
+    SpecularNee nee(bodies, *scene);
+    std::cout << "[Manifold] " << (cup ? "tumbler" : "prism") << ": " << nee.numFacets() << " facets, " << nee.numLights() << " point light(s)\n";
 
     // Lit floor points (x >= 5 cm: a camera ray from above and behind cannot clip the prism) found with the manifold estimator itself.
     auto floorMat = std::make_shared<Lambertian>(RgbColor(0.55));
@@ -2575,13 +2611,22 @@ static int RunManifoldTests(const CliOptions& opt) {
         }
         return lum / Real(samples);
     };
-    for (int iz = -20; iz <= 5; ++iz) {
-        for (int ix = 0; ix <= 27; ++ix) {
-            const Point3 p(0.05 + 0.01 * ix, 0, 0.01 * iz);
-            const Real lum = lumAt(p);
-            cands.push_back({ p, lum });
-            maxLum = std::max(maxLum, lum);
-        }
+    std::vector<Point3> grid;
+    if (cup) {   // a ring around the tumbler (radius 5 - 15 cm): its beams land there
+        for (int iz = -15; iz <= 15; ++iz)
+            for (int ix = -15; ix <= 15; ++ix) {
+                const Real r = std::hypot(Real(ix), Real(iz)) * Real(0.01);
+                if (r >= Real(0.035) && r <= Real(0.15)) grid.push_back(Point3(0.01 * ix, 0, 0.01 * iz));   // from the foot of the tumbler (r 3.2 cm) outward
+            }
+    }
+    else {
+        for (int iz = -20; iz <= 5; ++iz)
+            for (int ix = 0; ix <= 27; ++ix) grid.push_back(Point3(0.05 + 0.01 * ix, 0, 0.01 * iz));
+    }
+    for (const Point3& p : grid) {
+        const Real lum = lumAt(p);
+        cands.push_back({ p, lum });
+        maxLum = std::max(maxLum, lum);
     }
     std::cout << "[Manifold] scanned " << cands.size() << " floor points, brightest manifold radiance " << maxLum << "\n";
     std::vector<Point3> points;
@@ -2605,7 +2650,7 @@ static int RunManifoldTests(const CliOptions& opt) {
     CausticPhotonParams P;
     P.numPhotons = 16000000;
     P.radius = Real(0.003);
-    P.targetCenter = Point3(0, 0.035, 0);
+    P.targetCenter = photonCenter;
     P.targetRadius = Real(0.06);
     P.onlyTransmissions = 2;   // the manifold NEE handles the chain T T only (other chains: reflections, total internal reflection, ... are not in it)
     CausticPhotonMap map;
@@ -2613,8 +2658,68 @@ static int RunManifoldTests(const CliOptions& opt) {
 
     const int n = opt.spp * 256;
     bool allPassed = true;
+
+    // Coverage over the whole grid. The six points above are chosen where the manifold solver finds something, so they cannot show a place where
+    // it finds nothing although light arrives (in the hybrid render the T T photons are dropped, so such a place would be a dark hole).
+    {
+        auto lum = [](const Vector3& c) { return Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z; };
+        struct Row { Point3 p; Real dM, dP, se; };
+        std::vector<Row> rows;
+        Real sumM = 0, sumP = 0, maxP = 0;
+        for (const Point3& p : grid) {
+            const Vector3 outward = glm::normalize(Vector3(p.x, 0, p.z));
+            const Point3 from = p + outward * Real(0.12) + Vector3(0.0, 0.20, 0.0);
+            const Ray ray(from, glm::normalize(Vector3(p - from)));
+            Vector3 m0, s0, mM, sM, mP, sP; int b0 = 0, bM = 0, bP = 0;
+            EstimateRadiance(*scene, ray, 512, 32, m0, s0, b0, nullptr, nullptr);
+            EstimateRadiance(*scene, ray, 512, 32, mM, sM, bM, nullptr, &nee);
+            EstimateRadiance(*scene, ray, 512, 32, mP, sP, bP, &map, nullptr);
+            Row r{ p, lum(mM) - lum(m0), lum(mP) - lum(m0), std::sqrt(lum(sM) * lum(sM) + lum(sP) * lum(sP)) };
+            rows.push_back(r);
+            sumM += r.dM; sumP += r.dP; maxP = std::max(maxP, r.dP);
+        }
+        int lit = 0, missed = 0, excess = 0;
+        Real missedEnergy = 0;
+        const Row* worst = nullptr;
+        for (const Row& r : rows) {
+            if (r.dP < Real(0.05) * maxP || r.dP < 5 * r.se) continue;   // only places where the photon map shows a clear caustic
+            ++lit;
+            if (r.dM < Real(0.5) * r.dP) { ++missed; missedEnergy += r.dP - r.dM; if (!worst || r.dP - r.dM > worst->dP - worst->dM) worst = &r; }
+            if (r.dM > Real(1.5) * r.dP + 4 * r.se) ++excess;
+        }
+        std::cout << "[Manifold] coverage over " << rows.size() << " floor points: sum manifold " << sumM << ", sum photon map " << sumP
+            << " (ratio " << (sumP != 0 ? sumM / sumP : Real(0)) << ")\n";
+        std::cout << "[Manifold]   points with a clear photon-map caustic: " << lit << ", of which the manifold gets less than half: " << missed
+            << " (missing " << (sumP != 0 ? Real(100) * missedEnergy / sumP : Real(0)) << " % of the photon-map energy), clearly more than the photon map: "
+            << excess << "\n";
+        {   // where the misses are: by distance from the axis (cup) or from the first grid column (prism), and the first few points
+            Real bandM[8] = {}, bandP[8] = {}; int bandMiss[8] = {}, bandLit[8] = {};
+            for (const Row& r : rows) {
+                const Real dist = cup ? std::hypot(r.p.x, r.p.z) : (r.p.x - Real(0.05));
+                const int b = std::clamp(static_cast<int>(dist / Real(0.02)), 0, 7);
+                bandM[b] += r.dM; bandP[b] += r.dP;
+                if (r.dP >= Real(0.05) * maxP && r.dP >= 5 * r.se) { ++bandLit[b]; if (r.dM < Real(0.5) * r.dP) ++bandMiss[b]; }
+            }
+            for (int b = 0; b < 8; ++b)
+                if (bandLit[b] > 0 || bandP[b] != 0)
+                    std::cout << "[Manifold]   band " << b * 2 << "-" << b * 2 + 2 << " cm: manifold/photon " << (bandP[b] != 0 ? bandM[b] / bandP[b] : Real(0))
+                        << ", lit " << bandLit[b] << ", missed " << bandMiss[b] << "\n";
+            int shown = 0;
+            for (const Row& r : rows)
+                if (shown < 12 && r.dP >= Real(0.05) * maxP && r.dP >= 5 * r.se && r.dM < Real(0.5) * r.dP) {
+                    std::cout << "[Manifold]   miss at (" << r.p.x << ", " << r.p.z << "): manifold " << r.dM << " photon map " << r.dP << "\n";
+                    if (shown < 3) { rec.p = r.p; nee.diagnose(*scene, rec, std::cout); }
+                    ++shown;
+                }
+        }
+        if (worst) std::cout << "[Manifold]   worst miss at (" << worst->p.x << ", " << worst->p.z << "): manifold " << worst->dM << " photon map " << worst->dP << "\n";
+        if (sumP != 0 && std::abs(sumM / sumP - Real(1)) > Real(0.10)) allPassed = false;
+        if (lit > 0 && missed > lit / 20) allPassed = false;
+    }
+
     for (const Point3& p : points) {
-        const Point3 from = p + Vector3(0.0, 0.20, 0.12);
+        const Vector3 outward = glm::normalize(Vector3(p.x, 0, p.z));   // the camera ray comes from outside and above: it cannot clip the glass
+        const Point3 from = p + outward * Real(0.12) + Vector3(0.0, 0.20, 0.0);
         const Ray ray(from, glm::normalize(Vector3(p - from)));
         Vector3 m0, s0, mM, sM, mP, sP; int b0 = 0, bM = 0, bP = 0;
         EstimateRadiance(*scene, ray, n, 32, m0, s0, b0, nullptr, nullptr);
@@ -2633,7 +2738,11 @@ static int RunManifoldTests(const CliOptions& opt) {
     const auto& c = nee.counters();
     std::cout << "[Manifold] solver: " << nee.solutions() << " solutions in " << nee.queries() << " receiver evaluations\n"
         << "[Manifold]   pairs tried " << c.pairs << " -> Newton converged " << c.converged << " -> inside the facets " << c.insideFacets
-        << " -> real refraction " << c.refraction << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
+        << " -> real refraction " << c.refraction << " -> chord in glass " << c.chordFree << " -> unblocked " << c.unblocked
+        << " -> focusing ok " << c.focusOk << "\n";
+    std::cout << "[Manifold]   Snell-seed landing on B (B radii <1,<2,<4,<8,<16,more,none): solutions/pairs";
+    for (int i = 0; i < 7; ++i) std::cout << "  " << c.landOk[i] << "/" << c.landTried[i];
+    std::cout << "\n";
     if (nee.solutions() == 0) allPassed = false;
     std::cout << "[Manifold] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
@@ -2662,7 +2771,8 @@ int main(int argc, char** argv) {
     if (opt.scene == "skinlayers") return RunSkinLayers(opt);
     if (opt.scene == "volume") return RunVolumeTests(opt);
     if (opt.scene == "caustic") return RunCausticTests(opt);
-    if (opt.scene == "manifoldtest") return RunManifoldTests(opt);
+    if (opt.scene == "manifoldtest") return RunManifoldTests(opt, false);
+    if (opt.scene == "manifoldcup") return RunManifoldTests(opt, true);
     if (opt.scene == "metals") return RunMetalTests(opt);
     if (opt.scene == "bench") return RunBvhBenchmark(opt);
     if (opt.scene == "pmx" && opt.poseList) {
@@ -2724,7 +2834,7 @@ int main(int argc, char** argv) {
         envLight = std::make_shared<EnvLight>(envMap, 1.0);
         std::cout << "[Sea] procedural sky: sun at elevation " << opt.seaSunElev << " deg, azimuth " << glm::degrees(sunAz) << " deg\n";
     }
-    else if (opt.scene == "spd" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "crystal" || opt.scene == "manifold" || (opt.scene == "water" && !opt.waterSky)) {
+    else if (opt.scene == "spd" || opt.scene == "goldbowl" || opt.scene == "studio" || opt.scene == "mesh" || opt.scene == "metalprobe" || opt.scene == "skindemo" || opt.scene == "crystal" || opt.scene == "manifold" || (opt.scene == "water" && !opt.waterSky)) {
         std::cout << "[EnvMap] none (spd scene: black background, one sphere light).\n";
     }
     else try {
@@ -2848,8 +2958,8 @@ int main(int argc, char** argv) {
     bool poolView = false;                                        // pool scene: camera on the deck
     bool crystalView = false;                                     // crystal scene: camera above the disc
     bool manifoldView = false;                                    // manifold scene: camera above the prism and its caustic
-    std::shared_ptr<const TriangleMesh> manifoldMesh;             // manifold scene: the prism (the body of the specular manifold NEE)
-    std::shared_ptr<Dielectric> manifoldGlass;
+    bool goldbowlView = false;                                    // goldbowl scene: camera above the gold bowl
+    std::vector<SpecularNee::Body> manifoldBodies;                // flat-faced glass bodies for the specular manifold NEE (the prism; the crystal scene's pieces)
     Real seaViewAz = 0;                                           // sea scene: azimuth of the view direction (about +y, 0 = +z)
     Point3 causticCenter(0.0);                                    // water scene: bounding sphere of the specular objects (caustic photon targeting)
     Real causticTargetRadius = 0;
@@ -3211,6 +3321,42 @@ int main(int argc, char** argv) {
         spdLight = std::make_shared<AreaLight>(lightShape, lightMat);
         worldList->add(std::make_shared<Primitive>(lightShape, lightMat, spdLight));
     }
+    else if (opt.scene == "goldbowl") {
+        // Gold where RGB and spectral rendering disagree most: a gold bowl (light bounces between its walls: the error grows with every
+        // reflection) and a gold ball inside it, under one sphere light whose spectrum is chosen with --light (d65 | tungsten | candle | led).
+        // Metres. A white ball and a gray floor show what the same light does to a neutral surface. Render it in both builds and compare.
+        const Real R = Real(0.08), wall = Real(0.003), tEnd = glm::radians(Real(78));
+        std::vector<Point2> profile;
+        const int steps = 40;
+        for (int i = 0; i <= steps; ++i) {   // outer surface from the bottom up to the rim ...
+            const Real t = tEnd * Real(i) / Real(steps);
+            profile.push_back(Point2(R * std::sin(t), R - R * std::cos(t)));
+        }
+        for (int i = steps; i >= 0; --i) {   // ... and the inner surface back down to the axis
+            const Real t = tEnd * Real(i) / Real(steps);
+            profile.push_back(Point2((R - wall) * std::sin(t), R - (R - wall) * std::cos(t)));
+        }
+        auto bowlMat = std::make_shared<RoughConductor>(auTable, 0.12);
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(profile, 96)), bowlMat, opt.accel));
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, wall + 0.0285, 0.0), Real(0.028), bowlMat));          // gold ball in the bowl
+        worldList->add(std::make_shared<Sphere>(Point3(0.13, 0.025, 0.03), Real(0.025), std::make_shared<Lambertian>(RgbColor(0.8))));   // white reference
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, -100.0, 0.0), 100.0, std::make_shared<Lambertian>(RgbColor(0.5))));          // gray floor
+
+        if (!MakeLightEmission(opt.light, spdEmission)) return 1;
+        std::cout << "[GoldBowl] light = " << opt.light << ", sensor RGB of the light = (" << spdEmission.rgb().x << ", " << spdEmission.rgb().y << ", "
+            << spdEmission.rgb().z << ")" << (opt.whiteBalance ? ", film white-balanced to it" : "") << "\n";
+        if (opt.whiteBalance) color::setWhiteBalance(spdEmission);
+        // a sphere light of radius 3 cm, 29 cm from the bowl: about 3 units of irradiance
+        auto lightMat = std::make_shared<DiffuseLight>(spdEmission, 90.0);
+        auto lightShape = std::make_shared<Sphere>(Point3(-0.18, 0.20, 0.10), Real(0.03), lightMat);
+        spdLight = std::make_shared<AreaLight>(lightShape, lightMat);
+        worldList->add(std::make_shared<Primitive>(lightShape, lightMat, spdLight));
+        // a dim, uniform glow of the same spectrum all around (not a registered light: found by BSDF sampling): without it the inside of the
+        // bowl reflects black and the reflections between the gold surfaces cannot be seen
+        auto shellMat = std::make_shared<DiffuseLight>(spdEmission, 0.25, true);
+        worldList->add(std::make_shared<Primitive>(std::make_shared<Sphere>(Point3(0, 0, 0), 20.0, shellMat), shellMat));
+        goldbowlView = true;
+    }
     else if (opt.scene == "metalprobe") {
         // A smooth metal sphere (radius 1) seen from far away (nearly orthographic) inside a large
         // two-sided emissive shell: pixel ring radius rho = sin(theta of incidence), one specular bounce.
@@ -3429,8 +3575,7 @@ int main(int argc, char** argv) {
         // Metres. A dispersive prism and a point light on a gray disc (BuildPrismWorld, shared with the manifoldtest).
         PrismWorld pw = BuildPrismWorld(opt, opt.accel);
         worldList = pw.world;
-        manifoldMesh = pw.mesh;
-        manifoldGlass = pw.glass;
+        manifoldBodies.push_back({ pw.mesh, pw.glass });
         studioLights.push_back(std::make_shared<PointLight>(pw.lamp, RgbColor(1.0, 0.96, 0.90), Real(0.6)));
         causticCenter = Point3(0.0, 0.035, 0.0);        // only used by --caustic-method photons
         causticTargetRadius = Real(0.06);
@@ -3444,7 +3589,9 @@ int main(int argc, char** argv) {
         const Real y0 = Real(0.0004);   // glass rests a hair above the disc (no coplanar surfaces)
         auto placeMat = [&](TriangleMesh mesh, const std::shared_ptr<Material>& material, Real x, Real z, Real yawDeg) {
             mesh.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(yawDeg), Vector3(0, 1, 0))), Vector3(x, y0, z));
-            worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), material, opt.accel));
+            auto placed = std::make_shared<const TriangleMesh>(std::move(mesh));
+            worldList->add(MakeMeshHittable(placed, material, opt.accel));
+            if (material.get() == glass.get()) manifoldBodies.push_back({ placed, glass });   // a flat-faced piece the manifold NEE can solve
         };
         auto place = [&](TriangleMesh mesh, Real x, Real z, Real yawDeg) { placeMat(std::move(mesh), glass, x, z, yawDeg); };
         // hexagonal crystal column with a pyramid top
@@ -3467,7 +3614,9 @@ int main(int argc, char** argv) {
         // cut gem (10 facets, pavilion tip down): total internal reflection throws beams and rainbows
         place(MakeFacetedLathe({ Point2(0, 0), Point2(0.024, 0.020), Point2(0.024, 0.024), Point2(0.013, 0.033), Point2(0, 0.033) }, 10), -0.11, -0.03, 5);
         // ball lens: a smooth sphere focuses the light into a hot spot behind it
-        worldList->add(std::make_shared<Sphere>(Point3(0.0, y0 + 0.02, 0.07), Real(0.02), glass));
+        // (its own material instance: the manifold NEE solves the flat-faced pieces only, so the photon map must keep the ball's chains)
+        worldList->add(std::make_shared<Sphere>(Point3(0.0, y0 + 0.02, 0.07), Real(0.02),
+            std::make_shared<Dielectric>(Real(1.9), Real(0.0), Real(0.0), opt.abbe)));
 
         // the disc (a closed lathe, 1 cm thick): a dark wood-plank floor under a glossy lacquer coat (it mirrors the glass and the lamp),
         // texture coordinates by planar projection of the 40 cm disc
@@ -3633,27 +3782,43 @@ int main(int argc, char** argv) {
     std::cout << ".\n";
 
     // Caustic photon map (water / pool scene, --caustics N): photons from the lights through the water onto the table / the basin.
+    // Caustic method of the point-light scenes: manifold = the T T chains of the flat-faced glass bodies are solved exactly (specular manifold NEE),
+    // the photon map (if --caustics N > 0) carries the other chains only; photons = the photon map alone; none = direct light only.
+    // Defaults: the prism scene uses manifold alone, the crystal scene the photon map; manifold in the crystal scene needs --crystal-inside
+    // (with water in the tumbler the chains through the wall continue into the water: four refractions, not handled).
+    std::string causticMethod = opt.causticMethod.empty() ? (opt.scene == "manifold" ? "manifold" : "photons") : opt.causticMethod;
+    if (causticMethod == "manifold" && opt.scene == "crystal" && !opt.crystalInside) {
+        std::cout << "[Caustics] --caustic-method manifold in the crystal scene needs --crystal-inside (no water in the tumbler); using the photon map\n";
+        causticMethod = "photons";
+    }
+    const bool useManifold = (causticMethod == "manifold") && (opt.scene == "manifold" || opt.scene == "crystal") && !manifoldBodies.empty();
+    std::unique_ptr<SpecularNee> specularNee;
+    if (useManifold) {
+        specularNee = std::make_unique<SpecularNee>(manifoldBodies, *scene);
+        std::cout << "[Manifold] specular manifold NEE: " << manifoldBodies.size() << " bodies, " << specularNee->numFacets() << " facets, "
+            << specularNee->numLights() << " point light(s)\n";
+    }
+
     CausticPhotonMap causticMap;
     CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
     bool causticOn = false;
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
-    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = opt.crystalInside ? 24000000 : 16000000;
-    if (opt.scene == "manifold") nCausticPhotons = (opt.causticMethod == "photons") ? (nCausticPhotons > 0 ? nCausticPhotons : 16000000) : 0;   // the manifold NEE replaces the photons
+    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
+    if (opt.scene == "manifold") {
+        if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
+        else if (causticMethod == "none") nCausticPhotons = 0;
+        else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
+    }
+    if (causticMethod == "none") nCausticPhotons = 0;
     if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold") && nCausticPhotons > 0) {
         causticParams.numPhotons = nCausticPhotons;
         causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
         causticParams.targetCenter = causticCenter;
         causticParams.targetRadius = causticTargetRadius;
+        if (specularNee) causticParams.skipTransmissionPairs = specularNee->materials();   // their T T chains are solved: do not store them twice
         causticMap.build(*scene, causticParams);
         causticOn = true;
-    }
-
-    // Specular manifold NEE (manifold scene, --caustic-method manifold): the point light's caustic through the prism, solved exactly.
-    std::unique_ptr<SpecularNee> specularNee;
-    if (opt.scene == "manifold" && opt.causticMethod == "manifold" && manifoldMesh) {
-        specularNee = std::make_unique<SpecularNee>(manifoldMesh, manifoldGlass, *scene);
-        std::cout << "[Manifold] specular manifold NEE: " << specularNee->numFacets() << " triangles, " << specularNee->numLights() << " point light(s)\n";
     }
 
     // -------------------------------------------------------------------------
@@ -3678,6 +3843,11 @@ int main(int argc, char** argv) {
         lookFrom = Point3(0.16, 0.26, 0.30);
         lookAt = Point3(0.12, 0.0, -0.06);
         fovDeg = 38.0;
+    }
+    if (goldbowlView) {
+        lookFrom = Point3(0.02, 0.27, 0.33);
+        lookAt = Point3(0.035, 0.035, 0.0);
+        fovDeg = 30.0;
     }
     if (crystalView) {
         lookFrom = Point3(0.0, 0.26, 0.31);
@@ -3796,6 +3966,13 @@ int main(int argc, char** argv) {
     if (opt.scene == "blob") {
         std::cout << "[Blob] paths cut by the limit of " << opt.volumeCap << " collisions: " << integrator->volumeCapHits()
             << (integrator->volumeCapHits() ? "  (these paths are lost: raise --volume-cap)" : "  (none: no cutoff bias)") << "\n";
+    }
+
+    if (specularNee) {
+        const auto& c = specularNee->counters();
+        std::cout << "[Manifold] " << specularNee->queries() << " receiver evaluations, " << specularNee->solutions() << " solutions; pairs tried "
+            << c.pairs << " -> Newton converged " << c.converged << " -> inside " << c.insideFacets << " -> refraction " << c.refraction
+            << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
     std::cout << "[Output] Saving images..." << std::endl;

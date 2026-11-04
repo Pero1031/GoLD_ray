@@ -1,10 +1,13 @@
 # GoLD_rayt
 
-![GoLD_rayt: spectral gold, dispersion and caustics, water](docs/img/hero_grid_2x2.png)
+![GoLD_rayt: spectral gold, dispersion and caustics, water, and RGB vs spectral gold](docs/img/hero.png)
 
-<sub>All four images were rendered by this project on the CPU in spectral mode (OIDN-denoised): gold spheres
+<sub>All images were rendered by this project on the CPU (OIDN-denoised). Top, in spectral mode: gold spheres
 (`--scene gold`), a lamp inside a cut-glass tumbler (`--scene crystal --crystal-inside`), a glass of water lit by a
-point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`). The caustics use a photon map.</sub>
+point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`); the caustics use a photon map.
+Bottom: the same gold bowl under a tungsten light (`--scene goldbowl --light tungsten`) rendered by the RGB build and by
+the spectral build, and the CIEDE2000 difference between the two
+([details](#how-much-does-rgb-rendering-get-wrong-for-metals)).</sub>
 
 A 3D path tracer built from scratch in C++20, focused on **spectral rendering of metals** (gold first).
 
@@ -58,6 +61,31 @@ one 32-pixel bin of silver under D65 reaches 0.45, which is color noise).
   non-D65 light cannot be fixed inside an RGB renderer.
 - **Practical rule**: use the RGB build for previews and D65 scenes; use the spectral build when the light is
   not D65 or the metal itself is the subject. In a Release build the spectral mode is about as fast.
+
+**The same question as a picture.** A gold bowl with a gold ball in it (light bounces between the gold surfaces), a
+white ball and a gray floor, under one sphere light with a dim glow of the same spectrum around it
+(`--scene goldbowl --light d65|tungsten|candle`), rendered by the RGB build and by the spectral build, 256 samples per
+pixel, denoised. The color difference is measured on the displayed sRGB images, so it is a comparison between the two
+renderers, not with a photograph.
+
+![The gold bowl under three lights: RGB renderer, spectral renderer and their CIEDE2000 difference](docs/img/gold_rgb_vs_spectral.png)
+
+| Light | ΔE00 in the bowl, mean | 95th percentile |
+|---|---|---|
+| D65 daylight | 1.2 | 2.4 |
+| Tungsten (illuminant A) | **2.3** | **4.4** |
+| Candle (1850 K) | 0.8 | 1.8 |
+
+- Under tungsten light the bowl is clearly different: the spectral gold is yellower and more saturated, the RGB one a
+  brownish orange (mean 8-bit blue channel in the bowl: 42 for RGB, 28 for spectral).
+- Under D65 the difference is small and sits in the bright highlights (where the reflections add up).
+- **Candle is small here only because of the display.** The candle's light has almost no blue (its sensor blue is
+  slightly negative), so the blue channel of both images is clipped to 0 when shown; the difference the tables above
+  give for candle light (2 - 6 for one reflection) is measured before clipping. A comparison of the unclipped images
+  was not made here.
+- The maxima in the table file (about 20) are single pixels in the brightest highlights, most likely noise of the two
+  renders (not checked further). Numbers: [`gold_compare_results.txt`](docs/gold_compare_results.txt),
+  script: [`tools/gold_compare.py`](tools/gold_compare.py).
 
 **Limits.** The Kulla-Conty multiple-scattering compensation is itself an approximation (the true color of a
 rough metal was not compared); polarization, thin films and the error of the optical-constant tables are not
