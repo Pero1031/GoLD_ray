@@ -1992,6 +1992,49 @@ static TriangleMesh MakeFacetedLathe(const std::vector<Point2>& profile, int sid
     return m;
 }
 
+// Procedural wood floor (size x size texels): `planks` boards side by side with their own tint, growth rings bent by low-frequency
+// noise, fibers along the boards and dark seams between them. Dark brown on purpose (about 0.2 reflectance on average).
+static std::shared_ptr<Texture2D> MakeWoodTexture(int size, int planks, unsigned seed) {
+    auto hash = [](int x, int y, unsigned s) {
+        unsigned h = static_cast<unsigned>(x) * 374761393u + static_cast<unsigned>(y) * 668265263u + s * 2147483647u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        h ^= h >> 16;
+        return double(h & 0xFFFFFFu) / double(0x1000000u);
+    };
+    auto smooth = [](double t) { return t * t * (3.0 - 2.0 * t); };
+    auto noise = [&](double x, double y, unsigned s) {   // value noise in [0, 1]
+        const int ix = static_cast<int>(std::floor(x)), iy = static_cast<int>(std::floor(y));
+        const double u = smooth(x - ix), v = smooth(y - iy);
+        const double a = hash(ix, iy, s), b = hash(ix + 1, iy, s), c = hash(ix, iy + 1, s), d = hash(ix + 1, iy + 1, s);
+        return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+    };
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> U(0.0, 1.0);
+    std::vector<double> tint(static_cast<size_t>(planks)), shift(static_cast<size_t>(planks));
+    for (int p = 0; p < planks; ++p) { tint[static_cast<size_t>(p)] = 0.85 + 0.30 * U(rng); shift[static_cast<size_t>(p)] = 100.0 * U(rng); }
+
+    std::vector<unsigned char> rgba(static_cast<size_t>(size) * static_cast<size_t>(size) * 4);
+    const double plankW = double(size) / double(planks);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const int p = std::min(static_cast<int>(x / plankW), planks - 1);
+            const double sh = shift[static_cast<size_t>(p)];
+            const double cx = (x - p * plankW) / plankW;   // 0..1 across the board
+            const double along = double(y) / double(size);
+            const double warp = 0.5 * noise(along * 3.0 + sh, cx * 2.0, seed + 1) + 0.25 * noise(along * 9.0, cx * 5.0 + sh, seed + 2);
+            const double rings = 0.5 + 0.5 * std::sin(2.0 * constants::PI * (cx * 6.0 + warp * 3.0 + sh));
+            const double fibers = noise(x * 0.8, y * 0.05 + sh, seed + 3);
+            const double tone = tint[static_cast<size_t>(p)] * (0.70 + 0.22 * rings + 0.12 * fibers) * ((cx < 0.012 || cx > 0.988) ? 0.45 : 1.0);
+            const size_t i = (static_cast<size_t>(y) * static_cast<size_t>(size) + static_cast<size_t>(x)) * 4;
+            rgba[i + 0] = static_cast<unsigned char>(std::clamp(0.62 * tone, 0.0, 1.0) * 255.0);
+            rgba[i + 1] = static_cast<unsigned char>(std::clamp(0.42 * tone, 0.0, 1.0) * 255.0);
+            rgba[i + 2] = static_cast<unsigned char>(std::clamp(0.26 * tone, 0.0, 1.0) * 255.0);
+            rgba[i + 3] = 255;
+        }
+    }
+    return Texture2D::fromRgba8(size, size, std::move(rgba));
+}
+
 // Water surface of a pool: gentle ripples on the rectangle |x| <= w/2, |z| <= d/2 at y = 0, a sum of 14 plane waves (wavelengths
 // 0.12-1 m, any direction, k * A = steep each) on a regular grid; analytic normals, one open sheet facing up.
 static TriangleMesh MakePoolSurface(Real w, Real d, Real steep, unsigned seed, Real spacing) {
@@ -3205,15 +3248,24 @@ int main(int argc, char** argv) {
         // direction each, so the caustics are polygons with sharp edges; dispersion splits their rims into colors.
         auto glass = std::make_shared<Dielectric>(Real(1.9), Real(0.0), Real(0.0), opt.abbe);   // heavy flint: strong bending, total internal reflection
         const Real y0 = Real(0.0004);   // glass rests a hair above the disc (no coplanar surfaces)
-        auto place = [&](TriangleMesh mesh, Real x, Real z, Real yawDeg) {
+        auto placeMat = [&](TriangleMesh mesh, const std::shared_ptr<Material>& material, Real x, Real z, Real yawDeg) {
             mesh.transform(glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(yawDeg), Vector3(0, 1, 0))), Vector3(x, y0, z));
-            worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), glass, opt.accel));
+            worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), material, opt.accel));
         };
+        auto place = [&](TriangleMesh mesh, Real x, Real z, Real yawDeg) { placeMat(std::move(mesh), glass, x, z, yawDeg); };
         // hexagonal crystal column with a pyramid top
         place(MakeFacetedLathe({ Point2(0, 0), Point2(0.018, 0), Point2(0.018, 0.07), Point2(0, 0.098) }, 6), -0.03, -0.02, 10);
         // cut-glass tumbler: 8 flat facets outside and inside, 7 cm tall
         place(MakeFacetedLathe({ Point2(0, 0), Point2(0.026, 0), Point2(0.032, 0.07), Point2(0.029, 0.07), Point2(0.0235, 0.008), Point2(0, 0.008) }, 8),
             0.065, 0.025, 0);
+        // ... filled with water to 5.5 cm: its own faceted body 0.4 mm inside the cavity (every interface is air | dielectric, so no
+        // nested-dielectric bookkeeping), a flat free surface on top
+        {
+            auto rInner = [](Real y) { return Real(0.0235) + Real(0.0055) * (y - Real(0.008)) / Real(0.062); };   // vertex radius of the cavity wall
+            const Real gap = Real(0.0004), yb = Real(0.008) + gap, yTop = Real(0.055);
+            placeMat(MakeFacetedLathe({ Point2(0, yb), Point2(rInner(yb) - gap, yb), Point2(rInner(yTop) - gap, yTop), Point2(0, yTop) }, 8),
+                std::make_shared<Dielectric>(Real(1.333), Real(0.0)), 0.065, 0.025, 0);
+        }
         // low octagonal block
         place(MakeFacetedLathe({ Point2(0, 0), Point2(0.022, 0), Point2(0.022, 0.028), Point2(0, 0.028) }, 8), -0.075, 0.055, 22);
         // four-sided pyramid
@@ -3223,13 +3275,16 @@ int main(int argc, char** argv) {
         // ball lens: a smooth sphere focuses the light into a hot spot behind it
         worldList->add(std::make_shared<Sphere>(Point3(0.0, y0 + 0.02, 0.07), Real(0.02), glass));
 
-        // the disc (a closed lathe, 1 cm thick), wooden color
-        auto disc = std::make_shared<Lambertian>(RgbColor(0.42, 0.28, 0.17));
-        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(
-            { Point2(0, -0.01), Point2(0.2, -0.01), Point2(0.2, 0), Point2(0, 0) }, 96)), disc, opt.accel));
+        // the disc (a closed lathe, 1 cm thick): a dark wood-plank floor under a glossy lacquer coat (it mirrors the glass and the lamp),
+        // texture coordinates by planar projection of the 40 cm disc
+        TriangleMesh discMesh = MakeLatheMesh({ Point2(0, -0.01), Point2(0.2, -0.01), Point2(0.2, 0), Point2(0, 0) }, 96);
+        discMesh.uv.resize(discMesh.p.size());
+        for (size_t i = 0; i < discMesh.p.size(); ++i) discMesh.uv[i] = Point2(discMesh.p[i].x / Real(0.4) + Real(0.5), discMesh.p[i].z / Real(0.4) + Real(0.5));
+        auto disc = std::make_shared<CoatedDiffuse>(RgbColor(1.0), Real(0.18), Real(1.0), Real(0.0), MakeWoodTexture(1024, 5, opt.seaSeed));
+        worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(discMesh)), disc, opt.accel));
 
-        // A low, dim light: the floor stays dark so that the light concentrated by the glass (10-50 times brighter) stands out.
-        studioLights.push_back(std::make_shared<PointLight>(Point3(-0.20, 0.22, 0.14), RgbColor(1.0, 0.96, 0.88), Real(0.6)));   // irradiance about 3.6 on the floor
+        // A low, strong light over a dark floor: the light concentrated by the glass (10-50 times brighter) burns out to white.
+        studioLights.push_back(std::make_shared<PointLight>(Point3(-0.20, 0.22, 0.14), RgbColor(1.0, 0.96, 0.88), Real(1.0)));   // irradiance about 6 on the floor
         causticCenter = Point3(0.0, 0.04, 0.0);
         causticTargetRadius = Real(0.15);
         crystalView = true;
