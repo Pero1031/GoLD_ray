@@ -13,6 +13,7 @@
  * through the disc of radius R perpendicular to that direction is  Li * pi R^2 / (pdf * pSelect), divided by the number of
  * emitted photons N. The photon starts at the sampled point of a finite light (at emitDistance along the direction for an
  * infinite light) and flies toward a uniformly sampled point of the disc. This is exact for R << distance to the light.
+ * A point light inside the sphere (a lamp inside a glass vessel) is emitted isotropically instead (flux I * 4 pi / N).
  * EVERY specular object of the scene must lie inside the sphere: the integrator drops all L S+ D paths found by BSDF
  * sampling and relies on the photons for them.
  *
@@ -249,15 +250,30 @@ namespace rayt {
             const auto ls = sl->light->sampleLi(ctx, uLight, lambda);
             if (!ls || ls->pdf <= Real(0) || isBlack(ls->Li)) return;
 
-            const frame::Frame fr(ls->wi);
-            const Real rd = P.targetRadius * std::sqrt(sampling::Random());
-            const Real phi = Real(2) * constants::PI * sampling::Random();
-            const Point3 q = P.targetCenter + fr.localToWorld(Vector3(rd * std::cos(phi), rd * std::sin(phi), Real(0)));
-            const Point3 origin = std::isfinite(ls->tMax) ? ls->pLight : q + ls->wi * P.emitDistance;
-            const Vector3 dir = glm::normalize(q - origin);
-
-            const Real discArea = constants::PI * P.targetRadius * P.targetRadius;
-            const Spectrum power = ls->Li * (discArea * invN / (ls->pdf * sl->p));   // flux of this photon
+            Point3 origin;
+            Vector3 dir;
+            Spectrum power;   // flux of this photon
+            if (ls->isDelta && ls->tMax < P.targetRadius) {
+                // A point light INSIDE the target sphere (for example inside a glass vessel): the disc construction below needs the
+                // light outside, so emit uniformly over the sphere of directions. Li = I / d^2 with d = ls->tMax, hence I = Li d^2,
+                // and the photon carries I * 4 pi / N.
+                const Real cosT = Real(1) - Real(2) * sampling::Random();
+                const Real sinT = std::sqrt(std::max(Real(0), Real(1) - cosT * cosT));
+                const Real ph = Real(2) * constants::PI * sampling::Random();
+                origin = ls->pLight;
+                dir = Vector3(sinT * std::cos(ph), cosT, sinT * std::sin(ph));
+                power = ls->Li * (ls->tMax * ls->tMax * Real(4) * constants::PI * invN / (ls->pdf * sl->p));
+            }
+            else {
+                const frame::Frame fr(ls->wi);
+                const Real rd = P.targetRadius * std::sqrt(sampling::Random());
+                const Real phi = Real(2) * constants::PI * sampling::Random();
+                const Point3 q = P.targetCenter + fr.localToWorld(Vector3(rd * std::cos(phi), rd * std::sin(phi), Real(0)));
+                origin = std::isfinite(ls->tMax) ? ls->pLight : q + ls->wi * P.emitDistance;
+                dir = glm::normalize(q - origin);
+                const Real discArea = constants::PI * P.targetRadius * P.targetRadius;
+                power = ls->Li * (discArea * invN / (ls->pdf * sl->p));
+            }
             Spectrum beta(1.0);
 
             // ---- specular chain ----

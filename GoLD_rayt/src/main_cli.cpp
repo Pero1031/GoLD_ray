@@ -180,6 +180,8 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //             octagonal block and a pyramid on a wooden-colored disc in a black space, lit by one small point light (the
 //             flat facets throw sharp-edged polygonal caustics). Dispersive glass (--abbe V, default 20; spectral mode only) gives
 //             the rainbow edges. Caustics come from the photon map (--caustics N default 16 M, --caustic-radius default 0.0006 m).
+//             --crystal-inside: the lamp sits INSIDE the empty tumbler and is the only light (all of its light leaves through the
+//             glass facets as beams; default 24 M photons, radius 0.0012 m).
 //   caustic : photon map test (no image): floor radiance beside / under a glass sphere in a uniform sky, plain path tracing
 //             (BSDF-sampled caustics, unbiased) against path tracing + caustic photons. Photons emitted = --spp x 8000.
 //   lights  : light source tests (no image). A Lambertian ground is lit by one light and the
@@ -256,7 +258,8 @@ struct CliOptions {
     bool seaHdr = false;               // sea: light with the --env map instead of the procedural sky
     Real seaSunElev = 14;              // sea: elevation of the procedural sky's sun (degrees)
     bool waterSky = false;             // water: light the tumbler with the environment map (--env) instead of softboxes; the wall is removed
-    bool waterLamp = false;            // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
+    bool crystalInside = false;        // crystal: the lamp sits inside the tumbler (no water, no other light): beams radiate through the facets
+    bool waterLamp = false;           // water: one small point light at about 33 degrees elevation (a sharp caustic; needs --caustics), no wall, camera looks down
     long long causticPhotons = -1;    // water / pool: photons emitted for the caustic photon map (water: off unless > 0; pool: 8 M unless 0 = off)
     Real causticRadius = -1;           // gather radius of the caustic photon map (m); < 0: the scene's default (water 1.5 mm, caustic test 4 mm)
     Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
@@ -312,6 +315,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
             else if (a == "--sea-seed") o.seaSeed = static_cast<unsigned>(std::stoul(value("--sea-seed")));
             else if (a == "--water-sky") o.waterSky = true;
             else if (a == "--water-lamp") o.waterLamp = true;
+            else if (a == "--crystal-inside") o.crystalInside = true;
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
             else if (a == "--caustic-radius") o.causticRadius = std::stod(value("--caustic-radius"));
             else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));
@@ -369,7 +373,7 @@ static bool ParseArgs(int argc, char** argv, CliOptions& o) {
     }
     catch (const std::exception& e) {
         std::cerr << "[Args] " << e.what() << "\n"
-            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
+            << "usage: main_cli [--scene gold|glass|furnace|lights|aov|sss|spd|metals|studio|mesh|bench|goldrough|pmx|metalprobe|skindemo|skinlayers|volume|blob|water|caustic|sea|pool|crystal] [--crystal-inside] [--pool-depth m] [--pool-steep s] [--pool-sun-elev deg] [--pool-sun-az deg] [--sea-depth m] [--sea-steep s] [--sea-seed n] [--sea-sun-elev deg] [--sea-hdr] [--absorb-scale S] [--caustics N] [--caustic-radius m] [--water-sky] [--water-lamp] [--cam-elev deg] [--cam-yaw deg] [--light d65|tungsten|candle|led] [--metal Au|Ag|Cu] [--roughness r] [--wb] [--light-sampler uniform|power|spatial|all] [--accel own|embree] [--no-ms] [--pmx-list] [--pmx-index N] [--pmx-info] [--pmx-all] [--pmx-matte] [--sss] [--sss-scale S] [--pmx-light] [--pmx-studio] [--studio-look default|warm|cool|dramatic|soft] [--aov] [--denoise] [--clean-aux] [--pose-list] [--pose-index N] [--pmx-check] [--pmx-bench] [--morph-list] [--morph i=w,..] [--expr file] [--pmx-yaw deg] [--pmx-zoom Z] [--pmx-focus f] [--width N] [--spp N] [--depth N]"
             << " [--env file.hdr] [--abbe V] [--out file.png] [--trace x,y]\n";
         return false;
     }
@@ -3260,7 +3264,7 @@ int main(int argc, char** argv) {
             0.065, 0.025, 0);
         // ... filled with water to 5.5 cm: its own faceted body 0.4 mm inside the cavity (every interface is air | dielectric, so no
         // nested-dielectric bookkeeping), a flat free surface on top
-        {
+        if (!opt.crystalInside) {
             auto rInner = [](Real y) { return Real(0.0235) + Real(0.0055) * (y - Real(0.008)) / Real(0.062); };   // vertex radius of the cavity wall
             const Real gap = Real(0.0004), yb = Real(0.008) + gap, yTop = Real(0.055);
             placeMat(MakeFacetedLathe({ Point2(0, yb), Point2(rInner(yb) - gap, yb), Point2(rInner(yTop) - gap, yTop), Point2(0, yTop) }, 8),
@@ -3284,6 +3288,13 @@ int main(int argc, char** argv) {
         worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(discMesh)), disc, opt.accel));
 
         // A low, strong light over a dark floor: the light concentrated by the glass (10-50 times brighter) burns out to white.
+        if (opt.crystalInside) {
+            // the lamp inside the empty tumbler (center of the cavity, 3.5 cm up); it is the only light, and every ray of it leaves
+            // through the glass: NEE is blocked by the walls, so all the light on the floor comes from the photon map
+            studioLights.push_back(std::make_shared<PointLight>(Point3(0.065, y0 + 0.035, 0.025), RgbColor(1.0, 0.96, 0.88), Real(0.18)));
+            std::cout << "[Crystal] lamp inside the tumbler: every photon leaves through the glass\n";
+        }
+        else
         studioLights.push_back(std::make_shared<PointLight>(Point3(-0.20, 0.22, 0.14), RgbColor(1.0, 0.96, 0.88), Real(1.0)));   // irradiance about 6 on the floor
         causticCenter = Point3(0.0, 0.04, 0.0);
         causticTargetRadius = Real(0.15);
@@ -3435,11 +3446,11 @@ int main(int argc, char** argv) {
     CausticPhotonMap causticMap;
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
-    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = 16000000;
+    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = opt.crystalInside ? 24000000 : 16000000;
     if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal") && nCausticPhotons > 0) {
         CausticPhotonParams P;
         P.numPhotons = nCausticPhotons;
-        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? 0.0006 : 0.0015);
+        P.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
         P.targetCenter = causticCenter;
         P.targetRadius = causticTargetRadius;
         causticMap.build(*scene, P);
