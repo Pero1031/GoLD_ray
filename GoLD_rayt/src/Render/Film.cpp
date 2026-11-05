@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -159,6 +160,28 @@ namespace rayt {
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
         const Real s = static_cast<Real>(scale);
+
+        if (ext == "pfm") {
+            // --------------------------------------------------
+            // PFM output: raw 32-bit float RGB, linear, no tone mapping. Unlike .hdr (RGBE: one shared exponent and an 8-bit mantissa per
+            // pixel) it keeps the small channels of a strongly colored pixel (the blue of a candle-lit scene) and negative values (colors
+            // outside the sRGB gamut), which is what a measurement needs. Rows are stored bottom to top, little endian ("-1" scale).
+            // --------------------------------------------------
+            std::vector<float> pfmData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
+            for (int y = 0; y < m_height; ++y) {
+                for (int x = 0; x < m_width; ++x) {
+                    Vector3 p = m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] * s;
+                    const size_t o = (static_cast<size_t>(m_height - 1 - y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)) * 3;
+                    for (int c = 0; c < 3; ++c)
+                        pfmData[o + c] = math::hasNonFinite(p[c]) ? 0.0f : static_cast<float>(p[c]);
+                }
+            }
+            std::ofstream f(filename, std::ios::binary);
+            f << "PF\n" << m_width << " " << m_height << "\n-1.0\n";
+            f.write(reinterpret_cast<const char*>(pfmData.data()), static_cast<std::streamsize>(pfmData.size() * sizeof(float)));
+            std::cout << "[Film] Saved PFM image: " << filename << std::endl;
+            return;
+        }
 
         if (ext == "hdr") {
             // --------------------------------------------------
