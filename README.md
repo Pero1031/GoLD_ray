@@ -1,43 +1,28 @@
 # GoLD_rayt
 
-![GoLD_rayt: spectral gold, dispersion and caustics, water, and RGB vs spectral gold](docs/img/hero.png)
+![GoLD_rayt: spectral gold, dispersion and caustics, and RGB vs spectral gold under three lights](docs/img/hero.png)
 
-<sub>All images were rendered by this project on the CPU (OIDN-denoised). Top, in spectral mode: gold spheres
-(`--scene gold`), cut-glass pieces lit from outside by a point light (`--scene crystal`), a glass of water lit by a
-point light (`--scene water --water-lamp`), and a Gerstner-wave sea (`--scene sea`); the caustics use a photon map.
-Bottom: the same gold bowl under a tungsten light (`--scene goldbowl --light tungsten`) rendered by the RGB build and by
-the spectral build, and the CIEDE2000 difference between the two
-([details](#how-much-does-rgb-rendering-get-wrong-for-metals)).</sub>
+<sub>Top (spectral mode): gold spheres and cut glass with caustics. Bottom: the same gold bowl under three lights, RGB build vs
+spectral build, and the color difference between them ([details](#how-much-does-rgb-rendering-get-wrong-for-metals)).</sub>
 
-A 3D path tracer built from scratch in C++20, focused on **spectral rendering of metals** (gold first).
+A 3D path tracer in C++20, built around **spectral rendering of metals** (gold first).
 
-**Background.** This renderer was built for the author's graduation research: gold was measured with a
-spectroradiometer (SR-5100), the color difference between RGB and spectral rendering was quantified (with
-Mitsuba), and the goal was rendering software that overcomes that difference. It has been extended since, aiming at
-a **perceptually based renderer** and as a way to learn renderer development. Beyond metals it covers a computational
-[study of the RGB-vs-spectral error](#how-much-does-rgb-rendering-get-wrong-for-metals), dispersion and caustics
-(photon map), water, and MMD characters (skin subsurface scattering, posing, expressions).
+**Background.** Built for the author's graduation research: gold was measured with a spectroradiometer (SR-5100) and the
+color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
+own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, water, and MMD
+characters with skin subsurface scattering.
 
-> Windows / Visual Studio 2022 / x64 / CPU only. The code favors readability and verification (every major
-> piece has a numerical test) over raw speed.
+> Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
 ## How much does RGB rendering get wrong for metals?
 
-The question of the graduation research (answered there with Mitsuba), re-tried in this renderer: *how far is an
-RGB renderer from a spectral one for gold, copper and silver, and why?* Both modes are the same engine with the same optical constants (Johnson & Christy tables),
-switched at compile time (`RenderMode.hpp`), so the difference is only the RGB approximation. Here it is a
-comparison between two renderings against a 1 nm integral, not a comparison with measurements.
+Both modes are the same engine with the same optical constants (Johnson & Christy), chosen at compile time
+(`RenderMode.hpp`), so the difference is only the RGB approximation. The reference is a 1 nm integral of
+`Fresnel(λ, θ)^n x light x film sensor` ([`tools/metal_accuracy.py`](tools/metal_accuracy.py)); the engine matches it
+within ΔE00 0.12 (`--scene metalprobe`). The metric is CIEDE2000 (ΔE00: about 1 is visible side by side, 2-3 obvious).
+These are comparisons between two renderings, not with a photograph.
 
-**Method.** The reference is a 1 nm integration of `Fresnel(λ, θ)^n x light spectrum x film sensor`. The RGB
-model is the engine's own RGB reduction of the tables. The metric is CIEDE2000 (ΔE00; about 1 is "visible side
-by side", 2-3 "obviously different"). The Python model ([`tools/metal_accuracy.py`](tools/metal_accuracy.py))
-was checked against the real engine with a probe scene (`--scene metalprobe`, both builds): the RGB build matches
-the RGB model within ΔE00 0.07 and the spectral build matches the 1 nm integral within 0.12 (angles below 80°;
-one 32-pixel bin of silver under D65 reaches 0.45, which is color noise).
-
-**Result** (ΔE00, RGB vs spectral):
-
-| Condition | Gold (Au) | Copper (Cu) | Silver (Ag) |
+| ΔE00, RGB vs spectral | Gold (Au) | Copper (Cu) | Silver (Ag) |
 |---|---|---|---|
 | D65 light, one reflection, all angles | 0.2 - **2.1** | 0.0 - 0.3 | 0.00 |
 | other lights (tungsten A, candle, LED), one reflection | **2 - 6** | 1.8 - 2.8 | <= 0.07 |
@@ -47,55 +32,45 @@ one 32-pixel bin of silver under D65 reaches 0.45, which is color noise).
 
 ![RGB error against the number of bounces and the light temperature](docs/img/metal_rgb_error.png)
 
-- **Silver**: RGB is enough; its reflectance is flat over the visible range.
-- **Gold is the worst case.** Its spectral red value under D65 is 1.036 (above 1, because the sRGB red sensor
-  has a negative lobe in the blue-green where gold reflects little). A Fresnel `(eta, k)` model cannot exceed 1,
-  so the reduction clamps it to 0.975: red is about 6 % low (ΔE00 2.1). The error grows when the light is not
-  D65 (the RGB model fixes each channel's reflectance under D65) and when reflections accumulate (`F(λ)^n`
-  sharpens the spectrum).
-- **Incidence angle is not the main cause.** The hypothesis that RGB fails at grazing angles was tested and
-  rejected for these three metals.
-- **Rough metals** (multiple-scattering term): gold under tungsten light grows from 3.0 (smooth) to 6.3 at
-  roughness 1.0, and copper under D65 from 0.1 to 1.1. A prototype that builds the multiple-scattering color from
-  the spectrum (not merged) reduced the D65 cases (copper 1.09 to 0.11, gold 1.55 to 0.53), but errors from a
-  non-D65 light cannot be fixed inside an RGB renderer.
-- **Practical rule**: use the RGB build for previews and D65 scenes; use the spectral build when the light is
-  not D65 or the metal itself is the subject. In a Release build the spectral mode is about as fast.
+- **Silver**: RGB is enough; its reflectance is flat.
+- **Gold is the worst case.** Its red under D65 is 1.036 in the spectral render, but an `(eta, k)` Fresnel model cannot
+  exceed 1, so RGB is about 6 % low in red. The error grows with a non-D65 light and with repeated reflections.
+- The incidence angle is not the main cause (tested and rejected).
+- **Rough metals** add error through the multiple-scattering color: gold under tungsten goes from 3.0 (smooth) to 6.3
+  (roughness 1.0). A prototype that builds that color from the spectrum (not merged) helps for D65 but not for other lights.
+- **Rule of thumb**: RGB for previews and D65 scenes; spectral when the light is not D65 or the metal is the subject.
+  In a Release build spectral is about as fast.
 
-**The same question as a picture.** A gold bowl with a gold ball in it (light bounces between the gold surfaces), a
-white ball and a gray floor, under one sphere light with a dim glow of the same spectrum around it
-(`--scene goldbowl --light d65|tungsten|candle`), rendered by the RGB build and by the spectral build, 256 samples per
-pixel, denoised. The color difference is measured on the displayed sRGB images, so it is a comparison between the two
-renderers, not with a photograph.
+**As a picture.** A gold bowl with a gold ball in it, a white ball and a gray floor, under one sphere light
+(`--scene goldbowl --light d65|tungsten|candle`), rendered by both builds (256 spp, two renders averaged, no denoiser). The
+renders are saved as linear float (`--out x.pfm`), so the difference is measured on the linear images and on the
+displayed images (Reinhard, sRGB, clipped to the display range).
 
-![The gold bowl under three lights: RGB renderer, spectral renderer and their CIEDE2000 difference](docs/img/gold_rgb_vs_spectral.png)
+![The gold bowl under three lights: RGB renderer, spectral renderer, and the CIEDE2000 difference of the linear renders and of the displayed images](docs/img/gold_rgb_vs_spectral.png)
 
-| Light | ΔE00 in the bowl, mean | 95th percentile |
-|---|---|---|
-| D65 daylight | 1.2 | 2.4 |
-| Tungsten (illuminant A) | **2.3** | **4.4** |
-| Candle (1850 K) | 0.8 | 1.8 |
+| Light | ΔE00, linear renders (mean) | ΔE00, displayed images (mean) | Displayed pixels with ΔE00 > 2.3 |
+|---|---|---|---|
+| D65 daylight | 1.7 | 1.3 | 8 % |
+| Tungsten (illuminant A) | 3.5 | **2.6** | **59 %** |
+| Candle (1850 K) | **5.6** | 0.9 | 4 % |
 
-- Under tungsten light the bowl is clearly different: the spectral gold is yellower and more saturated, the RGB one a
-  brownish orange (mean 8-bit blue channel in the bowl: 42 for RGB, 28 for spectral).
-- Under D65 the difference is small and sits in the bright highlights (where the reflections add up).
-- **Candle is small here only because of the display.** The candle's light has almost no blue (its sensor blue is
-  slightly negative), so the blue channel of both images is clipped to 0 when shown; the difference the tables above
-  give for candle light (2 - 6 for one reflection) is measured before clipping. A comparison of the unclipped images
-  was not made here.
-- The maxima in the table file (about 20) are single pixels in the brightest highlights, most likely noise of the two
-  renders (not checked further). Numbers: [`gold_compare_results.txt`](docs/gold_compare_results.txt),
-  script: [`tools/gold_compare.py`](tools/gold_compare.py).
+- **Tungsten**: the difference is visible on screen. The spectral gold is yellower and more saturated.
+- **D65**: small, in the bright highlights.
+- **Candle**: the largest measured difference and the smallest displayed one. A 1850 K blackbody is outside the sRGB
+  gamut; the spectral render gives the gold a clearly negative blue, the RGB render almost none, and the display clips
+  both to 0. The engine agrees with the 1 nm integral here, so this is the error of the RGB model. Whether real gold
+  under a candle looks different from this screen was not tested (no gamut mapping or wide-gamut output).
 
-**Limits.** The Kulla-Conty multiple-scattering compensation is itself an approximation (the true color of a
-rough metal was not compared); polarization, thin films and the error of the optical-constant tables are not
-modeled (the Johnson & Christy tables are taken as the truth); all values are converged expectations, so noise
-at equal render time is not compared.
+Numbers: [`gold_compare_linear_results.txt`](docs/gold_compare_linear_results.txt). Scripts:
+[`gold_compare_linear.py`](tools/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/gold_compare_linear_fig.py).
+(An earlier comparison on displayed PNGs only showed candle as the smallest difference, 0.8; that was the clipping.)
 
-Full write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
-[`metal_accuracy_results.txt`](docs/metal_accuracy_results.txt),
-[`metal_probe_compare.txt`](docs/metal_probe_compare.txt),
-[`metal_probe_rough_compare.txt`](docs/metal_probe_rough_compare.txt). Reproduce the analysis (seconds):
+**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization and thin films
+are not modeled; the Johnson & Christy tables are taken as truth; noise at equal render time was not compared.
+
+Write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
+[`metal_accuracy_results.txt`](docs/metal_accuracy_results.txt), [`metal_probe_compare.txt`](docs/metal_probe_compare.txt),
+[`metal_probe_rough_compare.txt`](docs/metal_probe_rough_compare.txt). Reproduce:
 
 ```bash
 python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_results.txt
@@ -128,44 +103,41 @@ python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_
 
 ## 1. Metals and spectral rendering
 
-The color of a metal comes from how its complex refractive index `n(λ) + i k(λ)` changes with
-wavelength. Gold is yellow because its reflectance drops sharply below ~550 nm. An RGB renderer has to
-approximate that with three numbers; this renderer can carry the wavelength itself.
+The color of a metal comes from how its complex refractive index `n(λ) + i k(λ)` changes with wavelength. Gold is yellow
+because its reflectance drops sharply below ~550 nm. An RGB renderer approximates that with three numbers; this one can
+carry the wavelength itself.
 
 ### What it does
 
 | Piece | How |
 |---|---|
-| **Wavelengths** | Each camera path carries **4 wavelengths** (hero-wavelength sampling as in PBRT v4), stratified over 360-830 nm and importance-sampled by visual sensitivity. |
-| **Optical constants** | Complex IOR tables `n(λ)`, `k(λ)` read from CSV: RefractiveIndex.info blocks, 3-column tables or separate `n` / `k` files; units nm, µm or eV (auto-detected). Johnson & Christy data for **Au, Ag, Cu** are in `assets/Metal_data/`. |
-| **Or measured reflectance** | A reflectance curve `R(λ)` (CSV, percent or fraction) is converted to `(n, k)` with Gulbrandsen's method including the edge tint. Normal-incidence color is exact; against the Johnson tables the Fresnel error is <= 0.013 at 45° and grows toward grazing angles. |
-| **Fresnel** | Conductor Fresnel is evaluated **per wavelength** on every bounce. |
-| **Roughness** | GGX microfacets (isotropic or anisotropic) with VNDF sampling. |
-| **Multiple scattering** | Kulla-Conty compensation: a perfect conductor keeps an albedo of ~1.0 at every roughness (single scattering alone gives 0.92 / 0.56 / 0.31 at roughness 0.5 / 0.8 / 1.0). Can be switched off (`--no-ms`) to compare. |
-| **Film** | Path spectra are converted with the CIE 1931 color matching functions (analytic multi-lobe fit) to XYZ, then linear sRGB. |
-| **Lights** | Emission is `RGB x D65`, a **blackbody** (any temperature), CIE illuminant A, or an SPD from a CSV. An optional white balance divides the film by the light color. Environment maps and RGB albedos are upsampled to spectra (white is exact). |
-| **Glass dispersion** | Cauchy `n(λ)` from the refractive index and Abbe number; a dispersive path continues with a single (hero) wavelength. |
+| **Wavelengths** | 4 per camera path (hero-wavelength sampling as in PBRT v4), stratified over 360-830 nm, importance-sampled by visual sensitivity. |
+| **Optical constants** | Complex IOR tables `n(λ)`, `k(λ)` from CSV (RefractiveIndex.info blocks, 3-column or separate `n` / `k` files; nm, µm or eV). Johnson & Christy data for **Au, Ag, Cu** are in `assets/Metal_data/`. |
+| **Measured reflectance** | A curve `R(λ)` (CSV, percent or fraction) is converted to `(n, k)` with Gulbrandsen's method including the edge tint. Normal-incidence color is exact; against the Johnson tables the Fresnel error is <= 0.013 at 45° and grows toward grazing angles. |
+| **Fresnel** | Conductor Fresnel per wavelength on every bounce. |
+| **Roughness** | GGX microfacets (isotropic or anisotropic), VNDF sampling. |
+| **Multiple scattering** | Kulla-Conty compensation: a perfect conductor keeps an albedo of ~1.0 at every roughness (single scattering alone gives 0.92 / 0.56 / 0.31 at roughness 0.5 / 0.8 / 1.0). `--no-ms` switches it off. |
+| **Film** | CIE 1931 color matching functions (analytic multi-lobe fit) to XYZ, then linear sRGB. |
+| **Lights** | `RGB x D65`, a blackbody (any temperature), CIE illuminant A, or an SPD from CSV. Optional white balance (`--wb`). Environment maps and RGB albedos are upsampled to spectra (white is exact). |
+| **Glass dispersion** | Cauchy `n(λ)` from the refractive index and Abbe number; a dispersive path continues with one wavelength. |
 
 ### Spectral vs RGB
 
-A one-line **compile-time** switch in [`GoLD_rayt/include/Core/RenderMode.hpp`](GoLD_rayt/include/Core/RenderMode.hpp):
+A one-line compile-time switch in [`GoLD_rayt/include/Core/RenderMode.hpp`](GoLD_rayt/include/Core/RenderMode.hpp);
+rebuild everything after changing it:
 
 ```cpp
 #define RAYT_ENABLE_SPECTRAL 0   // 0 = RGB (default), 1 = spectral
 ```
 
-Rebuild everything after changing it (the `Spectrum` type itself changes). In RGB mode the metal table is
-reduced to an RGB `(eta, k)` by integrating it with the color matching functions, so both modes render the
-same table. Measured on the gold scene: spectral and RGB differ by about 2.5/255 (spectral slightly
-warmer); in a furnace test they agree within ~0.5 %. A Release build is about as fast in spectral mode as in
-RGB mode; Debug is about 3x slower. The systematic study of this difference (which metal, light, angle and
-number of bounces) is in the [RGB-vs-spectral study](#how-much-does-rgb-rendering-get-wrong-for-metals).
+In RGB mode the metal table is reduced to an RGB `(eta, k)` with the color matching functions, so both modes render the
+same table. In a furnace test they agree within ~0.5 %. Release speed is about the same; Debug is ~3x slower in spectral
+mode. The study of the difference is [above](#how-much-does-rgb-rendering-get-wrong-for-metals).
 
-**The color of the light as a picture** (`--scene spd --light d65|tungsten|led`, `--wb` = white balance): five colored diffuse
-spheres and a gold one under one sphere light, rendered with the spectrum of the light. In the spectral renderer the
-whole scene takes the color of the light and the spheres change by different amounts; white balancing the film
-brings the neutral surfaces back but not the colors. The RGB mode (middle right) matches the white but not the
-colors, by design.
+**The color of the light** (`--scene spd --light d65|tungsten|led`, `--wb` = white balance): five colored spheres and a gold
+one under one sphere light. In spectral mode the whole scene takes the color of the light and the spheres change by
+different amounts; white balance restores the neutral surfaces but not the colors. RGB mode (middle right) matches the
+white but not the colors.
 
 ![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/light_spectrum_spheres.png)
 
@@ -183,36 +155,27 @@ GoLD_rayt.exe --scene metals                                              :: met
 
 ### Not done (metals)
 
-Sellmeier presets for real glasses, Lorentz-Drude / multi-angle fitting of optical constants, per-wavelength
-edge tint, thin-film interference, a better RGB-to-spectrum upsampling (Jakob-Hanika) for saturated colors,
-polarization. A rough dielectric does not compensate multiple scattering yet.
+Sellmeier presets, Lorentz-Drude / multi-angle fitting, per-wavelength edge tint, thin-film interference, a better
+RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering compensation for rough dielectrics.
 
 ---
 
 ## 2. Quick start
 
-**Requirements**
-
-- Windows 10/11 x64, **Visual Studio 2022** (toolset v143), C++20, OpenMP, a CPU with **AVX2**.
-- Libraries are bundled under `librarys/` and `GoLD_rayt/external/` (see [section 9](#9-third-party-code-and-data)).
-
-**Build and run**
+Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a CPU with **AVX2**. Libraries are bundled
+(see [section 9](#9-third-party-code-and-data)).
 
 1. Open `GoLD_rayt.sln`.
-2. **Debug | x64** builds the **command-line renderer** (`src/main_cli.cpp`); **Release | x64** builds the
-   **GUI viewer** (`src/main_ui.cpp`).
-3. Copy the runtime DLLs next to the executable (`x64/Debug` or `x64/Release`); `bin/` folders are not
-   tracked by Git:
-   - Embree: `embree4.dll`, `tbb12.dll`, `tbbmalloc.dll` from the Embree 4.4.0 Windows x64 release
-     (`librarys/embree-4.4.0.x64.windows/bin/`),
-   - OpenImageDenoise: `OpenImageDenoise.dll`, `OpenImageDenoise_core.dll`, `OpenImageDenoise_device_cpu.dll`
-     from the OIDN 2.5.1 Windows x64 release (`librarys/oidn-2.5.1.x64.windows/bin/`),
-   - `glfw3.dll` (GUI only) from `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`.
+2. **Debug | x64** builds the **command-line renderer** (`src/main_cli.cpp`); **Release | x64** builds the **GUI viewer**
+   (`src/main_ui.cpp`).
+3. Copy the DLLs next to the executable (`bin/` is not tracked by Git): Embree (`embree4.dll`, `tbb12.dll`,
+   `tbbmalloc.dll` from `librarys/embree-4.4.0.x64.windows/bin/`), OpenImageDenoise (`OpenImageDenoise.dll`, `_core.dll`,
+   `_device_cpu.dll` from `librarys/oidn-2.5.1.x64.windows/bin/`), and for the GUI `glfw3.dll` (from
+   `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`).
 4. Run from the project folder `GoLD_rayt/`.
 
-> **Speed tip.** A Release build of the CLI is about 5x faster than Debug. The project builds the CLI only in
-> Debug; to get a fast CLI, set `ExcludedFromBuild` of `main_cli.cpp` to `false` and of `main_ui.cpp` to `true`
-> for `Release|x64` in `GoLD_rayt.vcxproj` (and revert it for the GUI).
+> **Speed tip.** A Release CLI is about 5x faster than Debug. To build it, set `ExcludedFromBuild` of `main_cli.cpp` to
+> `false` and of `main_ui.cpp` to `true` for `Release|x64` in `GoLD_rayt.vcxproj` (revert it for the GUI).
 
 **Command line** (`GoLD_rayt.exe [options]`)
 
@@ -221,73 +184,59 @@ polarization. A rough dielectric does not compensate multiple scattering yet.
 | `--scene NAME` | `gold`, `glass`, `goldrough`, `spd`, `studio`, `mesh`, `pmx`, or a test: `furnace`, `metals`, `lights`, `aov`, `sss`, `bench` |
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
-| `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped) or `.hdr` (linear float) |
-| `--accel own\|embree` | own SAH BVH or Embree for single-material triangle meshes (`mesh` and `bench` scenes only; other scenes print a note and ignore it) |
+| `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
+| `--accel own\|embree` | own SAH BVH or Embree, for single-material triangle meshes only |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |
 
-Rough speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 256 spp, depth 16 takes
-about 2 minutes.
+Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 256 spp, depth 16 takes about 2 minutes.
 
 ---
 
 ## 3. The renderer in general
 
-- **Path tracing** with next-event estimation and multiple importance sampling, Russian roulette, thin-lens
-  camera (aperture parameter in the code).
-- **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled).
-  Light selection: uniform, power, or a spatial importance (PBRT-style bounds; the environment light gets a
-  share proportional to its estimated irradiance), or "all lights". Rectangles are sampled by solid angle.
-- **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a
-  glossy GGX coat, optional metal blend, optional subsurface), `RoughConductor`, `Dielectric` (smooth or rough,
-  dispersive), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Acceleration: own SAH BVH (flat array,
-  iterative traversal) or **Embree**.
-- **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the denoised image matches
-  roughly the error of 230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
-- **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Scene (three gold spheres or glass
-  spheres on a floor), environment map (every `.hdr` in `assets/env`), roughness of the center gold sphere, exposure
-  (EV), samples per frame, sample limit, pause / reset, and "Save image" (PNG with the exposure, plus a linear HDR).
-  It renders in whichever mode `RenderMode.hpp` selects (RGB or spectral) and shows it in the panel. It does not
-  load characters, use SSS or denoise.
+- **Path tracing** with next-event estimation, multiple importance sampling, Russian roulette, thin-lens camera.
+- **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
+  uniform, power, spatial importance (PBRT-style bounds), or all lights.
+- **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
+  optional metal blend and subsurface), `RoughConductor`, `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Own SAH BVH or **Embree**.
+- **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
+  230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
+- **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
+  environment map, roughness, exposure, samples per frame; save the image. It renders in the mode `RenderMode.hpp` selects.
+  It does not load characters or use SSS or the denoiser.
 
 ---
 
 ## 4. Character rendering (hobby)
 
-Loading MMD characters is a side project that exercises the renderer on a hard asset.
-**No model is included**: put your own `.pmx` models, `.vpd` poses and textures in `MMD_model/` (ignored by Git)
-and respect each model's terms of use.
+Loading MMD characters is a side project that exercises the renderer on a hard asset. **No model is included**: put your
+own `.pmx` models, `.vpd` poses and textures in `MMD_model/` (ignored by Git) and respect each model's terms of use.
 
-- **PMX 2.0 / 2.1 loader**: vertices, faces, textures (Japanese / Chinese file names), materials, bones, morphs.
-- **Posing**: bone hierarchy, grant (append) bones, linear blend skinning, `.vpd` poses. IK is not solved; the
-  FK values stored in a VPD already contain the IK result.
-- **Expressions**: vertex, UV, material, bone and group morphs (`--expr name`); morph-switched layers such as a
-  blush are drawn as translucent layers.
-- **Materials**: MMD's toon / sphere-map recipe is replaced by physically based shading chosen from the material
-  names (hair, eyes, ornaments, skin). `--pmx-matte` turns this off.
-- **Studio lighting** (`--pmx-studio`) with key / fill / two rim lights, and looks `--studio-look
-  default|warm|cool|dramatic|soft`.
-- **Subsurface scattering (`--sss`, `--sss-scale S`)**: skin uses a BSSRDF with Burley's normalized diffusion
-  profile (scatter distance 3.7 / 1.4 / 0.7 mm for R / G / B, times `S`). Light that passes the coat enters the
-  skin and leaves at another point, found with probe rays; the texture stays sharp while the lighting is
-  softened. It shows in close-ups (red bleeding into shadows, softer cheeks) and costs about 1.7-2.4x the render
-  time of a face portrait. At full-body size it is nearly invisible (one pixel is about 3 mm).
+- **PMX 2.0 / 2.1 loader**: vertices, faces, textures, materials, bones, morphs.
+- **Posing**: bone hierarchy, grant bones, linear blend skinning, `.vpd` poses (IK is not solved; the FK values in a VPD
+  already contain the result).
+- **Expressions**: vertex, UV, material, bone and group morphs (`--expr name`).
+- **Materials**: MMD's toon / sphere-map recipe is replaced by physically based shading chosen from the material names
+  (hair, eyes, ornaments, skin). `--pmx-matte` turns this off.
+- **Studio lighting** (`--pmx-studio`), looks `--studio-look default|warm|cool|dramatic|soft`.
+- **Subsurface scattering** (`--sss`, `--sss-scale S`): a BSSRDF with Burley's normalized diffusion profile (3.7 / 1.4 /
+  0.7 mm for R / G / B, times `S`). It shows in close-ups and costs about 1.7-2.4x the time of a face portrait; at
+  full-body size it is nearly invisible.
 
 ```bat
 GoLD_rayt.exe --scene pmx --pmx-index 4 --pose-index 0 --expr shy --pmx-yaw -25 --pmx-studio ^
               --pmx-zoom 4.0 --pmx-focus 0.79 --width 420 --spp 128 --sss --denoise --out face.png
 ```
 
-The algorithm, parameters, verification and limits are written up in [docs/SSS.md](docs/SSS.md) (Japanese).
-
-A sphere and a torus with the same skin material (`--scene skindemo`, no character needed), without
-subsurface scattering, with the real skin scattering distances, and with them tripled for an anime-like softness.
+Details: [docs/SSS.md](docs/SSS.md) (Japanese). A sphere and a torus with the same skin material (`--scene skindemo`): no
+SSS, real distances, tripled distances.
 
 ![Subsurface scattering of skin: off, real distances, three times the distances](docs/img/skin_sss.png)
 
-Not done: IK, physics (hair, skirt), VMD motion, toon / outline rendering, ears and other thin parts of the skin
-(transmission was not checked), a random-walk reference for the SSS approximation.
+Not done: IK, physics (hair, skirt), VMD motion, toon / outline, thin parts such as ears, a random-walk reference for the
+SSS approximation.
 
 ---
 
@@ -306,94 +255,85 @@ Not done: IK, physics (hair, skirt), VMD motion, toon / outline rendering, ears 
  Film (linear RGB, per pixel average) --> [OIDN denoise] --> tone map --> PNG / HDR
 ```
 
-- **One path, four wavelengths.** `Li()` follows one camera path while every value (throughput, radiance,
-  Fresnel, albedo) is a `Spectrum`: 4 sampled wavelengths in spectral mode, an RGB triple in RGB mode (a
-  compile-time type, see `RenderMode.hpp`). The film turns the final spectrum into RGB with the CIE functions.
-- **Materials** implement `eval`, `sample` and `pdf` (a BSDF); the integrator never needs to know which one it
-  hits. Special cases are hooks on the material: `prepareWavelengths` (dispersion), `opacity` (translucent
-  layers), `aovAlbedo` (denoiser feature), `subsurface` (see below).
-- **Next-event estimation** picks one light with the `LightSampler`, samples it, and combines it with BSDF
-  sampling through the power heuristic. Both strategies use the same density "choose this light, then this
-  direction", which keeps the weights consistent.
-- **Subsurface scattering** is a path event: when a skin material samples "the light entered", the integrator
-  finds an exit point with probe rays (`Render/SubsurfaceProbe.hpp`), multiplies by profile / pdf, and runs
-  next-event estimation and BSDF sampling again at the exit point with a Fresnel-weighted cosine lobe.
-- **Precision**: `Real` is `double` (`Core/Precision.hpp`); Embree finds hits in float and the hit record is
-  rebuilt in double.
+- **One path, four wavelengths.** `Li()` follows one camera path; every value is a `Spectrum`: 4 wavelengths in spectral
+  mode, an RGB triple in RGB mode (a compile-time type). The film converts the final spectrum to RGB.
+- **Materials** implement `eval`, `sample` and `pdf`; the integrator does not need to know which one it hits.
+- **Next-event estimation** picks one light with the `LightSampler`, samples it, and combines it with BSDF sampling through
+  the power heuristic.
+- **Subsurface scattering** is a path event: the integrator finds an exit point with probe rays
+  (`Render/SubsurfaceProbe.hpp`) and continues from there.
+- **Precision**: `Real` is `double`; Embree finds hits in float and the hit record is rebuilt in double.
 
-**Source layout** (`GoLD_rayt/include`, headers mostly; `src` has the entry points and a few implementations)
+**Source layout** (`GoLD_rayt/include`; `src` has the entry points)
 
 | Folder | Contents |
 |---|---|
-| `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, interaction records, `RenderMode.hpp` |
+| `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, `RenderMode.hpp` |
 | `Color/` | spectral curves, CIE functions, illuminants, emission spectra, complex IOR tables, `R(λ)`-to-`(n,k)` |
 | `Materials/` | Lambertian, CoatedDiffuse, RoughConductor, Dielectric, DiffuseLight, Subsurface |
-| `Microfacet/` | GGX distribution and the directional-albedo table used by the multiple-scattering compensation |
+| `Microfacet/` | GGX and the directional-albedo table for the multiple-scattering compensation |
 | `Geometry/`, `Scene/`, `Accelerators/` | shapes, aggregate, SAH BVH, Embree wrapper |
-| `Lights/` | point / area / environment lights, light bounds, light samplers |
-| `Render/` | camera, film, integrator, denoiser wrapper, subsurface probe |
-| `IO/` | CSV and metal-data loaders, HDR / image / OBJ / PMX / VPD loaders, morph and pose code |
+| `Lights/` | point / area / environment lights, light samplers |
+| `Render/` | camera, film, integrator, denoiser, subsurface probe |
+| `IO/` | CSV, metal-data, HDR / image / OBJ / PMX / VPD loaders |
 | `Application/`, `src/UI/` | the Dear ImGui viewer |
 
 ---
 
 ## 6. Verification
 
-The CLI contains self-checks that print `OK` / `FAIL` per case and exit with code 2 on failure (`--spp` scales
-the number of samples; run in Release for speed). They run in both RGB and spectral mode.
+The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 on failure. They run in RGB and spectral mode
+(`--spp` scales the samples; use Release).
 
 | Command | What it checks |
 |---|---|
 | `--scene furnace` | white-furnace energy: glass and white diffuse return 1.0, rough conductors match an independent integration |
-| `--scene metals` | table layouts and units, reflectance-to-`(n,k)`, edge-tint accuracy against Johnson, multiple scattering, `CoatedDiffuse` reciprocity and pdf |
+| `--scene metals` | table units, reflectance-to-`(n,k)`, edge tint against Johnson, multiple scattering, `CoatedDiffuse` reciprocity |
 | `--scene lights` | each light type against a closed form or numerical integral; light-selection strategies agree |
-| `--scene mesh` | triangle geometry, OBJ round trip, BVH vs brute force, Embree vs brute force, emissive triangles |
+| `--scene mesh` | triangle geometry, OBJ round trip, BVH and Embree vs brute force, emissive triangles |
 | `--scene aov` | the albedo / normal features of a camera path |
-| `--scene sss` | the radial profile, a white furnace over skin, and the profile across a shadow edge against a numerical integral |
-| `--scene bench` | BVH benchmark: recursive reference vs the SAH BVH vs Embree (speed, and that the hits agree); use a Release build |
-| GUI build: `GoLD_rayt.exe --selftest` | scripted check of the GUI features (scene and environment switches, roughness, exposure, samples per frame, pause, sample limit, saving); `--selftest-keep` keeps the saved image |
+| `--scene sss` | the profile, a white furnace over skin, the profile across a shadow edge |
+| `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
+| GUI build: `--selftest` | scripted check of the GUI features |
 
-Bugs found this way (and fixed): refraction that never left a glass sphere, an unnormalized camera ray that made
-rough gold ~22 % too dark, area lights that were always shadowed at grazing angles, and wrong MIS weights for
-area lights.
+Bugs found this way (and fixed): refraction that never left a glass sphere, an unnormalized camera ray that made rough gold
+~22 % too dark, area lights that were always shadowed at grazing angles, wrong MIS weights for area lights.
 
 ---
 
 ## 7. What could come next
 
-- **Sampling efficiency**: adaptive sampling (spend samples where the noise is), low-discrepancy sequences
-  (Sobol / blue noise), and using Embree in the PMX scene (it is only wired up for single-material meshes; the
-  PMX scene needs per-triangle materials and alpha cut-outs).
-- **Metals**: Sellmeier / Lorentz-Drude models, thin films, spectral upsampling of saturated colors, fitting `(n, k)`
-  to measured reflectance at several angles.
-- **Characters**: VMD motion and temporal denoising for animation, IK, hair / skirt physics, better hair and
-  cloth BSDFs, a random-walk reference to check the SSS approximation.
-- **Infrastructure**: a scene description file, a light tree for many emitters, a lighter memory layout for meshes
-  above a million triangles, `ctest` integration.
+- **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
+  alpha cut-outs).
+- **Metals**: Sellmeier / Lorentz-Drude, thin films, spectral upsampling of saturated colors.
+- **Characters**: VMD motion, IK, hair / skirt physics, better hair and cloth BSDFs.
+- **Infrastructure**: a scene description file, a light tree, `ctest` integration.
 
 ---
 
 ## 8. Gallery
 
-More renders from the same engine (CPU, OIDN-denoised). The color-of-light comparison is under
-[Spectral vs RGB](#spectral-vs-rgb), the skin under [Character rendering](#4-character-rendering-hobby).
+More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb), the
+skin under [Character rendering](#4-character-rendering-hobby).
 
-**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map with eight independent
-photon sets averaged). Every ray of the lamp leaves through the glass, so all the light on the table is caustic:
-sharp-edged polygons from the flat facets, with colored rims from dispersion.
+**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
+All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.
 
 ![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
 
-**A caustic through a prism** (`--scene manifold`, point light): without caustics, with the photon map, and with the
-*specular manifold NEE*, a prototype that solves the refraction path through the prism's flat faces instead of
-estimating it with photons. The photon map blurs the edge of the dispersed band over its gather radius; the solved
-path keeps it sharp. Both estimators agree within a few percent on the smooth parts of the pattern (checked at
-sample points and over the whole floor by `--scene manifoldtest`).
+**Water** (photon map): a point-light caustic through a glass of water (`--scene water --water-lamp`) and a Gerstner-wave
+sea with physical water absorption (`--scene sea`).
+
+![A glass of water lit by a point light, and a Gerstner-wave sea](docs/img/gallery_water.png)
+
+**A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
+(a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
+the dispersed band sharp; both agree within a few percent on the smooth parts (`--scene manifoldtest`).
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
 
-**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): physically based hair,
-eyes, metal ornaments and skin with subsurface scattering, under studio lights, in a pose read from a VPD file.
+**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): hair, eyes, metal ornaments
+and skin with subsurface scattering, under studio lights.
 
 ![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
 
