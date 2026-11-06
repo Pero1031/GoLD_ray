@@ -1,0 +1,134 @@
+// The scene "file": a scene written as data in a JSON file (see Cli/SceneFile.hpp and Cli/SceneDescription.hpp).
+#include "pch.h"
+#include "Cli/Scenes.hpp"
+#include "Cli/LightPresets.hpp"
+#include "Cli/SceneParts.hpp"
+#include "Geometry/ProceduralMesh.hpp"
+#include "Cli/EngineHeaders.hpp"
+
+namespace rayt::cli {
+
+namespace {
+
+// The spectrum of an emission material.
+bool MakeSpectrum(const SpectrumSpec& s, EmissionSpectrum& out) {
+    switch (s.kind) {
+    case SpectrumSpec::Kind::Preset:
+        return MakeLightEmission(s.preset, out);
+    case SpectrumSpec::Kind::Blackbody:
+        out = EmissionSpectrum::Blackbody(Real(s.kelvin));
+        return true;
+    case SpectrumSpec::Kind::Rgb:
+        out = EmissionSpectrum(RgbColor(s.rgb));
+        return true;
+    case SpectrumSpec::Kind::Curve: {
+        color::SpectralCurve curve;
+        std::string err;
+        if (!io::loadSpectralCurveCsv(s.file, curve, &err)) { std::cerr << "[SceneFile] spectrum " << s.file << ": " << err << "\n"; return false; }
+        out = EmissionSpectrum::FromCurve(curve);
+        return true;
+    }
+    }
+    return false;
+}
+
+} // namespace
+
+std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
+    const CliOptions& opt = ctx.opt;
+    if (!opt.sceneDescription) {
+        std::cerr << "[SceneFile] the scene \"file\" is a scene written as data: GoLD_rayt scene.json (a file with \"objects\")\n";
+        return 1;
+    }
+    const SceneDescription& d = *opt.sceneDescription;
+    const auto& world = out.world;
+    out.camera = d.camera;
+    if (ctx.env.light && d.environment.scale != 1.0) ctx.env.light->setScale(Real(d.environment.scale));
+    std::cout << "[SceneFile] " << opt.sceneFile << ": " << d.materials.size() << " materials, " << d.objects.size() << " objects, "
+        << d.lights.size() << " point lights\n";
+
+    // ---- materials ----
+    std::map<std::string, std::shared_ptr<Material>> materials;
+    std::map<std::string, std::shared_ptr<color::ComplexIorTable>> tables;   // one table per metal / file, shared by its materials
+    for (const auto& [name, m] : d.materials) {
+        switch (m.type) {
+        case MaterialSpec::Type::Diffuse:
+            materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
+            break;
+        case MaterialSpec::Type::Conductor: {
+            const std::string path = m.table.empty() ? "assets/Metal_data/Johnson_" + m.metal + ".csv" : m.table;
+            auto& table = tables[path];
+            if (!table) {
+                table = std::make_shared<color::ComplexIorTable>();
+                std::string err;
+                if (!io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
+                    return 1;
+                }
+            }
+            auto metal = std::make_shared<RoughConductor>(table, Real(m.roughness));
+            metal->setMultipleScattering(m.multipleScattering);
+            materials[name] = metal;
+            break;
+        }
+        case MaterialSpec::Type::Dielectric:
+            materials[name] = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
+            break;
+        case MaterialSpec::Type::Emission: {
+            EmissionSpectrum spectrum;
+            if (!MakeSpectrum(m.spectrum, spectrum)) return 1;
+            materials[name] = std::make_shared<DiffuseLight>(spectrum, Real(m.radiance), m.twoSided);
+            break;
+        }
+        }
+    }
+
+    // ---- objects ----
+    for (const ObjectSpec& o : d.objects) {
+        const MaterialSpec& spec = d.materials.at(o.material);
+        const std::shared_ptr<Material>& mat = materials.at(o.material);
+        const bool emission = spec.type == MaterialSpec::Type::Emission;
+        const bool asLight = emission && o.light != 0;   // an emitter is a light for next-event estimation unless it says "light": false
+        switch (o.shape) {
+        case ObjectSpec::Shape::Sphere: {
+            auto sphere = std::make_shared<Sphere>(o.center, o.radius, mat);
+            if (!emission) world->add(sphere);
+            else if (asLight) {
+                auto light = std::make_shared<AreaLight>(sphere, mat);
+                world->add(std::make_shared<Primitive>(sphere, mat, light));
+                out.lights.push_back(light);
+            }
+            else world->add(std::make_shared<Primitive>(sphere, mat));
+            break;
+        }
+        case ObjectSpec::Shape::Quad:
+            if (!emission) world->add(std::make_shared<Quad>(o.corner, o.edge1, o.edge2, mat));
+            else {
+                EmissionSpectrum spectrum;
+                if (!MakeSpectrum(spec.spectrum, spectrum)) return 1;
+                const auto light = AddQuadLight(*world, nullptr, o.corner, o.edge1, o.edge2, spectrum, Real(spec.radiance), asLight, spec.twoSided);
+                if (asLight && light) out.lights.push_back(light);
+            }
+            break;
+        case ObjectSpec::Shape::Mesh: {
+            TriangleMesh mesh;
+            std::string err;
+            if (!io::loadObj(o.file, mesh, &err)) { std::cerr << "[SceneFile] mesh " << o.file << ": " << err << "\n"; return 1; }
+            const glm::dmat3 rotation(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
+            mesh.transform(rotation * Real(o.scale), Vector3(o.translate));
+            world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), mat, opt.accel));
+            break;
+        }
+        case ObjectSpec::Shape::Lathe:
+            world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(o.profile, o.segments)), mat, opt.accel));
+            break;
+        }
+    }
+
+    // ---- point lights ----
+    for (const PointLightSpec& l : d.lights)
+        out.lights.push_back(std::make_shared<PointLight>(l.position, RgbColor(l.color), Real(l.intensity)));
+    return std::nullopt;
+}
+
+} // namespace rayt::cli

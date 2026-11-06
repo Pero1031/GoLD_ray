@@ -1,0 +1,21 @@
+{
+  // Gold, dispersive glass and a red sphere under a tungsten softbox and a small cool-white LED (a table of wavelengths from a CSV).
+  // The same scene as the built-in "studio".
+  "options": { "width": 800, "spp": 256 },
+  "materials": {
+    "gold":    { "type": "conductor", "metal": "Au", "roughness": 0.20 },
+    "glass":   { "type": "dielectric", "ior": 1.5, "abbe": 20 },
+    "red":     { "type": "diffuse", "albedo": [0.75, 0.2, 0.18] },
+    "floor":   { "type": "diffuse", "albedo": 0.6 },
+    "softbox": { "type": "emission", "spectrum": "tungsten", "radiance": 7 },
+    "led":     { "type": "emission", "spectrum": { "file": "assets/Illuminants/led_synthetic_coolwhite.csv" }, "radiance": 30 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-1.15, 0, -1], "radius": 0.45, "material": "gold" },
+    { "shape": "sphere", "center": [ 0.0,  0, -1], "radius": 0.45, "material": "glass" },
+    { "shape": "sphere", "center": [ 1.15, 0, -1], "radius": 0.45, "material": "red" },
+    { "shape": "sphere", "center": [0, -100.45, -1], "radius": 100, "material": "floor" },
+    { "shape": "quad", "corner": [-1.8, 2.6, -2.0], "edge1": [2.4, 0, 0], "edge2": [0, 0, 1.8], "material": "softbox" },
+    { "shape": "sphere", "center": [2.4, 1.4, 0.2], "radius": 0.3, "material": "led" }
+  ]
+}

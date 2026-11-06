@@ -16,7 +16,7 @@ using namespace rayt::cli;
 
 int main(int argc, char** argv) {
     CliOptions opt;
-    if (!ParseArgs(argc, argv, opt)) return 1;
+    if (const std::optional<int> exitCode = ParseArgs(argc, argv, opt)) return *exitCode;
     const ImageSize size = ComputeImageSize(opt);
     std::cout << "[Render] mode = " << kRenderModeName << "  (switch: Core/RenderMode.hpp)\n";
     std::cout << "[Options] scene=" << opt.scene << " " << size.width << "x" << size.height

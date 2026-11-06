@@ -177,11 +177,21 @@ Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a
 > **Speed tip.** A Release CLI is about 5x faster than Debug. Build it with the `RaytCli` switch (Release builds the GUI otherwise):
 > `msbuild GoLD_rayt/GoLD_rayt.vcxproj /p:Configuration=Release /p:Platform=x64 /p:RaytCli=true`.
 
-**Command line** (`GoLD_rayt.exe [options]`)
+**Scene files.** A scene is a JSON file; the program takes it as its first argument, and the options after it win over the file:
+
+```bat
+GoLD_rayt.exe scenes\gold_bowl_tungsten.json --spp 64
+```
+
+A file either names a built-in scene with options (`scenes/presets/`) or describes the scene as data: materials (diffuse,
+conductor with `"metal": "Au"`, dielectric, emission), spheres, quads, OBJ meshes, surfaces of revolution, point lights, camera and
+environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.exe --list-scenes` lists the built-in scenes.
+
+**Command line** (`GoLD_rayt.exe [scene.json] [options]`)
 
 | Option | Meaning |
 |---|---|
-| `--scene NAME` | `gold`, `glass`, `goldrough`, `spd`, `studio`, `mesh`, `pmx`, or a test: `furnace`, `metals`, `lights`, `aov`, `sss`, `bench` |
+| `--scene NAME` | a built-in scene (`--list-scenes`) or a test (`furnace`, `metals`, `lights`, `aov`, `sss`, `bench`, ...) |
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
@@ -277,7 +287,7 @@ SSS approximation.
 | `Render/` | camera, film, integrator, denoiser, subsurface probe |
 | `IO/` | CSV, metal-data, HDR / image / OBJ / PMX / VPD loaders |
 | `Application/`, `src/UI/` | the Dear ImGui viewer |
-| `Cli/`, `src/Cli/` | the command-line renderer: options, one builder per scene, self-checks, tools, the common render steps |
+| `Cli/`, `src/Cli/` | the command-line renderer: options, scene files, one builder per scene, self-checks, tools, the common render steps |
 
 ---
 
@@ -354,6 +364,7 @@ by mototo=toto. These are rendering tests of this project and have no connection
 | [Dear ImGui](https://github.com/ocornut/imgui) | GUI | MIT |
 | [GLM](https://github.com/g-truc/glm), [Eigen](https://eigen.tuxfamily.org/) 3.4 | math | MIT / MPL-2.0 |
 | [stb](https://github.com/nothings/stb) | image reading and writing | public domain / MIT |
+| [nlohmann/json](https://github.com/nlohmann/json) 3.11.3 | scene files (`GoLD_rayt/external/nlohmann/`) | MIT |
 | Johnson & Christy optical constants (Au, Ag, Cu) | `assets/Metal_data/` | published data, via RefractiveIndex.info |
 
 Environment maps in `assets/env/` keep the licenses of their sources. MMD models are not distributed.

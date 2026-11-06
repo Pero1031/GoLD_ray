@@ -1,0 +1,1 @@
+{ "comment": "Gold bowl under daylight (D65): RGB and spectral renderers differ little here.", "scene": "goldbowl", "options": { "light": "d65", "width": 800, "spp": 256 } }

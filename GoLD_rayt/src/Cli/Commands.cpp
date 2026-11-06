@@ -8,17 +8,46 @@
 
 namespace rayt::cli {
 
+namespace {
+
+struct Command {
+    CommandDef def;
+    std::function<int(const CliOptions&)> run;
+};
+
+const std::vector<Command>& Commands() {
+    static const std::vector<Command> commands = {
+        { { "lights", "light source checks against closed forms and numerical integrals" }, [](const CliOptions& o) { return RunLightTests(o); } },
+        { { "aov", "denoiser feature (albedo / normal) checks" }, [](const CliOptions&) { return RunAovTests(); } },
+        { { "sss", "subsurface scattering checks" }, [](const CliOptions& o) { return RunSssTests(o); } },
+        { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
+        { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
+        { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },
+        { { "manifoldtest", "prism caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, false); } },
+        { { "manifoldcup", "tumbler caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, true); } },
+        { { "metals", "metal data checks (file layouts, reflectance input, edge tint)" }, [](const CliOptions& o) { return RunMetalTests(o); } },
+        { { "bench", "BVH benchmark: recursive reference vs SAH BVH" }, [](const CliOptions& o) { return RunBvhBenchmark(o); } },
+    };
+    return commands;
+}
+
+} // namespace
+
+const CommandDef* FindCommand(const std::string& name) {
+    for (const Command& c : Commands())
+        if (name == c.def.name) return &c.def;
+    return nullptr;
+}
+
+std::vector<const CommandDef*> AllCommands() {
+    std::vector<const CommandDef*> all;
+    for (const Command& c : Commands()) all.push_back(&c.def);
+    return all;
+}
+
 std::optional<int> RunNonRenderCommand(const CliOptions& opt) {
-    if (opt.scene == "lights") return RunLightTests(opt);
-    if (opt.scene == "aov") return RunAovTests();
-    if (opt.scene == "sss") return RunSssTests(opt);
-    if (opt.scene == "skinlayers") return RunSkinLayers(opt);
-    if (opt.scene == "volume") return RunVolumeTests(opt);
-    if (opt.scene == "caustic") return RunCausticTests(opt);
-    if (opt.scene == "manifoldtest") return RunManifoldTests(opt, false);
-    if (opt.scene == "manifoldcup") return RunManifoldTests(opt, true);
-    if (opt.scene == "metals") return RunMetalTests(opt);
-    if (opt.scene == "bench") return RunBvhBenchmark(opt);
+    for (const Command& c : Commands())
+        if (opt.scene == c.def.name) return c.run(opt);
     if (opt.scene == "pmx" && opt.poseList) {
         const auto files = FindMmdFiles("pose", ".vpd");
         for (size_t i = 0; i < files.size(); ++i)
