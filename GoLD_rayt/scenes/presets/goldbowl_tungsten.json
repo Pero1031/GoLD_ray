@@ -1,0 +1,1 @@
+{ "comment": "Gold bowl under a tungsten bulb: the spectral gold is yellower, the RGB gold duller.", "scene": "goldbowl", "options": { "light": "tungsten", "width": 800, "spp": 256 } }

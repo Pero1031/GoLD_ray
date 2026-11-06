@@ -23,4 +23,6 @@ std::optional<int> BuildMesh(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildSkinDemo(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out);
 
+std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out);   // the scene "file": a JSON scene written as data
+
 } // namespace rayt::cli

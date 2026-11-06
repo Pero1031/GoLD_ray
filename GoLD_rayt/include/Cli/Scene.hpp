@@ -28,6 +28,7 @@
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
 #include "Cli/Options.hpp"
+#include "Cli/SceneDescription.hpp"
 
 namespace rayt::cli {
 
@@ -59,13 +60,6 @@ struct SceneContext {
     const CliOptions& opt;
     const StdMaterials& mats;
     Environment& env;
-};
-
-struct CameraSpec {
-    Point3 from = Point3(0, 0.5, 2.5);
-    Point3 at = Point3(0, 0, -1);
-    Vector3 up = Vector3(0, 1, 0);
-    Real fovDeg = 35.0;
 };
 
 // Bounding sphere of the specular objects: where the caustic photons are aimed.
@@ -102,6 +96,7 @@ using SceneBuilder = std::optional<int> (*)(SceneContext& ctx, SceneSetup& out);
 
 struct SceneDef {
     const char* name;
+    const char* description;                   // one line, shown by --list-scenes
     double heightPerWidth;                     // picture format: height / width
     int defaultMaxDepth;                       // used when --depth is not given (0 = the global default)
     EnvKind (*envKind)(const CliOptions&);
@@ -110,6 +105,9 @@ struct SceneDef {
 
 // The scene table (null for a name that is not a scene, e.g. a self-check).
 const SceneDef* FindScene(const std::string& name);
+
+// Every scene, in table order.
+std::vector<const SceneDef*> AllScenes();
 
 // The materials shared by the scenes (prints the gold table it loaded).
 StdMaterials MakeStandardMaterials(const CliOptions& opt);

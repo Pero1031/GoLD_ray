@@ -1,0 +1,1 @@
+{ "comment": "Gold bowl under a candle (1850 K): the largest measured RGB error; use --out x.pfm to keep the negative blue.", "scene": "goldbowl", "options": { "light": "candle", "width": 800, "spp": 256 } }

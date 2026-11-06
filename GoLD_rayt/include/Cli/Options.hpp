@@ -1,11 +1,15 @@
 #pragma once
 // Command line options of the CLI renderer: the defaults, the option struct and the parser.
 
+#include <memory>
+#include <optional>
 #include <string>
 
 #include "Core/Precision.hpp"
 
 namespace rayt::cli {
+
+struct SceneDescription;   // a scene written as data (SceneDescription.hpp)
 
 
 // -----------------------------------------------------------------------------
@@ -131,6 +135,9 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 struct CliOptions {
     std::string scene = "gold";
     int width = IMAGE_WIDTH;           // height follows the 16:9 aspect ratio of the constants
+    int height = 0;                    // --height N: set the height explicitly (0 = from the format of the scene)
+    std::string sceneFile;             // the scene file the options came from (empty: none)
+    std::shared_ptr<const SceneDescription> sceneDescription;   // its "objects" form (scene "file"), read once while parsing
     int spp = SAMPLES_PER_PIXEL;
     int maxDepth = MAX_DEPTH;
     std::string env = ENV_HDR_PATH;
@@ -206,6 +213,8 @@ struct CliOptions {
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
 };
 
-bool ParseArgs(int argc, char** argv, CliOptions& o);
+// Parses the command line, and the scene file if the first argument is one (the command line wins over the file).
+// Returns an exit code when the program should stop (0 after --help / --list-scenes, 1 after an error), std::nullopt to carry on.
+std::optional<int> ParseArgs(int argc, char** argv, CliOptions& o);
 
 } // namespace rayt::cli

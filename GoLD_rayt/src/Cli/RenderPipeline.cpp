@@ -9,6 +9,7 @@
 namespace rayt::cli {
 
 ImageSize ComputeImageSize(const CliOptions& opt) {
+    if (opt.height > 0) return { opt.width, opt.height };
     const SceneDef* def = FindScene(opt.scene);
     const double heightPerWidth = def ? def->heightPerWidth : double(IMAGE_HEIGHT) / IMAGE_WIDTH;
     return { opt.width, std::max(1, static_cast<int>(std::lround(double(opt.width) * heightPerWidth))) };

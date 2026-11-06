@@ -1,0 +1,18 @@
+{
+  // Three gold spheres of different roughness (Johnson & Christy gold) on a gray floor, lit by an environment map.
+  // The same scene as the built-in "gold".
+  "options": { "width": 800, "spp": 256 },
+  "environment": { "type": "hdr" },
+  "materials": {
+    "gold smooth": { "type": "conductor", "metal": "Au", "roughness": 0.01 },
+    "gold medium": { "type": "conductor", "metal": "Au", "roughness": 0.20 },
+    "gold rough":  { "type": "conductor", "metal": "Au", "roughness": 0.50 },
+    "floor":       { "type": "diffuse", "albedo": 0.5 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-1.2, 0, -1], "radius": 0.5, "material": "gold smooth" },
+    { "shape": "sphere", "center": [ 0.0, 0, -1], "radius": 0.5, "material": "gold medium" },
+    { "shape": "sphere", "center": [ 1.2, 0, -1], "radius": 0.5, "material": "gold rough" },
+    { "shape": "sphere", "center": [0, -100.5, -1], "radius": 100, "material": "floor" }
+  ]
+}
