@@ -366,3 +366,7 @@ FodyWeavers.xsd
 
 # MMD models (third-party assets with their own usage/redistribution terms): never commit them
 MMD_model/
+
+# Japanese presentation figures and the script that makes them (for slides, not part of the repository)
+docs/img/*_ja.png
+tools/gold_compare_ja_fig.py
