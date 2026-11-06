@@ -174,8 +174,8 @@ Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a
    `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`).
 4. Run from the project folder `GoLD_rayt/`.
 
-> **Speed tip.** A Release CLI is about 5x faster than Debug. To build it, set `ExcludedFromBuild` of `main_cli.cpp` to
-> `false` and of `main_ui.cpp` to `true` for `Release|x64` in `GoLD_rayt.vcxproj` (revert it for the GUI).
+> **Speed tip.** A Release CLI is about 5x faster than Debug. Build it with the `RaytCli` switch (Release builds the GUI otherwise):
+> `msbuild GoLD_rayt/GoLD_rayt.vcxproj /p:Configuration=Release /p:Platform=x64 /p:RaytCli=true`.
 
 **Command line** (`GoLD_rayt.exe [options]`)
 
@@ -277,6 +277,7 @@ SSS approximation.
 | `Render/` | camera, film, integrator, denoiser, subsurface probe |
 | `IO/` | CSV, metal-data, HDR / image / OBJ / PMX / VPD loaders |
 | `Application/`, `src/UI/` | the Dear ImGui viewer |
+| `Cli/`, `src/Cli/` | the command-line renderer: options, one builder per scene, self-checks, tools, the common render steps |
 
 ---
 
