@@ -20,7 +20,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The images in docs/img are renderings and are not covered by this license; the
-renderings of the character model (README, section 8) are subject to the terms
-of that model. The third-party libraries that tools/fetch_deps.ps1 downloads keep
-their own licenses.
+The images in docs/img are renderings and are not covered by this license. The
+third-party libraries that tools/fetch_deps.ps1 downloads keep their own licenses.
