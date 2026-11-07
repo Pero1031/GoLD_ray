@@ -34,6 +34,7 @@ struct MaterialSpec {
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
     std::string table;                             // ... or a complex IOR table (RefractiveIndex.info CSV)
+    std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double ior = 1.5;                              // dielectric
