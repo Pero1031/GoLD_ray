@@ -162,20 +162,21 @@ RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering com
 
 ## 2. Quick start
 
-Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a CPU with **AVX2**. Libraries are bundled
-(see [section 9](#9-third-party-code-and-data)).
+Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a CPU with **AVX2**. The third-party
+libraries are not part of this repository; one script downloads them ([section 9](#9-third-party-code-and-data)).
 
-1. Open `GoLD_rayt.sln`.
-2. **Debug | x64** builds the **command-line renderer** (`src/main_cli.cpp`); **Release | x64** builds the **GUI viewer**
-   (`src/main_ui.cpp`).
-3. Copy the DLLs next to the executable (`bin/` is not tracked by Git): Embree (`embree4.dll`, `tbb12.dll`,
-   `tbbmalloc.dll` from `librarys/embree-4.4.0.x64.windows/bin/`), OpenImageDenoise (`OpenImageDenoise.dll`, `_core.dll`,
-   `_device_cpu.dll` from `librarys/oidn-2.5.1.x64.windows/bin/`), and for the GUI `glfw3.dll` (from
-   `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`).
-4. Run from the project folder `GoLD_rayt/`.
+1. `powershell -ExecutionPolicy Bypass -File tools\fetch_deps.ps1` downloads Embree, Open Image Denoise, GLM, nlohmann/json,
+   stb, GLFW and Dear ImGui into the folders the project expects (about 0.7 GB; it skips what is already there).
+2. `powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1` builds the command-line renderer into `out\cli` and copies
+   the DLLs it needs (`-Spectral` for the spectral build). Or open `GoLD_rayt.sln` in Visual Studio: **Debug | x64** builds the
+   command-line renderer (`src/main_cli.cpp`), **Release | x64** the **GUI viewer** (`src/main_ui.cpp`); then copy the DLLs
+   next to the executable: Embree (`embree4.dll`, `tbb12.dll`, `tbbmalloc.dll` from `librarys/embree-4.4.0.x64.windows/bin/`),
+   OpenImageDenoise (`OpenImageDenoise.dll`, `_core.dll`, `_device_cpu.dll` from `librarys/oidn-2.5.1.x64.windows/bin/`), and
+   for the GUI `glfw3.dll` (from `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`).
+3. Run from the project folder `GoLD_rayt/`.
 
-> **Speed tip.** A Release CLI is about 5x faster than Debug. `powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1` builds it
-> into `out\cli` (`-Spectral` for the spectral build) and copies the DLLs; it is MSBuild with `/p:RaytCli=true`.
+> **Speed tip.** A Release CLI is about 5x faster than Debug. `build_cli.ps1` is MSBuild with `/p:RaytCli=true`. `-Dev` skips the
+> link-time code generation: changing one `.cpp` then rebuilds in about 3 seconds instead of 20 (the renderer is a few percent slower).
 
 **Scene files.** A scene is a JSON file; the program takes it as its first argument, and the options after it win over the file:
 
@@ -356,16 +357,18 @@ by mototo=toto. These are rendering tests of this project and have no connection
 
 ## 9. Third-party code and data
 
+These are **not included in the repository**: `tools/fetch_deps.ps1` downloads them, and each keeps its own license.
+
 | Component | Use | License |
 |---|---|---|
 | [Embree](https://github.com/RenderKit/embree) 4.4.0 | ray tracing kernels | Apache-2.0 |
 | [Open Image Denoise](https://github.com/RenderKit/oidn) 2.5.1 | denoising | Apache-2.0 |
-| [GLFW](https://www.glfw.org/) 3.4, glad | GUI window and OpenGL loader | zlib / permissive |
-| [Dear ImGui](https://github.com/ocornut/imgui) | GUI | MIT |
-| [GLM](https://github.com/g-truc/glm), [Eigen](https://eigen.tuxfamily.org/) 3.4 | math | MIT / MPL-2.0 |
+| [GLFW](https://www.glfw.org/) 3.4 | GUI window | zlib |
+| [Dear ImGui](https://github.com/ocornut/imgui) (docking branch) | GUI | MIT |
+| [GLM](https://github.com/g-truc/glm) | math | MIT |
 | [stb](https://github.com/nothings/stb) | image reading and writing | public domain / MIT |
-| [nlohmann/json](https://github.com/nlohmann/json) 3.11.3 | scene files (`GoLD_rayt/external/nlohmann/`) | MIT |
+| [nlohmann/json](https://github.com/nlohmann/json) 3.11.3 | scene files | MIT |
+| [glad](https://github.com/Dav1dde/glad) 0.1.36 (generated loader, 3 files in `GoLD_rayt/external/glad/`) | OpenGL loader | generated code; `khrplatform.h` is Khronos (MIT) |
 | Johnson & Christy optical constants (Au, Ag, Cu) | `assets/Metal_data/` | published data, via RefractiveIndex.info |
 
-Environment maps in `assets/env/` keep the licenses of their sources. MMD models are not distributed.
-This repository does not have a license file of its own yet.
+Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). MMD models are not distributed.

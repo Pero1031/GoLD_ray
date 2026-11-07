@@ -478,7 +478,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);GLM_FORCE_AVX2;GLM_FORCE_DEFAULT_ALIGNED_GENTYPES;GLM_FORCE_INLINE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)..\librarys\oidn-2.5.1.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)..\librarys\oidn-2.5.1.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -502,7 +502,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);GLM_FORCE_AVX2;GLM_FORCE_DEFAULT_ALIGNED_GENTYPES;GLM_FORCE_INLINE</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)..\librarys\oidn-2.5.1.x64.windows\include;$(ProjectDir)external;$(ProjectDir)external\eigen-3.4.0;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\librarys\embree-4.4.0.x64.windows\include;$(ProjectDir)..\librarys\oidn-2.5.1.x64.windows\include;$(ProjectDir)external;$(ProjectDir)include\stb;$(ProjectDir)..\external\imgui;$(ProjectDir)..\external\imgui\backends;$(ProjectDir)\external\glfw-3.4.bin.WIN64\include;$(ProjectDir)\external\glad\include</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <OpenMPSupport>true</OpenMPSupport>
