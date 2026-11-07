@@ -1,0 +1,14 @@
+{
+  // A cloud-like volume: an index-matched sphere (IOR 1: the boundary is invisible) filled with a noise density.
+  "options": { "width": 640, "spp": 128, "env": "assets/env/bryanston_park_sunrise_2k.hdr" },
+  "camera": { "from": [0, 0.0, 0.55], "at": [0, 0, 0], "fov": 24 },
+  "environment": "hdr",
+  "materials": {
+    "cloud": { "type": "dielectric", "ior": 1.0,
+               "medium": { "sigmaT": 420, "albedo": 0.9995, "g": 0.6,
+                           "noise": { "frequency": 22, "octaves": 5, "lo": 0.42, "hi": 0.62, "seed": 7, "maskCenter": [0, 0, 0], "maskRadius": 0.1, "maskStart": 0.45 } } }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [0, 0, 0], "radius": 0.1, "material": "cloud" }
+  ]
+}

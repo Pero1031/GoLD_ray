@@ -1,0 +1,18 @@
+﻿{
+  "options": { "width": 480, "spp": 128, "env": "assets/env/bryanston_park_sunrise_2k.hdr" },
+  "camera": { "from": [0, 0.08, 0.45], "at": [0, 0.04, 0], "fov": 28 },
+  "environment": "hdr",
+  "materials": {
+    "jade":  { "type": "dielectric", "roughness": 0.15, "medium": { "sigmaT": [250, 150, 250], "albedo": [0.85, 0.998, 0.95], "g": 0.3 } },
+    "wax":   { "type": "dielectric", "roughness": 0.1, "medium": { "sigmaT": [120, 140, 220], "albedo": [0.999, 0.99, 0.93], "g": 0.4 } },
+    "milk":  { "type": "dielectric", "roughness": 0.1, "medium": { "sigmaT": 150, "albedo": 0.999, "g": 0.2 } },
+    "floor": { "type": "diffuse", "albedo": 0.5 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-0.11, 0.05, 0], "radius": 0.05, "material": "jade" },
+    { "shape": "sphere", "center": [ 0.0,  0.05, 0], "radius": 0.05, "material": "wax" },
+    { "shape": "sphere", "center": [ 0.11, 0.05, 0], "radius": 0.05, "material": "milk" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" }
+  ]
+}
+

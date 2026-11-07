@@ -1,0 +1,19 @@
+{
+  // Backlit by a small lamp behind each sphere row; same sigma_s' = 15 /m and sigma_a = 1 /m, only the phase function differs.
+  "options": { "width": 600, "spp": 256 },
+  "camera": { "from": [0, 0.06, 0.5], "at": [0, 0.05, 0], "fov": 24 },
+  "materials": {
+    "iso":     { "type": "dielectric", "roughness": 0.05, "medium": { "sigmaT": 16,  "albedo": 0.9375, "g": 0 } },
+    "hg":      { "type": "dielectric", "roughness": 0.05, "medium": { "sigmaT": 76,  "albedo": 0.98684, "g": 0.8 } },
+    "twolobe": { "type": "dielectric", "roughness": 0.05, "medium": { "sigmaT": 76,  "albedo": 0.98684, "g": 0.97, "g2": -0.5, "weight": 0.884 } },
+    "floor":   { "type": "diffuse", "albedo": 0.05 },
+    "lamp":    { "type": "emission", "spectrum": "d65", "radiance": 40 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-0.11, 0.05, 0], "radius": 0.05, "material": "iso" },
+    { "shape": "sphere", "center": [ 0.0,  0.05, 0], "radius": 0.05, "material": "hg" },
+    { "shape": "sphere", "center": [ 0.11, 0.05, 0], "radius": 0.05, "material": "twolobe" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    { "shape": "quad", "corner": [-0.04, 0.0, -0.25], "edge1": [0.08, 0, 0], "edge2": [0, 0.1, 0], "material": "lamp" }
+  ]
+}
