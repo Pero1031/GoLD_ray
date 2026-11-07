@@ -15,8 +15,8 @@ A 3D path tracer in C++20, built around **spectral rendering of metals** (gold f
 
 **Background.** Built for the author's graduation research: gold was measured with a spectroradiometer (SR-5100) and the
 color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
-own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, water, and MMD
-characters with skin subsurface scattering.
+own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
+water, and MMD characters with skin subsurface scattering.
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
@@ -72,8 +72,8 @@ Numbers: [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_resul
 [`gold_compare_linear.py`](tools/studies/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/studies/gold_compare_linear_fig.py).
 (An earlier comparison on displayed PNGs only showed candle as the smallest difference, 0.8; that was the clipping.)
 
-**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization and thin films
-are not modeled; the Johnson & Christy tables are taken as truth; noise at equal render time was not compared.
+**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization is not modeled (thin films
+are, as a separate material, not on the metals themselves); the Johnson & Christy tables are taken as truth; noise at equal render time was not compared.
 
 Write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
 [`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`metal_probe_compare.txt`](docs/data/metal_probe_compare.txt),
@@ -127,6 +127,7 @@ carry the wavelength itself.
 | **Film** | CIE 1931 color matching functions (analytic multi-lobe fit) to XYZ, then linear sRGB. |
 | **Lights** | `RGB x D65`, a blackbody (any temperature), CIE illuminant A, or an SPD from CSV. Optional white balance (`--wb`). Environment maps and RGB albedos are upsampled to spectra (white is exact). |
 | **Glass dispersion** | Cauchy `n(λ)` from the refractive index and Abbe number; a dispersive path continues with one wavelength. |
+| **Thin films** | Interference in a thin transparent layer (soap film, coated metal), per wavelength with Airy's formula, over air, a dielectric or a metal; the film thickness can vary over the surface ([theory](docs/THIN_FILM.md)). |
 
 ### Spectral vs RGB
 
@@ -162,7 +163,7 @@ GoLD_rayt.exe --scene metals                                              :: met
 
 ### Not done (metals)
 
-Sellmeier presets, Lorentz-Drude / multi-angle fitting, per-wavelength edge tint, thin-film interference, a better
+Sellmeier presets, Lorentz-Drude / multi-angle fitting, per-wavelength edge tint, a better
 RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering compensation for rough dielectrics.
 
 ---
@@ -313,6 +314,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene lights` | each light type against a closed form or numerical integral; light-selection strategies agree |
 | `--scene mesh` | triangle geometry, OBJ round trip, BVH and Embree vs brute force, emissive triangles |
 | `--scene aov` | the albedo / normal features of a camera path |
+| `--scene thinfilm` | Airy's formula against closed forms (no film, a quarter-wave coating, a free film), the sampling weights, a white furnace |
 | `--scene sss` | the profile, a white furnace over skin, the profile across a shadow edge |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
@@ -326,7 +328,7 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 - **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
   alpha cut-outs).
-- **Metals**: Sellmeier / Lorentz-Drude, thin films, spectral upsampling of saturated colors.
+- **Metals and films**: Sellmeier / Lorentz-Drude, multilayer coatings and rough films, spectral upsampling of saturated colors.
 - **Characters**: VMD motion, IK, hair / skirt physics, better hair and cloth BSDFs.
 - **Infrastructure**: a scene description file, a light tree, `ctest` integration.
 
@@ -353,6 +355,12 @@ OIDN-denoised, 12 minutes on 8 threads.
 <sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
 [Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed,
 its two open boundaries closed (`tools/data/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
+
+**A soap bubble** (`scenes/soap_bubble_hdr.json`): thin-film interference. The film is thin and black at the top and thickens downwards,
+with bands that wobble and swirl where the liquid circulates. Its colors are the interference of the light reflected at the front and
+the back of the film, evaluated per wavelength ([theory](docs/THIN_FILM.md)). 900 x 900, 512 spp, OIDN-denoised.
+
+![A soap bubble in front of a garden, colored by thin-film interference](docs/img/gallery_soap_bubble.png)
 
 **A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
 All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.
