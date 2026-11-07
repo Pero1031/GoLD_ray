@@ -99,11 +99,13 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
     }
     else if (type == "conductor") {
-        CheckKeys(m, { "type", "metal", "table", "roughness", "multipleScattering" }, where);
+        CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "multipleScattering" }, where);
         s.type = MaterialSpec::Type::Conductor;
         Optional<std::string>(m, "metal", where, s.metal, ReadString);
         Optional<std::string>(m, "table", where, s.table, ReadString);
-        if (s.metal.empty() == s.table.empty()) Fail(where, "needs exactly one of \"metal\" (Au, Ag or Cu) or \"table\" (a CSV of n and k)");
+        Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
+        if (int(!s.metal.empty()) + int(!s.table.empty()) + int(!s.reflectance.empty()) != 1)
+            Fail(where, "needs exactly one of \"metal\" (Au, Ag or Cu), \"table\" (a CSV of n and k) or \"reflectance\" (a CSV of R(wavelength))");
         if (!s.metal.empty() && s.metal != "Au" && s.metal != "Ag" && s.metal != "Cu") Fail(where + ".metal", "must be Au, Ag or Cu");
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
         Optional<bool>(m, "multipleScattering", where, s.multipleScattering, ReadBool);

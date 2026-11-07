@@ -56,12 +56,21 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
             break;
         case MaterialSpec::Type::Conductor: {
-            const std::string path = m.table.empty() ? "assets/Metal_data/Johnson_" + m.metal + ".csv" : m.table;
+            const std::string path = !m.reflectance.empty() ? m.reflectance
+                : m.table.empty() ? "assets/Metal_data/Johnson_" + m.metal + ".csv" : m.table;
             auto& table = tables[path];
             if (!table) {
                 table = std::make_shared<color::ComplexIorTable>();
                 std::string err;
-                if (!io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+                if (!m.reflectance.empty()) {   // a measured reflectance R(lambda): the (n, k) that give this color at normal incidence
+                    color::SpectralCurve reflectance;
+                    if (!io::loadReflectanceCsv(path, reflectance, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
+                        return 1;
+                    }
+                    *table = color::complexIorTableFromReflectance(reflectance);
+                }
+                else if (!io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
                     std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
                     return 1;
                 }
