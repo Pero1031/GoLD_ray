@@ -55,6 +55,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--albedo") o.mediumAlbedo = std::stod(value("--albedo"));
             else if (a == "--sigma-t-rgb") o.sigmaTRgb = ParseRgb(value("--sigma-t-rgb"), "--sigma-t-rgb");
             else if (a == "--albedo-rgb") o.albedoRgb = ParseRgb(value("--albedo-rgb"), "--albedo-rgb");
+            else if (a == "--phase-g2") o.phaseG2 = std::stod(value("--phase-g2"));
+            else if (a == "--phase-w") o.phaseW = std::stod(value("--phase-w"));
             else if (a == "--phase-g") o.phaseG = std::stod(value("--phase-g"));
             else if (a == "--glass-roughness") o.glassRoughness = std::stod(value("--glass-roughness"));
             else if (a == "--mesh") o.mesh = value("--mesh");

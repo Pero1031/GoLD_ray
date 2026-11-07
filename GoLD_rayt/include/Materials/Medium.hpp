@@ -60,6 +60,32 @@ namespace rayt {
         return frame.localToWorld(Vector3(sinTheta * std::cos(phi), sinTheta * std::sin(phi), cosTheta));
     }
 
+    /**
+     * @brief Phase function: one Henyey-Greenstein lobe, or a mixture of two (Gkioulekas et al. 2013 use such mixtures:
+     *        a forward lobe and a backward lobe).
+     *
+     *   p(cos) = w HG(cos; g1) + (1 - w) HG(cos; g2)
+     *
+     * w = 1 is a single lobe. The mean cosine (the "g" of the similarity relation sigma_s' = sigma_s (1 - g)) is
+     * w g1 + (1 - w) g2: two phase functions with the same mean cosine look alike in thick media, and differ where few
+     * collisions happen (thin parts, edges, a light close to the surface).
+     */
+    struct PhaseFunction {
+        Real g1 = Real(0), g2 = Real(0), w = Real(1);
+        PhaseFunction() = default;
+        PhaseFunction(Real g) : g1(g), g2(g), w(Real(1)) {}   // implicit: a plain g is a single lobe
+        PhaseFunction(Real forward, Real backward, Real weight) : g1(forward), g2(backward), w(weight) {}
+
+        Real meanCosine() const { return w * g1 + (Real(1) - w) * g2; }
+
+        /// A new direction for a ray travelling along `dir`, drawn with exactly the phase function's density.
+        Vector3 sample(const Vector3& dir, const Point2& u) const {
+            // The first number picks the lobe and, rescaled, is reused for the angle (it stays uniform in [0, 1)).
+            if (u.x < w) return sampleHenyeyGreenstein(dir, g1, Point2(w > Real(0) ? u.x / w : Real(0), u.y));
+            return sampleHenyeyGreenstein(dir, g2, Point2((u.x - w) / (Real(1) - w), u.y));
+        }
+    };
+
     class Medium {
     public:
         virtual ~Medium() = default;
@@ -147,24 +173,26 @@ namespace rayt {
     public:
         /// @param sigmaT extinction coefficient (1/m)
         /// @param albedo single-scattering albedo in [0, 1]
-        /// @param g      Henyey-Greenstein anisotropy in (-1, 1); 0 = isotropic
-        HomogeneousMedium(Real sigmaT, Real albedo, Real g = Real(0))
-            : m_sigmaT(sigmaT), m_albedo(albedo), m_g(g) {}
+        /// @param phase  Henyey-Greenstein anisotropy g in (-1, 1) (0 = isotropic), or a two-lobe PhaseFunction
+        HomogeneousMedium(Real sigmaT, Real albedo, PhaseFunction phase = PhaseFunction())
+            : m_sigmaT(sigmaT), m_albedo(albedo), m_phase(phase) {}
 
         Real sigmaT() const override { return m_sigmaT; }
         Real albedo() const override { return m_albedo; }
-        Real anisotropy() const { return m_g; }
+        Real anisotropy() const { return m_phase.meanCosine(); }
+        const PhaseFunction& phase() const { return m_phase; }
 
         Real sampleDistance(Real u) const override {
             return -std::log(Real(1) - u) / m_sigmaT;
         }
 
         Vector3 samplePhase(const Vector3& dir, const Point2& u) const override {
-            return sampleHenyeyGreenstein(dir, m_g, u);
+            return m_phase.sample(dir, u);
         }
 
     private:
-        Real m_sigmaT, m_albedo, m_g;
+        Real m_sigmaT, m_albedo;
+        PhaseFunction m_phase;
     };
 
     /**
@@ -177,11 +205,12 @@ namespace rayt {
      */
     class ChromaticMedium final : public Medium {
     public:
-        ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, Real g = Real(0))
-            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_g(g) {}
+        ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, PhaseFunction phase = PhaseFunction())
+            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_phase(phase) {}
 
         bool isChromatic() const override { return true; }
-        Real anisotropy() const { return m_g; }
+        Real anisotropy() const { return m_phase.meanCosine(); }
+        const PhaseFunction& phase() const { return m_phase; }
         const Vector3& sigmaTRgb() const { return m_sigmaT; }
         const Vector3& albedoRgb() const { return m_albedo; }
 
@@ -189,7 +218,7 @@ namespace rayt {
         Real sigmaT() const override { return (m_sigmaT.x + m_sigmaT.y + m_sigmaT.z) / Real(3); }
         Real albedo() const override { return (m_albedo.x + m_albedo.y + m_albedo.z) / Real(3); }
         Real sampleDistance(Real u) const override { return -std::log(Real(1) - u) / sigmaT(); }
-        Vector3 samplePhase(const Vector3& dir, const Point2& u) const override { return sampleHenyeyGreenstein(dir, m_g, u); }
+        Vector3 samplePhase(const Vector3& dir, const Point2& u) const override { return m_phase.sample(dir, u); }
 
         Spectrum sigmaTSpectrum(const SampledWavelengths& lambda) const override {
 #if defined(RAYT_SPECTRAL_MODE)
@@ -215,7 +244,7 @@ namespace rayt {
 
     private:
         Vector3 m_sigmaT, m_albedo;
-        Real m_g;
+        PhaseFunction m_phase;
     };
 
 } // namespace rayt

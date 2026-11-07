@@ -120,16 +120,20 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& md = m.at("medium");
             const std::string mw = where + ".medium";
             if (!md.is_object()) Fail(mw, "must be an object with \"sigmaT\" (1/m), \"albedo\" and \"g\"");
-            CheckKeys(md, { "sigmaT", "albedo", "g" }, mw);
+            CheckKeys(md, { "sigmaT", "albedo", "g", "g2", "weight" }, mw);
             s.hasMedium = true;
             if (md.contains("sigmaT")) s.mediumSigmaT = ReadColor(md.at("sigmaT"), mw + ".sigmaT");
             if (md.contains("albedo")) s.mediumAlbedo = ReadColor(md.at("albedo"), mw + ".albedo");
             Optional<double>(md, "g", mw, s.mediumG, ReadNumber);
+            Optional<double>(md, "g2", mw, s.mediumG2, ReadNumber);
+            Optional<double>(md, "weight", mw, s.mediumWeight, ReadNumber);
             for (int c = 0; c < 3; ++c) {
                 if (!(s.mediumSigmaT[c] > 0)) Fail(mw + ".sigmaT", "must be above 0");
                 if (s.mediumAlbedo[c] < 0 || s.mediumAlbedo[c] > 1) Fail(mw + ".albedo", "must be between 0 and 1");
             }
             if (s.mediumG <= -1 || s.mediumG >= 1) Fail(mw + ".g", "must be between -1 and 1");
+            if (s.mediumG2 <= -1 || s.mediumG2 >= 1) Fail(mw + ".g2", "must be between -1 and 1");
+            if (s.mediumWeight < 0 || s.mediumWeight > 1) Fail(mw + ".weight", "must be between 0 and 1");
         }
         Optional<double>(m, "ior", where, s.ior, ReadNumber);
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);

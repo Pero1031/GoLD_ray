@@ -102,9 +102,9 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             if (m.hasMedium) {   // a scattering medium inside the closed surface; equal channels make the cheaper gray medium
                 if (m.mediumSigmaT.x == m.mediumSigmaT.y && m.mediumSigmaT.y == m.mediumSigmaT.z
                     && m.mediumAlbedo.x == m.mediumAlbedo.y && m.mediumAlbedo.y == m.mediumAlbedo.z)
-                    glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), Real(m.mediumG)));
+                    glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), PhaseFunction(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight))));
                 else
-                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, Real(m.mediumG)));
+                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, PhaseFunction(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight))));
             }
             materials[name] = glass;
             break;
