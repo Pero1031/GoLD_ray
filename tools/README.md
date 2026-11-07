@@ -17,9 +17,10 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `metal_accuracy.py` | reference solution for the color of metals: spectral (1 nm integral) against the RGB approximation |
 | `rgb_to_spectrum.py` | the engine's RGB-to-spectrum conversion as a reference port, and the Jakob-Hanika alternative |
 | `gold_compare_linear.py`, `gold_compare_linear_fig.py` | RGB build against spectral build on the gold bowl, measured on linear renders |
+| `gold_compare_gamut.py`, `erato_compare_gamut.py` | the same comparison on the bowl and on the statue, measured on what an sRGB, Display P3 or Rec.2020 display shows (with the noise floor) |
 | **`data/`** | |
 | `sr5100.py` | reads and converts CSV exports of the Topcon SR-5100 (spectral radiance) into the two-column CSV the renderer reads |
 | `mesh_clean.py` | cleans an OBJ for the renderer: welds vertices, recomputes smooth normals, optionally closes the open boundaries |
-| **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers) |
+| **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display) |
 
-Scripts that make a figure from renders expect the renders from `GoLD_rayt.exe ... --out x.pfm --denoise` (see the docstring at the top of each script).
+Scripts that make a figure from renders expect the renders from `GoLD_rayt.exe ... --out x.pfm --denoise` (see the docstring at the top of each script). The denoiser clips negative values, so for colors outside sRGB (a candle-lit gold) use the raw `.pfm`, not `_denoised`.

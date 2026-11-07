@@ -1,0 +1,24 @@
+RGB build vs spectral build, gold bowl (800x450, 256 spp, mean of two renders per build, 3x3 box blur; bowl box, lit pixels).
+CIEDE2000 measured on what a display of each gamut shows (see the header of tools/studies/gold_compare_gamut.py).
+
+=== d65 (800x450, 77625 pixels) ===
+light     display     dE00 mean  95 pct     >1   >2.3    outside   noise RGB noise spec
+d65       linear           1.71    3.88                            (no clip, white = D65 at the luminance of the white ball)
+d65       sRGB             1.32    2.77  65.1%   7.7%       0.2%        0.54       0.74
+d65       Display P3       1.32    2.68  66.6%   7.4%       0.0%        0.57       0.75
+d65       Rec.2020         1.33    2.73  64.3%   8.0%       0.0%        0.60       0.79
+
+=== tungsten (800x450, 77625 pixels) ===
+light     display     dE00 mean  95 pct     >1   >2.3    outside   noise RGB noise spec
+tungsten  linear           3.47    8.22                            (no clip, white = D65 at the luminance of the white ball)
+tungsten  sRGB             2.65    4.87  79.5%  59.4%      25.8%        0.46       0.57
+tungsten  Display P3       2.88    6.56  79.5%  62.3%       0.0%        0.47       0.59
+tungsten  Rec.2020         2.82    6.38  80.1%  57.0%       0.0%        0.51       0.61
+
+=== candle (800x450, 77625 pixels) ===
+light     display     dE00 mean  95 pct     >1   >2.3    outside   noise RGB noise spec
+candle    linear           5.60   11.00                            (no clip, white = D65 at the luminance of the white ball)
+candle    sRGB             0.92    2.13  36.1%   4.0%     100.0%        0.42       0.55
+candle    Display P3       5.16    9.87  86.8%  76.4%       3.3%        0.44       0.60
+candle    Rec.2020         4.99    9.30  86.5%  76.3%       0.6%        0.48       0.60
+

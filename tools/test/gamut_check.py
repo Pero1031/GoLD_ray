@@ -20,25 +20,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tools", "lib"))
 
-D65 = (0.3127, 0.3290)
-PRIMARIES = {
-    "srgb":    [(0.640, 0.330), (0.300, 0.600), (0.150, 0.060)],
-    "p3":      [(0.680, 0.320), (0.265, 0.690), (0.150, 0.060)],
-    "rec2020": [(0.708, 0.292), (0.170, 0.797), (0.131, 0.046)],
-}
-
-
-def rgb_to_xyz(prims, white=D65):
-    """Linear RGB -> XYZ for primaries given as xy chromaticities and a white xy (Y = 1)."""
-    p = np.array([[x / y, 1.0, (1 - x - y) / y] for x, y in prims]).T   # columns: XYZ of the primaries at Y = 1
-    w = np.array([white[0] / white[1], 1.0, (1 - white[0] - white[1]) / white[1]])
-    s = np.linalg.solve(p, w)
-    return p * s
-
-
-def from_srgb(name):
-    """3x3 matrix: linear sRGB -> linear RGB of `name`."""
-    return np.linalg.inv(rgb_to_xyz(PRIMARIES[name])) @ rgb_to_xyz(PRIMARIES["srgb"])
+from gamut import from_srgb   # noqa: E402  (the primaries and the matrices live in tools/lib/gamut.py)
 
 
 def header_matrices():

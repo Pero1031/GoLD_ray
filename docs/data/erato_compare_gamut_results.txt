@@ -1,0 +1,45 @@
+RGB build vs spectral build, gold statue (Erato, 600x800, 256 spp; middle box, lit pixels).
+CIEDE2000 measured on what a display of each gamut shows (see the header of tools/studies/erato_compare_gamut.py).
+
+##### A. denoised renders (single renders, no blur) #####
+NOTE: the denoiser (OIDN) clips negative values to 0. A color outside sRGB (the candle: blue < 0) is therefore already clipped in
+these images, and a wider display can not show it. Use part B for anything that depends on out-of-sRGB colors.
+
+=== d65 (600x800, 219872 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+d65       sRGB             1.70    1.25    5.29  57.5%  24.6%       0.0%        1.18       1.45
+d65       Display P3       1.70    1.26    5.16  59.2%  24.7%       0.0%        1.21       1.47
+d65       Rec.2020         1.74    1.39    5.19  62.7%  26.0%       0.0%        1.26       1.51
+
+=== tungsten (600x800, 221718 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+tungsten  sRGB             2.60    2.55    6.61  64.2%  54.7%       3.1%        1.11       1.30
+tungsten  Display P3       2.40    2.40    5.96  64.5%  52.4%       0.0%        1.14       1.30
+tungsten  Rec.2020         2.39    2.38    5.92  65.4%  52.0%       0.0%        1.17       1.34
+
+=== candle (600x800, 222532 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+candle    sRGB             1.39    0.81    4.72  44.1%  18.6%      17.3%        1.08       1.25
+candle    Display P3       1.43    0.87    4.66  46.1%  19.0%       0.0%        1.11       1.28
+candle    Rec.2020         1.43    0.90    4.67  45.3%  18.6%       0.0%        1.15       1.30
+
+##### B. raw renders (no denoiser; mean of the repeats a and b, 3x3 box blur; noise = a vs b blurred) #####
+
+=== d65 (600x800, 221117 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+d65       sRGB             1.24    1.03    3.23  51.6%  11.0%       0.3%        0.86       1.08
+d65       Display P3       1.25    1.13    3.14  54.9%  10.8%       0.0%        0.90       1.10
+d65       Rec.2020         1.29    1.11    3.16  56.9%  12.2%       0.0%        0.95       1.15
+
+=== tungsten (600x800, 223078 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+tungsten  sRGB             2.42    2.60    5.30  64.9%  56.3%      19.3%        0.80       0.92
+tungsten  Display P3       2.59    2.45    6.97  65.2%  54.1%       0.0%        0.83       0.94
+tungsten  Rec.2020         2.56    2.43    6.82  66.3%  53.4%       0.0%        0.87       0.97
+
+=== candle (600x800, 223951 pixels) ===
+light     display     dE00 mean  median  95 pct     >1   >2.3    outside   noise RGB noise spec
+candle    sRGB             0.96    0.74    2.71  35.7%   8.3%     100.0%        0.77       0.90
+candle    Display P3       4.40    4.84   10.92  65.4%  61.5%       4.0%        0.80       0.94
+candle    Rec.2020         4.25    4.75   10.37  65.8%  61.6%       1.0%        0.84       0.96
+
