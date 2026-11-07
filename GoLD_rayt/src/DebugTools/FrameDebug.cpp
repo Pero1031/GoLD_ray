@@ -2,7 +2,7 @@
 #include "Core/Types.hpp"
 #include "Core/Core.hpp"
 #include "Core/Constants.hpp"
-#include "Geometry/Frame.hpp"           // 置いてる場所に合わせて include
+#include "Geometry/Frame.hpp"           // the include path matches where the file lives
 #include "DebugTools/FrameDebug.hpp"
 #include <iostream>
 #include <limits>

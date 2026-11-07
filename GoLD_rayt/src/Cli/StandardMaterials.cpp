@@ -7,11 +7,11 @@ namespace rayt::cli {
 
 StdMaterials MakeStandardMaterials(const CliOptions& opt) {
     StdMaterials m;
-    // 床用
-    m.floor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5)); // 少し暗くして反射を目立たせる
+    // For the floor
+    m.floor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5)); // A little darker, so that the reflections stand out
 
     // --------------------------------------------------
-    // 金の光学定数 (Au) をCSVからロード
+    // Load the optical constants of gold (Au) from the CSV
     // The table is handed to the material as-is: spectral mode evaluates it per wavelength,
     // RGB mode reduces it to RGB eta/k by CMF integration.
     // --------------------------------------------------
@@ -46,22 +46,22 @@ StdMaterials MakeStandardMaterials(const CliOptions& opt) {
             << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.z, k_rgb.z) << ")\n";
     }
 
-    // ★比較用: 3段階の粗さを作成
-    // 0.01: ほぼ鏡 (MirrorConductorと比較用)
-    // 0.20: 少しぼやけた金属
-    // 0.50: マットな金属（ブラスト仕上げ風）
+    // For comparison: three levels of roughness
+    // 0.01: almost a mirror (to compare with MirrorConductor)
+    // 0.20: slightly blurred metal
+    // 0.50: matte metal (like a blasted finish)
     m.goldSmooth = std::make_shared<RoughConductor>(m.auTable, 0.01);
     m.goldMedium = std::make_shared<RoughConductor>(m.auTable, 0.20);
     m.goldRough = std::make_shared<RoughConductor>(m.auTable, 0.50);
 
     // Glass and reference materials for the "glass" and "furnace" scenes.
-    m.glass = std::make_shared<Dielectric>(1.5, 0.0);                      // 粗さ0 = 完全透明 (no dispersion)
+    m.glass = std::make_shared<Dielectric>(1.5, 0.0);                      // roughness 0 = fully transparent (no dispersion)
     m.glassDisp = std::make_shared<Dielectric>(1.5, 0.0, 0.0, opt.abbe);   // clear glass with dispersion (spectral mode)
-    m.frosted = std::make_shared<Dielectric>(1.5, 0.2);                    // 粗さ0.2 = すりガラス
+    m.frosted = std::make_shared<Dielectric>(1.5, 0.2);                    // roughness 0.2 = frosted glass
     m.white = std::make_shared<Lambertian>(RgbColor(1.0));                 // albedo 1 (furnace reference)
 
     // -------------------------------------------------------------------------
-    // 2. 物体の配置 (Scene)
+    // 2. Place the objects (Scene)
     return m;
 }
 

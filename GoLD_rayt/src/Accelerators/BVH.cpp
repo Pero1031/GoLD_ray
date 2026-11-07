@@ -17,7 +17,7 @@ namespace rayt {
     BVHNode::BVHNode(std::vector<std::shared_ptr<Hittable>>& objects,
         size_t start, size_t end)
     {
-        // ここは「とりあえず動く」median split（SAHは後でOK）
+        // A median split that simply works for now (SAH can come later)
         const size_t span = end - start;
 
         // Compute the centroid bounding box to determine the optimal split axis.

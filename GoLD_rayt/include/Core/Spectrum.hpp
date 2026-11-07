@@ -57,7 +57,7 @@ namespace rayt {
         RGBSpectrum(Real r, Real g, Real b) : v(r, g, b) {}
         explicit RGBSpectrum(const Vector3& rgb) : v(rgb) {}
 
-        // 循環参照を防止するため
+        // Kept self-contained to avoid circular includes
         // Query
         bool isBlack() const {
             return v.x <= Real(0) && v.y <= Real(0) && v.z <= Real(0);
@@ -192,11 +192,11 @@ namespace rayt {
             Assert(s != Real(0));
 #endif
             if (!std::isfinite(s) || s == Real(0)) [[unlikely]] {
-                // ここは方針で選択：
-                // A) 黒に潰す（安全）
+                // Policy choice:
+                // A) Collapse to black (safe)
                 c.fill(Real(0));
                 return *this;
-                // B) 何もしないで返す（より“静か”だが誤魔化す）
+                // B) Return unchanged (quieter, but it hides the problem)
                 // return *this;
                 }
             Real inv = Real(1) / s;

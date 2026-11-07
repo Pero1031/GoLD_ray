@@ -215,7 +215,7 @@ namespace rayt {
         // --------------------------------------------------
         std::vector<unsigned char> outputData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
 
-        // TODO: UI/設定から渡す（今は固定）
+        // TODO: pass this in from the UI / settings (fixed for now)
         const Real exposureStops = Real(0);
         const int numPixels = static_cast<int>(m_pixels.size());
 

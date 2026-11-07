@@ -154,9 +154,9 @@ namespace rayt::io {
             return false;
         }
         if (kData.empty()) {
-            // kが無い場合も、金属以外で“etaだけ”みたいなケースがあり得るので
-            // ここは失敗にせず k=0 として扱う方針もありですわ。
-            // 今回は警告メッセージを返しつつ続行します。
+            // A table can have no k as well (a non-metal given by eta only),
+            // so this need not fail: one option is to treat it as k = 0.
+            // Here a warning message is returned and the load continues.
             if (outError) *outError = "Warning: No 'wl,k' block data found. k will be set to 0.";
         }
 

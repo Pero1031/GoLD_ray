@@ -19,12 +19,12 @@ std::optional<int> BuildGoldSpheres(SceneContext& ctx, SceneSetup& out) {
     const auto& matGoldMedium = ctx.mats.goldMedium;
     const auto& matGoldRough = ctx.mats.goldRough;
 
-    // リストに対して add する
+    // Add to the list
     worldList->add(std::make_shared<Sphere>(Point3(-1.2, 0, -1), 0.5, matGoldSmooth));
     worldList->add(std::make_shared<Sphere>(Point3(0.0, 0, -1), 0.5, matGoldMedium));
     worldList->add(std::make_shared<Sphere>(Point3(1.2, 0, -1), 0.5, matGoldRough));
 
-    // 大きな球で床を作製
+    // Make the floor from a big sphere
     worldList->add(std::make_shared<Sphere>(Point3(0, -100.5, -1), 100.0, matFloor));
     return std::nullopt;
 }

@@ -128,9 +128,9 @@ namespace rayt {
          */
         RayDifferential(const Ray& ray) : Ray(ray) {
             hasDifferentials = false;
-            // ★ここで事故防止のリセット！
-            // ただし「tMaxを引き継ぎたいレアケース」がつぶれるトレードオフはある
-            // 変なバグがあったらここを見ろ！
+            // Reset here to prevent accidents.
+            // The trade-off: the rare case that wants to inherit tMax is lost.
+            // If there is a strange bug, look here first.
             // tMax = constants::INFINITY_VAL;
         }
 

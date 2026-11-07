@@ -94,7 +94,7 @@ namespace rayt::sampling {
      * @param u Random numbers in [0, 1)^2.
      */
     inline Vector3 UniformSampleSphere(const Point2& u) {
-        // アルキメデスのハットボックス定理に基づく変換
+        // Transformation based on Archimedes' hat-box theorem
         Real z = 1.0 - 2.0 * u.x; // z in [-1, 1]
         Real r = math::safe_sqrt(1.0 - z * z);
         Real phi = constants::TWO_PI * u.y;
