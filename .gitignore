@@ -386,3 +386,7 @@ docs/HANDOFF.md
 
 # Environment map without a clear license
 /GoLD_rayt/assets/env/grace-new.hdr
+
+# Erato scan (CC BY 4.0): 107 MB mesh + 20 MB texture, over GitHub's 100 MB file limit; kept locally, see assets/Meshes/erato/
+/GoLD_rayt/assets/Meshes/erato/erato.obj
+/GoLD_rayt/assets/Meshes/erato/erato-101.jpg
