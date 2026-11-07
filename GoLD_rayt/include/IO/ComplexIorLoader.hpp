@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "IO/CsvReader.hpp"
@@ -9,6 +10,16 @@
 #include "Color/ComplexIorTable.hpp"
 
 namespace rayt::io {
+
+    /**
+     * @brief The gold table of the sample scenes, shared by the GUI and the CLI.
+     *
+     * Loads the RefractiveIndex.info-style CSV `path` (Johnson & Christy gold). If that fails it logs the reason and falls
+     * back to a tiny table built from old hard-coded RGB constants (450 / 550 / 650 nm). It logs the RGB reduction of the
+     * table (eta, k and the normal-incidence reflectance F0 that RGB mode renders with). The table is handed to the
+     * material as it is: spectral mode evaluates it per wavelength, RGB mode reduces it by CMF integration.
+     */
+    std::shared_ptr<rayt::color::ComplexIorTable> loadGoldIorTable(const std::string& path);
 
     /**
      * @brief Loads complex IOR data (eta, k) from RefractiveIndex.info-style CSV.

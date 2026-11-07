@@ -8,7 +8,10 @@
 #include <algorithm>
 #include <cctype>
 
+#include <iostream>
+
 #include "Core/Precision.hpp"
+#include "Color/IorRgbApprox.hpp"
 
 namespace rayt::io {
 
@@ -241,6 +244,37 @@ namespace rayt::io {
             }
         }
         return loadComplexIor_ThreeColumn(filename, outTable, unit, outError);
+    }
+
+    std::shared_ptr<rayt::color::ComplexIorTable> loadGoldIorTable(const std::string& path) {
+        auto table = std::make_shared<rayt::color::ComplexIorTable>();
+        std::string err;
+        if (!loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+            std::cerr << "[Au IOR] Failed: " << err << "\n";
+            std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
+
+            // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
+            table->assign({
+                { 450.0, 1.45, 1.77 },
+                { 550.0, 0.42, 2.45 },
+                { 650.0, 0.16, 3.48 },
+            });
+        }
+        else {
+            std::cout << "[Au IOR] Loaded: " << path << "\n";
+        }
+
+        // Log the RGB reduction of the table (what RGB mode renders with).
+        Vector3 etaRgb(1.0), kRgb(0.0);
+        rayt::color::integrateIorToRgb_CMF(*table, etaRgb, kRgb);
+        std::cout << "[Au IOR] RGB (CMF-integrated) eta=("
+            << etaRgb.x << "," << etaRgb.y << "," << etaRgb.z << ") "
+            << "k=(" << kRgb.x << "," << kRgb.y << "," << kRgb.z << ")\n";
+        std::cout << "[Au IOR] F0 (normal incidence) = ("
+            << rayt::color::conductorNormalIncidenceReflectance(etaRgb.x, kRgb.x) << ","
+            << rayt::color::conductorNormalIncidenceReflectance(etaRgb.y, kRgb.y) << ","
+            << rayt::color::conductorNormalIncidenceReflectance(etaRgb.z, kRgb.z) << ")\n";
+        return table;
     }
 
 } // namespace rayt::io

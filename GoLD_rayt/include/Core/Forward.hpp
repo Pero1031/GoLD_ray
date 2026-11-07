@@ -71,6 +71,6 @@ namespace rayt {
     // Handling of light interacting with participating media (fog, smoke).
     class Medium;               // Volume properties
     struct MediumInterface;     // Transition between two media
-    class PhaseFunction;        // Angular distribution of volumetric scattering
+    struct PhaseFunction;       // Angular distribution of volumetric scattering
 
 } // namespace rayt

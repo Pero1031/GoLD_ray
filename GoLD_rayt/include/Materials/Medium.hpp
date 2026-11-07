@@ -13,13 +13,16 @@
  * these factors cancel, so the path weight stays 1: the estimator is unbiased without any
  * bookkeeping (Novak et al. 2018, "Monte Carlo methods for volumetric light transport simulation").
  *
- * Gray scattering media (HomogeneousMedium): sigma_t and alpha do not depend on the wavelength.
- * Chromatic absorption without scattering needs no sampling at all: see AbsorbingMedium (a transmittance weight).
- * Chromatic scattering media (ChromaticMedium): the free-flight distance is sampled with the extinction of ONE wavelength
- * of the path (the hero; one of the three channels in the RGB build), and every wavelength gets the weight
- * p_i / p_hero, where p_i is the density of the same event had wavelength i been the hero. The integrator keeps the
- * running ratios normalized so that dividing by their mean (the balance heuristic over the hero choices, as in
- * PBRT v4 "SampledSpectrum r_u") is already done: see PathIntegrator::Li.
+ * Kinds of media:
+ *   - HomogeneousMedium: sigma_t and alpha do not depend on the wavelength (the cheapest walk: no weights).
+ *   - ChromaticMedium: sigma_t and alpha depend on the wavelength, optionally on the position (a DensityField).
+ *   - AbsorbingMedium: absorption only; needs no sampling at all (a transmittance weight).
+ *
+ * All scattering media are walked by the same code (PathIntegrator::advanceInMedium). The free-flight distance is sampled
+ * with the extinction of ONE wavelength of the path (the hero; one of the three channels in the RGB build) at the densest
+ * point, null collisions make up for a lower local density, and every wavelength gets the weight p_i / p_hero, where p_i is
+ * the density of the same event had wavelength i been the hero. The integrator keeps the running ratios normalized so that
+ * the division by their mean (the balance heuristic over the hero choices, as in PBRT v4 "SampledSpectrum r_u") is done.
  *
  * The medium that a ray travels in is Ray::medium. A closed boundary material (Dielectric) knows
  * the medium inside it (Material::mediumInside()); the integrator switches the ray's medium when
@@ -92,31 +95,25 @@ namespace rayt {
     public:
         virtual ~Medium() = default;
 
-        virtual Real sigmaT() const = 0;      ///< extinction coefficient (1/m)
-        virtual Real albedo() const = 0;      ///< probability that a collision scatters (else: absorbs)
-
-        /// Distance to the next collision for the uniform number u in [0, 1).
-        virtual Real sampleDistance(Real u) const = 0;
+        /// Extinction and scattering coefficients (1/m) at the path's wavelengths (RGB build: per channel).
+        /// For a heterogeneous medium: at the densest point (q = 1), the majorant of the walk.
+        virtual Spectrum sigmaTSpectrum(const SampledWavelengths& lambda) const = 0;
+        virtual Spectrum sigmaSSpectrum(const SampledWavelengths& lambda) const = 0;
 
         /// New propagation direction after a scattering collision of a ray travelling along `dir`.
         virtual Vector3 samplePhase(const Vector3& dir, const Point2& u) const = 0;
 
-        /// True for a medium whose coefficients depend on the wavelength and that scatters: the integrator then samples with
-        /// the hero wavelength and weights the others (sigmaTSpectrum / sigmaSSpectrum). False: sigmaT() and albedo() are all.
-        virtual bool isChromatic() const { return false; }
-
         /// Relative density q(x) in [0, 1] at a world-space point: sigma_t(x) = q(x) sigmaTSpectrum(). Homogeneous media: 1.
-        /// With q < 1 the coefficients below are the majorant of the walk (null collisions make up the difference).
+        /// With q < 1 null collisions make up the difference to the majorant.
         virtual Real density(const Point3& /*p*/) const { return Real(1); }
 
-        /// Extinction and scattering coefficients (1/m) at the path's wavelengths (RGB build: per channel).
-        /// For a heterogeneous medium: at the densest point (q = 1).
-        virtual Spectrum sigmaTSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT()); }
-        virtual Spectrum sigmaSSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT() * albedo()); }
+        /// True if sigma_t and the albedo are the same for every wavelength: the weights of the walk are then all 1 and the
+        /// integrator skips them (a gray medium, with or without a density field).
+        virtual bool isSpectrallyConstant() const { return false; }
 
         /// True for a medium that never scatters and whose absorption is applied as a weight along the whole
         /// segment instead of by sampling collisions (see AbsorbingMedium). The integrator then multiplies the
-        /// path throughput by transmittance() and ignores sigmaT() / albedo() / sampleDistance() / samplePhase().
+        /// path throughput by transmittance() and does not walk.
         virtual bool attenuatesContinuously() const { return false; }
 
         /// Beer-Lambert transmittance exp(-sigma_a(lambda) d) over `distance` metres, per wavelength.
@@ -147,9 +144,18 @@ namespace rayt {
             m_sigmaRgb = Vector3(bandMean(580, 680), bandMean(500, 580), bandMean(420, 500)) * m_scale;
         }
 
-        Real sigmaT() const override { return m_sigmaRgb.y; }   // not used: attenuatesContinuously()
-        Real albedo() const override { return Real(0); }
-        Real sampleDistance(Real) const override { return constants::INFINITY_VAL; }
+        // Not used by the walk (attenuatesContinuously()); the coefficients are those of the physics: all absorption.
+        Spectrum sigmaTSpectrum(const SampledWavelengths& lambda) const override {
+            Spectrum s(0.0);
+#if defined(RAYT_SPECTRAL_MODE)
+            for (int i = 0; i < kSpectralSamples; ++i) s[i] = sigmaA(lambda[i]);
+#else
+            (void)lambda;
+            s = m_sigmaRgb;
+#endif
+            return s;
+        }
+        Spectrum sigmaSSpectrum(const SampledWavelengths&) const override { return Spectrum(0.0); }
         Vector3 samplePhase(const Vector3& dir, const Point2&) const override { return dir; }
 
         bool attenuatesContinuously() const override { return true; }
@@ -184,14 +190,14 @@ namespace rayt {
         HomogeneousMedium(Real sigmaT, Real albedo, PhaseFunction phase = PhaseFunction())
             : m_sigmaT(sigmaT), m_albedo(albedo), m_phase(phase) {}
 
-        Real sigmaT() const override { return m_sigmaT; }
-        Real albedo() const override { return m_albedo; }
+        Real sigmaT() const { return m_sigmaT; }
+        Real albedo() const { return m_albedo; }
         Real anisotropy() const { return m_phase.meanCosine(); }
         const PhaseFunction& phase() const { return m_phase; }
 
-        Real sampleDistance(Real u) const override {
-            return -std::log(Real(1) - u) / m_sigmaT;
-        }
+        bool isSpectrallyConstant() const override { return true; }
+        Spectrum sigmaTSpectrum(const SampledWavelengths&) const override { return Spectrum(m_sigmaT); }
+        Spectrum sigmaSSpectrum(const SampledWavelengths&) const override { return Spectrum(m_sigmaT * m_albedo); }
 
         Vector3 samplePhase(const Vector3& dir, const Point2& u) const override {
             return m_phase.sample(dir, u);
@@ -215,9 +221,12 @@ namespace rayt {
         /// @param density  optional density field q(x) in [0, 1] (null: homogeneous); sigmaTRgb is then the extinction where q = 1
         ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, PhaseFunction phase = PhaseFunction(),
             std::shared_ptr<const DensityField> density = nullptr)
-            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_phase(phase), m_density(std::move(density)) {}
+            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_phase(phase), m_density(std::move(density))
+        {
+            m_constant = m_sigmaT.x == m_sigmaT.y && m_sigmaT.y == m_sigmaT.z && m_albedo.x == m_albedo.y && m_albedo.y == m_albedo.z;
+        }
 
-        bool isChromatic() const override { return true; }
+        bool isSpectrallyConstant() const override { return m_constant; }
         Real density(const Point3& p) const override { return m_density ? std::clamp((*m_density)(p), Real(0), Real(1)) : Real(1); }
         bool isHeterogeneous() const { return m_density != nullptr; }
         Real anisotropy() const { return m_phase.meanCosine(); }
@@ -225,10 +234,6 @@ namespace rayt {
         const Vector3& sigmaTRgb() const { return m_sigmaT; }
         const Vector3& albedoRgb() const { return m_albedo; }
 
-        // Scalars (the mean over the channels) for code that does not know about chromatic media.
-        Real sigmaT() const override { return (m_sigmaT.x + m_sigmaT.y + m_sigmaT.z) / Real(3); }
-        Real albedo() const override { return (m_albedo.x + m_albedo.y + m_albedo.z) / Real(3); }
-        Real sampleDistance(Real u) const override { return -std::log(Real(1) - u) / sigmaT(); }
         Vector3 samplePhase(const Vector3& dir, const Point2& u) const override { return m_phase.sample(dir, u); }
 
         Spectrum sigmaTSpectrum(const SampledWavelengths& lambda) const override {
@@ -257,6 +262,7 @@ namespace rayt {
         Vector3 m_sigmaT, m_albedo;
         PhaseFunction m_phase;
         std::shared_ptr<const DensityField> m_density;
+        bool m_constant = false;   // equal channels: see isSpectrallyConstant()
     };
 
 } // namespace rayt

@@ -66,6 +66,9 @@
     <ClCompile Include="src\Render\Film.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Render\Integrator.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Application\Application.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
