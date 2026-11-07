@@ -147,6 +147,56 @@ int RunVolumeTests(const CliOptions& opt) {
 #endif
     }
 
+    // ---- 6. heterogeneous media (a density field, null collisions) ---------------------------------------------
+    {
+        const Real thickness = 0.06;
+        auto hetero = [&](const Vector3& sigmaBar, const Vector3& albedo, std::shared_ptr<const DensityField> field) {
+            return slabOf(std::make_shared<ChromaticMedium>(sigmaBar, albedo, PhaseFunction(), std::move(field)), thickness);
+        };
+        // (a) Without scattering a ray keeps exp(-sigma_bar * integral of q) of the sky: exact, from a numeric integral along the ray.
+        {
+            const auto field = std::make_shared<NoiseDensity>(Real(40), 3, Real(0.35), Real(0.65), 3u);
+            const int steps = 200000;
+            double integral = 0, meanQ = 0;
+            for (int i = 0; i < steps; ++i) { const double q = (*field)(Point3(0, 0, (i + 0.5) / steps * thickness)); integral += q * thickness / steps; meanQ += q / steps; }
+            const Real sigmaBar = 100;
+            run("noise density, albedo 0, sigma_bar 100 /m, mean q along the ray " + std::to_string(meanQ) + ": transmittance exp(-sigma_bar integral q)",
+                *hetero(Vector3(sigmaBar), Vector3(0.0), field), alongZ, Real(std::exp(-sigmaBar * integral)));
+        }
+        // (b) Nothing is absorbed: the sky comes back, whatever the field and the extinction of each wavelength.
+        {
+            const auto field = std::make_shared<NoiseDensity>(Real(60), 4, Real(0.4), Real(0.6), 5u);
+            run("noise density, sigma_bar (40, 150, 600), albedo 1: white furnace", *hetero(Vector3(40, 150, 600), Vector3(1.0), field), alongZ, 1);
+        }
+        // (c) A constant density q = 0.5 on top of sigma_bar 200 is the homogeneous medium of sigma_t 100.
+        {
+            Vector3 meanG, seG, meanC, seC; int badG = 0, badC = 0;
+            EstimateRadiance(*slab(100, 0.9, thickness), alongZ, n, depth, meanG, seG, badG);
+            EstimateRadiance(*hetero(Vector3(200), Vector3(0.9), std::make_shared<ConstantDensity>(Real(0.5))), alongZ, n, depth, meanC, seC, badC);
+            bool ok = (badG + badC == 0);
+            for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanC[c] - meanG[c]) <= 4.0 * std::sqrt(seC[c] * seC[c] + seG[c] * seG[c]) + 0.005 * meanG[c];
+            std::cout << "[Volume]   constant density 0.5 on sigma_bar 200 (null collisions) against the homogeneous slab (sigma_t 100, albedo 0.9)\n"
+                << "             homogeneous (" << meanG.x << ", " << meanG.y << ", " << meanG.z << ")   null collisions (" << meanC.x << ", " << meanC.y << ", " << meanC.z
+                << ")   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+#if !defined(RAYT_SPECTRAL_MODE)
+        // (d) RGB build: with q = 0.5, channel c is the gray medium of half the extinction of that channel.
+        {
+            const Vector3 sigmaHalf(40, 120, 400), albedo(0.95, 0.8, 0.5);
+            Vector3 meanG, seG, meanC, seC; int badG = 0, badC = 0;
+            EstimateRadiance(*hetero(sigmaHalf * Real(2), albedo, std::make_shared<ConstantDensity>(Real(0.5))), alongZ, n, depth, meanC, seC, badC);
+            for (int c = 0; c < 3; ++c) {
+                EstimateRadiance(*slab(sigmaHalf[c], albedo[c], thickness), alongZ, n, depth, meanG, seG, badG);
+                const bool ok = (badG + badC == 0) && std::abs(meanC[c] - meanG[c]) <= 4.0 * std::sqrt(seC[c] * seC[c] + seG[c] * seG[c]) + 0.005 * meanG[c];
+                std::cout << "[Volume]   chromatic, q = 0.5, channel " << c << " against the gray slab of sigma_t " << sigmaHalf[c] << "\n"
+                    << "             gray " << meanG[c] << " +- " << seG[c] << "   null collisions " << meanC[c] << " +- " << seC[c] << "   " << (ok ? "OK" : "FAIL") << "\n";
+                allPassed = ok && allPassed;
+            }
+        }
+#endif
+    }
+
     // ---- 5. two-lobe phase function ---------------------------------------------------------------------------
     {
         const PhaseFunction two(Real(0.9), Real(-0.4), Real(0.7));

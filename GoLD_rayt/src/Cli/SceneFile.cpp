@@ -120,13 +120,33 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& md = m.at("medium");
             const std::string mw = where + ".medium";
             if (!md.is_object()) Fail(mw, "must be an object with \"sigmaT\" (1/m), \"albedo\" and \"g\"");
-            CheckKeys(md, { "sigmaT", "albedo", "g", "g2", "weight" }, mw);
+            CheckKeys(md, { "sigmaT", "albedo", "g", "g2", "weight", "noise" }, mw);
             s.hasMedium = true;
             if (md.contains("sigmaT")) s.mediumSigmaT = ReadColor(md.at("sigmaT"), mw + ".sigmaT");
             if (md.contains("albedo")) s.mediumAlbedo = ReadColor(md.at("albedo"), mw + ".albedo");
             Optional<double>(md, "g", mw, s.mediumG, ReadNumber);
             Optional<double>(md, "g2", mw, s.mediumG2, ReadNumber);
             Optional<double>(md, "weight", mw, s.mediumWeight, ReadNumber);
+            if (md.contains("noise")) {   // "noise": { "frequency", "octaves", "lo", "hi", "seed" } (all optional)
+                const json& nz = md.at("noise");
+                const std::string nw = mw + ".noise";
+                if (!nz.is_object()) Fail(nw, "must be an object (frequency, octaves, lo, hi, seed)");
+                CheckKeys(nz, { "frequency", "octaves", "lo", "hi", "seed", "maskCenter", "maskRadius", "maskStart" }, nw);
+                s.mediumNoise = true;
+                Optional<double>(nz, "frequency", nw, s.noiseFrequency, ReadNumber);
+                Optional<double>(nz, "lo", nw, s.noiseLo, ReadNumber);
+                Optional<double>(nz, "hi", nw, s.noiseHi, ReadNumber);
+                Optional<double>(nz, "maskRadius", nw, s.maskRadius, ReadNumber);
+                Optional<double>(nz, "maskStart", nw, s.maskStart, ReadNumber);
+                if (nz.contains("maskCenter")) s.maskCenter = ReadVec3(nz.at("maskCenter"), nw + ".maskCenter");
+                double oct = s.noiseOctaves, seed = s.noiseSeed;
+                Optional<double>(nz, "octaves", nw, oct, ReadNumber);
+                Optional<double>(nz, "seed", nw, seed, ReadNumber);
+                s.noiseOctaves = int(oct); s.noiseSeed = int(seed);
+                if (!(s.noiseFrequency > 0)) Fail(nw + ".frequency", "must be above 0");
+                if (s.noiseOctaves < 1 || s.noiseOctaves > 12) Fail(nw + ".octaves", "must be between 1 and 12");
+                if (!(s.noiseHi > s.noiseLo)) Fail(nw, "needs hi above lo");
+            }
             for (int c = 0; c < 3; ++c) {
                 if (!(s.mediumSigmaT[c] > 0)) Fail(mw + ".sigmaT", "must be above 0");
                 if (s.mediumAlbedo[c] < 0 || s.mediumAlbedo[c] > 1) Fail(mw + ".albedo", "must be between 0 and 1");

@@ -45,6 +45,14 @@ struct MaterialSpec {
     double mediumG = 0;                            //   Henyey-Greenstein anisotropy (the first lobe)
     double mediumG2 = 0;                           //   second lobe (used when mediumWeight < 1)
     double mediumWeight = 1;                       //   weight of the first lobe
+    bool mediumNoise = false;                      //   a heterogeneous medium: sigmaT is the extinction at the densest point, a noise field gives q(x)
+    double noiseFrequency = 20;                    //     features per metre (the first octave)
+    int noiseOctaves = 4;
+    double noiseLo = 0.45, noiseHi = 0.65;         //     the noise below lo gives density 0, above hi density 1
+    int noiseSeed = 1;
+    double maskRadius = 0;                         //     > 0: the density fades to 0 at this distance from maskCenter (a soft-edged cloud in a sphere)
+    Vector3 maskCenter = Vector3(0.0);
+    double maskStart = 0.5;                        //     the fade starts at this fraction of the radius
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission
