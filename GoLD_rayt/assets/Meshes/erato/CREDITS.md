@@ -1,6 +1,7 @@
 # Erato (3D scan)
 
 - **Title:** Erato
+- **Original object:** Erato, Monte Calvo, 2nd century A.D., marble, Ny Carlsberg Glyptotek (Copenhagen, Denmark). The scan was made with Memento Beta.
 - **Author:** Geoffrey Marchal (© 2016)
 - **License:** [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)
 - **Source:** Morgan McGuire's Computer Graphics Archive, <https://casual-effects.com/data/> (412.7k triangles, 207.3k vertices, updated 2017-07-02)
