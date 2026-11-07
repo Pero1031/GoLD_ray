@@ -1,0 +1,33 @@
+{
+  // Erato (a 3D scan, CC BY 4.0, see assets/Meshes/erato/CREDITS.md; the mesh is not in the repository) three times, with the same shape and
+  // light and a different scattering material inside each: wax, marble (with a noise density) and jade. Lit from behind and above.
+  // The mesh must be closed (python tools/mesh_clean.py erato.obj erato_closed.obj --cap, see CREDITS.md). Needs the spectral build for
+  // the color of the jade to come from its spectrum; takes about 15 minutes at 1080 x 675, 96 spp on 8 threads.
+  "options": { "width": 1080, "height": 675, "spp": 96, "denoise": true },
+  "camera": { "from": [0.0, 0.30, 1.75], "at": [0.0, 0.25, 0.0], "fov": 27 },
+  "materials": {
+    "wax":    { "type": "dielectric", "ior": 1.44, "roughness": 0.30,
+                "medium": { "sigmaT": 220, "albedo": [1.0, 0.997, 0.972], "g": 0.4 } },
+    "marble": { "type": "dielectric", "ior": 1.55, "roughness": 0.12,
+                "medium": { "sigmaT": 480, "albedo": [0.9985, 0.9985, 0.9990], "g": 0.2,
+                            "noise": { "frequency": 55, "octaves": 4, "lo": 0.30, "hi": 0.62, "seed": 5 } } },
+    "jade":   { "type": "dielectric", "ior": 1.65, "roughness": 0.08,
+                "medium": { "sigmaT": [320, 200, 320], "albedo": [0.88, 0.9985, 0.95], "g": 0.3 } },
+    "floor":  { "type": "diffuse", "albedo": 0.25 },
+    "back":   { "type": "emission", "spectrum": "d65", "radiance": 12 },
+    "front":  { "type": "emission", "spectrum": "d65", "radiance": 9 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_closed.obj", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [-0.431, 0.0169, 0.001], "material": "wax" },
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_closed.obj", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [-0.031, 0.0169, 0.001], "material": "marble" },
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_closed.obj", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [0.369, 0.0169, 0.001], "material": "jade" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    { "shape": "sphere", "center": [0.0, 1.35, -1.0], "radius": 0.45, "material": "back" },
+    { "shape": "sphere", "center": [-1.45, 0.55, -1.0], "radius": 0.25, "material": "back" },
+    { "shape": "sphere", "center": [1.45, 0.55, -1.0], "radius": 0.25, "material": "back" },
+    { "shape": "sphere", "center": [-1.5, 0.8, 1.2], "radius": 0.4, "material": "front" }
+  ]
+}
