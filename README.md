@@ -61,7 +61,7 @@ displayed images (Reinhard, sRGB, clipped to the display range).
   both to 0. The engine agrees with the 1 nm integral here, so this is the error of the RGB model. Whether real gold
   under a candle looks different from this screen was not tested (no gamut mapping or wide-gamut output).
 
-Numbers: [`gold_compare_linear_results.txt`](docs/gold_compare_linear_results.txt). Scripts:
+Numbers: [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt). Scripts:
 [`gold_compare_linear.py`](tools/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/gold_compare_linear_fig.py).
 (An earlier comparison on displayed PNGs only showed candle as the smallest difference, 0.8; that was the clipping.)
 
@@ -69,11 +69,11 @@ Numbers: [`gold_compare_linear_results.txt`](docs/gold_compare_linear_results.tx
 are not modeled; the Johnson & Christy tables are taken as truth; noise at equal render time was not compared.
 
 Write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
-[`metal_accuracy_results.txt`](docs/metal_accuracy_results.txt), [`metal_probe_compare.txt`](docs/metal_probe_compare.txt),
-[`metal_probe_rough_compare.txt`](docs/metal_probe_rough_compare.txt). Reproduce:
+[`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`metal_probe_compare.txt`](docs/data/metal_probe_compare.txt),
+[`metal_probe_rough_compare.txt`](docs/data/metal_probe_rough_compare.txt). Reproduce:
 
 ```bash
-python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/metal_accuracy_results.txt
+python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
 ```
 
 ## Aurisidus
