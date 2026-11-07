@@ -339,6 +339,18 @@ RGB build vs spectral build, with the color difference (bottom).
 
 ![Spectral gold, cut glass with caustics, and RGB vs spectral gold under three lights](docs/img/overview.png)
 
+**Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
+with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
+surface, scatters inside (a random walk with chromatic coefficients, hero-wavelength weights and null collisions for the density), and
+leaves again; thin parts such as the drapery and the lyre glow. The coefficients are chosen by eye, not measured. 1080 x 675, 96 spp,
+OIDN-denoised, 12 minutes on 8 threads.
+
+![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
+
+<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed,
+its two open boundaries closed (`tools/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
+
 **A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
 All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.
 
@@ -371,7 +383,7 @@ These are **not included in the repository**: `tools/fetch_deps.ps1` downloads t
 | [stb](https://github.com/nothings/stb) | image reading and writing | public domain / MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) 3.11.3 | scene files | MIT |
 | [glad](https://github.com/Dav1dde/glad) 0.1.36 (generated loader, 3 files in `GoLD_rayt/external/glad/`) | OpenGL loader | generated code; `khrplatform.h` is Khronos (MIT) |
-| Erato 3D scan by Geoffrey Marchal, via [casual-effects.com/data](https://casual-effects.com/data/) | the gold statue figure; the scan is not in the repository | CC BY 4.0 |
+| Erato 3D scan by Geoffrey Marchal, via [casual-effects.com/data](https://casual-effects.com/data/) | the statue figures; the scan is not in the repository | CC BY 4.0 |
 | Johnson & Christy optical constants (Au, Ag, Cu) | `assets/Metal_data/` | published data, via RefractiveIndex.info |
 
 Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). MMD models are not distributed.
