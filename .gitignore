@@ -373,3 +373,16 @@ tools/gold_compare_ja_fig.py
 
 # Private development notes (not published)
 docs/HANDOFF.md
+
+# Third-party libraries: downloaded by tools/fetch_deps.ps1, not part of the repository
+/librarys/
+/external/
+/stb/
+/GoLD_rayt/external/eigen-3.4.0/
+/GoLD_rayt/external/glm/
+/GoLD_rayt/external/glfw-3.4.bin.WIN64/
+/GoLD_rayt/external/nlohmann/
+/GoLD_rayt/include/stb/
+
+# Environment map without a clear license
+/GoLD_rayt/assets/env/grace-new.hdr
