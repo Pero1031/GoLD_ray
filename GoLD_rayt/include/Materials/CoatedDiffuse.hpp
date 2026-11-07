@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file Materials/CoatedDiffuse.hpp
  * @brief Diffuse base under a glossy GGX layer, with a metallic blend (a compact "plastic / principled" material).
  *
