@@ -199,6 +199,18 @@ namespace rayt {
             int passThrough = 0;
             int volumeEvents = 0;   // collisions inside participating media (not counted in depth)
 
+            // Chromatic scattering media: the hero (the wavelength / channel whose extinction samples the distances) and the
+            // per-wavelength path-density ratios rho_i = p_i / p_hero, kept normalized to mean 1 (see ChromaticMedium).
+            // beta already includes the division by the mean of the ratios, so nothing else changes in this function.
+            constexpr int kComponents =
+#if defined(RAYT_SPECTRAL_MODE)
+                kSpectralSamples;
+#else
+                3;
+#endif
+            int hero = -1;
+            Spectrum rho(1.0);
+
             for (int depth = 0; depth < m_maxDepth; ++depth) {
                 SurfaceInteraction rec;
 
@@ -213,6 +225,55 @@ namespace rayt {
                     // Purely absorbing medium (clear water): the survivor fraction of the segment is a weight, not an event.
                     if (hit) beta *= r.medium->transmittance(rec.t, lambda);
                     else break;   // a ray inside a closed boundary that escapes: a leaky mesh, nothing sensible to add
+                }
+                else if (r.medium && r.medium->isChromatic()) {
+                    // Hero-wavelength walk. The distance is sampled with the extinction of the hero; each wavelength i gets the
+                    // weight a_i = (density of the same event if i were the hero) / (density of the event as sampled):
+                    //   collision at t that scatters:  sigma_s,i exp(-sigma_t,i t) / (sigma_s,h exp(-sigma_t,h t))
+                    //   the surface reached at t:      exp(-sigma_t,i t) / exp(-sigma_t,h t)
+                    // (the phase function is gray and sampled exactly, so it cancels). Normalizing a by m = mean(rho a) is the
+                    // balance heuristic over the choice of the hero.
+                    const Medium& med = *r.medium;
+                    if (hero < 0) {
+#if defined(RAYT_SPECTRAL_MODE)
+                        hero = 0;   // the wavelengths are a randomly rotated set: the first one is a uniform choice among them
+#else
+                        hero = std::min(2, int(sampling::Random() * Real(3)));   // one of the three channels, chosen once per path
+#endif
+                    }
+                    const Spectrum sT = med.sigmaTSpectrum(lambda);
+                    const Spectrum sS = med.sigmaSSpectrum(lambda);
+                    const Real tSurface = hit ? rec.t : constants::INFINITY_VAL;
+                    const Real tCollision = -std::log(Real(1) - sampling::Random()) / sT[hero];
+                    const bool collides = tCollision < tSurface;
+                    if (!collides && !hit) break;
+                    const Real t = collides ? tCollision : tSurface;
+                    if (collides) {
+                        if (++volumeEvents > m_maxVolumeEvents) { ++m_volumeCapHits; break; }
+                        if (sampling::Random() * sT[hero] >= sS[hero]) break;   // absorbed (probability 1 - albedo of the hero)
+                    }
+                    // Weights in a common scale: exp(e_i - eMax) cannot overflow where the surface is far away.
+                    Real e[kComponents], eMax = -constants::INFINITY_VAL;
+                    for (int i = 0; i < kComponents; ++i) { e[i] = -(sT[i] - sT[hero]) * t; eMax = std::max(eMax, e[i]); }
+                    Spectrum a(0.0);
+                    Real m = 0;
+                    for (int i = 0; i < kComponents; ++i) {
+                        a[i] = std::exp(e[i] - eMax) * (collides ? sS[i] / sS[hero] : Real(1));
+                        m += rho[i] * a[i];
+                    }
+                    m /= Real(kComponents);
+                    if (!(m > Real(0)) || !std::isfinite(m)) break;
+                    for (int i = 0; i < kComponents; ++i) { beta[i] *= a[i] / m; rho[i] *= a[i] / m; }
+                    if (collides) {
+                        const Point3 p = r.o + r.d * tCollision;
+                        const Vector3 dir = med.samplePhase(r.d, Point2(sampling::Random(), sampling::Random()));
+                        r = Ray(p, dir, Real(0), &med);
+                        hasLastBsdf = true;
+                        lastSpecular = true;
+                        fromReceiver = false;
+                        --depth;
+                        continue;
+                    }
                 }
                 else if (r.medium) {
                     const Medium& med = *r.medium;

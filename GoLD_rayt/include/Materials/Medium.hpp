@@ -13,9 +13,13 @@
  * these factors cancel, so the path weight stays 1: the estimator is unbiased without any
  * bookkeeping (Novak et al. 2018, "Monte Carlo methods for volumetric light transport simulation").
  *
- * Stage 1: gray scattering media (sigma_t and alpha do not depend on the wavelength). Chromatic scattering
- * media need one wavelength to sample the distance and a pdf-ratio weight for the others (spectral MIS).
- * Chromatic absorption without scattering needs none of that: see AbsorbingMedium (a transmittance weight).
+ * Gray scattering media (HomogeneousMedium): sigma_t and alpha do not depend on the wavelength.
+ * Chromatic absorption without scattering needs no sampling at all: see AbsorbingMedium (a transmittance weight).
+ * Chromatic scattering media (ChromaticMedium): the free-flight distance is sampled with the extinction of ONE wavelength
+ * of the path (the hero; one of the three channels in the RGB build), and every wavelength gets the weight
+ * p_i / p_hero, where p_i is the density of the same event had wavelength i been the hero. The integrator keeps the
+ * running ratios normalized so that dividing by their mean (the balance heuristic over the hero choices, as in
+ * PBRT v4 "SampledSpectrum r_u") is already done: see PathIntegrator::Li.
  *
  * The medium that a ray travels in is Ray::medium. A closed boundary material (Dielectric) knows
  * the medium inside it (Material::mediumInside()); the integrator switches the ray's medium when
@@ -32,9 +36,29 @@
 #include "Core/Forward.hpp"
 #include "Core/SampledWavelengths.hpp"
 #include "Color/SpectralCurve.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "Geometry/Frame.hpp"
 
 namespace rayt {
+
+    /// A new direction from the Henyey-Greenstein phase function for a ray travelling along `dir` (g > 0: forward).
+    inline Vector3 sampleHenyeyGreenstein(const Vector3& dir, Real g, const Point2& u) {
+        // cos(theta) between the old and the new propagation direction, by inverting the
+        // cumulative distribution of Henyey-Greenstein: g > 0 favors cos = 1 (forward).
+        Real cosTheta;
+        if (std::abs(g) < Real(1e-3)) {
+            cosTheta = Real(1) - Real(2) * u.x;
+        }
+        else {
+            const Real s = (Real(1) - g * g) / (Real(1) - g + Real(2) * g * u.x);
+            cosTheta = (Real(1) + g * g - s * s) / (Real(2) * g);
+        }
+        cosTheta = std::clamp(cosTheta, Real(-1), Real(1));
+        const Real sinTheta = std::sqrt(std::max(Real(0), Real(1) - cosTheta * cosTheta));
+        const Real phi = Real(2) * constants::PI * u.y;
+        const frame::Frame frame(dir);
+        return frame.localToWorld(Vector3(sinTheta * std::cos(phi), sinTheta * std::sin(phi), cosTheta));
+    }
 
     class Medium {
     public:
@@ -48,6 +72,14 @@ namespace rayt {
 
         /// New propagation direction after a scattering collision of a ray travelling along `dir`.
         virtual Vector3 samplePhase(const Vector3& dir, const Point2& u) const = 0;
+
+        /// True for a medium whose coefficients depend on the wavelength and that scatters: the integrator then samples with
+        /// the hero wavelength and weights the others (sigmaTSpectrum / sigmaSSpectrum). False: sigmaT() and albedo() are all.
+        virtual bool isChromatic() const { return false; }
+
+        /// Extinction and scattering coefficients (1/m) at the path's wavelengths (RGB build: per channel).
+        virtual Spectrum sigmaTSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT()); }
+        virtual Spectrum sigmaSSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT() * albedo()); }
 
         /// True for a medium that never scatters and whose absorption is applied as a weight along the whole
         /// segment instead of by sampling collisions (see AbsorbingMedium). The integrator then multiplies the
@@ -128,25 +160,62 @@ namespace rayt {
         }
 
         Vector3 samplePhase(const Vector3& dir, const Point2& u) const override {
-            // cos(theta) between the old and the new propagation direction, by inverting the
-            // cumulative distribution of Henyey-Greenstein: g > 0 favors cos = 1 (forward).
-            Real cosTheta;
-            if (std::abs(m_g) < Real(1e-3)) {
-                cosTheta = Real(1) - Real(2) * u.x;
-            }
-            else {
-                const Real s = (Real(1) - m_g * m_g) / (Real(1) - m_g + Real(2) * m_g * u.x);
-                cosTheta = (Real(1) + m_g * m_g - s * s) / (Real(2) * m_g);
-            }
-            cosTheta = std::clamp(cosTheta, Real(-1), Real(1));
-            const Real sinTheta = std::sqrt(std::max(Real(0), Real(1) - cosTheta * cosTheta));
-            const Real phi = Real(2) * constants::PI * u.y;
-            const frame::Frame frame(dir);
-            return frame.localToWorld(Vector3(sinTheta * std::cos(phi), sinTheta * std::sin(phi), cosTheta));
+            return sampleHenyeyGreenstein(dir, m_g, u);
         }
 
     private:
         Real m_sigmaT, m_albedo, m_g;
+    };
+
+    /**
+     * @brief Homogeneous scattering medium whose extinction and single-scattering albedo depend on the wavelength
+     *        (jade, wax, milk with a tint, ruby glass with scattering, ...). Gray phase function (Henyey-Greenstein).
+     *
+     * Given as RGB triplets (extinction in 1/m, albedo in [0, 1]). The RGB build uses them per channel; the spectral build
+     * turns each into a smooth spectrum (the same basis as reflectance colors), so the medium has a continuous spectrum
+     * and every wavelength of the path sees its own coefficients.
+     */
+    class ChromaticMedium final : public Medium {
+    public:
+        ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, Real g = Real(0))
+            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_g(g) {}
+
+        bool isChromatic() const override { return true; }
+        Real anisotropy() const { return m_g; }
+        const Vector3& sigmaTRgb() const { return m_sigmaT; }
+        const Vector3& albedoRgb() const { return m_albedo; }
+
+        // Scalars (the mean over the channels) for code that does not know about chromatic media.
+        Real sigmaT() const override { return (m_sigmaT.x + m_sigmaT.y + m_sigmaT.z) / Real(3); }
+        Real albedo() const override { return (m_albedo.x + m_albedo.y + m_albedo.z) / Real(3); }
+        Real sampleDistance(Real u) const override { return -std::log(Real(1) - u) / sigmaT(); }
+        Vector3 samplePhase(const Vector3& dir, const Point2& u) const override { return sampleHenyeyGreenstein(dir, m_g, u); }
+
+        Spectrum sigmaTSpectrum(const SampledWavelengths& lambda) const override {
+#if defined(RAYT_SPECTRAL_MODE)
+            Spectrum s;
+            for (int i = 0; i < kSpectralSamples; ++i) s[i] = std::max(color::rgbToReflectance(m_sigmaT, lambda[i]), Real(1e-3));
+            return s;
+#else
+            (void)lambda;
+            return m_sigmaT;
+#endif
+        }
+        Spectrum sigmaSSpectrum(const SampledWavelengths& lambda) const override {
+#if defined(RAYT_SPECTRAL_MODE)
+            Spectrum s;
+            for (int i = 0; i < kSpectralSamples; ++i)
+                s[i] = sigmaTSpectrum(lambda)[i] * std::min(color::rgbToReflectance(m_albedo, lambda[i]), Real(1));
+            return s;
+#else
+            (void)lambda;
+            return m_sigmaT * m_albedo;
+#endif
+        }
+
+    private:
+        Vector3 m_sigmaT, m_albedo;
+        Real m_g;
     };
 
 } // namespace rayt

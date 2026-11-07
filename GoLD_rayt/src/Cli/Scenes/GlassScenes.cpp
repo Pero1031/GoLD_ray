@@ -86,7 +86,14 @@ std::optional<int> BuildBlob(SceneContext& ctx, SceneSetup& out) {
     }
     else blob = TriangleMesh::Icosphere(4, 0.025, Point3(0.0), true);
     auto glass = std::make_shared<Dielectric>(Real(1.5), opt.glassRoughness);
-    glass->setMedium(std::make_shared<HomogeneousMedium>(opt.sigmaT, opt.mediumAlbedo, opt.phaseG));
+    if (opt.sigmaTRgb || opt.albedoRgb) {   // a chromatic medium: the unset one is gray with the scalar option's value
+        const Vector3 sigmaT = opt.sigmaTRgb ? *opt.sigmaTRgb : Vector3(opt.sigmaT);
+        const Vector3 albedo = opt.albedoRgb ? *opt.albedoRgb : Vector3(opt.mediumAlbedo);
+        glass->setMedium(std::make_shared<ChromaticMedium>(sigmaT, albedo, opt.phaseG));
+        std::cout << "[Blob] chromatic medium: sigma_t (" << sigmaT.x << ", " << sigmaT.y << ", " << sigmaT.z << ") /m, albedo ("
+            << albedo.x << ", " << albedo.y << ", " << albedo.z << ")\n";
+    }
+    else glass->setMedium(std::make_shared<HomogeneousMedium>(opt.sigmaT, opt.mediumAlbedo, opt.phaseG));
     blobMaterial = glass;
     std::cout << "[Blob] " << blob.numTriangles() << " triangles, volume " << blob.signedVolume() * 1e6 << " cm^3 (must be > 0: closed, outward), sigma_t "
         << opt.sigmaT << " /m, albedo " << opt.mediumAlbedo << ", g " << opt.phaseG << ", glass roughness " << opt.glassRoughness << "\n";

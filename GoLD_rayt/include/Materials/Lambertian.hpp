@@ -29,9 +29,25 @@ namespace rayt {
         Real m_opacity = Real(1);                 // < 1: translucent layer (see Material::opacity)
         bool m_translucent = false;
 
+        std::shared_ptr<const color::SpectralCurve> m_curve;   // optional: a measured reflectance R(lambda)
+
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
             if (!m_tex) return albedo;
             return RgbColor(albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));
+        }
+
+        /// The reflectance at the path's wavelengths: the measured curve if there is one (spectral
+        /// build), else the RGB albedo. In the RGB build a curve is already stored as its D65 RGB.
+        Spectrum reflectanceAt(const SurfaceInteraction& rec, const SampledWavelengths& lambda) const {
+#if defined(RAYT_SPECTRAL_MODE)
+            if (m_curve) {
+                Spectrum s;
+                for (int i = 0; i < kSpectralSamples; ++i)
+                    s[i] = std::max(m_curve->evaluate(lambda[i], color::Extrapolate::Clamp), Real(0));
+                return s;
+            }
+#endif
+            return albedoAt(rec).reflectance(lambda);
         }
 
         static inline Real cosNg(const SurfaceInteraction& rec, const Vector3& w) {
@@ -48,6 +64,10 @@ namespace rayt {
          * @param a The reflectance (color) of the surface.
          */
         Lambertian(const RgbColor& a) : albedo(a) {}
+
+        /// A measured reflectance R(lambda), used as is by the spectral build; the RGB build uses its color under D65.
+        Lambertian(std::shared_ptr<const color::SpectralCurve> curve)
+            : albedo(RgbColor(color::reflectanceCurveToRgb(*curve))), m_curve(std::move(curve)) {}
 
         /// Makes the surface a translucent layer: stopped with probability opacity x texture alpha.
         void setTranslucent(Real opacity) { m_translucent = true; m_opacity = opacity; }
@@ -79,7 +99,7 @@ namespace rayt {
                 return Spectrum(0.0);
             }
 
-            return albedoAt(rec).reflectance(lambda) * (1.0 / constants::PI);
+            return reflectanceAt(rec, lambda) * (1.0 / constants::PI);
         }
 
         /**
@@ -133,7 +153,7 @@ namespace rayt {
             bsdfSample.pdf = localDir.z * (Real(1.0) / constants::PI);
 
             // 5. BSDF value: constant for Lambertian surfaces.
-            bsdfSample.f = albedoAt(rec).reflectance(lambda) * (Real(1.0) / constants::PI);
+            bsdfSample.f = reflectanceAt(rec, lambda) * (Real(1.0) / constants::PI);
 
             // 6. Set flags indicating a diffuse reflection interaction.
             bsdfSample.flags =
