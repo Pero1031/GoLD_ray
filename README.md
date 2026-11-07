@@ -344,15 +344,6 @@ the dispersed band sharp; both agree within a few percent on the smooth parts (`
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
 
-**A character** (`--scene pmx --pmx-studio --sss`, [section 4](#4-character-rendering-hobby)): hair, eyes, metal ornaments
-and skin with subsurface scattering, under studio lights.
-
-![An MMD character in a studio, full body and close-up](docs/img/gallery_character.png)
-
-<sub>Model: サンドローネ (Sandrone; miHoYo, modified by 观海), used according to the model's terms of use (no redistribution, no
-commercial use): the model is not part of this repository, only these renderings are shown. Pose: アラベスクポーズ
-by mototo=toto. These are rendering tests of this project and have no connection with the model's authors.</sub>
-
 ---
 
 ## 9. Third-party code and data
@@ -373,4 +364,4 @@ These are **not included in the repository**: `tools/fetch_deps.ps1` downloads t
 
 Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). MMD models are not distributed.
 
-**License of this repository.** The code and the documentation are under the [MIT License](LICENSE) (Copyright (c) 2025-2026 So Kohinata). The images in `docs/img/` are renderings and are not covered by it; the renderings of the character model are subject to that model's terms.
+**License of this repository.** The code and the documentation are under the [MIT License](LICENSE) (Copyright (c) 2025-2026 So Kohinata). The images in `docs/img/` are renderings and are not covered by it.
