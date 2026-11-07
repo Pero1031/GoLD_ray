@@ -77,7 +77,7 @@ const std::string AU_IOR_CSV_PATH = "assets/Metal_data/Johnson_Au.csv";
 //   volume  : volumetric random walk tests (no image): Beer-Lambert transmittance of an absorbing slab, white furnaces of
 //             scattering media (slab, glass sphere), and the reflectance of a semi-infinite slab against a standalone Monte Carlo.
 //   blob    : a closed mesh (--mesh file.obj, default an icosphere of 5 cm) of glass filled with a homogeneous scattering
-//             medium (--sigma-t 1/m, --albedo, --phase-g, --glass-roughness), lit by the environment (--env); --bg-gray v
+//             medium (--sigma-t 1/m, --albedo, --phase-g, --glass-roughness; --sigma-t-rgb r,g,b and --albedo-rgb r,g,b make the medium chromatic), lit by the environment (--env); --bg-gray v
 //             shows a uniform gray backdrop to camera rays that touch nothing. --volume-cap limits collisions per path.
 //   water   : a glass tumbler of water (metres) in front of a striped wall, lit by softboxes. Water = smooth dielectric (IOR 1.333)
 //             with the measured absorption spectrum of pure water (Pope & Fry 1997, assets/Water) applied as a per-wavelength
@@ -183,6 +183,8 @@ struct CliOptions {
     Real sigmaT = 128;                 // blob: extinction coefficient of the medium (1/m)
     Real mediumAlbedo = 0.99;          // blob: single-scattering albedo of the medium
     Real phaseG = 0;                   // blob: Henyey-Greenstein anisotropy (0 = isotropic)
+    std::optional<Vector3> sigmaTRgb;  // blob: chromatic extinction (1/m) per channel (--sigma-t-rgb); with --albedo-rgb, a ChromaticMedium
+    std::optional<Vector3> albedoRgb;  // blob: chromatic single-scattering albedo (--albedo-rgb)
     Real glassRoughness = 0.224;       // blob: perceptual roughness of the glass boundary
     std::string mesh;                  // blob: closed OBJ mesh with outward normals (default: an icosphere)
     Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)

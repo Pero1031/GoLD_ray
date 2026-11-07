@@ -37,6 +37,7 @@
 #include "Core/SampledWavelengths.hpp"
 #include "Color/ColorSpace.hpp"
 #include "Color/Illuminants.hpp"
+#include "Color/SpectralCurve.hpp"
 
 namespace rayt::color {
 
@@ -237,6 +238,23 @@ namespace rayt::color {
             s += rgb[c] * (basis.P[c][i] * (Real(1) - f) + basis.P[c][i + 1] * f);
         }
         return std::max(s, Real(0));
+    }
+
+    /**
+     * @brief The RGB (linear sRGB) a reflectance curve has under D65: Integral( R(l) D65(l) s_c(l) dl ).
+     *
+     * This is what the RGB build uses for a material given as a measured spectrum (the spectral build
+     * uses the curve itself). R is clamped to its end values outside the measured range. A flat curve
+     * R = c gives (c, c, c).
+     */
+    inline Vector3 reflectanceCurveToRgb(const SpectralCurve& curve) {
+        Vector3 rgb(0.0);
+        for (int l = 380; l <= 780; ++l) {
+            const Real trapezoid = (l == 380 || l == 780) ? Real(0.5) : Real(1);
+            const Real r = std::max(curve.evaluate(Real(l), Extrapolate::Clamp), Real(0));
+            rgb += rgbSensorWeights(Real(l)) * (r * evaluateD65(Real(l)) * trapezoid);
+        }
+        return rgb;
     }
 
 } // namespace rayt::color

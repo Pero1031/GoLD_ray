@@ -94,9 +94,11 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
-        CheckKeys(m, { "type", "albedo" }, where);
+        CheckKeys(m, { "type", "albedo", "reflectance" }, where);
         s.type = MaterialSpec::Type::Diffuse;
         if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
+        Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
+        if (m.contains("albedo") && !s.reflectance.empty()) Fail(where, "takes either \"albedo\" (RGB) or \"reflectance\" (a CSV of R(wavelength)), not both");
     }
     else if (type == "conductor") {
         CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "multipleScattering" }, where);
@@ -112,8 +114,23 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
     }
     else if (type == "dielectric") {
-        CheckKeys(m, { "type", "ior", "roughness", "abbe" }, where);
+        CheckKeys(m, { "type", "ior", "roughness", "abbe", "medium" }, where);
         s.type = MaterialSpec::Type::Dielectric;
+        if (m.contains("medium")) {
+            const json& md = m.at("medium");
+            const std::string mw = where + ".medium";
+            if (!md.is_object()) Fail(mw, "must be an object with \"sigmaT\" (1/m), \"albedo\" and \"g\"");
+            CheckKeys(md, { "sigmaT", "albedo", "g" }, mw);
+            s.hasMedium = true;
+            if (md.contains("sigmaT")) s.mediumSigmaT = ReadColor(md.at("sigmaT"), mw + ".sigmaT");
+            if (md.contains("albedo")) s.mediumAlbedo = ReadColor(md.at("albedo"), mw + ".albedo");
+            Optional<double>(md, "g", mw, s.mediumG, ReadNumber);
+            for (int c = 0; c < 3; ++c) {
+                if (!(s.mediumSigmaT[c] > 0)) Fail(mw + ".sigmaT", "must be above 0");
+                if (s.mediumAlbedo[c] < 0 || s.mediumAlbedo[c] > 1) Fail(mw + ".albedo", "must be between 0 and 1");
+            }
+            if (s.mediumG <= -1 || s.mediumG >= 1) Fail(mw + ".g", "must be between -1 and 1");
+        }
         Optional<double>(m, "ior", where, s.ior, ReadNumber);
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
         Optional<double>(m, "abbe", where, s.abbe, ReadNumber);

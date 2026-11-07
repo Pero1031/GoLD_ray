@@ -39,6 +39,10 @@ struct MaterialSpec {
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double ior = 1.5;                              // dielectric
     double abbe = 0;                               // dielectric: Abbe number (0 = no dispersion)
+    bool hasMedium = false;                        // dielectric: the (closed) inside is filled with a scattering medium
+    Vector3 mediumSigmaT = Vector3(100.0);         //   extinction (1/m), per channel
+    Vector3 mediumAlbedo = Vector3(0.9);           //   single-scattering albedo, per channel
+    double mediumG = 0;                            //   Henyey-Greenstein anisotropy
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission

@@ -107,6 +107,46 @@ int RunVolumeTests(const CliOptions& opt) {
             *slab(Real(mua + musp), Real(musp / (mua + musp)), Real(0.5)), alongZ, expected);
     }
 
+    // ---- 4. chromatic media: hero-wavelength sampling with the MIS weights of the other wavelengths ------------
+    {
+        const Real thickness = 0.03;
+        auto chromatic = [&](const Vector3& sigmaT, const Vector3& albedo, Real g = 0) {
+            return slabOf(std::make_shared<ChromaticMedium>(sigmaT, albedo, g), thickness);
+        };
+        // (a) No absorption: whatever the extinction of each wavelength, the sky comes back (the weights must sum correctly).
+        run("chromatic slab, sigma_t (40, 150, 600) /m, albedo 1: white furnace", *chromatic(Vector3(40, 150, 600), Vector3(1.0)), alongZ, 1);
+        run("chromatic slab, same, g = 0.7, slanted ray: white furnace", *chromatic(Vector3(40, 150, 600), Vector3(1.0), 0.7),
+            Ray(Point3(0, 0, -1), glm::normalize(Vector3(0.6, 0.0, 0.8))), 1);
+
+        // (b) A chromatic medium with equal channels is the gray medium.
+        Vector3 meanG, seG, meanC, seC; int badG = 0, badC = 0;
+        EstimateRadiance(*slab(100, 0.9, thickness), alongZ, n, depth, meanG, seG, badG);
+        EstimateRadiance(*chromatic(Vector3(100), Vector3(0.9)), alongZ, n, depth, meanC, seC, badC);
+        {
+            bool ok = (badG + badC == 0);
+            for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanC[c] - meanG[c]) <= 4.0 * std::sqrt(seC[c] * seC[c] + seG[c] * seG[c]) + 0.005 * meanG[c];
+            std::cout << "[Volume]   chromatic slab with equal channels against the gray slab (sigma_t 100, albedo 0.9)\n"
+                << "             gray (" << meanG.x << ", " << meanG.y << ", " << meanG.z << ")   chromatic (" << meanC.x << ", " << meanC.y << ", " << meanC.z
+                << ")   " << (ok ? "OK" : "FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+#if !defined(RAYT_SPECTRAL_MODE)
+        // (c) RGB build: channel c of a chromatic medium is the gray medium with that channel's coefficients.
+        {
+            const Vector3 sigmaT(40, 120, 400), albedo(0.95, 0.8, 0.5);
+            EstimateRadiance(*chromatic(sigmaT, albedo, 0.3), alongZ, n, depth, meanC, seC, badC);
+            for (int c = 0; c < 3; ++c) {
+                EstimateRadiance(*slab(sigmaT[c], albedo[c], thickness, 0.3), alongZ, n, depth, meanG, seG, badG);
+                const bool ok = (badG + badC == 0) && std::abs(meanC[c] - meanG[c]) <= 4.0 * std::sqrt(seC[c] * seC[c] + seG[c] * seG[c]) + 0.005 * meanG[c];
+                std::cout << "[Volume]   chromatic slab, channel " << c << " (sigma_t " << sigmaT[c] << ", albedo " << albedo[c] << ", g 0.3) against the gray slab\n"
+                    << "             gray " << meanG[c] << " +- " << seG[c] << "   chromatic " << meanC[c] << " +- " << seC[c] << "   " << (ok ? "OK" : "FAIL") << "\n";
+                allPassed = ok && allPassed;
+            }
+        }
+#endif
+    }
+
     std::cout << "[Volume] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

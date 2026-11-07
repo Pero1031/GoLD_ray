@@ -61,10 +61,21 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | type | キー |
 |---|---|
-| `diffuse` | `albedo` |
+| `diffuse` | `albedo`（RGB）、または `reflectance`（測定した反射率 R(λ) の CSV。**どちらか 1 つ**） |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`multipleScattering` |
-| `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし） |
+| `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`medium`（内側を散乱媒質で満たす。下） |
 | `emission` | `spectrum`、`radiance`、`twoSided` |
+
+`dielectric` の `medium`: 閉じた形（球、向きの正しい OBJ）の内側を、散乱媒質で満たす。ガラスの境界から入った光が、内部で散乱してから出てくる（蝋、ミルク、翡翠）。
+
+```jsonc
+"jade": { "type": "dielectric", "roughness": 0.2,
+          "medium": { "sigmaT": [250, 150, 250], "albedo": [0.85, 0.998, 0.95], "g": 0.3 } }
+```
+
+- `sigmaT`: 消散係数（1/m）。大きいほど濃い。`albedo`: 散乱で光が残る割合（1 = 吸収なし）。どちらも、数値 1 つ（灰色）か `[r, g, b]`（色つき）。`g`: 位相関数の非等方性（−1〜1。正で前方散乱）。
+- 色つきの媒質は、1 本の経路で代表の波長（RGB 版は 1 チャンネル）だけで距離を選び、ほかの波長は確率密度の比で重みを付ける（`--scene volume` が白炉と灰色との一致を確認する）。色つきは、灰色より、同じ spp でノイズが多い。
+- 経路の長さの上限は、`--volume-cap`。
 
 分光放射計の測定データは、`tools/sr5100.py` で、2 列の CSV（`波長_nm, 値`）に変換できる（下）。
 
@@ -105,5 +116,5 @@ python tools\sr5100.py reflectance 試料.csv 白.csv --out 反射率.csv       
 ```
 
 - LED のスペクトルは、`"spectrum": { "file": "光源.csv" }` で指定する（値の単位は何でもよい。明るさは 1 にそろえて使う）。
-- 測定した反射率は、`"type": "conductor", "reflectance": "反射率.csv"` で金属として使える。
+- 測定した反射率は、`"type": "conductor", "reflectance": "反射率.csv"` で金属として、`"type": "diffuse", "reflectance": "反射率.csv"` で拡散面（布など）として使える。拡散面では、スペクトル版は曲線をそのまま使い、RGB 版は D65 の下の色に直して使う（測定範囲の外は、端の値で延ばす。1 を超える値は警告）。
 - 測定データは実験データなので、リポジトリには入れない（`assets/Metal_measured/` は Git の対象外）。

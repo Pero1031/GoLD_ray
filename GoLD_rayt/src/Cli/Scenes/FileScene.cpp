@@ -53,7 +53,24 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
     for (const auto& [name, m] : d.materials) {
         switch (m.type) {
         case MaterialSpec::Type::Diffuse:
-            materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
+            if (m.reflectance.empty()) {
+                materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
+                break;
+            }
+            else {   // a measured reflectance R(lambda): used as is by the spectral build, as its D65 color by the RGB build
+                auto curve = std::make_shared<color::SpectralCurve>();
+                std::string err;
+                if (!io::loadReflectanceCsv(m.reflectance, *curve, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": " << m.reflectance << ": " << err << "\n";
+                    return 1;
+                }
+                Real lo = Real(1e9), hi = Real(0);
+                for (const auto& s : curve->samples()) { lo = std::min(lo, s.value); hi = std::max(hi, s.value); }
+                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.reflectance << " (" << curve->firstNm() << "-"
+                    << curve->lastNm() << " nm, " << lo << " to " << hi << ")\n";
+                if (hi > Real(1)) std::cout << "[SceneFile]   warning: R above 1 (a diffuse surface cannot reflect more than it receives)\n";
+                materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const color::SpectralCurve>(curve));
+            }
             break;
         case MaterialSpec::Type::Conductor: {
             const std::string path = !m.reflectance.empty() ? m.reflectance
@@ -80,9 +97,18 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = metal;
             break;
         }
-        case MaterialSpec::Type::Dielectric:
-            materials[name] = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
+        case MaterialSpec::Type::Dielectric: {
+            auto glass = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
+            if (m.hasMedium) {   // a scattering medium inside the closed surface; equal channels make the cheaper gray medium
+                if (m.mediumSigmaT.x == m.mediumSigmaT.y && m.mediumSigmaT.y == m.mediumSigmaT.z
+                    && m.mediumAlbedo.x == m.mediumAlbedo.y && m.mediumAlbedo.y == m.mediumAlbedo.z)
+                    glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), Real(m.mediumG)));
+                else
+                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, Real(m.mediumG)));
+            }
+            materials[name] = glass;
             break;
+        }
         case MaterialSpec::Type::Emission: {
             EmissionSpectrum spectrum;
             if (!MakeSpectrum(m.spectrum, spectrum)) return 1;

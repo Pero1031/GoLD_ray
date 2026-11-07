@@ -12,6 +12,16 @@ namespace rayt::cli {
 
 namespace {
 
+// "r,g,b" -> a color (a single number is a gray).
+Vector3 ParseRgb(const std::string& text, const char* name) {
+    std::vector<double> v;
+    std::stringstream ss(text);
+    for (std::string item; std::getline(ss, item, ',');) v.push_back(std::stod(item));
+    if (v.size() == 1) return Vector3(v[0]);
+    if (v.size() != 3) throw std::runtime_error(std::string(name) + " needs r,g,b (three numbers separated by commas)");
+    return Vector3(v[0], v[1], v[2]);
+}
+
 // Applies the options of one command line; throws std::runtime_error with a message for a bad option or value.
 void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
     {
@@ -43,6 +53,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--skin-matched") o.skinMatched = true;
             else if (a == "--sigma-t") o.sigmaT = std::stod(value("--sigma-t"));
             else if (a == "--albedo") o.mediumAlbedo = std::stod(value("--albedo"));
+            else if (a == "--sigma-t-rgb") o.sigmaTRgb = ParseRgb(value("--sigma-t-rgb"), "--sigma-t-rgb");
+            else if (a == "--albedo-rgb") o.albedoRgb = ParseRgb(value("--albedo-rgb"), "--albedo-rgb");
             else if (a == "--phase-g") o.phaseG = std::stod(value("--phase-g"));
             else if (a == "--glass-roughness") o.glassRoughness = std::stod(value("--glass-roughness"));
             else if (a == "--mesh") o.mesh = value("--mesh");
