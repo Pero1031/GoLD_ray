@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
@@ -37,6 +38,7 @@
 #include "Core/SampledWavelengths.hpp"
 #include "Color/SpectralCurve.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Materials/DensityField.hpp"
 #include "Geometry/Frame.hpp"
 
 namespace rayt {
@@ -103,7 +105,12 @@ namespace rayt {
         /// the hero wavelength and weights the others (sigmaTSpectrum / sigmaSSpectrum). False: sigmaT() and albedo() are all.
         virtual bool isChromatic() const { return false; }
 
+        /// Relative density q(x) in [0, 1] at a world-space point: sigma_t(x) = q(x) sigmaTSpectrum(). Homogeneous media: 1.
+        /// With q < 1 the coefficients below are the majorant of the walk (null collisions make up the difference).
+        virtual Real density(const Point3& /*p*/) const { return Real(1); }
+
         /// Extinction and scattering coefficients (1/m) at the path's wavelengths (RGB build: per channel).
+        /// For a heterogeneous medium: at the densest point (q = 1).
         virtual Spectrum sigmaTSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT()); }
         virtual Spectrum sigmaSSpectrum(const SampledWavelengths& /*lambda*/) const { return Spectrum(sigmaT() * albedo()); }
 
@@ -205,10 +212,14 @@ namespace rayt {
      */
     class ChromaticMedium final : public Medium {
     public:
-        ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, PhaseFunction phase = PhaseFunction())
-            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_phase(phase) {}
+        /// @param density  optional density field q(x) in [0, 1] (null: homogeneous); sigmaTRgb is then the extinction where q = 1
+        ChromaticMedium(const Vector3& sigmaTRgb, const Vector3& albedoRgb, PhaseFunction phase = PhaseFunction(),
+            std::shared_ptr<const DensityField> density = nullptr)
+            : m_sigmaT(glm::max(sigmaTRgb, Vector3(1e-3))), m_albedo(glm::clamp(albedoRgb, Vector3(0.0), Vector3(1.0))), m_phase(phase), m_density(std::move(density)) {}
 
         bool isChromatic() const override { return true; }
+        Real density(const Point3& p) const override { return m_density ? std::clamp((*m_density)(p), Real(0), Real(1)) : Real(1); }
+        bool isHeterogeneous() const { return m_density != nullptr; }
         Real anisotropy() const { return m_phase.meanCosine(); }
         const PhaseFunction& phase() const { return m_phase; }
         const Vector3& sigmaTRgb() const { return m_sigmaT; }
@@ -245,6 +256,7 @@ namespace rayt {
     private:
         Vector3 m_sigmaT, m_albedo;
         PhaseFunction m_phase;
+        std::shared_ptr<const DensityField> m_density;
     };
 
 } // namespace rayt

@@ -227,12 +227,20 @@ namespace rayt {
                     else break;   // a ray inside a closed boundary that escapes: a leaky mesh, nothing sensible to add
                 }
                 else if (r.medium && r.medium->isChromatic()) {
-                    // Hero-wavelength walk. The distance is sampled with the extinction of the hero; each wavelength i gets the
-                    // weight a_i = (density of the same event if i were the hero) / (density of the event as sampled):
-                    //   collision at t that scatters:  sigma_s,i exp(-sigma_t,i t) / (sigma_s,h exp(-sigma_t,h t))
-                    //   the surface reached at t:      exp(-sigma_t,i t) / exp(-sigma_t,h t)
-                    // (the phase function is gray and sampled exactly, so it cancels). Normalizing a by m = mean(rho a) is the
-                    // balance heuristic over the choice of the hero.
+                    // Hero-wavelength walk with null collisions (delta tracking).
+                    //
+                    // Distances are sampled with the extinction of the hero at the densest point, sigma_bar_h (the majorant). At
+                    // a tentative collision x the local density q = med.density(x) decides what happens: scatter with
+                    // probability q albedo_h, absorb with q (1 - albedo_h), and with 1 - q nothing (a null collision: go on in
+                    // the same direction). q = 1 everywhere is the plain chromatic walk.
+                    //
+                    // Each wavelength i gets the weight a_i = (density of the same event if i were the hero) / (density of the
+                    // event as sampled), for the three kinds of event of a path segment of length t:
+                    //   scatter:       sigma_s,i exp(-sigma_bar_i t) / (sigma_s,h exp(-sigma_bar_h t))
+                    //   null:          sigma_bar_i exp(-sigma_bar_i t) / (sigma_bar_h exp(-sigma_bar_h t))
+                    //   surface found: exp(-sigma_bar_i t) / exp(-sigma_bar_h t)
+                    // (q is the same for all wavelengths and cancels; the phase function is gray and sampled exactly.)
+                    // Normalizing a by m = mean(rho a) is the balance heuristic over the choice of the hero.
                     const Medium& med = *r.medium;
                     if (hero < 0) {
 #if defined(RAYT_SPECTRAL_MODE)
@@ -244,28 +252,48 @@ namespace rayt {
                     const Spectrum sT = med.sigmaTSpectrum(lambda);
                     const Spectrum sS = med.sigmaSSpectrum(lambda);
                     const Real tSurface = hit ? rec.t : constants::INFINITY_VAL;
-                    const Real tCollision = -std::log(Real(1) - sampling::Random()) / sT[hero];
-                    const bool collides = tCollision < tSurface;
-                    if (!collides && !hit) break;
-                    const Real t = collides ? tCollision : tSurface;
-                    if (collides) {
-                        if (++volumeEvents > m_maxVolumeEvents) { ++m_volumeCapHits; break; }
-                        if (sampling::Random() * sT[hero] >= sS[hero]) break;   // absorbed (probability 1 - albedo of the hero)
+                    // Multiplies beta and rho by the weight of one event; false if the path cannot go on.
+                    auto weigh = [&](Real t, int kind) {   // kind: 0 surface, 1 null, 2 scatter
+                        Real e[kComponents], eMax = -constants::INFINITY_VAL;
+                        for (int i = 0; i < kComponents; ++i) { e[i] = -(sT[i] - sT[hero]) * t; eMax = std::max(eMax, e[i]); }
+                        Spectrum a(0.0);
+                        Real m = 0;
+                        for (int i = 0; i < kComponents; ++i) {   // exp(e - eMax): cannot overflow where the surface is far away
+                            const Real k = kind == 2 ? sS[i] / sS[hero] : kind == 1 ? sT[i] / sT[hero] : Real(1);
+                            a[i] = std::exp(e[i] - eMax) * k;
+                            m += rho[i] * a[i];
+                        }
+                        m /= Real(kComponents);
+                        if (!(m > Real(0)) || !std::isfinite(m)) return false;
+                        for (int i = 0; i < kComponents; ++i) { beta[i] *= a[i] / m; rho[i] *= a[i] / m; }
+                        return true;
+                    };
+                    enum { kSurface, kScattered, kEnded } outcome = kSurface;
+                    Real tCur = 0, tScatter = 0;
+                    for (;;) {
+                        const Real tNext = tCur - std::log(Real(1) - sampling::Random()) / sT[hero];
+                        if (tNext >= tSurface) {
+                            if (!hit) { outcome = kEnded; break; }   // a ray that escapes a closed boundary: a leaky mesh
+                            if (!weigh(tSurface - tCur, 0)) outcome = kEnded;
+                            break;
+                        }
+                        if (++volumeEvents > m_maxVolumeEvents) { ++m_volumeCapHits; outcome = kEnded; break; }
+                        const Real q = med.density(r.o + r.d * tNext);
+                        const Real u = sampling::Random();
+                        if (u >= q) {   // null collision
+                            if (!weigh(tNext - tCur, 1)) { outcome = kEnded; break; }
+                            tCur = tNext;
+                            continue;
+                        }
+                        if (u * sT[hero] >= q * sS[hero]) { outcome = kEnded; break; }   // absorbed (probability 1 - albedo of the hero)
+                        if (!weigh(tNext - tCur, 2)) { outcome = kEnded; break; }
+                        tScatter = tNext;
+                        outcome = kScattered;
+                        break;
                     }
-                    // Weights in a common scale: exp(e_i - eMax) cannot overflow where the surface is far away.
-                    Real e[kComponents], eMax = -constants::INFINITY_VAL;
-                    for (int i = 0; i < kComponents; ++i) { e[i] = -(sT[i] - sT[hero]) * t; eMax = std::max(eMax, e[i]); }
-                    Spectrum a(0.0);
-                    Real m = 0;
-                    for (int i = 0; i < kComponents; ++i) {
-                        a[i] = std::exp(e[i] - eMax) * (collides ? sS[i] / sS[hero] : Real(1));
-                        m += rho[i] * a[i];
-                    }
-                    m /= Real(kComponents);
-                    if (!(m > Real(0)) || !std::isfinite(m)) break;
-                    for (int i = 0; i < kComponents; ++i) { beta[i] *= a[i] / m; rho[i] *= a[i] / m; }
-                    if (collides) {
-                        const Point3 p = r.o + r.d * tCollision;
+                    if (outcome == kEnded) break;
+                    if (outcome == kScattered) {
+                        const Point3 p = r.o + r.d * tScatter;
                         const Vector3 dir = med.samplePhase(r.d, Point2(sampling::Random(), sampling::Random()));
                         r = Ray(p, dir, Real(0), &med);
                         hasLastBsdf = true;

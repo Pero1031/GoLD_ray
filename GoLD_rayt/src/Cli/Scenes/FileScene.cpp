@@ -100,7 +100,13 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         case MaterialSpec::Type::Dielectric: {
             auto glass = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
             if (m.hasMedium) {   // a scattering medium inside the closed surface; equal channels make the cheaper gray medium
-                if (m.mediumSigmaT.x == m.mediumSigmaT.y && m.mediumSigmaT.y == m.mediumSigmaT.z
+                const PhaseFunction phase(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight));
+                if (m.mediumNoise) {   // a density field: always the walk with null collisions
+                    auto field = std::make_shared<NoiseDensity>(Real(m.noiseFrequency), m.noiseOctaves, Real(m.noiseLo), Real(m.noiseHi), std::uint32_t(m.noiseSeed));
+                    if (m.maskRadius > 0) field->setSphereMask(m.maskCenter, Real(m.maskRadius), Real(m.maskStart));
+                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, phase, field));
+                }
+                else if (m.mediumSigmaT.x == m.mediumSigmaT.y && m.mediumSigmaT.y == m.mediumSigmaT.z
                     && m.mediumAlbedo.x == m.mediumAlbedo.y && m.mediumAlbedo.y == m.mediumAlbedo.z)
                     glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), PhaseFunction(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight))));
                 else
