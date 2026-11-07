@@ -3,13 +3,18 @@
 
     powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1              RGB build        -> out\cli
     powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1 -Spectral    spectral build   -> out\cli-spectral
+    powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1 -Dev         development build -> out\cli-dev (-Spectral: out\cli-dev-spectral)
+
+  -Dev switches off link-time code generation: changing one .cpp then rebuilds in about 5 s instead of 20 s (changing a
+  header that many files include takes about 45 s instead of 25 s). The renderer is a few percent slower: use it for trying
+  changes, and the normal build for timing and for the final images.
 
   Works from any PowerShell (MSBuild is found with vswhere when it is not on the PATH). Do not stop it while it runs.
 #>
-param([switch]$Spectral)
+param([switch]$Spectral, [switch]$Dev)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
-$name = if ($Spectral) { "cli-spectral" } else { "cli" }
+$name = if ($Dev) { if ($Spectral) { "cli-dev-spectral" } else { "cli-dev" } } else { if ($Spectral) { "cli-spectral" } else { "cli" } }
 $out = Join-Path $root "out\$name"
 $obj = Join-Path $root "out\$name-obj"
 
@@ -31,8 +36,8 @@ if ($free -lt $needed) { throw ("Only {0:N1} GB are free on drive {1}: the build
 if ($Spectral) { $env:CL = "/DRAYT_SPECTRAL_MODE" } else { Remove-Item Env:CL -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Force $out, $obj | Out-Null
 Write-Host "MSBuild: $msbuild"
-Write-Host ("Building the {0} CLI into {1} ..." -f $(if ($Spectral) { "spectral" } else { "RGB" }), $out)
-& $msbuild (Join-Path $root "GoLD_rayt\GoLD_rayt.vcxproj") /nologo /m /v:minimal /p:Configuration=Release /p:Platform=x64 /p:RaytCli=true "/p:OutDir=$out\" "/p:IntDir=$obj\"
+Write-Host ("Building the {0}{1} CLI into {2} ..." -f $(if ($Spectral) { "spectral" } else { "RGB" }), $(if ($Dev) { " (development, no link-time code generation)" } else { "" }), $out)
+& $msbuild (Join-Path $root "GoLD_rayt\GoLD_rayt.vcxproj") /nologo /m /v:minimal /p:Configuration=Release /p:Platform=x64 /p:RaytCli=true "/p:WholeProgramOptimization=$(if ($Dev) { 'false' } else { 'true' })" "/p:OutDir=$out\" "/p:IntDir=$obj\"
 $code = $LASTEXITCODE
 Remove-Item Env:CL -ErrorAction SilentlyContinue
 if ($code -ne 0) { throw "The build failed (exit code $code). The first 'error' line above says why." }
