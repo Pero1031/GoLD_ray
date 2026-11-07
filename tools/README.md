@@ -17,6 +17,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `metal_accuracy.py` | reference solution for the color of metals: spectral (1 nm integral) against the RGB approximation |
 | `rgb_to_spectrum.py` | the engine's RGB-to-spectrum conversion as a reference port, and the Jakob-Hanika alternative |
 | `gold_compare_linear.py`, `gold_compare_linear_fig.py` | RGB build against spectral build on the gold bowl, measured on linear renders |
+| `metamer_mismatch.py` | how far can the color under another light be from the truth when only the D65 color (or m spectral moments) is known: linear programs over the bounded reflectances (`docs/SPECTRUM_FROM_RGB.md`) |
 | `erato_scielab.py` | the statue comparison with S-CIELAB: does the difference survive the eye's spatial filtering of color (several viewing distances)? |
 | `gold_compare_gamut.py`, `erato_compare_gamut.py` | the same comparison on the bowl and on the statue, measured on what an sRGB, Display P3 or Rec.2020 display shows (with the noise floor) |
 | **`data/`** | |
