@@ -1,9 +1,14 @@
 # GoLD_rayt
 
-![GoLD_rayt: spectral gold, dispersion and caustics, and RGB vs spectral gold under three lights](docs/img/hero.png)
+![Erato in gold, rendered by the RGB build and by the spectral build under daylight and under tungsten light, and the color difference between them](docs/img/hero.png)
 
-<sub>Top (spectral mode): gold spheres and cut glass with caustics. Bottom: the same gold bowl under three lights, RGB build vs
-spectral build, and the color difference between them ([details](#how-much-does-rgb-rendering-get-wrong-for-metals)).</sub>
+<sub>The same gold statue rendered by the RGB build and by the spectral build, under D65 daylight (top) and a tungsten lamp (bottom);
+right: the CIEDE2000 color difference between the two images (mean 1.7 and 2.6 on the statue, [numbers](docs/data/erato_gold_results.txt)). Under daylight they agree; under a
+warm light the RGB gold is duller ([details](#how-much-does-rgb-rendering-get-wrong-for-metals)).<br>
+Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed
+(`tools/mesh_clean.py`), gold material. The scan is not part of this repository
+([credits](GoLD_rayt/assets/Meshes/erato/CREDITS.md)). Scene: `scenes/erato_gold.json`; 600 x 800, 256 spp, OIDN-denoised.</sub>
 
 A 3D path tracer in C++20, built around **spectral rendering of metals** (gold first).
 
@@ -328,6 +333,11 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb), the
 skin under [Character rendering](#4-character-rendering-hobby).
 
+**Overview** (spectral mode): gold in three roughnesses and cut glass with caustics (top), and the gold bowl under three lights,
+RGB build vs spectral build, with the color difference (bottom).
+
+![Spectral gold, cut glass with caustics, and RGB vs spectral gold under three lights](docs/img/overview.png)
+
 **A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
 All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.
 
@@ -343,17 +353,6 @@ sea with physical water absorption (`--scene sea`).
 the dispersed band sharp; both agree within a few percent on the smooth parts (`--scene manifoldtest`).
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
-
-**A gold statue, RGB vs spectral** (`scenes/erato_gold.json`): a 3D scan lit by three lamps, rendered by the RGB build and by the
-spectral build (CIEDE2000 on the displayed images, [numbers](docs/data/erato_gold_results.txt)). Under D65 the two agree (mean 1.7 on
-the statue); under a tungsten lamp the spectral gold is a more saturated yellow and the RGB gold duller (mean 2.6). Same finding as
-for the bowl above, on a complex shape. 600 x 800, 256 spp, OIDN-denoised, 2.3-2.8 minutes per image.
-
-![Erato in gold, RGB renderer, spectral renderer and their color difference, under D65 and under tungsten light](docs/img/erato_gold_rgb_vs_spectral.png)
-
-<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
-[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed
-(`tools/mesh_clean.py`), gold material. The scan is not part of this repository ([credits](GoLD_rayt/assets/Meshes/erato/CREDITS.md)).</sub>
 
 ---
 
