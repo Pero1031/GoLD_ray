@@ -29,7 +29,7 @@ struct SpectrumSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm };
     Type type = Type::Diffuse;
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
@@ -53,6 +53,29 @@ struct MaterialSpec {
     double maskRadius = 0;                         //     > 0: the density fades to 0 at this distance from maskCenter (a soft-edged cloud in a sphere)
     Vector3 maskCenter = Vector3(0.0);
     double maskStart = 0.5;                        //     the fade starts at this fraction of the radius
+    // thinFilm: a smooth surface under one thin transparent layer (Materials/ThinFilm.hpp, docs/THIN_FILM.md)
+    double filmIor = 1.33;                         //   index of the film (soap water 1.33, oil 1.45)
+    double filmThickness = 400;                    //   nm; the start of the gradient when filmGradient is set
+    bool filmGradient = false;                     //   thickness changes linearly along filmAxis ...
+    Vector3 filmAxis = Vector3(0, 1, 0);
+    double filmRange0 = 0, filmRange1 = 1;         //   ... from filmThickness at dot(p, axis) = range0 to filmTop at range1
+    double filmTop = 400;
+    double filmExponent = 1;                       //   gradient profile t^exponent (> 1: the top stays thin for longer)
+    double filmWarpAmp = 0;                        //   the position is displaced by up to +- this many metres (bands wobble and swirl)
+    double filmWarpFreq = 3;
+    int filmWarpSeed = 5;
+    Vector3 filmNoiseStretch = Vector3(1.0);       //   the noise coordinates are multiplied by this ((1, 3, 1): horizontal streaks)
+    double filmNoiseAmp = 0;                       //   +- nm of fractal noise (swirls)
+    double filmNoiseFreq = 10;                     //   features per metre
+    int filmNoiseOctaves = 3;
+    int filmNoiseSeed = 1;
+    bool filmCoverage = false;                     //   the film covers only patches (a noise field; elsewhere the surface is not there)
+    double covFrequency = 0.5, covLo = 0.5, covHi = 0.58;
+    int covOctaves = 4, covSeed = 3;
+    std::string substrateKind = "free";            //   free (a bubble) | dielectric (oil on water) | conductor (coated metal)
+    double substrateIor = 1.33;                    //   dielectric
+    std::string substrateMetal;                    //   conductor: Au | Ag | Cu
+    std::string substrateTable;                    //   ... or a complex IOR table
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission

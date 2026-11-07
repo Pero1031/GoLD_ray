@@ -34,6 +34,11 @@ int RunLightTests(const CliOptions& opt);
 int RunAovTests();
 
 // -----------------------------------------------------------------------------
+// Thin-film interference tests (--scene thinfilm): Airy's formula against closed forms, sample() weights, furnace
+// -----------------------------------------------------------------------------
+int RunThinFilmTests();
+
+// -----------------------------------------------------------------------------
 // Subsurface scattering tests (--scene sss)
 // -----------------------------------------------------------------------------
 int RunSssTests(const CliOptions& opt);

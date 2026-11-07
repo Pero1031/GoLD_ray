@@ -12,6 +12,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `gamut_check.py` | checks of `--gamut srgb\|p3\|rec2020`: the matrices against the primaries, the PNG's cICP chunk, the 16-bit PNG, `.pfm` of two gamuts against each other |
 | **`figures/`** | figures for any scene |
 | `compare_figure.py` | RGB build against spectral build under several lights, with a CIEDE2000 difference map (the README hero) |
+| `thinfilm_figure.py` | the RGB build against the spectral build of a thin-film scene, side by side (`docs/THIN_FILM.md`) |
 | `label_render.py` | tone maps a `.pfm` render and writes labels on it |
 | **`studies/`** | the analyses that README and `docs/METAL_ACCURACY.md` rest on |
 | `metal_accuracy.py` | reference solution for the color of metals: spectral (1 nm integral) against the RGB approximation |

@@ -64,6 +64,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 | `diffuse` | `albedo`（RGB）、または `reflectance`（測定した反射率 R(λ) の CSV。**どちらか 1 つ**） |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`multipleScattering` |
 | `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`medium`（内側を散乱媒質で満たす。下） |
+| `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
 | `emission` | `spectrum`、`radiance`、`twoSided` |
 
 `dielectric` の `medium`: 閉じた形（球、向きの正しい OBJ）の内側を、散乱媒質で満たす。ガラスの境界から入った光が、内部で散乱してから出てくる（蝋、ミルク、翡翠）。

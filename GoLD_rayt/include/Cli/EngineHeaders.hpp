@@ -47,6 +47,7 @@
 #include "Materials/LayeredSkin.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/RoughConductor.hpp"
+#include "Materials/ThinFilm.hpp"
 #include "Lights/AreaLight.hpp"
 #include "Lights/PointLight.hpp"
 

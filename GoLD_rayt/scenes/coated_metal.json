@@ -1,0 +1,25 @@
+{
+  // Metal under a thin transparent coating of high index (n = 2.3, like titanium dioxide): bare gold, gold and copper with a coating whose thickness grows
+  // from 40 nm at the top to 260 nm at the bottom (a little noise on top). The reflectance of coating + metal depends on the wavelength through the
+  // interference of the coating, so the metal turns orange, pink, violet or green with the thickness (anodized or PVD-coated metal, "rainbow" titanium).
+  // (The RGB build shows the color of the film under white light; the spectral build also follows the spectrum of the light.)
+  "options": { "width": 900, "height": 420, "spp": 256, "depth": 12 },
+  "camera": { "from": [0, 0.35, 2.9], "at": [0, 0.15, -1], "fov": 30 },
+  "environment": { "type": "hdr", "scale": 0.8 },
+  "materials": {
+    "gold":   { "type": "conductor", "metal": "Au", "roughness": 0.0 },
+    "tgold":  { "type": "thinFilm", "ior": 2.3, "substrate": { "metal": "Au" },
+                "thickness": { "from": 40, "to": 260, "axis": [0, 1, 0], "range": [0.55, -0.35],
+                               "noise": { "amplitude": 25, "frequency": 4, "octaves": 3, "seed": 2 } } },
+    "tcopper": { "type": "thinFilm", "ior": 2.3, "substrate": { "metal": "Cu" },
+                "thickness": { "from": 40, "to": 260, "axis": [0, 1, 0], "range": [0.55, -0.35],
+                               "noise": { "amplitude": 25, "frequency": 4, "octaves": 3, "seed": 5 } } },
+    "floor":  { "type": "diffuse", "albedo": 0.08 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-1.15, 0.1, -1], "radius": 0.45, "material": "gold" },
+    { "shape": "sphere", "center": [ 0.0,  0.1, -1], "radius": 0.45, "material": "tgold" },
+    { "shape": "sphere", "center": [ 1.15, 0.1, -1], "radius": 0.45, "material": "tcopper" },
+    { "shape": "sphere", "center": [0, -100.35, -1], "radius": 100, "material": "floor" }
+  ]
+}

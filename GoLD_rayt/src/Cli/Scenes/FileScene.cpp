@@ -115,6 +115,47 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = glass;
             break;
         }
+        case MaterialSpec::Type::ThinFilm: {
+            FilmThickness th;
+            th.base = Real(m.filmThickness);
+            if (m.filmGradient) {
+                th.gradient = true;
+                th.axis = m.filmAxis;
+                th.s0 = Real(m.filmRange0); th.s1 = Real(m.filmRange1);
+                th.top = Real(m.filmTop);
+                th.exponent = Real(m.filmExponent);
+            }
+            if (m.filmWarpAmp != 0) {
+                th.warp = Real(m.filmWarpAmp);
+                th.warpX = std::make_shared<NoiseDensity>(Real(m.filmWarpFreq), 3, Real(0.25), Real(0.75), std::uint32_t(m.filmWarpSeed));
+                th.warpY = std::make_shared<NoiseDensity>(Real(m.filmWarpFreq), 3, Real(0.25), Real(0.75), std::uint32_t(m.filmWarpSeed + 101));
+                th.warpZ = std::make_shared<NoiseDensity>(Real(m.filmWarpFreq), 3, Real(0.25), Real(0.75), std::uint32_t(m.filmWarpSeed + 202));
+            }
+            th.noiseStretch = m.filmNoiseStretch;
+            if (m.filmNoiseAmp != 0) {
+                th.noiseAmplitude = Real(m.filmNoiseAmp);
+                th.noise = std::make_shared<NoiseDensity>(Real(m.filmNoiseFreq), m.filmNoiseOctaves, Real(0.3), Real(0.7), std::uint32_t(m.filmNoiseSeed));
+            }
+            std::shared_ptr<const DensityField> coverage;
+            if (m.filmCoverage) coverage = std::make_shared<NoiseDensity>(Real(m.covFrequency), m.covOctaves, Real(m.covLo), Real(m.covHi), std::uint32_t(m.covSeed));
+            if (m.substrateKind == "dielectric") materials[name] = std::make_shared<ThinFilm>(Real(m.filmIor), th, Real(m.substrateIor));
+            else if (m.substrateKind == "conductor") {
+                const std::string path = m.substrateTable.empty() ? "assets/Metal_data/Johnson_" + m.substrateMetal + ".csv" : m.substrateTable;
+                auto& table = tables[path];
+                if (!table) {
+                    table = std::make_shared<color::ComplexIorTable>();
+                    std::string err;
+                    if (!io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
+                        return 1;
+                    }
+                }
+                materials[name] = std::make_shared<ThinFilm>(Real(m.filmIor), th, std::shared_ptr<const color::ComplexIorTable>(table));
+            }
+            else materials[name] = std::make_shared<ThinFilm>(Real(m.filmIor), th);
+            if (coverage) std::static_pointer_cast<ThinFilm>(materials[name])->setCoverage(coverage);
+            break;
+        }
         case MaterialSpec::Type::Emission: {
             EmissionSpectrum spectrum;
             if (!MakeSpectrum(m.spectrum, spectrum)) return 1;

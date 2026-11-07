@@ -19,6 +19,7 @@ const std::vector<Command>& Commands() {
     static const std::vector<Command> commands = {
         { { "lights", "light source checks against closed forms and numerical integrals" }, [](const CliOptions& o) { return RunLightTests(o); } },
         { { "aov", "denoiser feature (albedo / normal) checks" }, [](const CliOptions&) { return RunAovTests(); } },
+        { { "thinfilm", "thin-film interference checks (Airy's formula, sample() weights, white furnace)" }, [](const CliOptions&) { return RunThinFilmTests(); } },
         { { "sss", "subsurface scattering checks" }, [](const CliOptions& o) { return RunSssTests(o); } },
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },

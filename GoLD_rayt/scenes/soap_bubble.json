@@ -1,0 +1,29 @@
+{
+  // A soap bubble: a free film (soap water, n = 1.33) whose thickness grows from 15 nm at the top (a black film) to 900 nm at the bottom: the film drains downwards (a power-law profile),
+  // the bands wobble and swirl where the liquid circulates (a displacement of the position) and are streaked horizontally (a stretched noise).
+  // The colors come from interference at the top and the bottom of the film.
+  // A window (2 x 2 panes) at the upper left, a tall strip behind on the right and a small fill and a large round softbox above in a dark room: their reflections carry the colors.
+  // Under this white light the RGB build (the film's color under white light) looks the same; change the spectrum to tungsten or candle and they differ.
+  "options": { "width": 900, "height": 900, "spp": 512, "depth": 16 },
+  "camera": { "from": [0.0, 0.05, 3.0], "at": [0, 0, 0], "fov": 24 },
+  "materials": {
+    "bubble": { "type": "thinFilm", "ior": 1.33,
+                "thickness": { "from": 15, "to": 900, "axis": [0, 1, 0], "range": [0.5, -0.5], "exponent": 1.7,
+                               "warp": { "amplitude": 0.07, "frequency": 3.2, "seed": 5 },
+                               "noise": { "amplitude": 70, "frequency": 5, "octaves": 4, "seed": 11, "stretch": [1, 2.5, 1] } } },
+    "window": { "type": "emission", "spectrum": "d65", "radiance": 7 },
+    "strip":  { "type": "emission", "spectrum": "d65", "radiance": 9 },
+    "fill":   { "type": "emission", "spectrum": "d65", "radiance": 3 },
+    "cap":    { "type": "emission", "spectrum": "d65", "radiance": 1.1 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [0, 0, 0], "radius": 0.5, "material": "bubble" },
+    {"shape": "quad", "corner": [-1.2859, -0.0344, 2.7283], "edge1": [-0.7609, 0.0, -0.8623], "edge2": [0.3624, 1.0435, -0.3198], "material": "window"},
+    {"shape": "quad", "corner": [-0.8952, 1.0908, 2.3835], "edge1": [-0.7609, 0.0, -0.8623], "edge2": [0.3624, 1.0435, -0.3198], "material": "window"},
+    {"shape": "quad", "corner": [-2.1063, -0.0344, 1.7985], "edge1": [-0.7609, 0.0, -0.8623], "edge2": [0.3624, 1.0435, -0.3198], "material": "window"},
+    {"shape": "quad", "corner": [-1.7156, 1.0908, 1.4537], "edge1": [-0.7609, 0.0, -0.8623], "edge2": [0.3624, 1.0435, -0.3198], "material": "window"},
+    {"shape": "quad", "corner": [2.4801, -0.9912, -1.1169], "edge1": [0.1229, -0.0, 0.3277], "edge2": [-0.283, 2.5824, 0.1061], "material": "strip"},
+    {"shape": "quad", "corner": [1.9837, -1.1347, 1.585], "edge1": [-0.5082, 0.0, 0.4814], "edge2": [0.1407, 0.6694, 0.1485], "material": "fill"},
+    { "shape": "sphere", "center": [0, 4.0, -0.8], "radius": 2.0, "material": "cap" }
+  ]
+}

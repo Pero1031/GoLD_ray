@@ -1,0 +1,18 @@
+{
+  // A soap bubble in front of an environment map. A free film (soap water, n = 1.33) whose thickness grows from 15 nm at the top (a black film) to
+  // 900 nm at the bottom: the film drains downwards (a power-law profile), the bands wobble and swirl where the liquid circulates (a displacement of the
+  // position) and are streaked horizontally (a stretched noise). The colors are the interference of the light reflected at the front and the back of
+  // the film, per wavelength (docs/THIN_FILM.md). The environment map is the default of --env. The same bubble in a dark room: scenes/soap_bubble.json.
+  "environment": { "type": "hdr", "scale": 1.0 },
+  "options": { "width": 900, "height": 900, "spp": 512, "depth": 16 },
+  "camera": { "from": [0.0, 0.05, 3.0], "at": [0, 0, 0], "fov": 24 },
+  "materials": {
+    "bubble": { "type": "thinFilm", "ior": 1.33,
+                "thickness": { "from": 15, "to": 900, "axis": [0, 1, 0], "range": [0.5, -0.5], "exponent": 1.7,
+                               "warp": { "amplitude": 0.07, "frequency": 3.2, "seed": 5 },
+                               "noise": { "amplitude": 70, "frequency": 5, "octaves": 4, "seed": 11, "stretch": [1, 2.5, 1] } } }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [0, 0, 0], "radius": 0.5, "material": "bubble" }
+  ]
+}

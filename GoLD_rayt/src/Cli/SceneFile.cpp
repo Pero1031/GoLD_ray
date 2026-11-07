@@ -90,7 +90,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 }
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, dielectric or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, dielectric, thinFilm or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -161,6 +161,99 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (!(s.ior > 0)) Fail(where + ".ior", "must be above 0");
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
     }
+    else if (type == "thinFilm") {
+        // { "type": "thinFilm", "ior": 1.33, "thickness": 450 | { "nm": 450 } | { "from": 150, "to": 700, "axis": [0,1,0], "range": [y0, y1],
+        //   "noise": { "amplitude", "frequency", "octaves", "seed" } },  "substrate": "free" | { "dielectric": 1.33 } | { "metal": "Au" } | { "table": "file.csv" } }
+        CheckKeys(m, { "type", "ior", "thickness", "substrate", "coverage" }, where);
+        s.type = MaterialSpec::Type::ThinFilm;
+        Optional<double>(m, "ior", where, s.filmIor, ReadNumber);
+        if (!(s.filmIor >= 1)) Fail(where + ".ior", "must be at least 1");
+        if (m.contains("thickness")) {
+            const json& t = m.at("thickness");
+            const std::string tw = where + ".thickness";
+            if (t.is_number()) s.filmThickness = t.get<double>();
+            else if (t.is_object()) {
+                CheckKeys(t, { "nm", "from", "to", "axis", "range", "exponent", "warp", "noise" }, tw);
+                Optional<double>(t, "nm", tw, s.filmThickness, ReadNumber);
+                if (t.contains("from") || t.contains("to")) {
+                    s.filmGradient = true;
+                    if (t.contains("from")) s.filmThickness = ReadNumber(t.at("from"), tw + ".from");
+                    s.filmTop = t.contains("to") ? ReadNumber(t.at("to"), tw + ".to") : s.filmThickness;
+                    if (t.contains("axis")) s.filmAxis = glm::normalize(ReadVec3(t.at("axis"), tw + ".axis"));
+                    if (t.contains("range")) {
+                        const json& r = t.at("range");
+                        if (!r.is_array() || r.size() != 2 || !r[0].is_number() || !r[1].is_number()) Fail(tw + ".range", "must be [start, end] along the axis (metres)");
+                        s.filmRange0 = r[0].get<double>(); s.filmRange1 = r[1].get<double>();
+                        if (s.filmRange0 == s.filmRange1) Fail(tw + ".range", "needs two different values");
+                    }
+                }
+                Optional<double>(t, "exponent", tw, s.filmExponent, ReadNumber);
+                if (!(s.filmExponent > 0)) Fail(tw + ".exponent", "must be above 0");
+                if (t.contains("warp")) {   // "warp": { "amplitude" (metres), "frequency", "seed" }
+                    const json& wp = t.at("warp");
+                    const std::string ww = tw + ".warp";
+                    if (!wp.is_object()) Fail(ww, "must be an object (amplitude, frequency, seed)");
+                    CheckKeys(wp, { "amplitude", "frequency", "seed" }, ww);
+                    Optional<double>(wp, "amplitude", ww, s.filmWarpAmp, ReadNumber);
+                    Optional<double>(wp, "frequency", ww, s.filmWarpFreq, ReadNumber);
+                    double wseed = s.filmWarpSeed;
+                    Optional<double>(wp, "seed", ww, wseed, ReadNumber);
+                    s.filmWarpSeed = int(wseed);
+                    if (!(s.filmWarpFreq > 0)) Fail(ww + ".frequency", "must be above 0");
+                }
+                if (t.contains("noise")) {
+                    const json& nz = t.at("noise");
+                    const std::string nw = tw + ".noise";
+                    if (!nz.is_object()) Fail(nw, "must be an object (amplitude, frequency, octaves, seed)");
+                    CheckKeys(nz, { "amplitude", "frequency", "octaves", "seed", "stretch" }, nw);
+                    if (nz.contains("stretch")) s.filmNoiseStretch = ReadVec3(nz.at("stretch"), nw + ".stretch");
+                    Optional<double>(nz, "amplitude", nw, s.filmNoiseAmp, ReadNumber);
+                    Optional<double>(nz, "frequency", nw, s.filmNoiseFreq, ReadNumber);
+                    double oct = s.filmNoiseOctaves, seed = s.filmNoiseSeed;
+                    Optional<double>(nz, "octaves", nw, oct, ReadNumber);
+                    Optional<double>(nz, "seed", nw, seed, ReadNumber);
+                    s.filmNoiseOctaves = int(oct); s.filmNoiseSeed = int(seed);
+                    if (!(s.filmNoiseFreq > 0)) Fail(nw + ".frequency", "must be above 0");
+                }
+            }
+            else Fail(tw, "must be a thickness in nm or an object (nm, from / to / axis / range, noise)");
+        }
+        if (m.contains("coverage")) {   // "coverage": { "frequency", "octaves", "lo", "hi", "seed" }: patches of film where the noise is above lo (sharp edge when hi is close to lo)
+            const json& cv = m.at("coverage");
+            const std::string cw = where + ".coverage";
+            if (!cv.is_object()) Fail(cw, "must be an object (frequency, octaves, lo, hi, seed)");
+            CheckKeys(cv, { "frequency", "octaves", "lo", "hi", "seed" }, cw);
+            s.filmCoverage = true;
+            Optional<double>(cv, "frequency", cw, s.covFrequency, ReadNumber);
+            Optional<double>(cv, "lo", cw, s.covLo, ReadNumber);
+            Optional<double>(cv, "hi", cw, s.covHi, ReadNumber);
+            double oct = s.covOctaves, seed = s.covSeed;
+            Optional<double>(cv, "octaves", cw, oct, ReadNumber);
+            Optional<double>(cv, "seed", cw, seed, ReadNumber);
+            s.covOctaves = int(oct); s.covSeed = int(seed);
+            if (!(s.covFrequency > 0)) Fail(cw + ".frequency", "must be above 0");
+            if (!(s.covHi > s.covLo)) Fail(cw, "needs hi above lo");
+        }
+        if (s.filmThickness < 0 || s.filmTop < 0) Fail(where + ".thickness", "must not be negative");
+        if (m.contains("substrate")) {
+            const json& sub = m.at("substrate");
+            const std::string sw = where + ".substrate";
+            if (sub.is_string()) {
+                if (sub.get<std::string>() != "free") Fail(sw, "is a string only for \"free\"; use { \"dielectric\": ior } or { \"metal\": \"Au\" } otherwise");
+            }
+            else if (sub.is_object() && sub.size() == 1) {
+                CheckKeys(sub, { "dielectric", "metal", "table" }, sw);
+                if (sub.contains("dielectric")) { s.substrateKind = "dielectric"; s.substrateIor = ReadNumber(sub.at("dielectric"), sw + ".dielectric"); }
+                else if (sub.contains("metal")) {
+                    s.substrateKind = "conductor"; s.substrateMetal = ReadString(sub.at("metal"), sw + ".metal");
+                    if (s.substrateMetal != "Au" && s.substrateMetal != "Ag" && s.substrateMetal != "Cu") Fail(sw + ".metal", "must be Au, Ag or Cu");
+                }
+                else { s.substrateKind = "conductor"; s.substrateTable = ReadString(sub.at("table"), sw + ".table"); }
+                if (s.substrateKind == "dielectric" && !(s.substrateIor >= 1)) Fail(sw + ".dielectric", "must be at least 1");
+            }
+            else Fail(sw, "must be \"free\" or an object with one of: dielectric (index), metal (Au, Ag, Cu), table (a CSV of n and k)");
+        }
+    }
     else if (type == "emission") {
         CheckKeys(m, { "type", "spectrum", "radiance", "twoSided" }, where);
         s.type = MaterialSpec::Type::Emission;
@@ -170,7 +263,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, dielectric or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, dielectric, thinFilm or emission");
     }
     return s;
 }
