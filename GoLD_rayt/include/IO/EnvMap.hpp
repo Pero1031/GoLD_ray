@@ -101,8 +101,8 @@ namespace rayt {
             if (!m_img.isValid() || !m_dist) return Real(0);
 
             //------------------------------------------------------------------------
-            // EnvMap が期待するv球面とDistribution2D が扱う v（画像)が上下反転
-            // していたので直した今後改善が必要
+            // The v of the sphere that EnvMap expects and the v (image row) that Distribution2D uses were flipped
+            // vertically relative to each other; fixed here, but a cleaner solution is needed later.
             //------------------------------------------------------------------------
 
             // Direction -> UV

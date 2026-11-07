@@ -58,7 +58,7 @@
 #include "IO/ImageLoader.hpp"
 #include "IO/EnvMap.hpp"
 
-// 複素屈折率関連
+// Complex refractive index
 #include "IO/ComplexIorLoader.hpp"
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"

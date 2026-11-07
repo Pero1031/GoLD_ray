@@ -14,18 +14,18 @@ namespace rayt {
 
     class DiffuseLight : public Material {
     public:
-        // color: 光の色と強さ (例: (10, 10, 10) なら非常に明るい白)
+        // color: color and strength of the light (e.g. (10, 10, 10) is a very bright white)
         DiffuseLight(const EmissionSpectrum& color, Real intensity = Real(1), bool twoSided = false)
             : m_emit(color)
             , m_intensity(intensity)
             , m_twoSided(twoSided) {}
 
         // --------------------------------------------------------
-        // BSDF (反射・透過) の振る舞い
-        // 光源そのものは入射光を反射しない（吸収する）ものとして扱います
+        // Behavior of the BSDF (reflection / transmission)
+        // The light source itself does not reflect incident light (it absorbs it).
         // --------------------------------------------------------
 
-        // 評価値: 常に黒 (反射しない)
+        // Value: always black (no reflection)
         Spectrum eval(const SurfaceInteraction& rec,
             const Vector3& wo, const Vector3& wi,
             const SampledWavelengths& lambda,
@@ -33,7 +33,7 @@ namespace rayt {
             return Spectrum(0.0);
         }
 
-        // サンプリング: 反射方向がないので何もしない
+        // Sampling: there is no reflection direction, so there is nothing to do
         std::optional<BSDFSample> sample(const SurfaceInteraction& rec,
             const Vector3& wo,
             const Point2& u,
@@ -50,13 +50,13 @@ namespace rayt {
         }
 
         // --------------------------------------------------------
-        // 発光 (Emission)
+        // Emission
         // --------------------------------------------------------
 
-        // wo: 表面からカメラ(または次のレイ)へ向かうベクトル
+        // wo: vector from the surface towards the camera (or the next ray)
         Spectrum emitted(const SurfaceInteraction& rec, const Vector3& wo,
             const SampledWavelengths& lambda) const override {
-            // 法線と同じ側から見ている場合のみ発光する（裏面は光らない）
+            // Emits only when seen from the normal's side (the back side is dark)
             if (m_twoSided || rec.frontFace) {
                 return m_emit(lambda) * m_intensity;
             }

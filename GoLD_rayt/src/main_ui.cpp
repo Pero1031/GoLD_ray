@@ -1,10 +1,10 @@
 ﻿// GoLD_rayt.cpp 
 //
-/// @brief 金属をJohnsonの物理データを基にレンダリング
+/// @brief Renders metals from Johnson's measured optical constants
 ///
 /// 
 
-// C++20を仮定している
+// C++20 is assumed
 // Precompiled Header (Must be first)
 #include "pch.h"    
 

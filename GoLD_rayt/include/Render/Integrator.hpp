@@ -1,7 +1,8 @@
-﻿/*
-* @file include/render/Integrator.hpp
-* @brief 
-*/
+﻿/**
+ * @file Render/Integrator.hpp
+ * @brief The path tracer: Integrator (interface) and PathIntegrator (unidirectional path tracing with next-event
+ *        estimation, MIS, participating media, subsurface scattering and photon caustics).
+ */
 
 #pragma once
 
@@ -58,8 +59,8 @@ namespace rayt {
     public:
         virtual ~Integrator() = default;
 
-        // 純粋仮想関数
-        // ここで Scene や Film の型を使うので、上のincludeが必須です
+        // Pure virtual function
+        // The types Scene and Film are used here, so the includes above are required
         virtual void render(const Scene& scene, Film& film) = 0;
     };
 
@@ -95,7 +96,7 @@ namespace rayt {
         /// those lights at every non-specular vertex, computed exactly; do not use it together with a caustic photon map.
         void setSpecularNee(const SpecularNee* nee) { m_specularNee = nee; }
 
-        // レンダリングループの実装
+        // The render loop
         virtual void render(const Scene& scene, Film& film) override {
             int width = film.width();
             int height = film.height();
@@ -116,7 +117,7 @@ namespace rayt {
 
 #pragma omp parallel for schedule(dynamic, 1)
             for (int j = 0; j < height; ++j) {
-                // 進捗表示
+                // Progress display
                 //std::cout << "\rScanlines remaining: " << (height - j) << " " << std::flush;
 
                 for (int i = 0; i < width; ++i) {
@@ -124,7 +125,7 @@ namespace rayt {
                     Vector3 pixelAlbedo(0.0), pixelNormal(0.0);
 
                     for (int s = 0; s < m_spp; ++s) {
-                        // アンチエイリアシング用のジッター
+                        // Jitter for anti-aliasing
                         Real u = (Real(i) + sampling::Random()) / Real((width));
                         Real v = (Real(j) + sampling::Random()) / Real((height));
 
@@ -148,7 +149,7 @@ namespace rayt {
                     pixelAlbedo /= Real(m_spp);
                     pixelNormal /= Real(m_spp);
 
-                    // NaN除去（デバッグ用）
+                    // NaN removal (for debugging)
                     if (math::hasNonFinite(pixelColor)) {
                         #pragma omp critical
                         {
@@ -157,12 +158,12 @@ namespace rayt {
                         pixelColor = Vector3(0.0);
                     }
 
-                    // 上下反転して保存
+                    // Flip vertically and store
                     film.setPixel(i, height - 1 - j, pixelColor);
                     if (wantAOVs) film.setAOV(i, height - 1 - j, pixelAlbedo, pixelNormal);
                 }
 
-                // 行完了時に進捗更新（スレッドセーフ）
+                // Update the progress when a row is done (thread-safe)
                 int completed = ++linesCompleted;
                 if (completed % 10 == 0 || completed == totalLines) {
                     #pragma omp critical
@@ -322,22 +323,22 @@ namespace rayt {
                 }
                 if (hit) rec.medium = r.medium;   // whatever the ray hits is surrounded by the ray's medium
 
-                if (!hit) {  // 交差判定：ミスったとき
+                if (!hit) {  // Intersection test: the ray missed everything
 
                     if (!hasLastBsdf && scene.hasCameraBackground()) {   // a camera ray that touched nothing: the backdrop
                         L += beta * RgbToIlluminantSpectrum(scene.cameraBackground(), lambda);
                         break;
                     }
 
-                    if (scene.hasEnvLight()) {  // 環境光があるとき
-                        Spectrum envL = scene.envLight()->Le(r, lambda);  // 環境光の評価
+                    if (scene.hasEnvLight()) {  // There is an environment light
+                        Spectrum envL = scene.envLight()->Le(r, lambda);  // Evaluate the environment light
 
                         if (aov && !aov->valid) {   // seen directly (or through glass): the background color
                             aov->albedo = glm::clamp(SpectrumToRGB(envL, lambda), Vector3(0.0), Vector3(1.0));
                             aov->valid = true;
                         }
 
-                        if (hasLastBsdf && !lastSpecular) {  // BSFF評価済みかつ鏡面反射ではない
+                        if (hasLastBsdf && !lastSpecular) {  // A BSDF was evaluated before and it was not a specular bounce
                             // MIS with BSDF sampling
                             // Density of reaching this light by NEE = P(select it) * pdfLi,
                             // evaluated for the same context the NEE sample at lastRec used.
@@ -436,12 +437,12 @@ namespace rayt {
                     break;
                 }
 
-                // 4. スループットの更新 (Beta update)
-                // モンテカルロ積分の式: beta_new = beta_old * (f * cos_theta / pdf)
+                // 4. Update the throughput (beta)
+                // Monte Carlo estimator: beta_new = beta_old * (f * cos_theta / pdf)
 
                 Spectrum f = bsdfSample->f;
                 Real pdf = bsdfSample->pdf;
-                Vector3 wi = bsdfSample->wi; // 新しい方向
+                Vector3 wi = bsdfSample->wi; // the new direction
                 Assert(math::isNormalized(wi) && "BSDF sample direction must be unit length");
 
                 lastPdf = pdf;
@@ -452,11 +453,11 @@ namespace rayt {
                 if (!lastSpecular) { if (photonsAllowedIn(r.medium)) fromReceiver = true; }
                 else if (!rec.matPtr->isSpecular()) fromReceiver = false;
 
-                // 鏡面反射（デルタ分布）かどうかの判定
+                // Is this a specular (delta) bounce?
                 if (bsdfSample->isSpecular()) {
-                    // ★ 鏡面反射の場合 (Specular)
-                    // PDFは概念上無限大(Dirac Delta)なので、
-                    // sample関数内で既に約分された重み (f / pdf) が f に入っているものとして扱う
+                    // Specular case
+                    // The PDF is conceptually infinite (Dirac delta), so
+                    // f is taken to already hold the weight f / pdf, cancelled inside sample()
                     beta *= f;
                 }
                 else {
@@ -467,7 +468,7 @@ namespace rayt {
                         break;
                 }
 
-                // スループットが0になったら計算打ち切り
+                // Stop when the throughput has become 0
                 if (isBlack(beta)) break;
 
                 // ========== Russian Roulette ==========
@@ -488,7 +489,7 @@ namespace rayt {
                     beta /= rrProb; // compensate for the survival probability
                 }
 
-                // 5. レイの更新
+                // 5. Update the ray
                 // r = Ray(rec.p + rec.n * constants::RAY_EPSILON, wi);  old
                 // A closed boundary with a medium inside: the new direction goes to the inside or the outside.
                 // gn faces the incoming ray, frontFace says that this side is the outside of the surface.
@@ -518,12 +519,12 @@ namespace rayt {
             int width = film.width();
             int height = film.height();
 
-            // 並列化 (OpenMP)
+            // Parallelization (OpenMP)
             #pragma omp parallel for schedule(dynamic, 1)
             for (int j = 0; j < height; ++j) {
                 for (int i = 0; i < width; ++i) {
 
-                    // 1. 1回だけサンプリング
+                    // 1. Take one sample
                     Real u = (Real(i) + sampling::Random()) / Real(width);
                     Real v = (Real(j) + sampling::Random()) / Real(height);
 
@@ -535,15 +536,11 @@ namespace rayt {
                     const Spectrum Lpath = Li(r, scene, lambda);   // may drop secondary wavelengths
                     Vector3 L = SpectrumToRGB(Lpath, lambda);
 
-                    // NaNチェック
+                    // NaN check
                     if (math::hasNonFinite(L)) L = Vector3(0.0);
 
-                    // 2. Filmに「加算」する
-                    // 注意: Filmクラスの実装によりますが、ここでは「現在の画素値」に足し込む想定です。
-                    // もしFilmが「平均値」しか持てない場合は、
-                    // new_avg = (old_avg * (N-1) + new_val) / N の計算が必要です。
-                    // ここではシンプルに「累積加算」するためのメソッド addSample があると仮定、
-                    // なければ setPixel で工夫します。
+                    // 2. Add the sample to the film
+                    // (Film::addPixel only sums; the normalization by 1/spp is done when the film is written.)
 
                     film.addPixel(i, height - 1 - j, L);
                 }
