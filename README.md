@@ -174,8 +174,8 @@ Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a
    `GoLD_rayt/external/glfw-3.4.bin.WIN64/lib-vc2022/`).
 4. Run from the project folder `GoLD_rayt/`.
 
-> **Speed tip.** A Release CLI is about 5x faster than Debug. Build it with the `RaytCli` switch (Release builds the GUI otherwise):
-> `msbuild GoLD_rayt/GoLD_rayt.vcxproj /p:Configuration=Release /p:Platform=x64 /p:RaytCli=true`.
+> **Speed tip.** A Release CLI is about 5x faster than Debug. `powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1` builds it
+> into `out\cli` (`-Spectral` for the spectral build) and copies the DLLs; it is MSBuild with `/p:RaytCli=true`.
 
 **Scene files.** A scene is a JSON file; the program takes it as its first argument, and the options after it win over the file:
 
