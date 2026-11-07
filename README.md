@@ -8,7 +8,7 @@ warm light the RGB gold is duller ([details](#how-much-does-rgb-rendering-get-wr
 Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), a scan of the marble statue
 from Monte Calvo (2nd century A.D., Ny Carlsberg Glyptotek, Copenhagen), from
 [Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed
-(`tools/mesh_clean.py`), gold material. The scan is not part of this repository
+(`tools/data/mesh_clean.py`), gold material. The scan is not part of this repository
 ([credits](GoLD_rayt/assets/Meshes/erato/CREDITS.md)). Scene: `scenes/erato_gold.json`; 600 x 800, 256 spp, OIDN-denoised.</sub>
 
 A 3D path tracer in C++20, built around **spectral rendering of metals** (gold first).
@@ -24,7 +24,7 @@ characters with skin subsurface scattering.
 
 Both modes are the same engine with the same optical constants (Johnson & Christy), chosen at compile time
 (`RenderMode.hpp`), so the difference is only the RGB approximation. The reference is a 1 nm integral of
-`Fresnel(λ, θ)^n x light x film sensor` ([`tools/metal_accuracy.py`](tools/metal_accuracy.py)); the engine matches it
+`Fresnel(λ, θ)^n x light x film sensor` ([`tools/studies/metal_accuracy.py`](tools/studies/metal_accuracy.py)); the engine matches it
 within ΔE00 0.12 (`--scene metalprobe`). The metric is CIEDE2000 (ΔE00: about 1 is visible side by side, 2-3 obvious).
 These are comparisons between two renderings, not with a photograph.
 
@@ -68,7 +68,7 @@ displayed images (Reinhard, sRGB, clipped to the display range).
   under a candle looks different from this screen was not tested (no gamut mapping or wide-gamut output).
 
 Numbers: [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt). Scripts:
-[`gold_compare_linear.py`](tools/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/gold_compare_linear_fig.py).
+[`gold_compare_linear.py`](tools/studies/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/studies/gold_compare_linear_fig.py).
 (An earlier comparison on displayed PNGs only showed candle as the smallest difference, 0.8; that was the clipping.)
 
 **Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization and thin films
@@ -79,7 +79,7 @@ Write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCUR
 [`metal_probe_rough_compare.txt`](docs/data/metal_probe_rough_compare.txt). Reproduce:
 
 ```bash
-python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
+python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
 ```
 
 ## Aurisidus
@@ -349,7 +349,7 @@ OIDN-denoised, 12 minutes on 8 threads.
 
 <sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
 [Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed,
-its two open boundaries closed (`tools/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
+its two open boundaries closed (`tools/data/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
 
 **A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
 All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.

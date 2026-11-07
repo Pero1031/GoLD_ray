@@ -15,8 +15,8 @@ What this models (a faithful port of the renderer's own pipeline):
 Everything uses the film's own CMF, so the differences measured here are the RGB approximation only,
 not the (separate) accuracy of the CMF fit.  `--true-cmf` additionally compares to tabulated CIE 1931.
 
-Usage:  python tools/metal_accuracy.py [--true-cmf] [--figs DIR]
-        python tools/metal_accuracy.py --compare probe_rgb.log probe_spectral.log   (engine check)
+Usage:  python tools/studies/metal_accuracy.py [--true-cmf] [--figs DIR]
+        python tools/studies/metal_accuracy.py --compare probe_rgb.log probe_spectral.log   (engine check)
 """
 
 import argparse
@@ -27,7 +27,7 @@ import sys
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ASSETS = os.path.join(ROOT, "GoLD_rayt", "assets")
 HEADER_ILLUM = os.path.join(ROOT, "GoLD_rayt", "include", "Color", "Illuminants.hpp")
 

@@ -369,7 +369,7 @@ MMD_model/
 
 # Japanese presentation figures and the script that makes them (for slides, not part of the repository)
 docs/img/*_ja.png
-tools/gold_compare_ja_fig.py
+tools/studies/gold_compare_ja_fig.py
 
 # Private development notes (not published)
 docs/HANDOFF.md

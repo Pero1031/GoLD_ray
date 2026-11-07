@@ -1,6 +1,6 @@
 """Tone-maps a linear render (.pfm) the way the renderer does for a PNG and writes labels on it.
 
-    python tools/label_render.py render_denoised.pfm out.png "Wax|220 /m, albedo 1 / 0.997 / 0.972, g 0.4@0.20" "Marble|...@0.50" ...
+    python tools/figures/label_render.py render_denoised.pfm out.png "Wax|220 /m, albedo 1 / 0.997 / 0.972, g 0.4@0.20" "Marble|...@0.50" ...
 
 Each label is  title|second line@x  with x the horizontal position of its centre as a fraction of the width.
 The tone mapping is the one of gold_compare_linear_fig.py: Reinhard per channel, then sRGB.
@@ -12,8 +12,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 from hdr_io import read_hdr                  # noqa: E402
-from gold_compare import font                # noqa: E402
+from colordiff import font                # noqa: E402
 
 
 def display(lin):

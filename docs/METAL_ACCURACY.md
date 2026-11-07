@@ -1,7 +1,7 @@
 # 金属の色: スペクトル計算と RGB 近似の差（金・銅・銀）
 
 「スペクトルレンダリングは RGB より正確か」を、数値で答えるための解析です（このプロジェクトの最初の検証項目）。
-再現手順は[末尾](#8-再現手順)にあります。計算の全出力は [metal_accuracy_results.txt](data/metal_accuracy_results.txt)、スクリプトは `tools/metal_accuracy.py` です。
+再現手順は[末尾](#8-再現手順)にあります。計算の全出力は [metal_accuracy_results.txt](data/metal_accuracy_results.txt)、スクリプトは `tools/studies/metal_accuracy.py` です。
 
 - [1. 結論](#1-結論)
 - [2. 何を比べたか](#2-何を比べたか)
@@ -252,14 +252,14 @@ Kulla-Conty は近似です。微小面の高さ相関ランダムウォーク�
 **解析（Python、数秒）** — 必要なもの: `numpy`、`colour-science`、`matplotlib`
 
 ```bash
-python tools/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
+python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
 ```
 
 **エンジン実測** — RGB ビルドとスペクトルビルドを別々に作り（`tools/build_cli.ps1` と、`-Spectral` を付けた同じスクリプト。スペクトル版は `CL=/DRAYT_SPECTRAL_MODE`）、プロジェクトのフォルダ（`GoLD_rayt/GoLD_rayt/`）で:
 
 ```bash
 GoLD_rayt.exe --scene metalprobe --metal Au --light tungsten --width 480 --spp 512 > probe_Au_tungsten_rgb.log
-python tools/metal_accuracy.py --compare probe_Au_tungsten_rgb.log probe_Au_tungsten_spectral.log
+python tools/studies/metal_accuracy.py --compare probe_Au_tungsten_rgb.log probe_Au_tungsten_spectral.log
 ```
 
 `--metal` は Au | Ag | Cu、`--light` は d65 | tungsten | candle | led、`--roughness r` は粗さ（既定 0.01）。1 回 約 8 秒（Release、8 スレッド）。粗さ付きのログは、予測との比較を省いて RGB 版とスペクトル版の直接比較だけを出します。

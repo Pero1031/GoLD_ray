@@ -9,7 +9,7 @@ RGB(P_c) = e_c under D65 / sRGB with P_r + P_g + P_b = 1; the spectrum of an RGB
 Run it to check the port against the engine: the spectral build renders a diffuse sphere inside a glowing sphere (a convex sphere in a
 uniform light: radiance = albedo(lambda) x light(lambda)), and the film color must equal the prediction made here.
 
-    python tools/rgb_to_spectrum.py check <spectral GoLD_rayt.exe>
+    python tools/studies/rgb_to_spectrum.py check <spectral GoLD_rayt.exe>
 
 It is also the tool for asking how much a real material loses when it is described by an RGB color (the test of README "Not done").
 """
@@ -21,6 +21,7 @@ import tempfile
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 import metal_accuracy as ma  # noqa: E402  (the film sensor, light spectra and D65 of the engine)
 
 _NODES = np.arange(380.0, 781.0, 5.0)      # 81 nodes
@@ -141,11 +142,11 @@ def _check(exe):
     cases = [(0.8, 0.8, 0.8), (0.8, 0.3, 0.1), (0.2, 0.5, 0.9), (0.1, 0.6, 0.2), (0.35, 0.1, 0.12), (0.05, 0.04, 0.04)]
     spd, rgb_light = ma.make_light(ma.blackbody(ma.LAM, 2856.0))
     lam = ma.LAM
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([os.path.join(root, "librarys", "embree-4.4.0.x64.windows", "bin"),
                                    os.path.join(root, "librarys", "oidn-2.5.1.x64.windows", "bin"), env["PATH"]])
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
     from hdr_io import read_pfm
     print("albedo RGB            engine (spectral build)        this port                 max diff")
     worst = 0.0

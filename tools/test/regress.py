@@ -1,20 +1,20 @@
 """Regression harness for refactoring: small renders (mean color) and self-checks of a build, compared with an earlier build.
 
   1. keep the old build:   copy out\\cli to out\\old-rgb (and out\\cli-spectral to out\\old-spectral)
-  2. record it:            python tools/regress.py run old-rgb base_rgb 2          (a folder under out\\, a tag, the number of repeats)
-  3. change the code, rebuild (tools\\build_cli.ps1), copy the new build to out\\new-rgb, record it:  python tools/regress.py run new-rgb new_rgb 2
-  4. compare:              python tools/regress.py compare base_rgb new_rgb        (a tag may be a list: a,b)
+  2. record it:            python tools/test/regress.py run old-rgb base_rgb 2          (a folder under out\\, a tag, the number of repeats)
+  3. change the code, rebuild (tools\\build_cli.ps1), copy the new build to out\\new-rgb, record it:  python tools/test/regress.py run new-rgb new_rgb 2
+  4. compare:              python tools/test/regress.py compare base_rgb new_rgb        (a tag may be a list: a,b)
   (run takes an optional fifth argument: the names of the cases to run, separated by commas)
 
 A picture is "ok" when its mean color differs from the baseline by less than 3 x the spread of the baseline repeats (at least 1 %).
-With only 2 repeats this is a weak test: a case that is slightly out is not evidence; repeat it 30-60 times with tools/ab_test.py.
+With only 2 repeats this is a weak test: a case that is slightly out is not evidence; repeat it 30-60 times with tools/test/ab_test.py.
 The self-checks must give the same exit code and number of OK lines; some are flaky at the low spp used here (furnace, spectral build).
 Results go to out/regress/.
 """
 import io, json, os, re, subprocess, sys, time
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROJ = os.path.join(ROOT, "GoLD_rayt")
 OUT = os.path.join(ROOT, "out")
 S = os.path.join(OUT, "regress")

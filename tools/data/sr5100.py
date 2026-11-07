@@ -7,11 +7,11 @@ Two kinds of files are read:
 
 Command line (every command works on the exports as they come from the instrument; nothing is written next to them):
 
-    python tools/sr5100.py info  FILE...                          what is in the files
-    python tools/sr5100.py spots FILE --out DIR                   every spot as "wavelength_nm,value" CSV (what the renderer reads)
-    python tools/sr5100.py roi   IMAGE.csv --box X0 Y0 X1 Y1 --out FILE      mean spectrum of a box of an image
-    python tools/sr5100.py roi   IMAGE.csv --peak 2 --out FILE               mean spectrum around the brightest pixel (radius 2)
-    python tools/sr5100.py reflectance SAMPLE.csv WHITE.csv --out FILE       sample / white (times the white's own reflectance)
+    python tools/data/sr5100.py info  FILE...                          what is in the files
+    python tools/data/sr5100.py spots FILE --out DIR                   every spot as "wavelength_nm,value" CSV (what the renderer reads)
+    python tools/data/sr5100.py roi   IMAGE.csv --box X0 Y0 X1 Y1 --out FILE      mean spectrum of a box of an image
+    python tools/data/sr5100.py roi   IMAGE.csv --peak 2 --out FILE               mean spectrum around the brightest pixel (radius 2)
+    python tools/data/sr5100.py reflectance SAMPLE.csv WHITE.csv --out FILE       sample / white (times the white's own reflectance)
 
 The values stay in the unit of the instrument (spectral radiance): ratios such as a reflectance need no unit.
 Measurements are lab data and are not part of the repository (assets/Metal_measured/ is ignored by Git).

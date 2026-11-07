@@ -13,8 +13,8 @@ The scene files use a cleaned copy (the scan's own vertex normals disagree with 
 shades metal black in places). Make it, from the repository folder:
 
 ```
-python tools/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_clean.obj
-python tools/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_closed.obj --cap   # closed, for a volume
+python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_clean.obj
+python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_closed.obj --cap   # closed, for a volume
 ```
 
 Changes made in this project's renderings: the model is scaled and placed by the scene file, its two open boundaries (the cut

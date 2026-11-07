@@ -1,11 +1,11 @@
 """A/B tests of two builds on the same scene: the mean color, the time, or how often a self-check fails.
 
-    python tools/ab_test.py mean  <n> <buildA> <buildB> <scene args...>     n interleaved runs; mean and standard error per build, and a z score
-    python tools/ab_test.py time  <n> <buildA> <buildB> <scene args...>     n interleaved runs; median and minimum time (this PC varies up to 1.4x between runs)
-    python tools/ab_test.py flaky <n> <buildA,buildB,...> <scene args...>   how many of n runs fail (exit code != 0), and which lines
+    python tools/test/ab_test.py mean  <n> <buildA> <buildB> <scene args...>     n interleaved runs; mean and standard error per build, and a z score
+    python tools/test/ab_test.py time  <n> <buildA> <buildB> <scene args...>     n interleaved runs; median and minimum time (this PC varies up to 1.4x between runs)
+    python tools/test/ab_test.py flaky <n> <buildA,buildB,...> <scene args...>   how many of n runs fail (exit code != 0), and which lines
 
 Builds are folders under out\\ (out\\cli, out\\cli-spectral, or copies you kept). Example:
-    python tools/ab_test.py mean 30 old-rgb cli --scene blob --width 192 --spp 16
+    python tools/test/ab_test.py mean 30 old-rgb cli --scene blob --width 192 --spp 16
 
 Lessons: 2-8 runs can show differences of 1-3 % that disappear with 30-60 runs; compare by z score, not by eye.
 """
@@ -18,7 +18,7 @@ import time
 
 import numpy as np
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROJ = os.path.join(ROOT, "GoLD_rayt")
 OUT = os.path.join(ROOT, "out")
 TMP = os.path.join(os.environ.get("TEMP", OUT), "ab_test.pfm")

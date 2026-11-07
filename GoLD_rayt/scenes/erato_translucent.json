@@ -1,7 +1,7 @@
 {
   // Erato (a 3D scan, CC BY 4.0, see assets/Meshes/erato/CREDITS.md; the mesh is not in the repository) three times, with the same shape and
   // light and a different scattering material inside each: wax, marble (with a noise density) and jade. Lit from behind and above.
-  // The mesh must be closed (python tools/mesh_clean.py erato.obj erato_closed.obj --cap, see CREDITS.md). Needs the spectral build for
+  // The mesh must be closed (python tools/data/mesh_clean.py erato.obj erato_closed.obj --cap, see CREDITS.md). Needs the spectral build for
   // the color of the jade to come from its spectrum; takes about 15 minutes at 1080 x 675, 96 spp on 8 threads.
   "options": { "width": 1080, "height": 675, "spp": 96, "denoise": true },
   "camera": { "from": [0.0, 0.30, 1.75], "at": [0.0, 0.25, 0.0], "fov": 27 },

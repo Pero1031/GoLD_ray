@@ -5,11 +5,11 @@ Input: for every light L two denoised linear renders (.pfm), from
     GoLD_rayt scene.json --denoise --out <dir>/<prefix>_<L>_spectral.pfm   (spectral build)
 which write <prefix>_<L>_rgb_denoised.pfm and <prefix>_<L>_spectral_denoised.pfm. Same size, same camera.
 
-    python tools/compare_figure.py <dir> <prefix> <out.png> <out.txt> d65 tungsten [--box x0 x1 y0 y1]
+    python tools/figures/compare_figure.py <dir> <prefix> <out.png> <out.txt> d65 tungsten [--box x0 x1 y0 y1]
 
 --box is the part of the picture that is measured (fractions of the width and height; default the middle of the picture).
 The color difference is measured on the displayed images (exposure -> Reinhard per channel -> sRGB, 8 bit; white = D65 display white),
-as in gold_compare.py: what a person looking at the two screens could tell apart. It is not a comparison with a photograph.
+as in tools/studies/gold_compare_linear_fig.py: what a person looking at the two screens could tell apart. It is not a comparison with a photograph.
 """
 import os
 import sys
@@ -18,8 +18,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 from hdr_io import read_hdr                                    # noqa: E402
-from gold_compare import delta_e2000, font, to_lab, LABEL      # noqa: E402
+from colordiff import delta_e2000, font, to_lab, LABEL      # noqa: E402
 from matplotlib import colormaps                               # noqa: E402
 
 VMAX = 10.0

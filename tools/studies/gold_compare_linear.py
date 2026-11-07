@@ -4,7 +4,7 @@ Input: <dir>/goldbowl_<light>_<rgb|spectral>_<a|b>.pfm  (32-bit float; written b
        negative values and quantizes the small channels of strongly colored pixels).
        a and b are independent renders of the same build: the difference a-b is the noise floor of that build.
 
-    python tools/gold_compare_linear.py <dir> <out.txt> d65 tungsten candle
+    python tools/studies/gold_compare_linear.py <dir> <out.txt> d65 tungsten candle
 
 Colour difference: CIEDE2000 between the region-mean colours (noise averages out over thousands of pixels), under two white points:
   "D65"      : white = the D65 white of the display, with the luminance of the white reference ball (the neutral Lambertian ball)
@@ -18,8 +18,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 from hdr_io import read_hdr                       # noqa: E402
-from gold_compare import M_RGB_TO_XYZ, delta_e2000   # noqa: E402
+from colordiff import M_RGB_TO_XYZ, delta_e2000   # noqa: E402
 
 
 def xyz_to_lab(xyz, white):

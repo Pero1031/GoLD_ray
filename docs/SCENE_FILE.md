@@ -88,7 +88,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
   仕組みは、ヌル衝突（密度の最大値で距離を選び、確率 1−q で何も起こさない）。
 - 経路の長さの上限は、`--volume-cap`。
 
-分光放射計の測定データは、`tools/sr5100.py` で、2 列の CSV（`波長_nm, 値`）に変換できる（下）。
+分光放射計の測定データは、`tools/data/sr5100.py` で、2 列の CSV（`波長_nm, 値`）に変換できる（下）。
 
 `spectrum`: プリセット名 `"d65"`・`"tungsten"`・`"candle"`・`"led"`、または `{ "blackbody": 2856 }`、`{ "rgb": [1, 1, 1] }`、`{ "file": "x.csv" }`（波長と値の表）。
 
@@ -117,13 +117,13 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 ## 分光放射計（SR-5100）のデータを使う
 
-`tools/sr5100.py` が、SR-5100 の CSV の書き出し（スポットと画像の 2 形式）を読んで、このレンダラが読む 2 列の CSV に変換する。
+`tools/data/sr5100.py` が、SR-5100 の CSV の書き出し（スポットと画像の 2 形式）を読んで、このレンダラが読む 2 列の CSV に変換する。
 
 ```bat
-python tools\sr5100.py info 測定.csv                                       :: 中身の一覧（点の数、ピーク、測定距離、積分時間）
-python tools\sr5100.py spots 測定.csv --out 出力フォルダ                     :: スポットを 1 点ずつ「波長_nm, radiance」の CSV に
-python tools\sr5100.py roi 画像.csv --peak 2 --out 光源.csv                  :: 画像の最も明るい画素の周り（5×5）の平均スペクトル
-python tools\sr5100.py reflectance 試料.csv 白.csv --out 反射率.csv          :: 試料 ÷ 白色（白色が弱い波長は出力しない）
+python tools\data\sr5100.py info 測定.csv                                       :: 中身の一覧（点の数、ピーク、測定距離、積分時間）
+python tools\data\sr5100.py spots 測定.csv --out 出力フォルダ                     :: スポットを 1 点ずつ「波長_nm, radiance」の CSV に
+python tools\data\sr5100.py roi 画像.csv --peak 2 --out 光源.csv                  :: 画像の最も明るい画素の周り（5×5）の平均スペクトル
+python tools\data\sr5100.py reflectance 試料.csv 白.csv --out 反射率.csv          :: 試料 ÷ 白色（白色が弱い波長は出力しない）
 ```
 
 - LED のスペクトルは、`"spectrum": { "file": "光源.csv" }` で指定する（値の単位は何でもよい。明るさは 1 にそろえて使う）。

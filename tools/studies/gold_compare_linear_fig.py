@@ -7,7 +7,7 @@ For every light, a row with
   4. CIEDE2000 between the two DISPLAYED images = what a viewer of the screen can see.
 The renders are the mean of the two independent repeats (a, b) and a 3 x 3 box blur, so that the maps show the difference and not the noise.
 
-    python tools/gold_compare_linear_fig.py <dir with the .pfm files> <out.png> d65 tungsten candle
+    python tools/studies/gold_compare_linear_fig.py <dir with the .pfm files> <out.png> d65 tungsten candle
 """
 import os
 import sys
@@ -16,8 +16,9 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"))
 from hdr_io import read_hdr                                              # noqa: E402
-from gold_compare import M_RGB_TO_XYZ, delta_e2000, font, to_lab, LABEL   # noqa: E402
+from colordiff import M_RGB_TO_XYZ, delta_e2000, font, to_lab, LABEL   # noqa: E402
 from gold_compare_linear import xyz_to_lab, REGION_BOXES                  # noqa: E402
 from matplotlib import colormaps                                          # noqa: E402
 

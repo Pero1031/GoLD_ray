@@ -1,7 +1,7 @@
 """Cleans a triangle mesh (OBJ) for the renderer: welds the vertices, throws away the file's normals and uv's, recomputes smooth
 (area-weighted) vertex normals from the geometry, and optionally closes the open boundaries.
 
-    python tools/mesh_clean.py in.obj out.obj [--cap]
+    python tools/data/mesh_clean.py in.obj out.obj [--cap]
 
 Why: a scan can carry vertex normals that disagree with the triangle winding (the Erato scan: 25% of the triangles), and a metal
 or glass material then shades part of the surface black. Closing the boundaries (--cap: a triangle fan from the centroid of each
@@ -112,7 +112,7 @@ def main():
         print("warning: negative volume - the winding is inside out", file=sys.stderr)
     normals = smooth_normals(verts, faces)
     with open(args.output, "w") as f:
-        f.write("# cleaned by tools/mesh_clean.py: welded, smooth normals recomputed%s\n" % (", boundaries closed" if args.cap else ""))
+        f.write("# cleaned by tools/data/mesh_clean.py: welded, smooth normals recomputed%s\n" % (", boundaries closed" if args.cap else ""))
         np.savetxt(f, verts, fmt="v %.6f %.6f %.6f")
         np.savetxt(f, normals, fmt="vn %.5f %.5f %.5f")
         np.savetxt(f, np.stack([faces[:, 0] + 1, faces[:, 0] + 1, faces[:, 1] + 1, faces[:, 1] + 1, faces[:, 2] + 1, faces[:, 2] + 1], axis=1),
