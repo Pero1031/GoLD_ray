@@ -62,10 +62,11 @@ displayed images (Reinhard, sRGB, clipped to the display range).
 
 - **Tungsten**: the difference is visible on screen. The spectral gold is yellower and more saturated.
 - **D65**: small, in the bright highlights.
-- **Candle**: the largest measured difference and the smallest displayed one. A 1850 K blackbody is outside the sRGB
-  gamut; the spectral render gives the gold a clearly negative blue, the RGB render almost none, and the display clips
-  both to 0. The engine agrees with the 1 nm integral here, so this is the error of the RGB model. Whether real gold
-  under a candle looks different from this screen was not tested (no gamut mapping or wide-gamut output).
+- **Candle**: the largest measured difference, and the smallest one on an sRGB screen. A 1850 K blackbody is outside the
+  sRGB gamut; the spectral render gives the gold a clearly negative blue, the RGB render almost none, and an sRGB display
+  clips both to 0. **A wider gamut brings the difference back**: written as Display P3 (`--gamut p3`), the same two images
+  differ by 5.2 instead of 0.9 ([numbers](docs/data/gold_compare_gamut_results.txt)). The engine agrees with the 1 nm
+  integral here, so this is the error of the RGB model. Whether real gold under a candle looks different from this was not tested.
 
 Numbers: [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt). Scripts:
 [`gold_compare_linear.py`](tools/studies/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/studies/gold_compare_linear_fig.py).
@@ -202,6 +203,8 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.e
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
+| `--gamut srgb\|p3\|rec2020` | primaries of the output (default `srgb`); a `.png` is tagged so that a viewer shows it in that gamut |
+| `--bits 8\|16` | bits per channel of a `.png` (16 for wide-gamut work: no banding) |
 | `--accel own\|embree` | own SAH BVH or Embree, for single-material triangle meshes only |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |

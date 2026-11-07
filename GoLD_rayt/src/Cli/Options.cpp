@@ -98,6 +98,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--denoise") o.denoise = true;
             else if (a == "--clean-aux") o.cleanAux = true;
             else if (a == "--gamut") o.gamut = value("--gamut");
+            else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
@@ -125,6 +126,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.metal != "Au" && o.metal != "Ag" && o.metal != "Cu")
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         { color::Gamut g; if (!color::parseGamut(o.gamut, g)) throw std::runtime_error("--gamut must be srgb, p3 or rec2020"); }
+        if (o.pngBits != 8 && o.pngBits != 16) throw std::runtime_error("--bits must be 8 or 16");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")

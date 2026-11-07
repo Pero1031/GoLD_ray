@@ -179,6 +179,7 @@ int RenderScene(CliOptions& opt) {
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
     film.setOutputGamut(gamut);
+    film.setPng16(opt.pngBits == 16);
     film.save(opt.out);
     const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
     const std::string outExt = std::filesystem::path(opt.out).extension().string();
@@ -190,7 +191,8 @@ int RenderScene(CliOptions& opt) {
     if (opt.denoise) {
         Film denoised(imageWidth, imageHeight);
         denoised.setOutputGamut(gamut);
-        if (DenoiseFilm(film, denoised, opt.cleanAux)) denoised.save(outStem + "_denoised" + outExt);
+        denoised.setPng16(opt.pngBits == 16);
+        if (DenoiseFilm(film, denoised, opt.cleanAux, gamut)) denoised.save(outStem + "_denoised" + outExt);
     }
 
     bool hooksPassed = true;

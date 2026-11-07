@@ -136,25 +136,14 @@ namespace rayt {
     }
 
     /**
-     * @brief Writes an 8-bit RGB PNG tagged with a cICP chunk (ITU-T H.273 code points).
+     * @brief Splices a cICP chunk (ITU-T H.273 code points) into an encoded PNG, right after IHDR (it must come before PLTE / IDAT).
      *
-     * stb_image_write cannot add chunks, so the PNG is encoded to memory and the 25-byte chunk is spliced in right after IHDR
-     * (cICP must come before PLTE / IDAT). Code points: primaries 12 (Display P3) or 9 (BT.2020), transfer 13 (sRGB curve),
+     * stb_image_write cannot add chunks. Code points: primaries 12 (Display P3) or 9 (BT.2020), transfer 13 (sRGB curve),
      * matrix 0 (RGB), full range. A viewer that ignores cICP shows the file as sRGB, i.e. less saturated.
      */
-    static bool writePngWithCicp(const std::string& filename, int width, int height,
-        const std::vector<unsigned char>& rgb8, color::Gamut gamut) {
-        std::vector<unsigned char> png;
-        auto sink = [](void* ctx, void* data, int size) {
-            auto* v = static_cast<std::vector<unsigned char>*>(ctx);
-            const auto* p = static_cast<const unsigned char*>(data);
-            v->insert(v->end(), p, p + size);
-        };
-        if (!stbi_write_png_to_func(sink, &png, width, height, 3, rgb8.data(), width * 3)) return false;
-
+    static bool insertCicp(std::vector<unsigned char>& png, color::Gamut gamut) {
         constexpr size_t kAfterIhdr = 8 + 25;   // signature + (length 4, type 4, data 13, crc 4)
         if (png.size() < kAfterIhdr) return false;
-
         unsigned char chunk[4 + 4 + 4 + 4];
         chunk[0] = 0; chunk[1] = 0; chunk[2] = 0; chunk[3] = 4;   // data length
         chunk[4] = 'c'; chunk[5] = 'I'; chunk[6] = 'C'; chunk[7] = 'P';
@@ -166,11 +155,51 @@ namespace rayt {
         chunk[12] = static_cast<unsigned char>(crc >> 24); chunk[13] = static_cast<unsigned char>(crc >> 16);
         chunk[14] = static_cast<unsigned char>(crc >> 8);  chunk[15] = static_cast<unsigned char>(crc);
         png.insert(png.begin() + kAfterIhdr, chunk, chunk + sizeof(chunk));
+        return true;
+    }
 
+    static bool writeBytes(const std::string& filename, const std::vector<unsigned char>& bytes) {
         std::ofstream f(filename, std::ios::binary);
         if (!f) return false;
-        f.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+        f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         return static_cast<bool>(f);
+    }
+
+    static void pngSink(void* ctx, void* data, int size) {
+        auto* v = static_cast<std::vector<unsigned char>*>(ctx);
+        const auto* p = static_cast<const unsigned char*>(data);
+        v->insert(v->end(), p, p + size);
+    }
+
+    /// Writes an 8-bit RGB PNG tagged with a cICP chunk.
+    static bool writePngWithCicp(const std::string& filename, int width, int height,
+        const std::vector<unsigned char>& rgb8, color::Gamut gamut) {
+        std::vector<unsigned char> png;
+        if (!stbi_write_png_to_func(pngSink, &png, width, height, 3, rgb8.data(), width * 3)) return false;
+        return insertCicp(png, gamut) && writeBytes(filename, png);
+    }
+
+    /**
+     * @brief Writes a 16-bit RGB PNG (big-endian samples, 6 bytes per pixel), tagged with cICP unless the gamut is sRGB.
+     *
+     * stb_image_write has no 16-bit mode. A row of W pixels at 16 bits is 6 * W bytes: exactly a row of 2 * W pixels at 8 bits. So the data
+     * is encoded as an 8-bit RGB image of twice the width with the PNG filter forced to "none" (the filters work on the bytes of a
+     * whole pixel, which would be wrong here), and the IHDR is then patched to width W, 16 bits (and its CRC redone).
+     */
+    static bool writePng16(const std::string& filename, int width, int height,
+        const std::vector<unsigned char>& data16, color::Gamut gamut) {
+        std::vector<unsigned char> png;
+        const int savedFilter = stbi_write_force_png_filter;
+        stbi_write_force_png_filter = 0;
+        const int ok = stbi_write_png_to_func(pngSink, &png, 2 * width, height, 3, data16.data(), 6 * width);
+        stbi_write_force_png_filter = savedFilter;
+        if (!ok || png.size() < 33) return false;
+        for (int k = 0; k < 4; ++k) png[16 + k] = static_cast<unsigned char>(static_cast<uint32_t>(width) >> (8 * (3 - k)));   // width
+        png[24] = 16;                                                                                                         // bit depth
+        const uint32_t crc = pngCrc32(png.data() + 12, 17);                                                                   // type + data
+        for (int k = 0; k < 4; ++k) png[29 + k] = static_cast<unsigned char>(crc >> (8 * (3 - k)));
+        if (gamut != color::Gamut::SRGB && !insertCicp(png, gamut)) return false;
+        return writeBytes(filename, png);
     }
 
     /**
@@ -268,6 +297,10 @@ namespace rayt {
         const Real exposureStops = Real(0);
         const int numPixels = static_cast<int>(m_pixels.size());
 
+        const bool want16 = m_png16 && ext == "png";
+        std::vector<unsigned char> data16;
+        if (want16) data16.resize(static_cast<size_t>(numPixels) * 6);
+
         #pragma omp parallel for schedule(static)
         for (int i = 0; i < numPixels; ++i) {
             // Change of primaries first (exact, unclamped), then the display pipeline, which clips what is still negative:
@@ -278,10 +311,23 @@ namespace rayt {
             outputData[i * 3 + 0] = toByte(pixel[0]);
             outputData[i * 3 + 1] = toByte(pixel[1]);
             outputData[i * 3 + 2] = toByte(pixel[2]);
+            if (want16) {
+                for (int c = 0; c < 3; ++c) {
+                    const unsigned v = static_cast<unsigned>(Real(65535.0) * rayt::math::saturate(pixel[c]) + Real(0.5));
+                    data16[static_cast<size_t>(i) * 6 + static_cast<size_t>(c) * 2] = static_cast<unsigned char>(v >> 8);
+                    data16[static_cast<size_t>(i) * 6 + static_cast<size_t>(c) * 2 + 1] = static_cast<unsigned char>(v & 255u);
+                }
+            }
         }
 
         if (ext == "png") {
-            if (m_gamut == color::Gamut::SRGB)
+            if (want16) {
+                if (!writePng16(filename, m_width, m_height, data16, m_gamut)) {
+                    std::cerr << "[Film] Error: could not write " << filename << std::endl;
+                    return;
+                }
+            }
+            else if (m_gamut == color::Gamut::SRGB)
                 stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
             else if (!writePngWithCicp(filename, m_width, m_height, outputData, m_gamut)) {
                 std::cerr << "[Film] Error: could not write " << filename << std::endl;
@@ -299,7 +345,7 @@ namespace rayt {
             return;
         }
 
-        std::cout << "[Film] Saved LDR image: " << filename;
+        std::cout << "[Film] Saved LDR image: " << filename << (want16 ? " (16 bit)" : "");
         if (m_gamut != color::Gamut::SRGB && ext != "png")
             std::cout << " (" << color::gamutName(m_gamut) << " values, but this format carries no color tag; use .png)";
         else if (m_gamut != color::Gamut::SRGB)

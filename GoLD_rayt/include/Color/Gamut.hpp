@@ -14,7 +14,7 @@
  *   sRGB    R (0.640, 0.330)  G (0.300, 0.600)  B (0.150, 0.060)
  *   P3      R (0.680, 0.320)  G (0.265, 0.690)  B (0.150, 0.060)
  *   Rec2020 R (0.708, 0.292)  G (0.170, 0.797)  B (0.131, 0.046)     white D65 (0.3127, 0.3290) for all.
- * tools/test/gamut_matrices.py recomputes them from these chromaticities and compares.
+ * tools/test/gamut_check.py recomputes them from these chromaticities and compares.
  */
 
 #pragma once
@@ -22,6 +22,7 @@
 #include <string>
 
 #include "Core/Types.hpp"
+#include "Color/ChromaticAdaptation.hpp"
 
 namespace rayt::color {
 
@@ -44,22 +45,40 @@ namespace rayt::color {
         return "?";
     }
 
+    /// The matrix linear sRGB -> linear RGB of `g` (rows as in the header comment; identity for sRGB).
+    inline const Matrix3& matrixFromLinearSRGB(Gamut g) {
+        static const Matrix3 p3 = matrixFromRows(
+            Real(0.8224621), Real(0.1775380), Real(0.0000000),
+            Real(0.0331941), Real(0.9668058), Real(0.0000000),
+            Real(0.0170827), Real(0.0723974), Real(0.9105199));
+        static const Matrix3 rec2020 = matrixFromRows(
+            Real(0.6274040), Real(0.3292820), Real(0.0433136),
+            Real(0.0690970), Real(0.9195400), Real(0.0113612),
+            Real(0.0163916), Real(0.0880132), Real(0.8955950));
+        static const Matrix3 identity(Real(1));
+        switch (g) {
+        case Gamut::DisplayP3: return p3;
+        case Gamut::Rec2020: return rec2020;
+        case Gamut::SRGB:
+        default: return identity;
+        }
+    }
+
     /// Linear sRGB (may be negative or above 1) -> linear RGB in the primaries of `g`. Not clamped.
     inline Vector3 fromLinearSRGB(Gamut g, const Vector3& c) {
+        if (g == Gamut::SRGB) return c;
+        return matrixFromLinearSRGB(g) * c;
+    }
+
+    /// The inverse: linear RGB of `g` -> linear sRGB (negative where the color is outside the sRGB triangle).
+    inline Vector3 toLinearSRGB(Gamut g, const Vector3& c) {
+        static const Matrix3 p3Inv = glm::inverse(matrixFromLinearSRGB(Gamut::DisplayP3));
+        static const Matrix3 rec2020Inv = glm::inverse(matrixFromLinearSRGB(Gamut::Rec2020));
         switch (g) {
-        case Gamut::DisplayP3:
-            return Vector3(
-                Real(0.8224621) * c.x + Real(0.1775380) * c.y,
-                Real(0.0331941) * c.x + Real(0.9668058) * c.y,
-                Real(0.0170827) * c.x + Real(0.0723974) * c.y + Real(0.9105199) * c.z);
-        case Gamut::Rec2020:
-            return Vector3(
-                Real(0.6274040) * c.x + Real(0.3292820) * c.y + Real(0.0433136) * c.z,
-                Real(0.0690970) * c.x + Real(0.9195400) * c.y + Real(0.0113612) * c.z,
-                Real(0.0163916) * c.x + Real(0.0880132) * c.y + Real(0.8955950) * c.z);
+        case Gamut::DisplayP3: return p3Inv * c;
+        case Gamut::Rec2020: return rec2020Inv * c;
         case Gamut::SRGB:
-        default:
-            return c;
+        default: return c;
         }
     }
 

@@ -72,6 +72,11 @@ namespace rayt {
         void setOutputGamut(color::Gamut g) { m_gamut = g; }
         color::Gamut outputGamut() const { return m_gamut; }
 
+        /// 16 bits per channel for .png (default 8): no banding in a wide gamut, where 8 bits are spread over a larger range of colors.
+        /// The same display pipeline; the value is encoded (sRGB curve) and quantized to 65535 steps. Other formats ignore it.
+        void setPng16(bool on) { m_png16 = on; }
+        bool png16() const { return m_png16; }
+
         // ---- Auxiliary buffers (AOVs) for denoising -------------------------------------------
         // Lighting-free color (albedo) and surface normal of what each pixel sees, each averaged over
         // the pixel's samples. Off by default; the integrator fills them when they are enabled.
@@ -130,6 +135,7 @@ namespace rayt {
         std::vector<Vector3> m_pixels;
 
         color::Gamut m_gamut = color::Gamut::SRGB;
+        bool m_png16 = false;
 
         std::vector<Vector3> m_albedo;   ///< empty unless enableAOVs() was called
         std::vector<Vector3> m_normal;
