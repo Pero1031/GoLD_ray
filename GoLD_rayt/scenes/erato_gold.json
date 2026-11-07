@@ -1,0 +1,26 @@
+{
+  // Erato (a 3D scan, CC BY 4.0, see assets/Meshes/erato/CREDITS.md; the mesh is not in the repository) made of gold, lit by three
+  // tungsten lamps, with a white reference ball. Render it with the RGB and with the spectral build and compare.
+  // Change "spectrum" (in the three lights) to "d65", "candle" or "led" for another light.
+  "options": { "width": 600, "height": 800, "spp": 256, "denoise": true },
+  "camera": { "from": [0.15, 0.34, 1.05], "at": [0.0, 0.27, 0.0], "fov": 30 },
+  "materials": {
+    "gold":  { "type": "conductor", "metal": "Au", "roughness": 0.2 },
+    "white": { "type": "diffuse", "albedo": 0.8 },
+    "floor": { "type": "diffuse", "albedo": 0.3 },
+    "key":   { "type": "emission", "spectrum": "tungsten", "radiance": 20 },
+    "fill":  { "type": "emission", "spectrum": "tungsten", "radiance": 8 },
+    "rim":   { "type": "emission", "spectrum": "tungsten", "radiance": 12 }
+  },
+  "objects": [
+    // the scan is 37.6 units tall: scaled to 0.5 m, turned to show the lyre, its base on the floor, centered
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_clean.obj", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [-0.031, 0.0169, 0.001], "material": "gold" },
+    { "shape": "sphere", "center": [0.22, 0.04, 0.22], "radius": 0.04, "material": "white" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    // three spherical lamps: key at the left and in front, fill at the right, rim behind (large, so that the gold reflects soft highlights)
+    { "shape": "sphere", "center": [-0.6, 0.55, 0.7], "radius": 0.25, "material": "key" },
+    { "shape": "sphere", "center": [0.7, 0.30, 0.6], "radius": 0.20, "material": "fill" },
+    { "shape": "sphere", "center": [0.5, 0.50, -0.7], "radius": 0.20, "material": "rim" }
+  ]
+}

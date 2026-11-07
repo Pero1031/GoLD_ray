@@ -1,0 +1,3 @@
+RGB build vs spectral build, gold: CIEDE2000 on the displayed sRGB images (lit pixels only)
+d65       measured box: dE00 mean  1.70   median  1.26   95th percentile  5.27   max 28.11   | whole image: mean  1.37   95th percentile  4.73
+tungsten  measured box: dE00 mean  2.60   median  2.54   95th percentile  6.58   max 28.94   | whole image: mean  2.03   95th percentile  6.13
