@@ -42,7 +42,9 @@ struct MaterialSpec {
     bool hasMedium = false;                        // dielectric: the (closed) inside is filled with a scattering medium
     Vector3 mediumSigmaT = Vector3(100.0);         //   extinction (1/m), per channel
     Vector3 mediumAlbedo = Vector3(0.9);           //   single-scattering albedo, per channel
-    double mediumG = 0;                            //   Henyey-Greenstein anisotropy
+    double mediumG = 0;                            //   Henyey-Greenstein anisotropy (the first lobe)
+    double mediumG2 = 0;                           //   second lobe (used when mediumWeight < 1)
+    double mediumWeight = 1;                       //   weight of the first lobe
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission

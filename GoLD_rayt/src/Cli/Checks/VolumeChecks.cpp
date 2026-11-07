@@ -147,6 +147,36 @@ int RunVolumeTests(const CliOptions& opt) {
 #endif
     }
 
+    // ---- 5. two-lobe phase function ---------------------------------------------------------------------------
+    {
+        const PhaseFunction two(Real(0.9), Real(-0.4), Real(0.7));
+        // (a) The sampled directions have the mean cosine w g1 + (1 - w) g2 (a statistical check of the density).
+        {
+            const int m = 2000000;
+            const Vector3 dir = glm::normalize(Vector3(0.3, -0.5, 0.8));
+            double sum = 0, sum2 = 0;
+            for (int i = 0; i < m; ++i) {
+                const double c = glm::dot(two.sample(dir, Point2(sampling::Random(), sampling::Random())), dir);
+                sum += c; sum2 += c * c;
+            }
+            const double mean = sum / m, se = std::sqrt((sum2 / m - mean * mean) / m);
+            const bool ok = std::abs(mean - two.meanCosine()) <= 4 * se + 1e-4;
+            std::cout << "[Volume]   two-lobe phase function (g1 0.9, g2 -0.4, weight 0.7): mean cosine expected " << two.meanCosine()
+                << "   got " << mean << " +- " << se << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+        // (b) Nothing is absorbed: the sky comes back.
+        run("two-lobe scattering slab, albedo 1, sigma_t d = 5: white furnace", *slabOf(std::make_shared<HomogeneousMedium>(Real(100), Real(1), two), Real(0.05)), alongZ, 1);
+        // (c) Similarity relation: a thick medium with the same sigma_s' = sigma_s (1 - g) and sigma_a looks the same whatever the
+        //     phase function (approximately: the reference is the isotropic case of the check above).
+        {
+            const double mua = 100, musp = 4000, g = two.meanCosine();
+            const double mus = musp / (1 - g);
+            run("semi-infinite slab, same mu_a and mu_s' with the two-lobe phase function: reflectance close to the isotropic 0.6443",
+                *slabOf(std::make_shared<HomogeneousMedium>(Real(mua + mus), Real(mus / (mua + mus)), two), Real(0.5)), alongZ, Real(0.644338), true);
+        }
+    }
+
     std::cout << "[Volume] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
