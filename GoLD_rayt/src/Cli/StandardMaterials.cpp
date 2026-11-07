@@ -10,41 +10,9 @@ StdMaterials MakeStandardMaterials(const CliOptions& opt) {
     // For the floor
     m.floor = std::make_shared<Lambertian>(RgbColor(0.5, 0.5, 0.5)); // A little darker, so that the reflections stand out
 
-    // --------------------------------------------------
-    // Load the optical constants of gold (Au) from the CSV
-    // The table is handed to the material as-is: spectral mode evaluates it per wavelength,
-    // RGB mode reduces it to RGB eta/k by CMF integration.
-    // --------------------------------------------------
-    m.auTable = std::make_shared<rayt::color::ComplexIorTable>();
-    std::string auErr;
-
-    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *m.auTable, &auErr)) {
-        std::cerr << "[Au IOR] Failed: " << auErr << "\n";
-        std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
-
-        // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
-        m.auTable->assign({
-            { 450.0, 1.45, 1.77 },
-            { 550.0, 0.42, 2.45 },
-            { 650.0, 0.16, 3.48 },
-        });
-    }
-    else {
-        std::cout << "[Au IOR] Loaded: " << AU_IOR_CSV_PATH << "\n";
-    }
-
-    // Log the RGB reduction of the table (what RGB mode renders with).
-    {
-        Vector3 eta_rgb(1.0), k_rgb(0.0);
-        rayt::color::integrateIorToRgb_CMF(*m.auTable, eta_rgb, k_rgb);
-        std::cout << "[Au IOR] RGB (CMF-integrated) eta=("
-            << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
-            << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
-        std::cout << "[Au IOR] F0 (normal incidence) = ("
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.x, k_rgb.x) << ","
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.y, k_rgb.y) << ","
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.z, k_rgb.z) << ")\n";
-    }
+    // The optical constants of gold (Au): the table is handed to the materials as it is (spectral mode evaluates it per
+    // wavelength, RGB mode reduces it to RGB eta/k).
+    m.auTable = rayt::io::loadGoldIorTable(AU_IOR_CSV_PATH);
 
     // For comparison: three levels of roughness
     // 0.01: almost a mirror (to compare with MirrorConductor)

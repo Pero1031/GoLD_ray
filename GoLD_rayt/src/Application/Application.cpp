@@ -204,37 +204,9 @@ void App::loadMaterials() {
         std::cout << "[EnvMap] " << (m_envPaths.size() - 1) << " map(s) found in assets/env\n";
     }
 
-    // Gold optical constants (Au) from the CSV. The table is handed to the material as-is: spectral mode
-    // evaluates it per wavelength, RGB mode reduces it to RGB eta/k by CMF integration.
-    m_auTable = std::make_shared<rayt::color::ComplexIorTable>();
-    std::string auErr;
-    if (!rayt::io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *m_auTable, &auErr)) {
-        std::cerr << "[Au IOR] Failed: " << auErr << "\n";
-        std::cerr << "[Au IOR] Fallback to hard-coded eta/k.\n";
-
-        // Fallback: a tiny table built from the old hard-coded RGB constants (450/550/650 nm).
-        m_auTable->assign({
-            { 450.0, 1.45, 1.77 },
-            { 550.0, 0.42, 2.45 },
-            { 650.0, 0.16, 3.48 },
-        });
-    }
-    else {
-        std::cout << "[Au IOR] Loaded: " << AU_IOR_CSV_PATH << "\n";
-    }
-
-    // Log the RGB reduction of the table (what RGB mode renders with).
-    {
-        Vector3 eta_rgb(1.0), k_rgb(0.0);
-        rayt::color::integrateIorToRgb_CMF(*m_auTable, eta_rgb, k_rgb);
-        std::cout << "[Au IOR] RGB (CMF-integrated) eta=("
-            << eta_rgb.x << "," << eta_rgb.y << "," << eta_rgb.z << ") "
-            << "k=(" << k_rgb.x << "," << k_rgb.y << "," << k_rgb.z << ")\n";
-        std::cout << "[Au IOR] F0 (normal incidence) = ("
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.x, k_rgb.x) << ","
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.y, k_rgb.y) << ","
-            << rayt::color::conductorNormalIncidenceReflectance(eta_rgb.z, k_rgb.z) << ")\n";
-    }
+    // Gold optical constants (Au): the table is handed to the materials as it is (spectral mode evaluates it per
+    // wavelength, RGB mode reduces it to RGB eta/k).
+    m_auTable = rayt::io::loadGoldIorTable(AU_IOR_CSV_PATH);
 
     // Three gold spheres: almost a mirror (0.01) / the one the roughness slider controls / matte (0.50).
     m_goldSmooth = std::make_shared<RoughConductor>(m_auTable, 0.01);
