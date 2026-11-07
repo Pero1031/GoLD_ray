@@ -344,6 +344,17 @@ the dispersed band sharp; both agree within a few percent on the smooth parts (`
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
 
+**A gold statue, RGB vs spectral** (`scenes/erato_gold.json`): a 3D scan lit by three lamps, rendered by the RGB build and by the
+spectral build (CIEDE2000 on the displayed images, [numbers](docs/data/erato_gold_results.txt)). Under D65 the two agree (mean 1.7 on
+the statue); under a tungsten lamp the spectral gold is a more saturated yellow and the RGB gold duller (mean 2.6). Same finding as
+for the bowl above, on a complex shape. 600 x 800, 256 spp, OIDN-denoised, 2.3-2.8 minutes per image.
+
+![Erato in gold, RGB renderer, spectral renderer and their color difference, under D65 and under tungsten light](docs/img/erato_gold_rgb_vs_spectral.png)
+
+<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed
+(`tools/mesh_clean.py`), gold material. The scan is not part of this repository ([credits](GoLD_rayt/assets/Meshes/erato/CREDITS.md)).</sub>
+
 ---
 
 ## 9. Third-party code and data
@@ -360,6 +371,7 @@ These are **not included in the repository**: `tools/fetch_deps.ps1` downloads t
 | [stb](https://github.com/nothings/stb) | image reading and writing | public domain / MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) 3.11.3 | scene files | MIT |
 | [glad](https://github.com/Dav1dde/glad) 0.1.36 (generated loader, 3 files in `GoLD_rayt/external/glad/`) | OpenGL loader | generated code; `khrplatform.h` is Khronos (MIT) |
+| Erato 3D scan by Geoffrey Marchal, via [casual-effects.com/data](https://casual-effects.com/data/) | the gold statue figure; the scan is not in the repository | CC BY 4.0 |
 | Johnson & Christy optical constants (Au, Ag, Cu) | `assets/Metal_data/` | published data, via RefractiveIndex.info |
 
 Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). MMD models are not distributed.
