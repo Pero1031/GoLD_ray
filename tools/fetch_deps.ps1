@@ -43,6 +43,14 @@ function Get-Zip($url, $name) {
     return $out
 }
 
+# The folder of an unpacked zip that holds $marker: the unpacked folder itself, or its only sub-folder (zips differ in this)
+function Find-Root($dir, $marker) {
+    if (Test-Path (Join-Path $dir $marker)) { return $dir }
+    $sub = Get-ChildItem $dir -Directory | Where-Object { Test-Path (Join-Path $_.FullName $marker) } | Select-Object -First 1
+    if (-not $sub) { throw "'$marker' was not found in the download ($dir)" }
+    return $sub.FullName
+}
+
 function Step($label, $target, [scriptblock]$action) {
     if ((Test-Path $target) -and -not $Force) { Write-Host ("[ok]      {0}: already there ({1})" -f $label, $target); return }
     Write-Host ("[fetch]   {0}" -f $label)
@@ -54,18 +62,18 @@ function Step($label, $target, [scriptblock]$action) {
 Step "Embree 4.4.0" (Join-Path $root "librarys\embree-4.4.0.x64.windows\include") {
     $d = Get-Zip "https://github.com/RenderKit/embree/releases/download/v4.4.0/embree-4.4.0.x64.windows.zip" "embree"
     New-Item -ItemType Directory -Force (Join-Path $root "librarys") | Out-Null
-    $src = Get-ChildItem $d -Directory | Select-Object -First 1
+    $src = Find-Root $d "include"
     $dst = Join-Path $root "librarys\embree-4.4.0.x64.windows"
     if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-    Move-Item $src.FullName $dst
+    Move-Item $src $dst
 }
 Step "Open Image Denoise 2.5.1" (Join-Path $root "librarys\oidn-2.5.1.x64.windows\include") {
     $d = Get-Zip "https://github.com/RenderKit/oidn/releases/download/v2.5.1/oidn-2.5.1.x64.windows.zip" "oidn"
     New-Item -ItemType Directory -Force (Join-Path $root "librarys") | Out-Null
-    $src = Get-ChildItem $d -Directory | Select-Object -First 1
+    $src = Find-Root $d "include"
     $dst = Join-Path $root "librarys\oidn-2.5.1.x64.windows"
     if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-    Move-Item $src.FullName $dst
+    Move-Item $src $dst
 }
 
 # GLM: the code includes <glm/glm.hpp>, so GoLD_rayt\external\glm must be the folder that holds glm.hpp
@@ -93,21 +101,21 @@ Step "stb_image.h and stb_image_write.h" (Join-Path $proj "include\stb\stb_image
 # GLFW (the zip contains glfw-3.4.bin.WIN64)
 Step "GLFW 3.4" (Join-Path $proj "external\glfw-3.4.bin.WIN64\include") {
     $d = Get-Zip "https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.bin.WIN64.zip" "glfw"
-    $src = Get-ChildItem $d -Directory | Select-Object -First 1
+    $src = Find-Root $d "include"
     $dst = Join-Path $proj "external\glfw-3.4.bin.WIN64"
     if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
-    Move-Item $src.FullName $dst
+    Move-Item $src $dst
 }
 
 # Dear ImGui: the layout uses docking, so the docking branch (a snapshot; the version the author used was 1.92.6 WIP)
 Step "Dear ImGui (docking branch)" (Join-Path $root "external\imgui\imgui.cpp") {
     $d = Get-Zip "https://github.com/ocornut/imgui/archive/refs/heads/docking.zip" "imgui"
-    $src = Get-ChildItem $d -Directory | Select-Object -First 1
+    $src = Find-Root $d "imgui.cpp"
     $dst = Join-Path $root "external\imgui"
     if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
     New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
-    Move-Item $src.FullName $dst
+    Move-Item $src $dst
 }
 
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
