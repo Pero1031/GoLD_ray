@@ -67,6 +67,75 @@ def reflectance_spectrum(rgb, wl_nm):
     return np.maximum(s, 0.0)
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Jakob & Hanika (2019), "A Low-Dimensional Function Space for Efficient Spectral Upsampling": a reflectance
+#     s(lambda) = S(c0 x^2 + c1 x + c2),   S(t) = 1/2 + t / (2 sqrt(1 + t^2)),   x = (lambda - 360) / 470
+# whose color under D65 (the engine's film sensor) is the given RGB. The coefficients are found here by a damped Gauss-Newton fit in
+# CIELAB, walking from gray to the color; the paper tabulates them instead. Reflectances are in [0, 1]: an RGB channel above 1 is not
+# representable (it is clamped to 0.999).
+# ---------------------------------------------------------------------------------------------------------------------------------
+_X = (ma.LAM - 360.0) / 470.0
+_W3 = ma.M_RGB_TO_XYZ @ np.ones(3)
+_D65 = None
+
+
+def _sigmoid(t):
+    return 0.5 + t / (2.0 * np.sqrt(1.0 + t * t))
+
+
+def _jh_spectrum(c):
+    return _sigmoid(c[0] * _X ** 2 + c[1] * _X + c[2])
+
+
+def _lab(rgb):
+    t = (ma.M_RGB_TO_XYZ @ np.asarray(rgb, dtype=float)) / _W3
+    f = np.where(t > 216 / 24389, np.cbrt(t), (24389 / 27 * t + 16) / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+
+
+def jakob_hanika_coefficients(rgb):
+    """(c0, c1, c2) of the sigmoid spectrum whose color under D65 is `rgb`; returns (c, residual in CIELAB units)."""
+    global _D65
+    if _D65 is None:
+        _D65 = ma.lights()["D65"][0]
+    rgb = np.clip(np.asarray(rgb, dtype=float), 1e-3, 0.999)
+
+    def model(c):
+        return _lab(ma.sensor_rgb(_jh_spectrum(c) * _D65))
+
+    m = float(np.clip(rgb.mean(), 1e-3, 0.999))
+    c = np.array([0.0, 0.0, (2 * m - 1) / np.sqrt(1 - (2 * m - 1) ** 2)])      # flat spectrum of the mean value
+    gray = np.full(3, m)
+    for step in range(1, 13):                                                    # continuation: gray -> the color
+        target = _lab(gray + (rgb - gray) * step / 12.0)
+        lam = 1e-3
+        for _ in range(60):
+            r = model(c) - target
+            J = np.zeros((3, 3))
+            for k in range(3):
+                d = np.zeros(3)
+                d[k] = 1e-4
+                J[:, k] = (model(c + d) - model(c - d)) / 2e-4
+            try:
+                dc = np.linalg.solve(J.T @ J + lam * np.eye(3), -J.T @ r)
+            except np.linalg.LinAlgError:
+                break
+            new = model(c + dc) - target
+            if np.linalg.norm(new) < np.linalg.norm(r):
+                c, lam = c + dc, max(lam * 0.3, 1e-9)
+                if np.linalg.norm(new) < 1e-6:
+                    break
+            else:
+                lam *= 10.0
+    return c, float(np.linalg.norm(model(c) - _lab(rgb)))
+
+
+def jakob_hanika_spectrum(rgb, wl_nm):
+    """The Jakob-Hanika reflectance of an RGB albedo at the given wavelengths (nm)."""
+    c, _ = jakob_hanika_coefficients(rgb)
+    return _sigmoid(c[0] * ((np.asarray(wl_nm, dtype=float) - 360.0) / 470.0) ** 2 + c[1] * ((np.asarray(wl_nm, dtype=float) - 360.0) / 470.0) + c[2])
+
+
 def _check(exe):
     """Engine vs this port: a diffuse sphere of albedo `rgb` in a tungsten glow."""
     cases = [(0.8, 0.8, 0.8), (0.8, 0.3, 0.1), (0.2, 0.5, 0.9), (0.1, 0.6, 0.2), (0.35, 0.1, 0.12), (0.05, 0.04, 0.04)]
