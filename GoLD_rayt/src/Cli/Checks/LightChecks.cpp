@@ -166,6 +166,16 @@ int RunLightTests(const CliOptions& opt) {
         color::setWhiteBalance(tungsten);
         run("point light, illuminant A with white balance (neutral)", pointScene(tungsten), Vector3(pointY));
         color::resetWhiteBalance();
+
+        // (f) the same for the candle: its sRGB blue is negative, where a division of the RGB channels was meaningless
+        // (and the old code skipped the balance). CAT16 adapts from its white all the same.
+        const EmissionSpectrum candle = EmissionSpectrum::Blackbody(1850.0);
+        const bool wbCandle = color::setWhiteBalance(candle);
+        std::cout << "[Lights]   candle sensor RGB = (" << candle.rgb().x << ", " << candle.rgb().y << ", " << candle.rgb().z
+            << "), CAT16 white balance " << (wbCandle ? "set" : "NOT set   FAIL") << "\n";
+        allPassed = wbCandle && allPassed;
+        run("point light, candle with white balance (neutral)", pointScene(candle), Vector3(pointY));
+        color::resetWhiteBalance();
     }
 
     // Environment maps: reference = dense grid integration of EnvMap::eval.

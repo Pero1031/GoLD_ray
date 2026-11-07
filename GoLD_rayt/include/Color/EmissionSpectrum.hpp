@@ -15,7 +15,7 @@
  * (the same sensor that SpectrumToRGB() uses), so RGB and spectral mode agree.
  *
  * A non-D65 light has a color cast in the image (as with a real camera at fixed white balance).
- * setWhiteBalance(light) divides it out at the film.
+ * setWhiteBalance(light) removes it at the film (CAT16 adaptation to D65, see Color/ChromaticAdaptation.hpp).
  */
 
 #pragma once
@@ -116,14 +116,26 @@ namespace rayt {
 
     namespace color {
 
-        /// Makes `light` render neutral (the film divides by its color, luminance preserved).
-        inline void setWhiteBalance(const EmissionSpectrum& light) {
-            const Vector3& c = light.rgb();
-            const Real Y = Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z;
-            if (Y > Real(0) && c.x > Real(0) && c.y > Real(0) && c.z > Real(0)) whiteBalanceRgb() = c / Y;
+        /**
+         * @brief Makes `light` render neutral: the film adapts from the light's white to D65 with CAT16 (luminance preserved).
+         *
+         * The light's white is its XYZ (from the sensor RGB the film would record); the destination is D65 at the same Y.
+         * Unlike a division of the RGB channels this also works for a light whose sRGB blue is negative (the candle).
+         * Returns false (and leaves the film unchanged) when the light has no visible power.
+         */
+        inline bool setWhiteBalance(const EmissionSpectrum& light, Real degree = Real(1)) {
+            const Matrix3 toXYZ = filmToXYZ();
+            const Vector3 src = toXYZ * light.rgb();
+            const Vector3 d65 = toXYZ * Vector3(1.0);   // the film's (1,1,1) is D65
+            if (!(src.y > Real(0)) || !cat16WhiteValid(src)) return false;
+            const Vector3 dst = d65 * (src.y / d65.y);
+            WhiteBalance& wb = whiteBalance();
+            wb.matrix = glm::inverse(toXYZ) * cat16Matrix(src, dst, degree) * toXYZ;
+            wb.active = true;
+            return true;
         }
 
-        inline void resetWhiteBalance() { whiteBalanceRgb() = Vector3(1.0); }
+        inline void resetWhiteBalance() { whiteBalance() = WhiteBalance(); }
 
     } // namespace color
 

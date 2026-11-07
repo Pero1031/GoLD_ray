@@ -252,8 +252,31 @@ def to_srgb8(rgb):
     return np.round(255 * v).astype(int)
 
 
+M16 = np.array([[0.401288, 0.650173, -0.051461],
+                [-0.250268, 1.204414, 0.045854],
+                [-0.002079, 0.048952, 0.953127]])
+FILM_TO_XYZ = np.linalg.inv(M_XYZ_TO_RGB) @ np.diag(WHITE)    # film RGB (D65 -> (1,1,1)) -> XYZ
+
+
+def cat16_matrix(light_rgb, degree=1.0):
+    """Film-RGB matrix of the renderer's white balance (--wb): CAT16 from the light's white to D65 of the same Y."""
+    src = FILM_TO_XYZ @ np.asarray(light_rgb, dtype=np.float64)
+    d65_white = FILM_TO_XYZ @ np.ones(3)
+    dst = d65_white * (src[1] / d65_white[1])
+    scale = degree * (M16 @ dst) / (M16 @ src) + (1.0 - degree)
+    adapt = np.linalg.inv(M16) @ np.diag(scale) @ M16
+    return np.linalg.inv(FILM_TO_XYZ) @ adapt @ FILM_TO_XYZ
+
+
 def white_balanced(rgb, light_rgb):
-    """Film white balance of the renderer (--wb): divide by the light's color (luminance preserved)."""
+    """Film white balance of the renderer (--wb): CAT16 adaptation from the light's white to D65 (luminance preserved).
+    Linear, so negative (out-of-sRGB) channels pass through. (Until 2026-11-08 the renderer divided the channels by the light's RGB,
+    which is meaningless for a candle whose blue is negative: see white_balanced_division.)"""
+    return cat16_matrix(light_rgb) @ np.asarray(rgb, dtype=np.float64)
+
+
+def white_balanced_division(rgb, light_rgb):
+    """The old white balance: divide each channel by the light's color (luminance preserved). Kept for comparison."""
     return rgb / light_rgb
 
 

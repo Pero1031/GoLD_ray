@@ -35,6 +35,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/SampledWavelengths.hpp"
+#include "Color/ChromaticAdaptation.hpp"
 #include "Color/ColorSpace.hpp"
 #include "Color/Illuminants.hpp"
 #include "Color/SpectralCurve.hpp"
@@ -195,15 +196,35 @@ namespace rayt::color {
     } // namespace detail
 
     /**
-     * @brief Camera white balance: the film divides the sensor RGB by this color (default (1,1,1)).
+     * @brief Camera white balance: the film multiplies the sensor RGB by this 3x3 matrix (default: identity, off).
      *
-     * A light that is not D65 (tungsten, candle, ...) renders with its true color cast. Setting
-     * this to the RGB of the light that should look white removes the cast (diagonal von Kries in
-     * linear sRGB). Set it before rendering starts; see setWhiteBalance() in Color/EmissionSpectrum.hpp.
+     * A light that is not D65 (tungsten, candle, ...) renders with its true color cast. Setting this to the CAT16 adaptation
+     * from that light's white to D65 removes the cast (see setWhiteBalance() in Color/EmissionSpectrum.hpp). The matrix is
+     * linear, so negative (out-of-sRGB) channels are handled like any other. Set it before rendering starts.
      */
-    inline Vector3& whiteBalanceRgb() {
-        static Vector3 wb(1.0);
+    struct WhiteBalance {
+        Matrix3 matrix = Matrix3(Real(1));
+        bool active = false;
+    };
+
+    inline WhiteBalance& whiteBalance() {
+        static WhiteBalance wb;
         return wb;
+    }
+
+    /// Sensor RGB (the film's values) -> XYZ: the inverse of  rgb = diag(1/white) * XYZ_to_sRGB(XYZ).
+    inline Matrix3 filmToXYZ() {
+        Matrix3 S(Real(0));   // XYZ -> linear sRGB, column j = image of the j-th unit vector
+        for (int j = 0; j < 3; ++j) {
+            Vector3 e(0.0);
+            e[j] = Real(1);
+            const Vector3 c = XYZ_to_sRGB(CIE_XYZ(e.x, e.y, e.z));
+            S[j] = c;
+        }
+        const Vector3& w = detail::sensorTable().white;
+        Matrix3 D(Real(0));
+        for (int i = 0; i < 3; ++i) D[i][i] = w[i];
+        return glm::inverse(S) * D;
     }
 
     /**
@@ -331,10 +352,13 @@ namespace rayt {
             if (pdf <= Real(0)) continue;
             rgb += color::rgbSensorWeights(lambda[i]) * (L[i] / pdf);
         }
-        return rgb / (Real(kSpectralSamples) * color::whiteBalanceRgb());
+        const color::WhiteBalance& wb = color::whiteBalance();
+        if (wb.active) rgb = wb.matrix * rgb;
+        return rgb / Real(kSpectralSamples);
 #else
         (void)lambda;
-        return L / color::whiteBalanceRgb();
+        const color::WhiteBalance& wb = color::whiteBalance();
+        return wb.active ? wb.matrix * L : L;
 #endif
     }
 
