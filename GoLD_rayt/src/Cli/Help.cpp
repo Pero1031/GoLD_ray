@@ -28,6 +28,7 @@ void PrintHelp(std::ostream& out) {
         << "  --width N         picture width (the height follows the format of the scene)   --height N   set the height as well\n"
         << "  --spp N           samples per pixel      --depth N   maximum path depth\n"
         << "  --out FILE        .png / .bmp / .jpg (tone mapped), .hdr or .pfm (linear float; .pfm keeps negative values)\n"
+        << "  --gamut srgb|p3|rec2020   primaries of the output (default srgb): the .png gets a cICP tag, .pfm / .hdr hold linear values in them\n"
         << "  --env FILE        environment map (.hdr)      --light d65|tungsten|candle|led   light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"

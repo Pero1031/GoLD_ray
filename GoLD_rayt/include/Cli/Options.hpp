@@ -157,7 +157,8 @@ struct CliOptions {
     std::string studioLook = "default";    // --studio-look default|warm|cool|dramatic|soft : lighting of --pmx-studio
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
-    bool cleanAux = false;                 // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
+    std::string gamut = "srgb";            // --gamut srgb|p3|rec2020 : primaries of the written image / .pfm / .hdr (the film stays linear sRGB)
+    bool cleanAux = false;                // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)
     bool pmxMatte = false;                 // --pmx-matte : every material plain diffuse (no gloss presets)

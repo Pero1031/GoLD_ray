@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -124,6 +125,54 @@ namespace rayt {
         return static_cast<unsigned char>(Real(255.0) * x + Real(0.5)); // round-to-nearest
     }
 
+    /// CRC-32 of the PNG spec (polynomial 0xEDB88320), over a chunk's type and data.
+    static uint32_t pngCrc32(const unsigned char* data, size_t n) {
+        uint32_t crc = 0xFFFFFFFFu;
+        for (size_t i = 0; i < n; ++i) {
+            crc ^= data[i];
+            for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+        return ~crc;
+    }
+
+    /**
+     * @brief Writes an 8-bit RGB PNG tagged with a cICP chunk (ITU-T H.273 code points).
+     *
+     * stb_image_write cannot add chunks, so the PNG is encoded to memory and the 25-byte chunk is spliced in right after IHDR
+     * (cICP must come before PLTE / IDAT). Code points: primaries 12 (Display P3) or 9 (BT.2020), transfer 13 (sRGB curve),
+     * matrix 0 (RGB), full range. A viewer that ignores cICP shows the file as sRGB, i.e. less saturated.
+     */
+    static bool writePngWithCicp(const std::string& filename, int width, int height,
+        const std::vector<unsigned char>& rgb8, color::Gamut gamut) {
+        std::vector<unsigned char> png;
+        auto sink = [](void* ctx, void* data, int size) {
+            auto* v = static_cast<std::vector<unsigned char>*>(ctx);
+            const auto* p = static_cast<const unsigned char*>(data);
+            v->insert(v->end(), p, p + size);
+        };
+        if (!stbi_write_png_to_func(sink, &png, width, height, 3, rgb8.data(), width * 3)) return false;
+
+        constexpr size_t kAfterIhdr = 8 + 25;   // signature + (length 4, type 4, data 13, crc 4)
+        if (png.size() < kAfterIhdr) return false;
+
+        unsigned char chunk[4 + 4 + 4 + 4];
+        chunk[0] = 0; chunk[1] = 0; chunk[2] = 0; chunk[3] = 4;   // data length
+        chunk[4] = 'c'; chunk[5] = 'I'; chunk[6] = 'C'; chunk[7] = 'P';
+        chunk[8] = static_cast<unsigned char>(color::gamutPrimariesCode(gamut));
+        chunk[9] = 13;   // transfer: sRGB curve
+        chunk[10] = 0;   // matrix: RGB
+        chunk[11] = 1;   // full range
+        const uint32_t crc = pngCrc32(chunk + 4, 8);
+        chunk[12] = static_cast<unsigned char>(crc >> 24); chunk[13] = static_cast<unsigned char>(crc >> 16);
+        chunk[14] = static_cast<unsigned char>(crc >> 8);  chunk[15] = static_cast<unsigned char>(crc);
+        png.insert(png.begin() + kAfterIhdr, chunk, chunk + sizeof(chunk));
+
+        std::ofstream f(filename, std::ios::binary);
+        if (!f) return false;
+        f.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+        return static_cast<bool>(f);
+    }
+
     /**
      * @brief Saves the film to an image file (default scale = 1.0).
      * This overload forwards to save(filename, scale).
@@ -170,7 +219,7 @@ namespace rayt {
             std::vector<float> pfmData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
             for (int y = 0; y < m_height; ++y) {
                 for (int x = 0; x < m_width; ++x) {
-                    Vector3 p = m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] * s;
+                    Vector3 p = color::fromLinearSRGB(m_gamut, m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] * s);
                     const size_t o = (static_cast<size_t>(m_height - 1 - y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)) * 3;
                     for (int c = 0; c < 3; ++c)
                         pfmData[o + c] = math::hasNonFinite(p[c]) ? 0.0f : static_cast<float>(p[c]);
@@ -193,7 +242,7 @@ namespace rayt {
 
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < numPixels; ++i) {
-                Vector3 p = m_pixels[i] * s;
+                Vector3 p = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
 
                 // NaN/Inf -> 0
                 if (math::hasNonFinite(p[0])) p[0] = Real(0);
@@ -221,9 +270,9 @@ namespace rayt {
 
         #pragma omp parallel for schedule(static)
         for (int i = 0; i < numPixels; ++i) {
-            Vector3 pixel = m_pixels[i] * s;
-
-            // New pipeline: exposure -> Reinhard -> sRGB encode -> clamp
+            // Change of primaries first (exact, unclamped), then the display pipeline, which clips what is still negative:
+            // exposure -> Reinhard -> sRGB curve -> clamp. The curve is the sRGB one for every gamut (as for Display P3).
+            Vector3 pixel = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
             pixel = color::toDisplaySRGB_Reinhard(pixel, exposureStops);
 
             outputData[i * 3 + 0] = toByte(pixel[0]);
@@ -232,7 +281,12 @@ namespace rayt {
         }
 
         if (ext == "png") {
-            stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
+            if (m_gamut == color::Gamut::SRGB)
+                stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
+            else if (!writePngWithCicp(filename, m_width, m_height, outputData, m_gamut)) {
+                std::cerr << "[Film] Error: could not write " << filename << std::endl;
+                return;
+            }
         }
         else if (ext == "bmp") {
             stbi_write_bmp(filename.c_str(), m_width, m_height, 3, outputData.data());
@@ -245,7 +299,12 @@ namespace rayt {
             return;
         }
 
-        std::cout << "[Film] Saved LDR image: " << filename << std::endl;
+        std::cout << "[Film] Saved LDR image: " << filename;
+        if (m_gamut != color::Gamut::SRGB && ext != "png")
+            std::cout << " (" << color::gamutName(m_gamut) << " values, but this format carries no color tag; use .png)";
+        else if (m_gamut != color::Gamut::SRGB)
+            std::cout << " (" << color::gamutName(m_gamut) << ", cICP-tagged)";
+        std::cout << std::endl;
     }
 
     void Film::saveAlbedo(const std::string& filename) const {

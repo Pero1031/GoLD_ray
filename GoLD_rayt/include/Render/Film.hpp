@@ -16,7 +16,8 @@
 #include <memory>
 #include <algorithm>
 
-#include "Core/Types.hpp" 
+#include "Core/Types.hpp"
+#include "Color/Gamut.hpp"
 
 namespace rayt {
 
@@ -59,6 +60,17 @@ namespace rayt {
 
         // clear buffer
         void clear();
+
+        /**
+         * @brief Primaries of the written files (default sRGB). The stored values stay linear sRGB; save() converts them.
+         *
+         * - .pfm / .hdr: linear floats in these primaries (the file has no tag; the name is up to the caller).
+         * - .png: 8-bit, encoded with the sRGB curve, tagged with a cICP chunk when the gamut is not sRGB
+         *   (an sRGB file is written exactly as before, without the chunk). .bmp / .jpg carry no tag.
+         * The conversion comes before the clamp, so a color outside sRGB keeps its saturation in P3 / Rec.2020.
+         */
+        void setOutputGamut(color::Gamut g) { m_gamut = g; }
+        color::Gamut outputGamut() const { return m_gamut; }
 
         // ---- Auxiliary buffers (AOVs) for denoising -------------------------------------------
         // Lighting-free color (albedo) and surface normal of what each pixel sees, each averaged over
@@ -116,6 +128,8 @@ namespace rayt {
          * (SpectrumToRGB) before it reaches the film, so the film is always RGB.
          */
         std::vector<Vector3> m_pixels;
+
+        color::Gamut m_gamut = color::Gamut::SRGB;
 
         std::vector<Vector3> m_albedo;   ///< empty unless enableAOVs() was called
         std::vector<Vector3> m_normal;

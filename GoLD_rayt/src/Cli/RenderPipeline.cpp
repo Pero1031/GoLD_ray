@@ -176,6 +176,9 @@ int RenderScene(CliOptions& opt) {
     }
 
     std::cout << "[Output] Saving images..." << std::endl;
+    color::Gamut gamut = color::Gamut::SRGB;
+    color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
+    film.setOutputGamut(gamut);
     film.save(opt.out);
     const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
     const std::string outExt = std::filesystem::path(opt.out).extension().string();
@@ -186,6 +189,7 @@ int RenderScene(CliOptions& opt) {
     }
     if (opt.denoise) {
         Film denoised(imageWidth, imageHeight);
+        denoised.setOutputGamut(gamut);
         if (DenoiseFilm(film, denoised, opt.cleanAux)) denoised.save(outStem + "_denoised" + outExt);
     }
 

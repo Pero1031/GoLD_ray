@@ -9,6 +9,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | **`test/`** | |
 | `regress.py` | small renders and self-checks of a build, compared with an earlier build (use it when changing the renderer's structure) |
 | `ab_test.py` | interleaved A/B runs of two builds: mean color (z score), time, how often a self-check fails |
+| `gamut_check.py` | checks of `--gamut srgb\|p3\|rec2020`: the matrices against the primaries, the PNG's cICP chunk, `.pfm` of two gamuts against each other |
 | **`figures/`** | figures for any scene |
 | `compare_figure.py` | RGB build against spectral build under several lights, with a CIEDE2000 difference map (the README hero) |
 | `label_render.py` | tone maps a `.pfm` render and writes labels on it |
