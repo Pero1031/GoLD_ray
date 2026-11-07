@@ -1,0 +1,59 @@
+RGB build vs spectral build, gold statue (Erato, 600x800, 256 spp, raw renders, mean of two; middle box, lit pixels).
+dE00 between the two images as displayed; plain = per pixel, S-CIELAB = after the spatial filtering of the visual system at the given pixels per degree.
+'noise' = the same measure between the repeats a and b of one build (a single render each). 'object mean' = dE00 between the mean colors of the masked pixels.
+The S-CIELAB filter widths are written from the published table and not checked against a reference implementation (see tools/lib/scielab.py).
+
+=== d65, shown in sRGB (221117 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          1.24    1.03    3.23  11.0%        0.86       1.08
+plain, no blur           2.10    1.50    6.09  28.5%        1.98       2.61
+S-CIELAB 20 px/deg       1.77    1.13    5.46  23.5%        1.94       2.03
+S-CIELAB 40 px/deg       1.14    0.85    3.19  10.8%        0.99       1.04
+S-CIELAB 80 px/deg       0.83    0.72    2.12   3.8%        0.50       0.51
+object mean              0.66
+
+=== d65, shown in Display P3 (221117 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          1.25    1.13    3.14  10.8%        0.90       1.10
+plain, no blur           2.10    1.53    6.06  28.7%        2.01       2.61
+S-CIELAB 20 px/deg       1.75    1.11    5.42  23.1%        1.95       2.03
+S-CIELAB 40 px/deg       1.11    0.84    3.12  10.2%        0.99       1.04
+S-CIELAB 80 px/deg       0.80    0.70    2.02   3.3%        0.50       0.51
+object mean              0.63
+
+=== tungsten, shown in sRGB (223078 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          2.42    2.60    5.30  56.3%        0.80       0.92
+plain, no blur           2.86    2.57    7.16  55.4%        1.95       2.26
+S-CIELAB 20 px/deg       3.01    2.66    7.92  56.2%        1.86       1.95
+S-CIELAB 40 px/deg       2.55    2.46    6.33  53.3%        0.94       0.98
+S-CIELAB 80 px/deg       2.34    2.32    5.71  50.6%        0.45       0.47
+object mean              2.84
+
+=== tungsten, shown in Display P3 (223078 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          2.59    2.45    6.97  54.1%        0.83       0.94
+plain, no blur           3.10    2.45    8.91  53.6%        1.99       2.27
+S-CIELAB 20 px/deg       3.11    2.51    8.63  53.0%        1.86       1.95
+S-CIELAB 40 px/deg       2.63    2.34    6.84  50.6%        0.94       0.98
+S-CIELAB 80 px/deg       2.39    2.24    5.91  48.7%        0.46       0.47
+object mean              2.79
+
+=== candle, shown in sRGB (223951 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          0.96    0.74    2.71   8.3%        0.77       0.90
+plain, no blur           1.76    1.05    5.89  23.2%        1.91       2.26
+S-CIELAB 20 px/deg       1.61    0.99    5.15  20.1%        1.87       1.91
+S-CIELAB 40 px/deg       1.02    0.79    2.82   8.5%        0.95       0.97
+S-CIELAB 80 px/deg       0.76    0.70    1.86   1.9%        0.45       0.49
+object mean              0.77
+
+=== candle, shown in Display P3 (223951 pixels) ===
+measure                  mean  median  95 pct   >2.3   noise RGB noise spec
+plain, 3x3 blur          4.40    4.84   10.92  61.5%        0.80       0.94
+plain, no blur           4.66    4.65   12.07  60.6%        1.95       2.33
+S-CIELAB 20 px/deg       4.59    4.18   12.22  64.7%        1.89       1.99
+S-CIELAB 40 px/deg       4.26    4.06   10.98  64.7%        0.95       1.01
+S-CIELAB 80 px/deg       4.08    4.02   10.05  65.9%        0.46       0.51
+object mean              6.00
+
