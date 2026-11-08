@@ -82,6 +82,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--fog-prism-deg") o.fogPrismDeg = std::stod(value("--fog-prism-deg"));
             else if (a == "--fog-fill") o.fogFill = std::stod(value("--fog-fill"));
             else if (a == "--lvc") o.lvc = true;
+            else if (a == "--spot-floor") o.spotFloor = true;
             else if (a == "--lvc-paths") o.lvcPaths = std::stoll(value("--lvc-paths"));
             else if (a == "--lvc-depth") o.lvcDepth = std::stoi(value("--lvc-depth"));
             else if (a == "--lvc-mask") o.lvcMask = std::stoi(value("--lvc-mask"));

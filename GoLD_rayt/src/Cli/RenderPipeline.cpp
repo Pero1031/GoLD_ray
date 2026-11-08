@@ -188,7 +188,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.lvc && setup.bptLight && setup.bptMedium) {
         VolumeBptParams bp;
-        bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth;
+        bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth; bp.surfaceAlbedo = setup.bptAlbedo;
         bp.useNee = (opt.lvcMask & 1) != 0; bp.useConnections = (opt.lvcMask & 2) != 0; bp.useLightTracing = (opt.lvcMask & 4) != 0;
         VolumeBPT(*scene, *camera, *setup.bptLight, *setup.bptMedium, bp).render(film);
     }

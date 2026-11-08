@@ -204,14 +204,27 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
     out.world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
     auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight));
     lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(opt.spotDeg)));
+    if (opt.spotFloor) {   // a floor inside the ball, lit by the spot: the fog is lit again by the light that the floor sends back
+        out.world->add(std::make_shared<Quad>(Point3(-0.5, -0.12, -0.5), Vector3(0, 0, 1.0), Vector3(1.0, 0, 0), std::make_shared<Lambertian>(RgbColor(out.bptAlbedo))));
+        lamp = std::make_shared<PointLight>(Point3(-0.6, 0.12, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight));
+        lamp->setCone(Vector3(0.7, -0.24, 0.0), glm::radians(Real(opt.spotDeg)));
+    }
     out.lights.push_back(lamp);
     out.keepAlive.push_back(fog);
     out.bptLight = lamp.get();
     out.bptMedium = fog.get();
-    out.camera.from = Point3(0.0, 0.62, 0.001);
-    out.camera.at = Point3(0.0, 0.0, 0.0);
-    out.camera.up = Vector3(0, 0, -1);
-    out.camera.fovDeg = 28.0;
+    if (opt.spotFloor) {
+        out.camera.from = Point3(0.0, 0.5, 0.42);
+        out.camera.at = Point3(0.03, -0.06, 0.0);
+        out.camera.up = Vector3(0, 1, 0);
+        out.camera.fovDeg = 32.0;
+    }
+    else {
+        out.camera.from = Point3(0.0, 0.62, 0.001);
+        out.camera.at = Point3(0.0, 0.0, 0.0);
+        out.camera.up = Vector3(0, 0, -1);
+        out.camera.fovDeg = 28.0;
+    }
     return std::nullopt;
 }
 

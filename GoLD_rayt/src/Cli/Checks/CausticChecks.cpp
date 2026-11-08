@@ -152,22 +152,36 @@ int RunCausticTests(const CliOptions& opt) {
 }
 
 // ---- VolumeBPT (prototype of LVC-BPT) against path tracing ----
-int RunLvcTests(const CliOptions& opt) {
+// One configuration: a fog ball and a lamp, with or without a diffuse floor (lit by the lamp, it lights the fog again).
+static bool RunLvcCase(const CliOptions& opt, bool withFloor) {
     const int W = 48, H = 27;
+    const Real rho = 0.5;
     auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
     auto fog = std::make_shared<HomogeneousMedium>(Real(3), Real(0.9), PhaseFunction(Real(0.5)));
     boundary->setMedium(fog);
     auto world = std::make_shared<Aggregate>();
     world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
-    auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 1.0, 1.0), Real(60));
-    lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(8)));
+    std::shared_ptr<PointLight> lamp;
+    Point3 from;
+    Point3 at;
+    Vector3 up;
+    if (withFloor) {
+        world->add(std::make_shared<Quad>(Point3(-0.5, -0.12, -0.5), Vector3(0, 0, 1.0), Vector3(1.0, 0, 0), std::make_shared<Lambertian>(RgbColor(rho))));
+        lamp = std::make_shared<PointLight>(Point3(-0.6, 0.12, 0.0), RgbColor(1.0, 1.0, 1.0), Real(60));
+        lamp->setCone(Vector3(0.7, -0.24, 0.0), glm::radians(Real(8)));
+        from = Point3(0.0, 0.5, 0.42); at = Point3(0.03, -0.06, 0.0); up = Vector3(0, 1, 0);
+    }
+    else {
+        lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 1.0, 1.0), Real(60));
+        lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(8)));
+        from = Point3(0.0, 0.62, 0.001); at = Point3(0, 0, 0); up = Vector3(0, 0, -1);
+    }
     auto scene = std::make_shared<Scene>(world);
     scene->addLight(lamp);
     scene->finalize("uniform");
-    const Point3 from(0.0, 0.62, 0.001);
-    auto cam = std::make_shared<Camera>(from, Point3(0, 0, 0), Vector3(0, 0, -1), 28.0, double(W) / H, 0.0, glm::length(from));
+    auto cam = std::make_shared<Camera>(from, at, up, withFloor ? 32.0 : 28.0, double(W) / H, 0.0, glm::length(from - at));
 
-    // the reference: path tracing with next event estimation in the medium and MIS with the phase-sampled rays
+    // the reference: path tracing with next event estimation in the medium and on the surfaces, MIS with the BSDF- and phase-sampled rays
     Film ref(W, H);
     PathIntegrator pt(cam, 32, opt.spp * 64);
     pt.setMediaNee(true);
@@ -186,13 +200,15 @@ int RunLvcTests(const CliOptions& opt) {
     std::vector<double> refB; double refTotal;
     blockMeans(ref.getData(), refB, refTotal);
     double refMax = 0; for (double v : refB) refMax = std::max(refMax, v);
-    std::cout << "[Lvc] reference (path tracing, " << opt.spp * 64 << " spp): mean G " << refTotal << ", brightest block " << refMax << "\n";
+    std::cout << "[Lvc] " << (withFloor ? "fog ball and a diffuse floor" : "fog ball") << ": reference (path tracing, " << opt.spp * 64 << " spp): mean G "
+        << refTotal << ", brightest block " << refMax << "\n";
 
     bool allPassed = true;
     struct Case { const char* name; int mask; };
-    for (const Case& c : { Case{ "next event estimation only (s = 0)", 1 }, Case{ "light tracing only (s = n)", 4 }, Case{ "next event estimation + connections (s < n)", 3 }, Case{ "connections + light tracing (s > 0)", 6 }, Case{ "all strategies, balance heuristic", 7 } }) {
+    for (const Case& c : { Case{ "next event estimation only (s = 0)", 1 }, Case{ "light tracing only (s = n)", 4 }, Case{ "next event estimation + connections (s < n)", 3 },
+                           Case{ "connections + light tracing (s > 0)", 6 }, Case{ "all strategies, balance heuristic", 7 } }) {
         VolumeBptParams bp;
-        bp.width = W; bp.height = H; bp.spp = opt.spp * 8; bp.lightPaths = static_cast<long long>(opt.spp) * 100000; bp.maxVertices = 8;
+        bp.width = W; bp.height = H; bp.spp = opt.spp * 8; bp.lightPaths = static_cast<long long>(opt.spp) * 25000; bp.maxVertices = 8; bp.surfaceAlbedo = rho;
         bp.useNee = (c.mask & 1) != 0; bp.useConnections = (c.mask & 2) != 0; bp.useLightTracing = (c.mask & 4) != 0;
         Film f(W, H);
         std::cout << "[Lvc] " << c.name << "\n";
@@ -211,8 +227,14 @@ int RunLvcTests(const CliOptions& opt) {
         allPassed = allPassed && ok;
         std::cout << "[Lvc]   mean G " << total << "  ratio to the reference " << ratio << "  worst bright block off by " << 100 * worst << " %" << (ok ? "   OK" : "   FAIL") << "\n";
     }
-    std::cout << "[Lvc] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
-    return allPassed ? 0 : 2;
+    return allPassed;
+}
+
+int RunLvcTests(const CliOptions& opt) {
+    const bool a = RunLvcCase(opt, false);
+    const bool b = RunLvcCase(opt, true);
+    std::cout << "[Lvc] RESULT: " << ((a && b) ? "PASS" : "FAIL") << "\n";
+    return (a && b) ? 0 : 2;
 }
 
 } // namespace rayt::cli

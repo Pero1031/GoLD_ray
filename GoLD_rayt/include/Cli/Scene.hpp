@@ -85,6 +85,7 @@ struct SceneSetup {
     CausticTarget causticTarget;
     const PointLight* bptLight = nullptr;                        // fogspot: the lamp and the fog, for --lvc (VolumeBPT)
     const Medium* bptMedium = nullptr;
+    Real bptAlbedo = Real(0.5);                                  // albedo of the diffuse surfaces (all the same)
     std::vector<SpecularNee::Body> manifoldBodies;               // flat-faced glass bodies the specular manifold NEE can solve
     std::vector<std::shared_ptr<void>> keepAlive;                // owners of things the scene only points to
     std::function<void(const RenderResult&)> afterRender;        // right after the render, before saving

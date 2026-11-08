@@ -166,6 +166,7 @@ struct CliOptions {
     long long lvcPaths = 2000000;          // --lvc-paths N : light paths in the cache
     int lvcDepth = 6;                      // --lvc-depth N : scattering vertices per sub-path
     int lvcMask = 7;                       // --lvc-mask M : strategies, 1 = next event estimation, 2 = connections, 4 = light tracing
+    bool spotFloor = false;                // --spot-floor : a diffuse floor in the fogspot scene (the lamp aims at it)
     Real spotDeg = 3.0;                    // --spot-deg : half angle of the lamp's cone in the fogspot scene
     bool causticTraceOnly = false;         // --caustic-trace-only : write only the light-traced image (to look at it alone)
     bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
