@@ -48,6 +48,7 @@ struct MaterialSpec {
     double mediumG = 0;                            //   Henyey-Greenstein anisotropy (the first lobe)
     double mediumG2 = 0;                           //   second lobe (used when mediumWeight < 1)
     double mediumWeight = 1;                       //   weight of the first lobe
+    std::string mediumPhaseTable;                  //   a CSV "theta_deg, p" (Mie scattering...): replaces g, g2 and weight
     bool mediumNoise = false;                      //   a heterogeneous medium: sigmaT is the extinction at the densest point, a noise field gives q(x)
     double noiseFrequency = 20;                    //     features per metre (the first octave)
     int noiseOctaves = 4;

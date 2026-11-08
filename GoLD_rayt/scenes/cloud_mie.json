@@ -1,0 +1,20 @@
+{
+  // A cloud lit from behind by the sun. The droplets scatter by Mie theory (assets/Cloud/mie_reff10.csv, made by
+  // tools/studies/mie_phase.py): a very strong forward peak, which a Henyey-Greenstein lobe of the same mean cosine
+  // does not have. Swap "phaseTable" for "g": 0.865 to see the difference.
+  // Needs --media-nee: the sun is a small light, found only by sampling it at every collision in the cloud.
+  "options": { "width": 640, "spp": 128, "media-nee": true, "denoise": true },
+  "camera": { "from": [0, 0.0, 0.55], "at": [0, 0, 0], "fov": 24 },
+  "environment": { "type": "uniform", "scale": 0.02 },
+  "materials": {
+    "cloud": { "type": "dielectric", "ior": 1.0,
+               "medium": { "sigmaT": 420, "albedo": 0.9999, "phaseTable": "assets/Cloud/mie_reff10.csv",
+                           "noise": { "frequency": 22, "octaves": 5, "lo": 0.42, "hi": 0.62, "seed": 7, "maskCenter": [0, 0, 0], "maskRadius": 0.1, "maskStart": 0.45 } } },
+    "sun": { "type": "emission", "spectrum": "d65", "radiance": 40000 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [0, 0, 0], "radius": 0.1, "material": "cloud" },
+    // 0.53 degrees across, 20 m away, almost straight behind the cloud (a little to the left and above)
+    { "shape": "sphere", "center": [-2.2, 1.8, -20], "radius": 0.0926, "material": "sun" }
+  ]
+}

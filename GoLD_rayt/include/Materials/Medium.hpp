@@ -42,6 +42,7 @@
 #include "Color/SpectralCurve.hpp"
 #include "Color/SpectralConversion.hpp"
 #include "Materials/DensityField.hpp"
+#include "Materials/TabulatedPhase.hpp"
 #include "Geometry/Frame.hpp"
 
 namespace rayt {
@@ -83,20 +84,30 @@ namespace rayt {
      */
     struct PhaseFunction {
         Real g1 = Real(0), g2 = Real(0), w = Real(1);
+        std::shared_ptr<const TabulatedPhase> table;          // if set, it replaces the Henyey-Greenstein lobes (Mie scattering, ...)
         PhaseFunction() = default;
         PhaseFunction(Real g) : g1(g), g2(g), w(Real(1)) {}   // implicit: a plain g is a single lobe
         PhaseFunction(Real forward, Real backward, Real weight) : g1(forward), g2(backward), w(weight) {}
+        PhaseFunction(std::shared_ptr<const TabulatedPhase> t) : g1(t->meanCosine()), g2(t->meanCosine()), w(Real(1)), table(std::move(t)) {}
 
-        Real meanCosine() const { return w * g1 + (Real(1) - w) * g2; }
+        Real meanCosine() const { return table ? table->meanCosine() : w * g1 + (Real(1) - w) * g2; }
 
         /// The density (per steradian) of scattering from the propagation direction d_in into d_out, with cosTheta = dot(d_in, d_out)
         /// (cosTheta = 1 is straight on: forward scattering for g > 0). Sample() draws from exactly this density.
         Real eval(Real cosTheta) const {
+            if (table) return table->eval(cosTheta);
             return w * henyeyGreenstein(cosTheta, g1) + (Real(1) - w) * henyeyGreenstein(cosTheta, g2);
         }
 
         /// A new direction for a ray travelling along `dir`, drawn with exactly the phase function's density.
         Vector3 sample(const Vector3& dir, const Point2& u) const {
+            if (table) {
+                const Real cosTheta = table->sampleCosine(u.x);
+                const Real sinTheta = std::sqrt(std::max(Real(0), Real(1) - cosTheta * cosTheta));
+                const Real phi = Real(2) * constants::PI * u.y;
+                const frame::Frame frame(dir);
+                return frame.localToWorld(Vector3(sinTheta * std::cos(phi), sinTheta * std::sin(phi), cosTheta));
+            }
             // The first number picks the lobe and, rescaled, is reused for the angle (it stays uniform in [0, 1)).
             if (u.x < w) return sampleHenyeyGreenstein(dir, g1, Point2(w > Real(0) ? u.x / w : Real(0), u.y));
             return sampleHenyeyGreenstein(dir, g2, Point2((u.x - w) / (Real(1) - w), u.y));

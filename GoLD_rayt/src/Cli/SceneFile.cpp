@@ -121,13 +121,16 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& md = m.at("medium");
             const std::string mw = where + ".medium";
             if (!md.is_object()) Fail(mw, "must be an object with \"sigmaT\" (1/m), \"albedo\" and \"g\"");
-            CheckKeys(md, { "sigmaT", "albedo", "g", "g2", "weight", "noise" }, mw);
+            CheckKeys(md, { "sigmaT", "albedo", "g", "g2", "weight", "phaseTable", "noise" }, mw);
             s.hasMedium = true;
             if (md.contains("sigmaT")) s.mediumSigmaT = ReadColor(md.at("sigmaT"), mw + ".sigmaT");
             if (md.contains("albedo")) s.mediumAlbedo = ReadColor(md.at("albedo"), mw + ".albedo");
             Optional<double>(md, "g", mw, s.mediumG, ReadNumber);
             Optional<double>(md, "g2", mw, s.mediumG2, ReadNumber);
             Optional<double>(md, "weight", mw, s.mediumWeight, ReadNumber);
+            Optional<std::string>(md, "phaseTable", mw, s.mediumPhaseTable, ReadString);
+            if (!s.mediumPhaseTable.empty() && (md.contains("g") || md.contains("g2") || md.contains("weight")))
+                Fail(mw, "\"phaseTable\" replaces \"g\", \"g2\" and \"weight\": give one or the other");
             if (md.contains("noise")) {   // "noise": { "frequency", "octaves", "lo", "hi", "seed" } (all optional)
                 const json& nz = md.at("noise");
                 const std::string nw = mw + ".noise";

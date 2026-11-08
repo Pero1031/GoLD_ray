@@ -225,6 +225,7 @@ struct CliOptions {
     std::string mesh;                  // blob: closed OBJ mesh with outward normals (default: an icosphere)
     Real bgGray = -1;                  // blob: gray backdrop for camera rays that touch nothing (< 0: the environment)
     int volumeCap = 100000;            // blob: limit of collisions inside the medium per path
+    bool mediaNee = false;             // --media-nee: sample the lights at every collision in a medium, and cross index-matched boundaries (clouds, fog; scene files)
     Real absorbScale = -1;             // water / sea: multiplies the absorption of pure water (1 = physical); < 0: the scene's default (water 40, sea 1)
     Real seaDepth = 2.5;               // sea: depth of the water above the sand (m)
     Real seaSteep = 0.03;              // sea: steepness k*A of every wave component (about 0.1 rms slope in total)

@@ -106,7 +106,16 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 glass->setSellmeier(sm);
             }
             if (m.hasMedium) {   // a scattering medium inside the closed surface; equal channels make the cheaper gray medium
-                const PhaseFunction phase(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight));
+                PhaseFunction phase(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight));
+                if (!m.mediumPhaseTable.empty()) {   // a tabulated phase function (Mie scattering of droplets...)
+                    std::string err;
+                    auto table = TabulatedPhase::fromCsv(m.mediumPhaseTable, &err);
+                    if (!table) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": " << m.mediumPhaseTable << ": " << err << "\n";
+                        return 1;
+                    }
+                    phase = PhaseFunction(table);
+                }
                 if (m.mediumNoise) {   // a density field: always the walk with null collisions
                     auto field = std::make_shared<NoiseDensity>(Real(m.noiseFrequency), m.noiseOctaves, Real(m.noiseLo), Real(m.noiseHi), std::uint32_t(m.noiseSeed));
                     if (m.maskRadius > 0) field->setSphereMask(m.maskCenter, Real(m.maskRadius), Real(m.maskStart));
@@ -114,9 +123,9 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 }
                 else if (m.mediumSigmaT.x == m.mediumSigmaT.y && m.mediumSigmaT.y == m.mediumSigmaT.z
                     && m.mediumAlbedo.x == m.mediumAlbedo.y && m.mediumAlbedo.y == m.mediumAlbedo.z)
-                    glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), PhaseFunction(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight))));
+                    glass->setMedium(std::make_shared<HomogeneousMedium>(Real(m.mediumSigmaT.x), Real(m.mediumAlbedo.x), phase));
                 else
-                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, PhaseFunction(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight))));
+                    glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, phase));
             }
             materials[name] = glass;
             break;

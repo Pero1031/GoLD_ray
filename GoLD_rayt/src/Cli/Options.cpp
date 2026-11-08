@@ -62,6 +62,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--mesh") o.mesh = value("--mesh");
             else if (a == "--bg-gray") o.bgGray = std::stod(value("--bg-gray"));
             else if (a == "--volume-cap") o.volumeCap = std::stoi(value("--volume-cap"));
+            else if (a == "--media-nee") o.mediaNee = true;
             else if (a == "--absorb-scale") o.absorbScale = std::stod(value("--absorb-scale"));
             else if (a == "--sea-depth") o.seaDepth = std::stod(value("--sea-depth"));
             else if (a == "--sea-steep") o.seaSteep = std::stod(value("--sea-steep"));

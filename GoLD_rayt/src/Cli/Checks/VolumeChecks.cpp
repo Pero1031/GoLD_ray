@@ -227,6 +227,64 @@ int RunVolumeTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 6. tabulated phase function (Mie scattering of cloud droplets) ---------------------------------------
+    {
+        // (a) A table of Henyey-Greenstein reproduces it, and a table's eval() and sample() describe the same density:
+        //     the fraction of samples inside a cone equals the integral of eval() over the cone.
+        auto coneFraction = [](const PhaseFunction& ph, double cosMin) {   // integral of eval over cos in [cosMin, 1]
+            const int steps = 400000;
+            double s = 0;
+            for (int i = 0; i < steps; ++i) s += ph.eval(Real(cosMin + (1.0 - cosMin) * (i + 0.5) / steps));
+            return s * 2.0 * constants::PI * (1.0 - cosMin) / steps;
+        };
+        auto consistency = [&](const std::string& label, const PhaseFunction& ph) {
+            const int m = 4000000;
+            const Vector3 dir = glm::normalize(Vector3(0.3, -0.5, 0.8));
+            const double cuts[3] = { std::cos(5.0 * 3.14159265358979 / 180.0), std::cos(60.0 * 3.14159265358979 / 180.0), -0.5 };
+            long hits[3] = { 0, 0, 0 };
+            double sum = 0;
+            for (int i = 0; i < m; ++i) {
+                const double c = glm::dot(ph.sample(dir, Point2(sampling::Random(), sampling::Random())), dir);
+                sum += c;
+                for (int k = 0; k < 3; ++k) hits[k] += (c >= cuts[k]);
+            }
+            bool ok = std::abs(sum / m - ph.meanCosine()) < 2e-3;
+            std::cout << "[Volume]   " << label << ": mean cosine table " << ph.meanCosine() << ", samples " << sum / m << "\n";
+            for (int k = 0; k < 3; ++k) {
+                const double expected = coneFraction(ph, cuts[k]), got = double(hits[k]) / m;
+                const double se = std::sqrt(expected * (1 - expected) / m);
+                const bool kOk = std::abs(got - expected) <= 4 * se + 2e-4;
+                std::cout << "[Volume]     samples with cos >= " << cuts[k] << ": integral of eval " << expected << ", sampled " << got << (kOk ? "   OK" : "   FAIL") << "\n";
+                ok = ok && kOk;
+            }
+            allPassed = ok && allPassed;
+        };
+        const double gT = 0.85;
+        const auto hgTable = TabulatedPhase::fromFunction([gT](double c) { return double(henyeyGreenstein(Real(c), Real(gT))); }, 3601);
+        const PhaseFunction tabulatedHg(hgTable);
+        {
+            double worst = 0;
+            for (double c : { 0.999, 0.99, 0.9, 0.5, 0.0, -0.5, -0.9 })
+                worst = std::max(worst, std::abs(tabulatedHg.eval(Real(c)) / henyeyGreenstein(Real(c), Real(gT)) - 1.0));
+            const bool ok = worst < 0.01 && std::abs(tabulatedHg.meanCosine() - gT) < 2e-3;
+            std::cout << "[Volume]   table of Henyey-Greenstein g = 0.85: worst eval error " << worst * 100 << " %, mean cosine " << tabulatedHg.meanCosine() << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+        consistency("table of Henyey-Greenstein g = 0.85", tabulatedHg);
+        // (b) The same medium with the table and with the formula gives the same slab reflectance (a thick scattering slab).
+        run("slab with the table of HG 0.85, albedo 0.97 against the same slab with the formula (reflectance of the formula)",
+            *slabOf(std::make_shared<HomogeneousMedium>(Real(200), Real(0.97), tabulatedHg), Real(0.1)), alongZ,
+            [&] { Vector3 mean, se; int bad = 0; EstimateRadiance(*slabOf(std::make_shared<HomogeneousMedium>(Real(200), Real(0.97), PhaseFunction(Real(gT))), Real(0.1)), alongZ, n, depth, mean, se, bad); return mean.y; }());
+        // (c) The Mie table of cloud droplets (assets/Cloud/mie_reff10.csv, made by tools/studies/mie_phase.py), if it is there.
+        std::string err;
+        if (auto mie = TabulatedPhase::fromCsv("assets/Cloud/mie_reff10.csv", &err)) {
+            const PhaseFunction mieCloud(mie);
+            consistency("Mie table of cloud droplets (r_eff 10 um)", mieCloud);
+            run("slab of Mie droplets, albedo 1, sigma_t d = 20: white furnace", *slabOf(std::make_shared<HomogeneousMedium>(Real(400), Real(1), mieCloud), Real(0.05)), alongZ, 1);
+        }
+        else std::cout << "[Volume]   (the Mie table assets/Cloud/mie_reff10.csv is not there: " << err << "; skipped)\n";
+    }
+
     std::cout << "[Volume] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
