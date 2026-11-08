@@ -375,11 +375,6 @@ constants. 900 x 600, 768 spp, OIDN-denoised. The stone and the ring are generat
 
 ![A gold ring with a round brilliant-cut diamond that shows colored fire, in a dark studio](docs/img/gallery_diamond_ring.png)
 
-**A lamp inside a cut-glass tumbler** (`--scene crystal --crystal-inside`, caustic photon map, eight photon sets averaged).
-All the light on the table is caustic: sharp-edged polygons with colored rims from dispersion.
-
-![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
-
 **A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
 (a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
 the dispersed band sharp; both agree within a few percent on the smooth parts (`--scene manifoldtest`).
