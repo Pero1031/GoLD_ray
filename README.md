@@ -225,6 +225,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Own SAH BVH or **Embree**.
 - **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
+  Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
   230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
 - **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
@@ -379,11 +380,6 @@ All the light on the table is caustic: sharp-edged polygons with colored rims fr
 
 ![A lamp inside a cut-glass tumbler: the table is lit only by light that crossed the glass](docs/img/gallery_crystal_lamp.png)
 
-**Water** (photon map): a point-light caustic through a glass of water (`--scene water --water-lamp`) and a Gerstner-wave
-sea with physical water absorption (`--scene sea`).
-
-![A glass of water lit by a point light, and a Gerstner-wave sea](docs/img/gallery_water.png)
-
 **A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
 (a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
 the dispersed band sharp; both agree within a few percent on the smooth parts (`--scene manifoldtest`).
@@ -392,7 +388,7 @@ the dispersed band sharp; both agree within a few percent on the smooth parts (`
 
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
-which is checked against path tracing and the photon map (`--scene lvc`). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
+which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
 
 ![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
 
