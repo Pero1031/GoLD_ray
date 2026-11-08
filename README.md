@@ -17,7 +17,7 @@ A 3D path tracer in C++20, built around **spectral rendering of metals** (gold f
 color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
 own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
 layered coats and anisotropic metal, scattering media (fog, clouds with Mie scattering), a wave-spectrum sea with sun glitter,
-and MMD characters with skin subsurface scattering.
+hair fibers, and MMD characters with skin subsurface scattering.
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
@@ -226,8 +226,9 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
   optional metal blend and subsurface), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
-  `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), and an ocean surface built from a wave spectrum (wind speed, sun glitter).
+  `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter), and
+  hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
   (Mie scattering of cloud droplets), a single-scattering sky with a sun (`tools/data/make_sky.py`).
@@ -303,7 +304,7 @@ SSS approximation.
 |---|---|
 | `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, `RenderMode.hpp` |
 | `Color/` | spectral curves, CIE functions, illuminants, emission spectra, complex IOR tables, `R(λ)`-to-`(n,k)` |
-| `Materials/` | Lambertian, CoatedDiffuse, RoughConductor, Dielectric, DiffuseLight, Subsurface |
+| `Materials/` | Lambertian, CoatedDiffuse, RoughConductor, Dielectric, DiffuseLight, Subsurface, Hair |
 | `Microfacet/` | GGX and the directional-albedo table for the multiple-scattering compensation |
 | `Geometry/`, `Scene/`, `Accelerators/` | shapes, aggregate, SAH BVH, Embree wrapper |
 | `Lights/` | point / area / environment lights, light samplers |
@@ -333,6 +334,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene volume` | scattering media: Beer-Lambert, white furnace, similarity relation, null collisions, the tabulated (Mie) phase function against its own density |
 | `--scene layered` | the layered coat: a closed form for a smooth coat, `eval()` against `sample()`, energy, reciprocity |
 | `--scene aniso` | anisotropic metal: the tangent of the shapes, the visible-normal density, rotation of the roughness axes |
+| `--scene hair` | hair: the fiber scattering function (energy, `sample()` against `pdf()` and `eval()`, lobe directions), the cylinder intersector against brute force, white furnaces around a fiber and a lock |
 | `--scene ocean` | the ocean: the wave set against its spectrum, Pierson-Moskowitz closed form, dispersion, directional spreading |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
@@ -398,6 +400,16 @@ the waves the mesh cannot resolve far away is given back as roughness (Cox-Munk)
 water and scattered back. 1280 x 720, 192 spp, OIDN-denoised, 2 minutes.
 
 ![A sea at low sun with a path of sun glitter](docs/img/water_ocean_sunset.png)
+
+**Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
+surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
+Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
+a head (a plain sphere); 900 x 506, 512 spp, not denoised (the denoiser smooths single fibers away), 18 minutes. The fibers are drawn 1.6 times
+thicker than real ones to keep the noise down. Checked in white furnaces and against sampling (`--scene hair`).
+
+![The same lock of hair in five colors: black, brown, red, blond and white](docs/img/gallery_hair_colors.png)
+
+![Long hair falling over a head, seen from behind](docs/img/hair_head.png)
 
 **A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
 (a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
