@@ -12,6 +12,7 @@
 #include "Cli/EngineHeaders.hpp"
 #include "Cli/SceneParts.hpp"
 #include "Geometry/ProceduralMesh.hpp"
+#include <chrono>
 
 namespace rayt::cli {
 
@@ -73,10 +74,15 @@ int RunSssRandomWalk(const CliOptions& opt) {
         const Real I = Real(3.14159265 * 0.25);   // an irradiance of pi: a white Lambertian surface facing the lamp has the radiance 1
         const Real fov = Real(2.0 * std::atan(1.25 * R / 0.5) * 180.0 / 3.14159265);
         const Real half = Real(std::atan(1.2 * R / 0.5));
+        const auto tV0 = std::chrono::steady_clock::now();
         Film fV = Render(std::make_shared<Sphere>(Point3(0.0), Real(R), boundaryM), lamp, -Vector3(lamp), half, I,
             Point3(0, 0, 0.5), Point3(0.0), Vector3(0, 1, 0), fov, N, N, spp, depth, cap);
+        const auto tB0 = std::chrono::steady_clock::now();
         Film fB = Render(std::make_shared<Sphere>(Point3(0.0), Real(R), skinM), lamp, -Vector3(lamp), half, I,
             Point3(0, 0, 0.5), Point3(0.0), Vector3(0, 1, 0), fov, N, N, spp, depth, cap);
+        const auto tB1 = std::chrono::steady_clock::now();
+        const double secV = std::chrono::duration<double>(tB0 - tV0).count(), secB = std::chrono::duration<double>(tB1 - tB0).count();
+        std::cout << "[SssRw] time of the sphere picture (" << N << " x " << N << ", " << spp << " spp): volume " << secV << " s, BSSRDF " << secB << " s, ratio " << secV / secB << "\n";
         const double pixelPerR = (N * 0.5) / 1.25;          // pixels per sphere radius
         double sumV = 0, sumB = 0;
         for (int i = 0; i < N * N; ++i) { sumV += fV.getData()[i].y; sumB += fB.getData()[i].y; }
