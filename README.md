@@ -16,7 +16,8 @@ A 3D path tracer in C++20, built around **spectral rendering of metals** (gold f
 **Background.** Built for the author's graduation research: gold was measured with a spectroradiometer (SR-5100) and the
 color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
 own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
-water, and MMD characters with skin subsurface scattering.
+layered coats and anisotropic metal, scattering media (fog, clouds with Mie scattering), a wave-spectrum sea with sun glitter,
+and MMD characters with skin subsurface scattering.
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
@@ -228,6 +229,8 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), and an ocean surface built from a wave spectrum (wind speed, sun glitter).
   Own SAH BVH or **Embree**.
+- **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
+  (Mie scattering of cloud droplets), a single-scattering sky with a sun (`tools/data/make_sky.py`).
 - **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
   Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
@@ -327,6 +330,10 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene thinfilm` | Airy's formula against closed forms (no film, a quarter-wave coating, a free film), the sampling weights, a white furnace |
 | `--scene sss` | the profile, a white furnace over skin, the profile across a shadow edge |
 | `--scene lvc` | the bidirectional path tracer against path tracing (each strategy alone and together; fog, a diffuse floor), and against the caustic photon map (a glass ball, also dispersive) |
+| `--scene volume` | scattering media: Beer-Lambert, white furnace, similarity relation, null collisions, the tabulated (Mie) phase function against its own density |
+| `--scene layered` | the layered coat: a closed form for a smooth coat, `eval()` against `sample()`, energy, reciprocity |
+| `--scene aniso` | anisotropic metal: the tangent of the shapes, the visible-normal density, rotation of the roughness axes |
+| `--scene ocean` | the ocean: the wave set against its spectrum, Pierson-Moskowitz closed form, dispersion, directional spreading |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
 
@@ -350,11 +357,6 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb), the
 skin under [Character rendering](#4-character-rendering-hobby).
-
-**Overview** (spectral mode): gold in three roughnesses and cut glass with caustics (top), and the gold bowl under three lights,
-RGB build vs spectral build, with the color difference (bottom).
-
-![Spectral gold, cut glass with caustics, and RGB vs spectral gold under three lights](docs/img/overview.png)
 
 **Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
 with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
@@ -389,6 +391,13 @@ base, columns). Bottom: bare gold, a clear coat, a satin coat and an amber coat.
 ![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
 
 ![Gold bare, under a clear coat, under a satin coat and under an amber coat](docs/img/gloss_lacquered_gold.png)
+
+**The sea at low sun** (`scenes/ocean_sunset.json`): a wind sea built from a wave spectrum (Pierson-Moskowitz, 10 m/s; [details](docs/WATER.md),
+Japanese), the sun 8 degrees above the horizon and a single-scattering sky. The sun glitter comes from the slopes of the waves; the slope of
+the waves the mesh cannot resolve far away is given back as roughness (Cox-Munk). The blue-green in the troughs is light that went into the
+water and scattered back. 1280 x 720, 192 spp, OIDN-denoised, 2 minutes.
+
+![A sea at low sun with a path of sun glitter](docs/img/water_ocean_sunset.png)
 
 **A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
 (a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
