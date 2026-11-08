@@ -167,6 +167,17 @@ struct CliOptions {
     int lvcPasses = 1;                     // --lvc-passes K : K passes with one wavelength each (needed with dispersive glass)
     int lvcDepth = 10;                      // --lvc-depth N : scattering vertices per sub-path
     int lvcMask = 7;                       // --lvc-mask M : strategies, 1 = next event estimation, 2 = connections, 4 = light tracing
+    std::string galObject = "ball";        // --gal-object ball|prism|column|tumbler|gem : the glass object of the caustics scene
+    Real galLight = 3.0;                   // --gal-light : intensity of its lamp
+    Real galFog = 0.2;                     // --gal-fog : extinction of its haze (1/m)
+    Real galFov = 11.0;
+    Vector3 galLook = Vector3(0.0, -999.0, 0.0);   // --gal-look x,y,z : where the camera looks (y = -999: the object's default)
+    int galFloor = 1;                      // --gal-floor 0 : no floor and no wall: the glass in the haze only (use --gal-fog 1 or more)
+    Real galScale = 1.0;                   // --gal-scale : size of the object (the wall moves with it)
+    Real galDist = 0.0;                    // --gal-dist : distance of the lamp and the camera from the object (0: the scene's default)
+    Real galAlbedo = 0.3;                  // --gal-albedo : albedo of the floor and the wall
+    Real galSpread = 11.0;                 // --gal-spread : half angle of the lamp's cone (degrees)                    // --gal-fov : vertical field of view (degrees)
+    Real galAz = 999, galEl = 999;         // --gal-az, --gal-el : the lamp's direction (degrees; 999 = the object's default)
     bool spotPrism = false;                // --spot-prism : a dispersive prism in the fogspot scene (the lamp aims at it); use --lvc-passes
     bool spotGlass = false;                // --spot-glass : a glass ball in the fogspot scene (the lamp aims at it)
     bool spotFloor = false;                // --spot-floor : a diffuse floor in the fogspot scene (the lamp aims at it)

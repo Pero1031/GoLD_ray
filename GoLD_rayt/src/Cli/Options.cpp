@@ -85,6 +85,18 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--spot-floor") o.spotFloor = true;
             else if (a == "--spot-glass") o.spotGlass = true;
             else if (a == "--spot-prism") o.spotPrism = true;
+            else if (a == "--gal-object") o.galObject = value("--gal-object");
+            else if (a == "--gal-light") o.galLight = std::stod(value("--gal-light"));
+            else if (a == "--gal-fog") o.galFog = std::stod(value("--gal-fog"));
+            else if (a == "--gal-look") o.galLook = ParseRgb(value("--gal-look"), "--gal-look");   // x,y,z
+            else if (a == "--gal-floor") o.galFloor = std::stoi(value("--gal-floor"));
+            else if (a == "--gal-scale") o.galScale = std::stod(value("--gal-scale"));
+            else if (a == "--gal-dist") o.galDist = std::stod(value("--gal-dist"));
+            else if (a == "--gal-albedo") o.galAlbedo = std::stod(value("--gal-albedo"));
+            else if (a == "--gal-spread") o.galSpread = std::stod(value("--gal-spread"));
+            else if (a == "--gal-fov") o.galFov = std::stod(value("--gal-fov"));
+            else if (a == "--gal-az") o.galAz = std::stod(value("--gal-az"));
+            else if (a == "--gal-el") o.galEl = std::stod(value("--gal-el"));
             else if (a == "--lvc-passes") o.lvcPasses = std::stoi(value("--lvc-passes"));
             else if (a == "--lvc-paths") o.lvcPaths = std::stoll(value("--lvc-paths"));
             else if (a == "--lvc-depth") o.lvcDepth = std::stoi(value("--lvc-depth"));

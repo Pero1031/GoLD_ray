@@ -44,6 +44,8 @@ const SceneDef kScenes[] = {
       [](const CliOptions&) { return EnvKind::None; }, BuildFogBeam },
     { "fogspot", "a spot light in a ball of fog: multiple scattering, path tracing or --lvc (bidirectional, prototype)", kDefaultHeightPerWidth, 32,
       [](const CliOptions&) { return EnvKind::None; }, BuildFogSpot },
+    { "caustics", "the gallery: a glass object (--gal-object) on a floor in front of a wall, lit by a narrow spot; use --lvc --lvc-passes K", 1.0, 32,
+      [](const CliOptions&) { return EnvKind::None; }, BuildCausticGallery },
     { "crystal", "faceted glass on a dark stage with dispersion and caustics (--crystal-inside)", kDefaultHeightPerWidth, 48,
       [](const CliOptions&) { return EnvKind::None; }, BuildCrystal },
     { "furnace", "white furnace: objects in a uniform white environment must keep their energy", kDefaultHeightPerWidth, 0,

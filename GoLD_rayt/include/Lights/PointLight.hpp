@@ -113,18 +113,36 @@ namespace rayt {
         bool hasCone() const { return m_cosCone > Real(-1); }
         /// True if the light emits in this direction (away from the light).
         bool emitsToward(const Vector3& dir) const { return !hasCone() || glm::dot(m_axis, dir) >= m_cosCone; }
-        /// Density (per steradian) of sampleEmissionDir() at `dir`: uniform over the cone (or the whole sphere).
+        /// Emission importance sampling (it does not change what the light emits): with probability `prob` the bidirectional estimators draw the
+        /// direction uniformly from a second, smaller cone around `axis` (it must lie inside the light's cone), else from the light's cone. Aimed at an
+        /// object, it makes most light paths useful even when the light also has to cover a large floor.
+        void setEmissionTarget(const Vector3& axis, Real halfAngleRad, Real prob) {
+            m_tAxis = glm::normalize(axis); m_tCos = std::cos(halfAngleRad); m_tProb = prob;
+        }
+        /// Density (per steradian) of sampleEmissionDir() at `dir`.
         Real emissionPdf(const Vector3& dir) const {
             if (!emitsToward(dir)) return Real(0);
-            return Real(1) / (Real(2) * constants::PI * (hasCone() ? Real(1) - m_cosCone : Real(2)));
+            Real p = Real(1) / (Real(2) * constants::PI * (hasCone() ? Real(1) - m_cosCone : Real(2)));
+            if (m_tCos > Real(-1)) {
+                p *= Real(1) - m_tProb;
+                if (glm::dot(m_tAxis, dir) >= m_tCos) p += m_tProb / (Real(2) * constants::PI * (Real(1) - m_tCos));
+            }
+            return p;
         }
         Vector3 sampleEmissionDir(const Point2& u) const {
-            const Real c = hasCone() ? Real(1) - u.x * (Real(1) - m_cosCone) : Real(1) - Real(2) * u.x;
+            Real ux = u.x;
+            bool toTarget = false;
+            if (m_tCos > Real(-1)) {   // the first number picks the cone and, rescaled, is reused for the polar angle
+                if (ux < m_tProb) { toTarget = true; ux = ux / m_tProb; }
+                else ux = (ux - m_tProb) / (Real(1) - m_tProb);
+            }
+            const Real cosMax = toTarget ? m_tCos : (hasCone() ? m_cosCone : Real(-1));
+            const Real c = Real(1) - ux * (Real(1) - cosMax);
             const Real sn = std::sqrt(std::max(Real(0), Real(1) - c * c));
             const Real ph = Real(2) * constants::PI * u.y;
             const Vector3 local(sn * std::cos(ph), sn * std::sin(ph), c);
-            if (!hasCone()) return local;
-            const frame::Frame fr(m_axis);
+            if (!toTarget && !hasCone()) return local;
+            const frame::Frame fr(toTarget ? m_tAxis : m_axis);
             return fr.localToWorld(local);
         }
 
@@ -139,5 +157,7 @@ namespace rayt {
         Real m_scale = Real(1.0);
         Vector3 m_axis = Vector3(0, 0, 1);
         Real m_cosCone = Real(-1);   // -1: no cone, emits in all directions
+        Vector3 m_tAxis = Vector3(0, 0, 1);   // the sampling target (see setEmissionTarget)
+        Real m_tCos = Real(-1), m_tProb = Real(0);
     };
 } // namespace rayt

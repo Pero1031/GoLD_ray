@@ -201,7 +201,7 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
     auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
     auto fog = std::make_shared<HomogeneousMedium>(Real(opt.fogSigma), Real(0.9), PhaseFunction(Real(0.5)));
     boundary->setMedium(fog);
-    out.world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
+    out.world->add(std::make_shared<Sphere>(Point3(0.0), Real(opt.spotPrism ? 0.45 : 0.3), boundary));   // (the prism picture is framed inside the ball)
     auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight));
     lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(opt.spotDeg)));
     if (opt.spotFloor) {   // a floor inside the ball, lit by the spot: the fog is lit again by the light that the floor sends back
@@ -231,17 +231,18 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
         out.keepAlive.push_back(glass);
         out.causticTarget.center = Point3(0.0);
         out.causticTarget.radius = Real(0.056);
-        lamp->setCone(Vector3(1, 0, 0), glm::radians(std::max(Real(opt.spotDeg), Real(5.5))));
+        // the photon map aims at the whole prism and assumes an even spot there, so path tracing + photons needs the wide cone; --lvc takes any angle
+        lamp->setCone(Vector3(1, 0, 0), glm::radians(opt.lvc ? Real(opt.spotDeg) : std::max(Real(opt.spotDeg), Real(5.5))));
     }
     out.lights.push_back(lamp);
     out.keepAlive.push_back(fog);
     out.bptLight = lamp.get();
     out.bptMedium = fog.get();
     if (opt.spotPrism) {   // from above, the fan leaves toward -z (as in the fogbeam scene)
-        out.camera.from = Point3(0.08, 0.60, -0.068);
-        out.camera.at = Point3(0.08, 0.0, -0.07);
+        out.camera.from = Point3(0.115, 0.60, -0.108);
+        out.camera.at = Point3(0.115, 0.0, -0.11);
         out.camera.up = Vector3(0, 0, -1);
-        out.camera.fovDeg = 30.0;
+        out.camera.fovDeg = 32.0;
     }
     else if (opt.spotFloor) {
         out.camera.from = Point3(0.0, 0.5, 0.42);
@@ -255,6 +256,102 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
         out.camera.up = Vector3(0, 0, -1);
         out.camera.fovDeg = 28.0;
     }
+    return std::nullopt;
+}
+
+// --scene caustics
+// The gallery: one glass object (--gal-object ball|prism|column|tumbler|gem) on a gray diffuse floor in front of a gray wall, lit by a narrow
+// spot from far away, in a faint haze. The glass bends the light into rainbow-edged caustics on the floor and the wall; the picture is made by
+// VolumeBPT (--lvc), which finds them with the light paths: the spot's cone covers the object only, so almost every light path is useful.
+// Metres. The object stands at the origin; the lamp and the camera are outside the haze ball (radius 1.2).
+std::optional<int> BuildCausticGallery(SceneContext& ctx, SceneSetup& out) {
+    const CliOptions& opt = ctx.opt;
+    auto& world = out.world;
+    const Real y0 = Real(0.0004);   // glass rests a hair above the floor (no coplanar surfaces)
+    const std::string& name = opt.galObject;
+    out.bptAlbedo = Real(opt.galAlbedo);
+
+    // what each object needs: refractive index, the radius of its bounding sphere, where its lamp and the camera are (azimuth from +z toward +x,
+    // elevation; degrees), the height of the point that both look at
+    Real ior = Real(1.55), bound = Real(0.05), lampAz = Real(-45), lampEl = Real(30), camAz = Real(18), camEl = Real(20), lookY = Real(0.03);
+    std::shared_ptr<Dielectric> glass;
+    TriangleMesh mesh;
+    bool haveMesh = true;
+    if (name == "ball") { ior = 1.6; bound = 0.032; lampAz = -50; lampEl = 28; lookY = 0.02; haveMesh = false; }
+    else if (name == "prism") { ior = 1.55; bound = 0.056; lampAz = -90; lampEl = 9; camAz = 35; camEl = 28; lookY = 0.035; }
+    else if (name == "column") { ior = 1.9; bound = 0.062; lampAz = -55; lampEl = 32; lookY = 0.045; }
+    else if (name == "tumbler") { ior = 1.55; bound = 0.052; lampAz = -50; lampEl = 38; lookY = 0.035; }
+    else if (name == "gem") { ior = 2.4; bound = 0.048; lampAz = -45; lampEl = 40; lookY = 0.03; }
+    else { std::cerr << "[Caustics] unknown --gal-object " << name << " (ball, prism, column, tumbler, gem)\n"; return 1; }
+    const Real sc = Real(opt.galScale);   // the object grows by sc (and so do its bounding sphere and the height that the camera looks at)
+    bound *= sc; lookY *= sc;
+    if (opt.galAz < 900) lampAz = opt.galAz;
+    if (opt.galEl < 900) lampEl = opt.galEl;
+    glass = std::make_shared<Dielectric>(ior, Real(0.0), Real(0.0), opt.abbe);
+
+    if (name == "ball") {
+        world->add(std::make_shared<Sphere>(Point3(0.0, y0 + 0.025 * sc, 0.0), Real(0.025) * sc, glass));
+    }
+    else if (name == "prism") {
+        std::vector<Point2> tri;
+        for (int k = 0; k < 3; ++k) {
+            const Real ang = glm::radians(Real(90 + 120 * k - opt.fogPrismDeg));
+            tri.push_back(Point2(Real(0.035) * std::cos(ang), Real(0.035) * std::sin(ang)));
+        }
+        mesh = MakePrismMesh(tri, Real(0.07));
+    }
+    else if (name == "column") mesh = MakeFacetedLathe({ Point2(0, 0), Point2(0.018, 0), Point2(0.018, 0.07), Point2(0, 0.098) }, 6);
+    else if (name == "tumbler") mesh = MakeFacetedLathe({ Point2(0, 0), Point2(0.026, 0), Point2(0.032, 0.07), Point2(0.029, 0.07), Point2(0.0235, 0.008), Point2(0, 0.008) }, 8);
+    else if (name == "gem") {
+        mesh = MakeFacetedLathe({ Point2(0, 0), Point2(0.024, 0.020), Point2(0.024, 0.024), Point2(0.013, 0.033), Point2(0, 0.033) }, 10);
+        mesh.transform(glm::dmat3(1.6 * sc), Vector3(0, y0, 0));   // scaled up: a gem is small
+        haveMesh = false;
+        world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), glass, opt.accel));
+    }
+    if (haveMesh && name != "ball") {
+        mesh.transform(glm::dmat3(sc), Vector3(0, y0, 0));
+        world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), glass, opt.accel));
+    }
+
+    // the haze: a ball of fog inside a null interface, around everything; the glass stands in it
+    auto fog = std::make_shared<HomogeneousMedium>(Real(opt.galFog), Real(0.9), PhaseFunction(Real(0.3)));
+    auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+    boundary->setMedium(fog);
+    const bool floorOn = opt.galFloor != 0;
+    const Real dist = opt.galDist > 0 ? Real(opt.galDist) : (floorOn ? Real(1.32) : Real(0.5));   // lamp and camera, from the object
+    const Real fogR = (floorOn ? Real(0.9) : Real(0.8)) * dist;   // the haze ball around everything; the lamp and the camera are outside it
+    world->add(std::make_shared<Sphere>(Point3(0.0, 0.08, 0.0), fogR, boundary));
+    glass->setBoundaryMedia(nullptr, fog.get());
+    out.keepAlive.push_back(fog);
+
+    // the floor and the wall behind (gray, albedo bptAlbedo)
+    auto gray = std::make_shared<Lambertian>(RgbColor(out.bptAlbedo));
+    if (floorOn) {
+        world->add(std::make_shared<Quad>(Point3(-1.5, 0.0, -1.5), Vector3(0, 0, 3.0), Vector3(3.0, 0, 0), gray));             // the floor, normal up
+        world->add(std::make_shared<Quad>(Point3(-1.5, 0.0, -0.22 * sc), Vector3(3.0, 0, 0), Vector3(0, 1.5, 0), gray));            // the wall at z = -22 cm (times the scale)
+    }
+    out.keepAlive.push_back(gray);
+
+    // the lamp: far away
+    const Point3 target(0.0, lookY, 0.0);
+    auto dirOf = [](Real azDeg, Real elDeg) {
+        const Real a = glm::radians(azDeg), e = glm::radians(elDeg);
+        return Vector3(std::sin(a) * std::cos(e), std::sin(e), std::cos(a) * std::cos(e));
+    };
+    const Point3 lampPos = target + dirOf(lampAz, lampEl) * dist;
+    auto lamp = std::make_shared<PointLight>(lampPos, RgbColor(1.0, 0.97, 0.92), Real(opt.galLight));
+    // the lamp lights the floor and the wall around the object (a cone of --gal-spread degrees); the bidirectional estimators send half of their
+    // light paths into the small cone that covers the object, where the caustics are made
+    lamp->setCone(target - lampPos, glm::radians(Real(opt.galSpread)));
+    lamp->setEmissionTarget(target - lampPos, std::atan(bound * Real(1.1) / dist), Real(0.5));
+    out.lights.push_back(lamp);
+    out.bptLight = lamp.get();
+    out.bptMedium = fog.get();
+
+    out.camera.from = target + dirOf(camAz, camEl) * dist;
+    out.camera.at = (opt.galLook.y > Real(-900)) ? Point3(opt.galLook) : Point3(0.0, lookY * Real(0.6), -0.04 * sc);
+    out.camera.up = Vector3(0, 1, 0);
+    out.camera.fovDeg = Real(opt.galFov);
     return std::nullopt;
 }
 

@@ -105,6 +105,7 @@ python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/me
 7. [What could come next](#7-what-could-come-next)
 8. [Gallery](#8-gallery)
 9. [Third-party code and data](#9-third-party-code-and-data)
+10. [References](#10-references)
 
 ---
 
@@ -222,6 +223,8 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
   optional metal blend and subsurface), `RoughConductor`, `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Own SAH BVH or **Embree**.
+- **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
+  glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
   230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
 - **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
@@ -317,6 +320,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene dispersion` | the Sellmeier presets against the published d-line index and Abbe number, a diamond ball in a white furnace |
 | `--scene thinfilm` | Airy's formula against closed forms (no film, a quarter-wave coating, a free film), the sampling weights, a white furnace |
 | `--scene sss` | the profile, a white furnace over skin, the profile across a shadow edge |
+| `--scene lvc` | the bidirectional path tracer against path tracing (each strategy alone and together; fog, a diffuse floor), and against the caustic photon map (a glass ball, also dispersive) |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
 
@@ -330,6 +334,7 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 - **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
   alpha cut-outs).
 - **Metals and films**: Lorentz-Drude, multilayer coatings and rough films, spectral upsampling of saturated colors.
+- **Light transport**: caustics seen through glass (vertex merging), rough dielectrics and colored media in the bidirectional path tracer.
 - **Characters**: VMD motion, IK, hair / skirt physics, better hair and cloth BSDFs.
 - **Infrastructure**: a scene description file, a light tree, `ctest` integration.
 
@@ -385,6 +390,21 @@ the dispersed band sharp; both agree within a few percent on the smooth parts (`
 
 ![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
 
+**Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
+fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
+which is checked against path tracing and the photon map (`--scene lvc`). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
+
+![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
+
+**The fire of a gem** (`--scene caustics --gal-object gem --lvc`): the colored light of a cut gem, inside it and on the floor in its shadow.
+1000 x 1000, 400 M light paths, OIDN-denoised, 11 minutes. (The light that glass throws onto a wall seen *through* the glass is not produced yet.)
+
+![A cut gem with colored fire and a rainbow caustic fan on the floor in its shadow](docs/img/gallery_gem_caustic.png)
+
+**A glass ball in haze** (`--gal-object ball --gal-floor 0`): the ball focuses the beam into a cone with colored edges.
+
+![A glass ball focusing a beam of light into a cone in haze](docs/img/gallery_ball_haze.png)
+
 ---
 
 ## 9. Third-party code and data
@@ -407,3 +427,70 @@ These are **not included in the repository**: `tools/fetch_deps.ps1` downloads t
 Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). MMD models are not distributed.
 
 **License of this repository.** The code and the documentation are under the [MIT License](LICENSE) (Copyright (c) 2025-2026 So Kohinata). The images in `docs/img/` are renderings and are not covered by it.
+
+---
+
+## 10. References
+
+The works that the code implements or follows, and the ones that the studies in `docs/` reproduce or test. Each entry says what it is used for.
+Entries marked *(studied)* were implemented as a reference or evaluated, and are not part of the renderer; *(next)* marks work that the documents name as the next step.
+
+**Rendering framework and sampling**
+
+- M. Pharr, W. Jakob, G. Humphreys, *Physically Based Rendering: From Theory to Implementation*, 4th ed., MIT Press, 2023 (3rd ed., 2016). The overall design; the
+  hero-wavelength walk through a medium (v4), light sampling, the dielectric BSDF, the probe-ray BSSRDF sampling (v3). [pbr-book.org](https://pbr-book.org)
+- A. Wilkie, S. Nawaz, M. Droske, A. Weidlich, J. Hanika, "Hero Wavelength Spectral Sampling", *Computer Graphics Forum* 33(4), 2014. Four stratified wavelengths per path.
+- E. Veach, L. J. Guibas, "Optimally Combining Sampling Techniques for Monte Carlo Rendering", SIGGRAPH 1995. Multiple importance sampling everywhere (next event estimation, strategies of the bidirectional estimator).
+- L. Conty Estevez, C. Kulla, "Importance Sampling of Many Lights with Adaptive Tree Splitting", *Proc. ACM CGIT* 1(2), 2018. The spatial light sampler (the per-light importance of PBRT v4).
+- T. Duff, J. Burgess, P. Christensen, C. Hery, A. Kensler, M. Liani, R. Villemin, "Building an Orthonormal Basis, Revisited", *JCGT* 6(1), 2017. Local frames.
+- J. Ureña, M. Fajardo, A. King, "An Area-Preserving Parametrization for Spherical Rectangles", *Computer Graphics Forum* 32(4) (EGSR), 2013. Solid-angle sampling of rectangular lights.
+- I. Wald, S. Woop, C. Benthin, G. Johnson, M. Ernst, "Embree: A Kernel Framework for Efficient CPU Ray Tracing", *ACM TOG* 33(4), 2014. The Embree backend.
+
+**Metals and microfacets**
+
+- P. B. Johnson, R. W. Christy, "Optical Constants of the Noble Metals", *Physical Review B* 6(12), 1972. The `n(λ)`, `k(λ)` of Au, Ag and Cu.
+- O. Gulbrandsen, "Artist Friendly Metallic Fresnel", *JCGT* 3(4), 2014. A measured reflectance `R(λ)` to `(n, k)`, with the edge tint.
+- B. Walter, S. R. Marschner, H. Li, K. E. Torrance, "Microfacet Models for Refraction through Rough Surfaces", EGSR 2007. Rough dielectrics.
+- E. Heitz, "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs", *JCGT* 3(2), 2014; "Sampling the GGX Distribution of Visible Normals", *JCGT* 7(4), 2018. GGX and VNDF sampling.
+- C. Kulla, A. Conty, "Revisiting Physically Based Shading at Imageworks", SIGGRAPH 2017 course. The multiple-scattering compensation of rough metals.
+- E. Heitz, J. Hanika, E. d'Eon, C. Dachsbacher, "Multiple-Scattering Microfacet BSDFs with the Smith Model", *ACM TOG* 35(4), 2016. *(next)* A reference for the true color of a rough metal.
+- C. Schlick, "An Inexpensive BRDF Model for Physically-based Rendering", *Computer Graphics Forum* 13(3), 1994. The Fresnel of the coated diffuse material.
+
+**Spectra and color**
+
+- C. Wyman, P.-P. Sloan, P. Shirley, "Simple Analytic Approximations to the CIE XYZ Color Matching Functions", *JCGT* 2(2), 2013. The film's color matching functions.
+- CIE 15:2004, *Colorimetry*. The 1931 observer, illuminants D65 and A.
+- C. Li, Z. Li, Z. Wang, Y. Xu, M. R. Luo, G. Cui, M. Melgosa, M. H. Brill, M. Pointer, "Comprehensive color solutions: CAM16, CAT16, and CAM16-UCS", *Color Research & Application* 42(6), 2017. The chromatic adaptation of the white balance (`--wb`).
+- CIE 142-2001, *Improvement to Industrial Colour-Difference Evaluation* (CIEDE2000); G. Sharma, W. Wu, E. N. Dalal, "The CIEDE2000 Color-Difference Formula: Implementation Notes, Supplementary Test Data, and Mathematical Observations", *Color Research & Application* 30(1), 2005. The color differences of the RGB-vs-spectral studies.
+- X. Zhang, B. A. Wandell, "A Spatial Extension of CIELAB for Digital Color Image Reproduction", *SID Symposium Digest*, 1996; "Color image fidelity metrics evaluated using image distortion maps", *Signal Processing* 70(3), 1998. S-CIELAB: the difference after the eye's spatial filtering.
+- W. Jakob, J. Hanika, "A Low-Dimensional Function Space for Efficient Spectral Upsampling", *Computer Graphics Forum* 38(2), 2019. *(studied)* An alternative to the RGB-to-spectrum conversion; not adopted.
+- C. Peters, S. Merzbach, J. Hanika, C. Dachsbacher, "Using Moments to Represent Bounded Signals for Spectral Rendering", *ACM TOG* 38(4), 2019. *(studied)* The metamer-mismatch study ([docs/SPECTRUM_FROM_RGB.md](docs/SPECTRUM_FROM_RGB.md)).
+
+**Dispersion and thin films**
+
+- I. H. Malitson, "Refraction and Dispersion of Synthetic Sapphire", *JOSA* 52, 1962; "Interspecimen Comparison of the Refractive Index of Fused Silica", *JOSA* 55, 1965; the Schott catalog (BK7); F. Peter (1923) and H. Thormählen et al. (1985) for diamond. The Sellmeier presets.
+- M. Born, E. Wolf, *Principles of Optics*, Cambridge University Press. Airy's formula for a thin film.
+- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", 1990s (details to be checked). An early use of interference in graphics.
+- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", *ACM TOG* 36(4), 2017. *(next)* Thin films on rough surfaces.
+
+**Participating media and subsurface scattering**
+
+- J. Novák, I. Georgiev, J. Hanika, W. Jarosz, "Monte Carlo Methods for Volumetric Light Transport Simulation", *Computer Graphics Forum* 37(2) (EG STAR), 2018. Delta tracking, null collisions, the bookkeeping of the walk.
+- L. G. Henyey, J. L. Greenstein, "Diffuse Radiation in the Galaxy", *Astrophysical Journal* 93, 1941. The phase function.
+- I. Gkioulekas, B. Xiao, S. Zhao, E. H. Adelson, T. Zickler, K. Bala, "Understanding the Role of Phase Function in Translucent Appearance", *ACM TOG* 32(5), 2013. The two-lobe phase function.
+- P. H. Christensen, B. Burley, "Approximate Reflectance Profiles for Efficient Subsurface Scattering", Pixar technical memo, 2015. The normalized diffusion profile of the skin BSSRDF.
+- S. L. Jacques, "Optical properties of biological tissues: a review", *Physics in Medicine & Biology* 58(11), 2013; S. Prahl, hemoglobin spectra ([omlc.org](https://omlc.org/spectra/hemoglobin/)). The chromophore model of the layered skin.
+
+**Caustics and light transport**
+
+- H. W. Jensen, "Global Illumination using Photon Maps", Eurographics Workshop on Rendering, 1996. The caustic photon map.
+- J. Hanika, M. Droske, L. Fascione, "Manifold Next Event Estimation", *Computer Graphics Forum* 34(4) (EGSR), 2015; T. Zeltner, I. Georgiev, W. Jakob, "Specular Manifold Sampling for Rendering High-Frequency Caustics and Glints", *ACM TOG* 39(4), 2020. The specular manifold NEE of the prism caustic.
+- E. Veach, *Robust Monte Carlo Methods for Light Transport Simulation*, PhD thesis, Stanford University, 1997; E. P. Lafortune, Y. D. Willems, "Bi-directional Path Tracing", Compugraphics 1993. Light tracing and bidirectional path tracing, with specular vertices.
+- I. Georgiev, J. Křivánek, T. Davidovič, P. Slusallek, "Light Transport Simulation with Vertex Connection and Merging", *ACM TOG* 31(6) (SIGGRAPH Asia), 2012;
+  T. Davidovič, I. Georgiev, P. Slusallek, "Progressive Light Transport Simulation on the GPU: Survey and Improvements", *ACM TOG* 33(3), 2014. The vertex cache and the weights of the bidirectional estimators.
+- shocker_0x15, "Renderer introduction: Ray Tracing Camp 10" (slides, in Japanese), [Speaker Deck](https://speakerdeck.com/shocker_0x15/renderer-introduction-ray-tracing-camp-10). Volumetric and dispersive caustics by light vertex cache bidirectional path tracing: the target of the fog scenes.
+
+**Software and background**
+
+- W. Jakob, S. Speierer, N. Roussel, D. Vicini, *Mitsuba 3 renderer*, 2022, [mitsuba-renderer.org](https://www.mitsuba-renderer.org). The RGB-vs-spectral study of the graduation research was done with it.
+- J. Tessendorf, "Simulating Ocean Water", SIGGRAPH course notes, 2001. Background for the Gerstner-wave sea.
