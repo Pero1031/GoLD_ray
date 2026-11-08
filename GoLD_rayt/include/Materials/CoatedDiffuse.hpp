@@ -34,6 +34,7 @@
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Subsurface.hpp"
+#include "Materials/SkinRelief.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
 
@@ -70,6 +71,13 @@ namespace rayt {
             else m_exit.reset();
         }
 
+        /// A micro-relief that bends the shading normal (skin furrows and pores, Materials/SkinRelief.hpp). Set before rendering.
+        void setRelief(std::shared_ptr<const SkinRelief> relief) { m_relief = std::move(relief); }
+
+        void perturbShading(SurfaceInteraction& rec, const Vector3& wo) const override {
+            if (m_relief) rec.n = m_relief->perturb(rec.p, rec.n, wo);
+        }
+
         const SubsurfaceProfile* subsurface() const override { return m_profile.get(); }
         const Material* subsurfaceExit() const override { return m_exit.get(); }
 
@@ -101,6 +109,8 @@ namespace rayt {
         }
 
     private:
+        std::shared_ptr<const SkinRelief> m_relief;
+
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
             if (!m_tex) return m_albedo;
             return RgbColor(m_albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));

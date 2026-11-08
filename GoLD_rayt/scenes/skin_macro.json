@@ -1,0 +1,19 @@
+// A patch of skin 4.3 cm wide, lit by a small softbox in the mirror direction of the camera so that the micro-relief shows in the glossy highlight:
+// two scales of furrows (0.5 mm cells and three times larger ones, 35 um deep, stretched along x) and pores (0.1 mm deep). The relief only bends the
+// shading normal (docs/SKIN.md). The light that goes into the skin comes out again somewhere else (a Burley profile, 3.7 / 1.4 / 0.7 mm), which blurs
+// the relief in the diffuse part and leaves it in the highlight of the oily coat. The picture in docs/img is the raw 384 spp render (about 6 minutes).
+{
+ "options": { "width": 1000, "spp": 384, "depth": 8, "denoise": true },
+ "camera": { "from": [0, 0.075, 0.03], "at": [0, 0, 0], "fov": 17 },
+ "materials": {
+  "skin": { "type": "skin", "albedo": [0.80, 0.52, 0.42], "roughness": 0.2, "specular": 0.5, "scatterDistanceMm": [3.67, 1.37, 0.68],
+            "relief": { "cellMm": 0.5, "furrowDepthMm": 0.035, "furrowWidth": 0.1, "stretch": 1.5, "coarseScale": 3, "coarseWeight": 0.9, "poreDepthMm": 0.1, "poreRadiusMm": 0.06, "poreFraction": 0.3 } },
+  "key":  { "type": "emission", "spectrum": "d65", "radiance": 5 },
+  "fill": { "type": "emission", "spectrum": "d65", "radiance": 3 }
+ },
+ "objects": [
+  { "shape": "sphere", "material": "skin", "center": [0, -0.1, 0], "radius": 0.1 },
+  { "shape": "quad", "material": "key",  "corner": [-0.075, 0.172, -0.150], "edge1": [0.15, 0, 0], "edge2": [0, 0.055, 0.14] },
+  { "shape": "quad", "material": "fill", "corner": [-0.3, 0.35, 0.35], "edge1": [0, -0.3, 0], "edge2": [0, 0, -0.3] }
+ ]
+}

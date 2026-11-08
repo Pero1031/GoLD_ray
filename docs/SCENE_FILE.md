@@ -66,6 +66,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 | `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`distanceRoughness`（`{ "roughness", "start", "end" }`: y 軸からの距離が start から end の間に、粗さがこの値まで増える。メッシュで解像できない遠くの小さな波の傾きを、粗さとして返す。海に使う）、`medium`（内側を散乱媒質で満たす。下） |
 | `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
 | `layered` | 透明なコートが、下地の上にある材質（漆を塗った金、車の塗装）。`coat`: `{ "ior", "roughness", "tint", "samples" }`（コートの屈折率、粗さ、法線方向の透過率 RGB（1 = 透明）、1 回の評価での追跡の数）。`base`: `{ "albedo" }`（拡散）または `{ "metal" | "table" | "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }`（金属）のどちらか 1 つ。理論と例は `docs/GLOSS.md` |
+| `skin` | 肌（`CoatedDiffuse`）。`albedo`（既定 0.80, 0.52, 0.42）、`roughness`（既定 0.5）、`specular`（皮脂のコートの重み、既定 0.4）。`scatterDistanceMm`（RGB、mm。例 `[3.67, 1.37, 0.68]`）を書くと**表面下散乱**（Burley のプロファイル、`sssScale` で倍率）。`relief`（省略可。毛穴と皮溝の凹凸: `cellMm`、`furrowDepthMm`、`furrowWidth`、`stretch`、`coarseScale`、`coarseWeight`、`poreDepthMm`、`poreRadiusMm`、`poreFraction`、`seed`。法線だけを曲げる）。`docs/SKIN.md` |
 | `hair` | 髪の毛 1 本の散乱（メラニンの色づき、R・TT・TRT のハイライト。`docs/HAIR.md`）。吸収は、`melanin`（`[真性, 亜性]`。黒 `[8, 0]`、茶 `[1.3, 0.1]`、赤 `[0.4, 1.4]`、金髪 `[0.25, 0.15]`、白髪 `[0, 0]`）、`color`（見た目の色 RGB、各 (0, 1]）、`sigmaA`（毛の半径あたりの吸収 RGB）の**どれか 1 つ**（既定は `melanin` [1.3, 0]）。`eta`（既定 1.55）、`betaM`・`betaN`（縦・方位の粗さ、0〜1、既定 0.3）、`tilt`（キューティクルの傾き、度、既定 2）、`lobes`（`["R", "TT", "TRT", "rest"]` の一部だけを描く。説明用） |
 | `emission` | `spectrum`、`radiance`、`twoSided` |
 
@@ -104,7 +105,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 | `sphere` | `center`、`radius` |
 | `quad` | `corner`、`edge1`、`edge2`（`cross(edge1, edge2)` の向きに面する） |
 | `mesh` | `file`（OBJ）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動 |
-| `lathe` | `profile`（`[半径, 高さ]` の配列、または `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: 椀の壁）、`segments` |
+| `lathe` | `profile`（`[半径, 高さ]` の配列、または `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: 椀の壁）、`segments`、`translate` |
 | `ocean` | 海面（波のスペクトルから作る。`docs/WATER.md`）。原点の周りの円形のメッシュ。`windSpeed`（m/s、1〜40、既定 8）、`windDirection`（度、波が進む向き `atan2(z, x)`）、`spread`（向きの広がり s）、`peakEnhance`（JONSWAP の γ、1 = Pierson–Moskowitz）、`chop`（0〜1、波頭のとがり）、`time`（秒）、`minWavelength`（m）、`seed`、`rInner`・`rOuter`（m）、`rings`・`sectors`（メッシュの細かさ） |
 | `hair` | 手続き的に作った毛（`docs/HAIR.md`）。`style`: `"lock"`（上から垂れる毛束）または `"head"`（球の頭に流れる髪）。共通: `strands`、`segments`、`length`（m）、`rootRadius`・`tipRadius`（毛の半径、m。実物は約 0.00005）、`clumps`（房の数）、`seed`。`lock`: `root`（根元の位置）、`width`、`tipWidth`（先端の幅 / 根元の幅）、`waveAmp`・`waveLength`、`twist`、`frizz`、`flyaway`（束から外れる毛の割合）。`head`: `center`、`radius`（頭の球）、`droop`、`outward`、`sway`・`swayFreq`、`headFrizz`、`clumpStrength`、`maxPolar`（度）、`hairline`。材質は `hair` |
 

@@ -209,6 +209,21 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             if (coverage) std::static_pointer_cast<ThinFilm>(materials[name])->setCoverage(coverage);
             break;
         }
+        case MaterialSpec::Type::Skin: {
+            auto skin = std::make_shared<CoatedDiffuse>(RgbColor(m.albedo), Real(m.roughness), Real(m.skinSpecular), Real(0));
+            if (m.skinSss)   // the exit point is searched on every surface that shares this material
+                skin->setSubsurface(std::make_shared<SubsurfaceProfile>(m.skinScatterMm * Real(0.001) * Real(m.skinSssScale), Real(1.4)));
+            if (m.skinRelief) {
+                SkinRelief::Params rp;
+                rp.cell = Real(m.reliefCellMm * 1e-3); rp.furrowDepth = Real(m.reliefFurrowDepthMm * 1e-3); rp.furrowWidth = Real(m.reliefFurrowWidth);
+                rp.poreDepth = Real(m.reliefPoreDepthMm * 1e-3); rp.poreRadius = Real(m.reliefPoreRadiusMm * 1e-3);
+                rp.stretch = Real(m.reliefStretch); rp.coarseScale = Real(m.reliefCoarseScale); rp.coarseWeight = Real(m.reliefCoarseWeight);
+                rp.poreFraction = Real(m.reliefPoreFraction); rp.seed = unsigned(m.reliefSeed);
+                skin->setRelief(std::make_shared<SkinRelief>(rp));
+            }
+            materials[name] = skin;
+            break;
+        }
         case MaterialSpec::Type::Hair: {
             Hair::Params hp;
             hp.eta = Real(m.hairEta); hp.sigmaA = m.hairSigmaA; hp.betaM = Real(m.hairBetaM); hp.betaN = Real(m.hairBetaN); hp.alphaDeg = Real(m.hairTiltDeg); hp.lobeMask = m.hairLobes;
@@ -260,9 +275,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), mat, opt.accel));
             break;
         }
-        case ObjectSpec::Shape::Lathe:
-            world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(o.profile, o.segments)), mat, opt.accel));
+        case ObjectSpec::Shape::Lathe: {
+            TriangleMesh turned = MakeLatheMesh(o.profile, o.segments);
+            turned.transform(glm::dmat3(1.0), Vector3(o.translate));
+            world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(turned)), mat, opt.accel));
             break;
+        }
         case ObjectSpec::Shape::Hair: {
             const HairSpec& hs = o.hair;
             auto curves = std::make_shared<HairCurves>(mat);

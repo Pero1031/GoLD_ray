@@ -1,0 +1,26 @@
+// Three identical fingers (1.6 cm wide) with a small light behind each: how skin lets light through a thin part. Left: no subsurface scattering
+// (a coated diffuse): the finger is a dark silhouette. Middle: the BSSRDF (Burley profile), which assumes a thick flat slab. Right: the finger filled
+// with a scattering medium that has the same optical properties, and the light is followed through it by a random walk (docs/SKIN.md).
+// Both use the scatter distance of skin, 3.67 / 1.37 / 0.68 mm (red / green / blue); the medium's albedo per channel is the single-scattering
+// albedo that gives the same diffuse reflectance as the BSSRDF's albedo (0.80, 0.52, 0.42).
+{
+ "options": { "width": 1000, "spp": 768, "depth": 12, "denoise": true },
+ "camera": { "from": [0, 0.03, 0.17], "at": [0, 0.03, 0], "fov": 30 },
+ "materials": {
+  "flat":   { "type": "skin", "albedo": [0.80, 0.52, 0.42], "roughness": 0.45, "specular": 0.4 },
+  "bssrdf": { "type": "skin", "albedo": [0.80, 0.52, 0.42], "roughness": 0.45, "specular": 0.4, "scatterDistanceMm": [3.67, 1.37, 0.68] },
+  "walk":   { "type": "dielectric", "ior": 1.4, "roughness": 0.45,
+              "medium": { "sigmaT": [272, 730, 1470], "albedo": [0.9906, 0.921, 0.8652], "g": 0 } },
+  "back":  { "type": "emission", "spectrum": "d65", "radiance": 25 },
+  "front": { "type": "emission", "spectrum": "d65", "radiance": 1.2 }
+ },
+ "objects": [
+  { "shape": "lathe", "material": "flat",   "segments": 64, "translate": [-0.04, 0, 0], "profile": [[0,0],[0.008,0],[0.008,0.05],[0.007727,0.052588],[0.006928,0.055],[0.005657,0.057071],[0.004,0.05866],[0.002071,0.059659],[0,0.06]] },
+  { "shape": "lathe", "material": "bssrdf", "segments": 64, "translate": [0, 0, 0],     "profile": [[0,0],[0.008,0],[0.008,0.05],[0.007727,0.052588],[0.006928,0.055],[0.005657,0.057071],[0.004,0.05866],[0.002071,0.059659],[0,0.06]] },
+  { "shape": "lathe", "material": "walk",   "segments": 64, "translate": [0.04, 0, 0],  "profile": [[0,0],[0.008,0],[0.008,0.05],[0.007727,0.052588],[0.006928,0.055],[0.005657,0.057071],[0.004,0.05866],[0.002071,0.059659],[0,0.06]] },
+  { "shape": "quad", "material": "back",  "corner": [-0.0499, 0.01, -0.025], "edge1": [0.008, 0, 0], "edge2": [0, 0.04, 0] },
+  { "shape": "quad", "material": "back",  "corner": [-0.004, 0.01, -0.025], "edge1": [0.008, 0, 0], "edge2": [0, 0.04, 0] },
+  { "shape": "quad", "material": "back",  "corner": [0.0419, 0.01, -0.025], "edge1": [0.008, 0, 0], "edge2": [0, 0.04, 0] },
+  { "shape": "quad", "material": "front", "corner": [-0.2, 0.2, 0.25], "edge1": [0.2, 0, 0], "edge2": [0, -0.2, 0.1] }
+ ]
+}

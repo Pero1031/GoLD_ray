@@ -29,7 +29,7 @@ struct SpectrumSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin };
     Type type = Type::Diffuse;
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
@@ -96,6 +96,15 @@ struct MaterialSpec {
     double hairBetaM = 0.3, hairBetaN = 0.3;       //   longitudinal / azimuthal roughness, 0..1
     double hairTiltDeg = 2;                        //   cuticle scale tilt
     unsigned hairLobes = 0xF;                      //   lobes switched on: bit 0 R, 1 TT, 2 TRT, 3 the rest
+    // skin: a coated diffuse (albedo, roughness, specularWeight), optionally with subsurface scattering (Burley profile) and a micro-relief
+    double skinSpecular = 0.4;                     //   weight of the oily coat (0 = matte)
+    bool skinSss = false;                          //   subsurface scattering on
+    Vector3 skinScatterMm = Vector3(3.67, 1.37, 0.68);   //   scatter distance per channel (mm), x skinSssScale
+    double skinSssScale = 1;
+    bool skinRelief = false;                       //   furrows and pores (Materials/SkinRelief.hpp)
+    double reliefCellMm = 0.6, reliefFurrowDepthMm = 0.04, reliefFurrowWidth = 0.12, reliefPoreDepthMm = 0.08, reliefPoreRadiusMm = 0.07, reliefPoreFraction = 0.35;
+    double reliefStretch = 1, reliefCoarseScale = 3, reliefCoarseWeight = 0.8;
+    int reliefSeed = 1;
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission

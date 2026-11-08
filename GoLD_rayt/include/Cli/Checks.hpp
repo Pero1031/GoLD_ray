@@ -60,6 +60,9 @@ int RunAnisotropyTests(const CliOptions& opt);
 // intersector against brute force, a white furnace around a lock of hair.
 int RunHairTests(const CliOptions& opt);
 
+// Skin relief checks (--scene relief): the height field, the bent normals, a skin sphere with and without the relief in a white furnace.
+int RunReliefTests(const CliOptions& opt);
+
 // Ocean checks (--scene ocean): the wave spectrum and the set of waves drawn from it, the dispersion relation, the mesh.
 int RunOceanTests(const CliOptions& opt);
 

@@ -92,7 +92,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 }
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -373,6 +373,41 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             s.hairSigmaA = Hair::sigmaFromMelanin(Real(eu), Real(ph));
         }
     }
+    else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief" }, where);
+        s.type = MaterialSpec::Type::Skin;
+        s.albedo = Vector3(0.80, 0.52, 0.42);
+        s.roughness = 0.5;
+        if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
+        Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
+        Optional<double>(m, "specular", where, s.skinSpecular, ReadNumber);
+        Optional<double>(m, "sssScale", where, s.skinSssScale, ReadNumber);
+        if (m.contains("scatterDistanceMm")) { s.skinSss = true; s.skinScatterMm = ReadColor(m.at("scatterDistanceMm"), where + ".scatterDistanceMm"); }
+        if (s.roughness <= 0 || s.roughness > 1) Fail(where + ".roughness", "must be above 0 and at most 1");
+        if (s.skinSpecular < 0 || s.skinSpecular > 1) Fail(where + ".specular", "must be between 0 and 1");
+        if (s.skinSssScale <= 0) Fail(where + ".sssScale", "must be above 0");
+        for (int i = 0; i < 3; ++i) if (s.skinSss && !(s.skinScatterMm[i] > 0)) Fail(where + ".scatterDistanceMm", "must be above 0 in every channel");
+        if (m.contains("relief")) {   // "relief": { "cellMm", "furrowDepthMm", "furrowWidth", "poreDepthMm", "poreRadiusMm", "poreFraction", "seed" } (all optional)
+            const json& r = m.at("relief");
+            const std::string rw = where + ".relief";
+            if (!r.is_object()) Fail(rw, "must be an object (cellMm, furrowDepthMm, furrowWidth, poreDepthMm, poreRadiusMm, poreFraction, seed)");
+            CheckKeys(r, { "cellMm", "furrowDepthMm", "furrowWidth", "stretch", "coarseScale", "coarseWeight", "poreDepthMm", "poreRadiusMm", "poreFraction", "seed" }, rw);
+            s.skinRelief = true;
+            Optional<double>(r, "cellMm", rw, s.reliefCellMm, ReadNumber);
+            Optional<double>(r, "furrowDepthMm", rw, s.reliefFurrowDepthMm, ReadNumber);
+            Optional<double>(r, "furrowWidth", rw, s.reliefFurrowWidth, ReadNumber);
+            Optional<double>(r, "stretch", rw, s.reliefStretch, ReadNumber);
+            Optional<double>(r, "coarseScale", rw, s.reliefCoarseScale, ReadNumber);
+            Optional<double>(r, "coarseWeight", rw, s.reliefCoarseWeight, ReadNumber);
+            Optional<double>(r, "poreDepthMm", rw, s.reliefPoreDepthMm, ReadNumber);
+            Optional<double>(r, "poreRadiusMm", rw, s.reliefPoreRadiusMm, ReadNumber);
+            Optional<double>(r, "poreFraction", rw, s.reliefPoreFraction, ReadNumber);
+            double sd = s.reliefSeed; Optional<double>(r, "seed", rw, sd, ReadNumber); s.reliefSeed = int(sd);
+            if (!(s.reliefCellMm > 0 && s.reliefFurrowWidth > 0 && s.reliefPoreRadiusMm > 0 && s.reliefStretch > 0 && s.reliefCoarseScale >= 1 && s.reliefCoarseWeight >= 0)) Fail(rw, "needs cellMm, furrowWidth, poreRadiusMm and stretch above 0, coarseScale >= 1 and coarseWeight >= 0");
+            if (s.reliefFurrowDepthMm < 0 || s.reliefPoreDepthMm < 0) Fail(rw, "depths must not be negative");
+            if (s.reliefPoreFraction < 0 || s.reliefPoreFraction > 1) Fail(rw + ".poreFraction", "must be between 0 and 1");
+        }
+    }
     else if (type == "emission") {
         CheckKeys(m, { "type", "spectrum", "radiance", "twoSided" }, where);
         s.type = MaterialSpec::Type::Emission;
@@ -382,7 +417,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair, skin or emission");
     }
     return s;
 }
@@ -466,10 +501,11 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         }
     }
     else if (shape == "lathe") {
-        CheckKeys(o, { "shape", "material", "light", "profile", "segments" }, where);
+        CheckKeys(o, { "shape", "material", "light", "profile", "segments", "translate" }, where);
         s.shape = ObjectSpec::Shape::Lathe;
         if (!o.contains("profile")) Fail(where, "a lathe needs a \"profile\"");
         s.profile = ParseProfile(o.at("profile"), where + ".profile");
+        if (o.contains("translate")) s.translate = ReadVec3(o.at("translate"), where + ".translate");
         if (o.contains("segments")) s.segments = static_cast<int>(ReadNumber(o.at("segments"), where + ".segments"));
         if (s.segments < 3) Fail(where + ".segments", "must be at least 3");
     }

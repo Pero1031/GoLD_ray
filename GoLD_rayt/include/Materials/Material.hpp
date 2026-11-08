@@ -226,6 +226,12 @@ namespace rayt {
         virtual void prepareWavelengths(SampledWavelengths& lambda) const {}
 
         /**
+         * @brief Called by the integrator right after a hit: a material with a micro-relief (skin pores) bends the shading
+         *        normal rec.n here (the geometric normal rec.gn stays). `wo` points to the viewer. The default does nothing.
+         */
+        virtual void perturbShading(SurfaceInteraction& /*rec*/, const Vector3& /*wo*/) const {}
+
+        /**
          * @brief Returns the emitted radiance for area lights.
          * @param rec The surface interaction details.
          * @param wo  The outgoing direction.

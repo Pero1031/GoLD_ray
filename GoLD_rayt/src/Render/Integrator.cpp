@@ -207,6 +207,9 @@ namespace rayt {
             // The BSDFs below assume unit-length directions (wo = -r.d).
             Assert(math::isNormalized(r.d) && "ray direction must be unit length");
 
+            // A micro-relief (skin pores) bends the shading normal; the denoiser features below see it too.
+            rec.matPtr->perturbShading(rec, -r.d);
+
             // Denoiser features: the first vertex that is not a perfect mirror / smooth glass.
             if (aov && !aov->valid && !rec.matPtr->isSpecular()) {
                 aov->albedo = rec.matPtr->aovAlbedo(rec);
