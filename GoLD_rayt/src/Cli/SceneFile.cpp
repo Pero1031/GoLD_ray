@@ -391,7 +391,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& r = m.at("relief");
             const std::string rw = where + ".relief";
             if (!r.is_object()) Fail(rw, "must be an object (cellMm, furrowDepthMm, furrowWidth, poreDepthMm, poreRadiusMm, poreFraction, seed)");
-            CheckKeys(r, { "cellMm", "furrowDepthMm", "furrowWidth", "stretch", "coarseScale", "coarseWeight", "poreDepthMm", "poreRadiusMm", "poreFraction", "poreSizeVariation", "poreDensityVariation", "poreDensityFreq", "poreDarkness", "seed" }, rw);
+            CheckKeys(r, { "cellMm", "furrowDepthMm", "furrowWidth", "stretch", "coarseScale", "coarseWeight", "poreDepthMm", "poreRadiusMm", "poreFraction", "poreSizeVariation", "poreDensityVariation", "poreDensityFreq", "poreDarkness", "wrinkles", "seed" }, rw);
             s.skinRelief = true;
             Optional<double>(r, "cellMm", rw, s.reliefCellMm, ReadNumber);
             Optional<double>(r, "furrowDepthMm", rw, s.reliefFurrowDepthMm, ReadNumber);
@@ -399,6 +399,50 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Optional<double>(r, "stretch", rw, s.reliefStretch, ReadNumber);
             Optional<double>(r, "coarseScale", rw, s.reliefCoarseScale, ReadNumber);
             Optional<double>(r, "coarseWeight", rw, s.reliefCoarseWeight, ReadNumber);
+            if (r.contains("wrinkles")) {   // "wrinkles": { "tileMm", "resolution", "steps", "depthScale", "seed", "levels": [ { "spacingMm", "angleDeg", ... } ] }
+                const json& wk = r.at("wrinkles");
+                const std::string ww = rw + ".wrinkles";
+                if (!wk.is_object()) Fail(ww, "must be an object (tileMm, resolution, steps, depthScale, seed, levels)");
+                CheckKeys(wk, { "tileMm", "resolution", "steps", "depthScale", "seed", "levels" }, ww);
+                s.reliefWrinkles = true;
+                Optional<double>(wk, "tileMm", ww, s.wrTileMm, ReadNumber);
+                Optional<double>(wk, "depthScale", ww, s.wrDepthScale, ReadNumber);
+                double v1 = s.wrResolution; Optional<double>(wk, "resolution", ww, v1, ReadNumber); s.wrResolution = int(v1);
+                v1 = s.wrSteps; Optional<double>(wk, "steps", ww, v1, ReadNumber); s.wrSteps = int(v1);
+                v1 = s.wrSeed; Optional<double>(wk, "seed", ww, v1, ReadNumber); s.wrSeed = int(v1);
+                if (!(s.wrTileMm > 1) || s.wrResolution < 64 || s.wrResolution > 8192 || s.wrSteps < 1 || s.wrSteps > 5000 || !(s.wrDepthScale > 0)) Fail(ww, "needs tileMm > 1, resolution 64-8192, steps 1-5000 and depthScale > 0");
+                if (wk.contains("levels")) {
+                    const json& lv = wk.at("levels");
+                    if (!lv.is_array() || lv.empty() || lv.size() > 8) Fail(ww + ".levels", "must be a list of 1 to 8 levels");
+                    for (size_t li = 0; li < lv.size(); ++li) {
+                        const std::string lw = ww + ".levels[" + std::to_string(li) + "]";
+                        const json& l = lv[li];
+                        CheckKeys(l, { "spacingMm", "angleDeg", "base", "distance", "continuation", "similarity", "crossing", "deposit", "width", "poreWidth", "poreMin", "poreBlend", "poreSkew", "wobble", "wobbleFreq", "depthUm", "bulge", "darkPores" }, lw);
+                        WrinkleLevelSpec ls;
+                        Optional<double>(l, "spacingMm", lw, ls.spacingMm, ReadNumber);
+                        Optional<double>(l, "angleDeg", lw, ls.angleDeg, ReadNumber);
+                        Optional<double>(l, "base", lw, ls.base, ReadNumber);
+                        Optional<double>(l, "distance", lw, ls.distance, ReadNumber);
+                        Optional<double>(l, "continuation", lw, ls.continuation, ReadNumber);
+                        Optional<double>(l, "similarity", lw, ls.similarity, ReadNumber);
+                        Optional<double>(l, "crossing", lw, ls.crossing, ReadNumber);
+                        Optional<double>(l, "deposit", lw, ls.deposit, ReadNumber);
+                        Optional<double>(l, "width", lw, ls.width, ReadNumber);
+                        Optional<double>(l, "poreWidth", lw, ls.poreWidth, ReadNumber);
+                        Optional<double>(l, "poreMin", lw, ls.poreMin, ReadNumber);
+                        Optional<double>(l, "poreBlend", lw, ls.poreBlend, ReadNumber);
+                        Optional<double>(l, "poreSkew", lw, ls.poreSkew, ReadNumber);
+                        Optional<double>(l, "wobble", lw, ls.wobble, ReadNumber);
+                        Optional<double>(l, "wobbleFreq", lw, ls.wobbleFreq, ReadNumber);
+                        Optional<double>(l, "depthUm", lw, ls.depthUm, ReadNumber);
+                        Optional<bool>(l, "bulge", lw, ls.bulge, ReadBool);
+                        Optional<bool>(l, "darkPores", lw, ls.darkPores, ReadBool);
+                        if (!(ls.spacingMm >= 0.2 && ls.spacingMm <= 20)) Fail(lw + ".spacingMm", "must be between 0.2 and 20");
+                        if (ls.deposit <= 0 || ls.deposit > 1 || ls.base < 0 || ls.width <= 0 || ls.depthUm < 0) Fail(lw, "needs 0 < deposit <= 1, base >= 0, width > 0 and depthUm >= 0");
+                        s.wrLevels.push_back(ls);
+                    }
+                }
+            }
             Optional<double>(r, "poreSizeVariation", rw, s.reliefPoreSizeVariation, ReadNumber);
             Optional<double>(r, "poreDensityVariation", rw, s.reliefPoreDensityVariation, ReadNumber);
             Optional<double>(r, "poreDensityFreq", rw, s.reliefPoreDensityFreq, ReadNumber);

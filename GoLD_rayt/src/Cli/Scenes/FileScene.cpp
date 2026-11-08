@@ -5,10 +5,36 @@
 #include "Cli/SceneParts.hpp"
 #include "Geometry/ProceduralMesh.hpp"
 #include "Cli/EngineHeaders.hpp"
+#include "stb_image_write.h"
 
 namespace rayt::cli {
 
 namespace {
+
+// Debugging aid: with the environment variable RAYT_WRINKLE_DUMP = file.png the height map of the wrinkle simulation is written as a picture
+// (dark = a valley), and RAYT_WRINKLE_DUMP_PORES = file.png writes the pore mask.
+void DumpWrinkleMap(const WrinkleField& field) {
+    auto write = [&](const char* var, const std::vector<float>& map, bool heights) {
+        char* env = nullptr;
+        size_t envLen = 0;
+        if (_dupenv_s(&env, &envLen, var) != 0 || !env || !*env) { std::free(env); return; }
+        const std::string pathStr(env);
+        std::free(env);
+        const char* path = pathStr.c_str();
+        const int R = field.resolution();
+        float lo = 0, hi = 0;
+        for (float v : map) { lo = std::min(lo, v); hi = std::max(hi, v); }
+        std::vector<unsigned char> img(map.size());
+        for (size_t i = 0; i < map.size(); ++i) {
+            const float t = heights ? (map[i] - lo) / std::max(hi - lo, 1e-12f) : map[i];
+            img[i] = static_cast<unsigned char>(std::clamp(t, 0.f, 1.f) * 255.f + 0.5f);
+        }
+        const int ok = stbi_write_png(path, R, R, 1, img.data(), R);
+        std::cout << "[Wrinkles] " << (ok ? "wrote " : "could not write ") << path << " (" << lo * 1e6f << " .. " << hi * 1e6f << " um)\n";
+    };
+    write("RAYT_WRINKLE_DUMP", field.heightMap(), true);
+    write("RAYT_WRINKLE_DUMP_PORES", field.poreMap(), false);
+}
 
 // The spectrum of an emission material.
 bool MakeSpectrum(const SpectrumSpec& s, EmissionSpectrum& out) {
@@ -220,7 +246,26 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 rp.stretch = Real(m.reliefStretch); rp.coarseScale = Real(m.reliefCoarseScale); rp.coarseWeight = Real(m.reliefCoarseWeight);
                 rp.poreSizeVariation = Real(m.reliefPoreSizeVariation); rp.poreDensityVariation = Real(m.reliefPoreDensityVariation); rp.poreDensityFreq = Real(m.reliefPoreDensityFreq);
                 rp.poreFraction = Real(m.reliefPoreFraction); rp.seed = unsigned(m.reliefSeed);
-                skin->setRelief(std::make_shared<SkinRelief>(rp));
+                if (m.reliefWrinkles) {   // the furrows and pores come from the graph simulation: the Worley ones are off
+                    rp.furrowDepth = 0; rp.coarseWeight = 0; rp.poreDepth = 0;
+                }
+                auto relief = std::make_shared<SkinRelief>(rp);
+                if (m.reliefWrinkles) {
+                    WrinkleField::Params wp;
+                    wp.tileMm = Real(m.wrTileMm); wp.resolution = m.wrResolution; wp.steps = m.wrSteps; wp.depthScale = Real(m.wrDepthScale); wp.seed = unsigned(m.wrSeed);
+                    for (const WrinkleLevelSpec& ls : m.wrLevels) {
+                        WrinkleField::Level l;
+                        l.spacingMm = Real(ls.spacingMm); l.angleDeg = Real(ls.angleDeg); l.base = Real(ls.base); l.distance = Real(ls.distance);
+                        l.continuation = Real(ls.continuation); l.similarity = Real(ls.similarity); l.crossing = Real(ls.crossing); l.deposit = Real(ls.deposit);
+                        l.width = Real(ls.width); l.poreWidth = Real(ls.poreWidth); l.poreMin = Real(ls.poreMin); l.poreBlend = Real(ls.poreBlend); l.poreSkew = Real(ls.poreSkew);
+                        l.wobble = Real(ls.wobble); l.wobbleFreq = Real(ls.wobbleFreq); l.depthUm = Real(ls.depthUm); l.bulge = ls.bulge; l.darkPores = ls.darkPores;
+                        wp.levels.push_back(l);
+                    }
+                    auto field = std::make_shared<WrinkleField>(wp);
+                    DumpWrinkleMap(*field);
+                    relief->setWrinkles(field);
+                }
+                skin->setRelief(relief);
             }
             if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {
                 std::shared_ptr<const SkinPigment> pigment;

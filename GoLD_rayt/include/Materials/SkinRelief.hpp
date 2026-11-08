@@ -29,6 +29,8 @@
 #include "Core/Types.hpp"
 #include "Core/Math.hpp"
 #include "Materials/DensityField.hpp"
+#include "Materials/WrinkleField.hpp"
+#include <memory>
 
 namespace rayt {
 
@@ -54,6 +56,11 @@ namespace rayt {
 
         const Params& params() const { return m_p; }
 
+        /// Takes the furrows and pores from a graph simulation (Materials/WrinkleField.hpp) instead of the Worley noise (which should then be switched off:
+        /// furrowDepth = coarseWeight = poreDepth = 0).
+        void setWrinkles(std::shared_ptr<const WrinkleField> wrinkles) { m_wrinkles = std::move(wrinkles); }
+        bool hasWrinkles() const { return m_wrinkles != nullptr; }
+
         /// Height of the relief at p (m): 0 on the smooth skin, negative in a furrow or a pore.
         Real height(const Point3& p) const {
             Point3 q = p / m_p.cell;
@@ -77,6 +84,11 @@ namespace rayt {
         }
 
         /// How much of a pore is at p, 0..1 (1 at the center of a pore). Pores are darker than the skin around them.
+        Real poreMask(const Point3& p, const Vector3& n) const {
+            if (m_wrinkles) return m_wrinkles->poreMask(p, n);
+            return poreMask(p);
+        }
+
         Real poreMask(const Point3& p) const {
             Point3 q = p / m_p.cell;
             q.x /= m_p.stretch;
@@ -93,8 +105,8 @@ namespace rayt {
             const Vector3 t = glm::normalize(glm::cross(n, axis));
             const Vector3 b = glm::cross(n, t);
             const Real eps = Real(0.04) * std::min(m_p.poreRadius, m_p.furrowWidth * m_p.cell);   // a few micrometres
-            const Real dt = (height(p + t * eps) - height(p - t * eps)) / (Real(2) * eps);
-            const Real db = (height(p + b * eps) - height(p - b * eps)) / (Real(2) * eps);
+            const Real dt = (heightAt(p + t * eps, n) - heightAt(p - t * eps, n)) / (Real(2) * eps);
+            const Real db = (heightAt(p + b * eps, n) - heightAt(p - b * eps, n)) / (Real(2) * eps);
             Vector3 np = glm::normalize(n - t * dt - b * db);
             const Real c = glm::dot(np, wo);
             if (c < Real(0.05)) np = glm::normalize(np + wo * (Real(0.05) - c));   // never turn the normal away from the viewer
@@ -102,6 +114,8 @@ namespace rayt {
         }
 
     private:
+        Real heightAt(const Point3& p, const Vector3& n) const { return m_wrinkles ? m_wrinkles->height(p, n) : height(p); }
+
         /// The pore of the nearest cell: 0 if the cell has none, else exp(-(F1 / radius)^2); `size` is the size factor of this pore.
         Real poreShape(const Point3& p, Real f1, unsigned id, Real& size) const {
             const Real u = unit(id, 0u);
@@ -143,6 +157,7 @@ namespace rayt {
 
         Params m_p;
         NoiseDensity m_density;
+        std::shared_ptr<const WrinkleField> m_wrinkles;
     };
 
 } // namespace rayt

@@ -46,6 +46,7 @@
 #include "Materials/CoatedDiffuse.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/SkinRelief.hpp"
+#include "Materials/WrinkleField.hpp"
 #include "Materials/SkinPigment.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/DiffuseLight.hpp"

@@ -177,6 +177,65 @@ int RunReliefTests(const CliOptions& opt) {
         allPassed = ok && allPassed;
     }
 
+    // ---- 8. The wrinkle graph simulation (Materials/WrinkleField.hpp): a tile that repeats, the same every time, with wrinkles along the primary direction ---------
+    {
+        WrinkleField::Params wp;
+        wp.tileMm = Real(12); wp.resolution = 512; wp.steps = 120; wp.seed = 3;
+        WrinkleField::Level lv;
+        lv.spacingMm = Real(0.8); lv.angleDeg = Real(0); lv.base = Real(0.05); lv.continuation = Real(0.6); lv.similarity = Real(0.5); lv.crossing = Real(0.7);
+        lv.deposit = Real(0.35); lv.depthUm = Real(30); lv.width = Real(0.15);
+        wp.levels = { lv };
+        const WrinkleField a(wp), b(wp);
+        wp.seed = 4;
+        const WrinkleField c(wp);
+        const auto& H = a.heightMap();
+        const int R = a.resolution();
+        const bool same = a.heightMap() == b.heightMap() && a.heightMap() != c.heightMap();
+        double lo = 0, hi = 0, mean = 0;
+        for (float v : H) { lo = std::min<double>(lo, v); hi = std::max<double>(hi, v); mean += v; }
+        mean /= double(H.size());
+        // orientation: the energy of the slope across the wrinkles (d/dy, along x they run) against along them (d/dx)
+        double ex = 0, ey = 0;
+        for (int y = 0; y < R; ++y)
+            for (int x = 0; x < R; ++x) {
+                const double dx = H[size_t(y) * R + (x + 1) % R] - H[size_t(y) * R + x], dy = H[size_t((y + 1) % R) * R + x] - H[size_t(y) * R + x];
+                ex += dx * dx; ey += dy * dy;
+            }
+        // periodic: a point and the point one tile away have the same height (looked up through the world position)
+        const Vector3 up(0, 1, 0);
+        bool periodic = true;
+        for (int i = 0; i < 200 && periodic; ++i) {
+            const Point3 p(sampling::Random() * 0.012, 0.0, sampling::Random() * 0.012);
+            periodic = std::abs(a.height(p, up) - a.height(p + Vector3(0.012, 0, 0), up)) < 1e-12 && std::abs(a.height(p, up) - a.height(p + Vector3(0, 0, 0.012), up)) < 1e-12;
+        }
+        bool poresOk = true;
+        for (float v : a.poreMap()) poresOk = poresOk && v >= 0 && v <= 1.0001f;
+        const bool ok = same && periodic && poresOk && lo >= -30e-6 * 1.001 && lo < -10e-6 && hi < 5e-6 && mean < 0 && ey > 1.4 * ex;
+        std::cout << "[Relief] 8. wrinkle graph (one level, primary direction along x): deterministic " << (same ? "yes" : "NO") << ", periodic " << (periodic ? "yes" : "NO")
+            << ", heights " << lo * 1e6 << " .. " << hi * 1e6 << " um, mean " << mean * 1e6 << " um, slope energy across / along the wrinkles " << ey / std::max(ex, 1e-30)
+            << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+
+        // the bent normals of a relief that uses it: unit length, and on average the smooth normal
+        SkinRelief::Params rp0; rp0.furrowDepth = 0; rp0.coarseWeight = 0; rp0.poreDepth = 0;
+        SkinRelief wr(rp0);
+        wr.setWrinkles(std::make_shared<WrinkleField>(wp));
+        const Vector3 nrm(0, 1, 0), wo(0, 1, 0);
+        double sx = 0, sz = 0, qx = 0, qz = 0, tilt = 0;
+        bool unit = true;
+        for (int i = 0; i < n; ++i) {
+            const Point3 p(sampling::Random() * 0.012, 0.0, sampling::Random() * 0.012);
+            const Vector3 bn = wr.perturb(p, nrm, wo);
+            unit = unit && std::abs(glm::length(bn) - 1.0) < 1e-9;
+            sx += bn.x; sz += bn.z; qx += bn.x * bn.x; qz += bn.z * bn.z;
+            tilt += std::acos(std::clamp<double>(bn.y, -1, 1)) * 180.0 / constants::PI;
+        }
+        const double mx = sx / n, mz = sz / n, sex = std::sqrt(qx / n / n), sez = std::sqrt(qz / n / n);
+        const bool ok2 = unit && std::abs(mx) <= 4 * sex + 1e-3 && std::abs(mz) <= 4 * sez + 1e-3 && tilt / n > 0.3;
+        std::cout << "[Relief] 8b. normals from the wrinkle field: mean (" << mx << ", " << mz << ") +- (" << sex << ", " << sez << "), mean tilt " << tilt / n << " deg" << (ok2 ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok2 && allPassed;
+    }
+
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

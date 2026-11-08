@@ -1,14 +1,15 @@
 // A patch of skin 4.3 cm wide, lit by a small softbox in the mirror direction of the camera so that the micro-relief shows in the glossy highlight.
-// Relief: two scales of furrows (0.5 mm cells and three times larger ones, 25 um deep, stretched along x) and pores of different sizes, denser in
-// some regions (0.1 mm deep, dark). Pigment: freckles (clustered, each of its own size and darkness), uneven pigment and a faint flush. The relief
-// only bends the shading normal; the pigment multiplies the reflectance where the light goes in and where it comes out (docs/SKIN.md). The light that
-// goes into the skin comes out somewhere else (a Burley profile, 3.7 / 1.4 / 0.7 mm). The picture in docs/img is the raw 384 spp render (about 11 minutes).
+// Relief: the micro wrinkles and pores of a graph simulation (docs/SKIN.md, after Weiss et al. 2023): three levels of pores joined by wrinkles that
+// run mostly along x, begin and end at pores and cross diagonally, drawn into a 24 mm tile that repeats. Pigment: freckles (clustered, each of its own size
+// and darkness), uneven pigment and a faint flush. The relief only bends the shading normal; the pigment multiplies the reflectance where the light goes
+// in and where it comes out. The light that goes into the skin comes out somewhere else (a Burley profile, 3.7 / 1.4 / 0.7 mm). The picture in docs/img
+// is the raw 384 spp render (about 7 minutes).
 {
  "options": { "width": 1000, "spp": 384, "depth": 8, "denoise": true },
  "camera": { "from": [0, 0.075, 0.03], "at": [0, 0, 0], "fov": 17 },
  "materials": {
   "skin": { "type": "skin", "albedo": [0.80, 0.52, 0.42], "roughness": 0.2, "specular": 0.5, "scatterDistanceMm": [3.67, 1.37, 0.68],
-            "relief": { "cellMm": 0.5, "furrowDepthMm": 0.025, "furrowWidth": 0.1, "stretch": 1.5, "coarseScale": 3, "coarseWeight": 0.7, "poreDepthMm": 0.1, "poreRadiusMm": 0.06, "poreFraction": 0.3, "poreDarkness": 1.0 },
+            "relief": { "wrinkles": { "depthScale": 1.6 }, "poreDarkness": 1.0 },
             "pigment": { "freckleStrength": 0.8, "blotchStrength": 0.15, "rednessStrength": 0.5 } },
   "key":  { "type": "emission", "spectrum": "d65", "radiance": 5 },
   "fill": { "type": "emission", "spectrum": "d65", "radiance": 3 }

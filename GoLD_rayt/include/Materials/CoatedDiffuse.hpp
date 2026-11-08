@@ -84,13 +84,13 @@ namespace rayt {
 
         Spectrum subsurfaceExitTint(const SurfaceInteraction& pi, const SampledWavelengths& lambda) const override {
             if (!hasPigment()) return Spectrum(1.0);
-            return RgbColor(glm::sqrt(pigmentFactor(pi.p))).reflectance(lambda);
+            return RgbColor(glm::sqrt(pigmentFactor(pi.p, pi.gn))).reflectance(lambda);
         }
 
         void perturbShading(SurfaceInteraction& rec, const Vector3& wo) const override {
             if (m_relief) rec.n = m_relief->perturb(rec.p, rec.n, wo);
             if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
-                const Vector3 f = pigmentFactor(rec.p);
+                const Vector3 f = pigmentFactor(rec.p, rec.gn);
                 rec.albedoTint = m_profile ? glm::sqrt(f) : f;
             }
         }
@@ -133,10 +133,10 @@ namespace rayt {
         bool hasPigment() const { return m_pigment || (m_poreDark > Real(0) && m_relief); }
 
         /// The reflectance multiplier of the pigment and of the pores at p.
-        Vector3 pigmentFactor(const Point3& p) const {
+        Vector3 pigmentFactor(const Point3& p, const Vector3& n) const {
             Vector3 f(1.0);
             if (m_pigment) f *= m_pigment->factor(p);
-            if (m_poreDark > Real(0) && m_relief) f *= Vector3(1.0) - m_poreDark * m_relief->poreMask(p) * Vector3(0.30, 0.42, 0.45);
+            if (m_poreDark > Real(0) && m_relief) f *= Vector3(1.0) - m_poreDark * m_relief->poreMask(p, n) * Vector3(0.30, 0.42, 0.45);
             return f;
         }
 

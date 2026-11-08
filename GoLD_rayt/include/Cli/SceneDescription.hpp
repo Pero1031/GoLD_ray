@@ -28,6 +28,13 @@ struct SpectrumSpec {
     std::string file;
 };
 
+// One level of the wrinkle simulation (Materials/WrinkleField.hpp); the fields are those of WrinkleField::Level.
+struct WrinkleLevelSpec {
+    double spacingMm = 1.5, angleDeg = 0, base = 0.2, distance = 0.7, continuation = 0.3, similarity = 0.3, crossing = 0.5, deposit = 0.25;
+    double width = 0.15, poreWidth = 0.1, poreMin = 0.1, poreBlend = 0.5, poreSkew = 0, wobble = 0.15, wobbleFreq = 2, depthUm = 30;
+    bool bulge = true, darkPores = true;
+};
+
 struct MaterialSpec {
     enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin };
     Type type = Type::Diffuse;
@@ -110,6 +117,10 @@ struct MaterialSpec {
     double pigBlotchFreq = 150, pigBlotchStrength = 0.15, pigRednessFreq = 35, pigRednessStrength = 0.5;
     int pigSeed = 1;
     int reliefSeed = 1;
+    bool reliefWrinkles = false;                   //   furrows and pores from a graph simulation (replaces the Worley furrows and pores)
+    double wrTileMm = 24, wrDepthScale = 1;
+    int wrResolution = 2048, wrSteps = 300, wrSeed = 1;
+    std::vector<WrinkleLevelSpec> wrLevels;        //   empty: the default skin (three levels)
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission
