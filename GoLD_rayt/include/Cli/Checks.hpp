@@ -59,6 +59,11 @@ int RunVolumeTests(const CliOptions& opt);
 // The two must agree. Photons emitted = --spp x 8000 (about 2 M by default).
 int RunCausticTests(const CliOptions& opt);
 
+// --scene lvc: VolumeBPT (bidirectional path tracing with a cache of light paths, in a gray fog) against plain path tracing with next event
+// estimation in the medium. The same small image is rendered by both; the strategies alone (next event estimation, light tracing) and all
+// together must agree with the reference in the total and block by block.
+int RunLvcTests(const CliOptions& opt);
+
 // --scene manifoldtest: the caustic of a point light through the prism, computed by the specular manifold NEE and by the caustic photon
 // map (the existing, independent estimator), at a few lit floor points. The difference to the plain render (direct light only) is the
 // caustic part of each; the two must agree (the photon map blurs, so points in smooth parts of the pattern are used).

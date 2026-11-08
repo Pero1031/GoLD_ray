@@ -34,6 +34,7 @@ void PrintHelp(std::ostream& out) {
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --caustic-trace   with --caustics: light tracing of the caustics on surfaces the camera sees directly (sharp edges, no radius)\n"
         << "  --fog-sigma S, --fog-light I, --fog-fill F, --fog-prism-deg D   fogbeam scene: extinction of the fog (1/m, default 1.5), intensity of the lamp (60) and of a faint fill light (0.4), rotation of the prism\n"
+        << "  --lvc [--lvc-paths N --lvc-depth D --lvc-mask M]   fogspot scene: bidirectional path tracing with a cache of light paths (prototype)   --spot-deg A\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"
         << "\n"
         << "The options of single scenes (--sea-steep, --pmx-yaw, --caustics, ...) are listed in include/Cli/Options.hpp.\n"

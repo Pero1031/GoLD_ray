@@ -83,6 +83,8 @@ struct SceneSetup {
     std::optional<Vector3> background;                           // color seen by camera rays that hit nothing (instead of the environment)
     std::string lightSampler;                                    // how next-event estimation picks a light, when the scene needs a specific one (empty = --light-sampler)
     CausticTarget causticTarget;
+    const PointLight* bptLight = nullptr;                        // fogspot: the lamp and the fog, for --lvc (VolumeBPT)
+    const Medium* bptMedium = nullptr;
     std::vector<SpecularNee::Body> manifoldBodies;               // flat-faced glass bodies the specular manifold NEE can solve
     std::vector<std::shared_ptr<void>> keepAlive;                // owners of things the scene only points to
     std::function<void(const RenderResult&)> afterRender;        // right after the render, before saving

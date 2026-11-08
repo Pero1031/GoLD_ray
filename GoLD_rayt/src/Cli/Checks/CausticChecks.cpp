@@ -151,4 +151,68 @@ int RunCausticTests(const CliOptions& opt) {
     return allPassed ? 0 : 2;
 }
 
+// ---- VolumeBPT (prototype of LVC-BPT) against path tracing ----
+int RunLvcTests(const CliOptions& opt) {
+    const int W = 48, H = 27;
+    auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+    auto fog = std::make_shared<HomogeneousMedium>(Real(3), Real(0.9), PhaseFunction(Real(0.5)));
+    boundary->setMedium(fog);
+    auto world = std::make_shared<Aggregate>();
+    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
+    auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 1.0, 1.0), Real(60));
+    lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(8)));
+    auto scene = std::make_shared<Scene>(world);
+    scene->addLight(lamp);
+    scene->finalize("uniform");
+    const Point3 from(0.0, 0.62, 0.001);
+    auto cam = std::make_shared<Camera>(from, Point3(0, 0, 0), Vector3(0, 0, -1), 28.0, double(W) / H, 0.0, glm::length(from));
+
+    // the reference: path tracing with next event estimation in the medium and MIS with the phase-sampled rays
+    Film ref(W, H);
+    PathIntegrator pt(cam, 32, opt.spp * 64);
+    pt.setMediaNee(true);
+    pt.render(*scene, ref);
+
+    auto blockMeans = [&](const Vector3* d, std::vector<double>& out, double& total) {
+        const int bx = 6, by = 3;   // 6 x 3 blocks of 8 x 9 pixels
+        out.assign(bx * by, 0.0);
+        total = 0;
+        for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
+            const double v = d[static_cast<size_t>(y) * W + x].y;
+            out[(y / (H / by)) * bx + x / (W / bx)] += v / double((W / bx) * (H / by));
+            total += v / double(W * H);
+        }
+    };
+    std::vector<double> refB; double refTotal;
+    blockMeans(ref.getData(), refB, refTotal);
+    double refMax = 0; for (double v : refB) refMax = std::max(refMax, v);
+    std::cout << "[Lvc] reference (path tracing, " << opt.spp * 64 << " spp): mean G " << refTotal << ", brightest block " << refMax << "\n";
+
+    bool allPassed = true;
+    struct Case { const char* name; int mask; };
+    for (const Case& c : { Case{ "next event estimation only (s = 0)", 1 }, Case{ "light tracing only (s = n)", 4 }, Case{ "next event estimation + connections (s < n)", 3 }, Case{ "connections + light tracing (s > 0)", 6 }, Case{ "all strategies, balance heuristic", 7 } }) {
+        VolumeBptParams bp;
+        bp.width = W; bp.height = H; bp.spp = opt.spp * 8; bp.lightPaths = static_cast<long long>(opt.spp) * 100000; bp.maxVertices = 8;
+        bp.useNee = (c.mask & 1) != 0; bp.useConnections = (c.mask & 2) != 0; bp.useLightTracing = (c.mask & 4) != 0;
+        Film f(W, H);
+        std::cout << "[Lvc] " << c.name << "\n";
+        VolumeBPT(*scene, *cam, *lamp, *fog, bp).render(f);
+        std::vector<double> b; double total;
+        blockMeans(f.getData(), b, total);
+        double worst = 0; int bad = 0;
+        for (size_t i = 0; i < b.size(); ++i) {
+            if (refB[i] < 0.05 * refMax) continue;   // dark blocks: mostly noise
+            const double e = std::abs(b[i] - refB[i]) / refB[i];
+            worst = std::max(worst, e);
+            if (e > 0.20) ++bad;   // noise of a few thousand samples per block; a wrong weight shifts the total by more
+        }
+        const double ratio = total / refTotal;
+        const bool ok = std::abs(ratio - 1.0) < 0.03 && bad == 0;
+        allPassed = allPassed && ok;
+        std::cout << "[Lvc]   mean G " << total << "  ratio to the reference " << ratio << "  worst bright block off by " << 100 * worst << " %" << (ok ? "   OK" : "   FAIL") << "\n";
+    }
+    std::cout << "[Lvc] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
+}
+
 } // namespace rayt::cli

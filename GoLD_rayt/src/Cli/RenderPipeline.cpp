@@ -153,7 +153,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.causticTrace) std::cout << "[Caustics] --caustic-trace needs the photon map (--caustics N > 0, caustic method photons): ignored\n";
     integrator->setSpecularNee(specularNee.get());
-    if (opt.scene == "fogbeam") integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
+    if (opt.scene == "fogbeam" || opt.scene == "fogspot") integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
     if (causticPasses > 1)
@@ -185,6 +185,12 @@ int RenderScene(CliOptions& opt) {
                 const size_t i = static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x);
                 film.setPixel(x, y, (sum[i] + film.getData()[i]) / Real(causticPasses));
             }
+    }
+    else if (opt.lvc && setup.bptLight && setup.bptMedium) {
+        VolumeBptParams bp;
+        bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth;
+        bp.useNee = (opt.lvcMask & 1) != 0; bp.useConnections = (opt.lvcMask & 2) != 0; bp.useLightTracing = (opt.lvcMask & 4) != 0;
+        VolumeBPT(*scene, *camera, *setup.bptLight, *setup.bptMedium, bp).render(film);
     }
     else integrator->render(*scene, film);
     if (traceOn) {   // add the light-traced caustic image (already an average radiance per pixel)

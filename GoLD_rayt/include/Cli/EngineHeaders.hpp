@@ -38,6 +38,7 @@
 #include "Render/Denoiser.hpp"
 #include "Render/Film.hpp"
 #include "Render/Integrator.hpp"
+#include "Render/VolumeBPT.hpp"
 
 // Materials and lights
 #include "Materials/CoatedDiffuse.hpp"

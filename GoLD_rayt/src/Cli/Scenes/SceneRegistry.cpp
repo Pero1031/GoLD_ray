@@ -42,6 +42,8 @@ const SceneDef kScenes[] = {
       [](const CliOptions&) { return EnvKind::None; }, BuildManifold },
     { "fogbeam", "a slit of light through a dispersive prism in fog: volumetric caustics by light tracing (--fog-sigma, --abbe)", kDefaultHeightPerWidth, 32,
       [](const CliOptions&) { return EnvKind::None; }, BuildFogBeam },
+    { "fogspot", "a spot light in a ball of fog: multiple scattering, path tracing or --lvc (bidirectional, prototype)", kDefaultHeightPerWidth, 32,
+      [](const CliOptions&) { return EnvKind::None; }, BuildFogSpot },
     { "crystal", "faceted glass on a dark stage with dispersion and caustics (--crystal-inside)", kDefaultHeightPerWidth, 48,
       [](const CliOptions&) { return EnvKind::None; }, BuildCrystal },
     { "furnace", "white furnace: objects in a uniform white environment must keep their energy", kDefaultHeightPerWidth, 0,

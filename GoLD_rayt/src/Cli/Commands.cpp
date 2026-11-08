@@ -25,6 +25,7 @@ const std::vector<Command>& Commands() {
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
         { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },
+        { { "lvc", "bidirectional path tracing with a cache of light paths in a fog (prototype) against path tracing" }, [](const CliOptions& o) { return RunLvcTests(o); } },
         { { "manifoldtest", "prism caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, false); } },
         { { "manifoldcup", "tumbler caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, true); } },
         { { "metals", "metal data checks (file layouts, reflectance input, edge tint)" }, [](const CliOptions& o) { return RunMetalTests(o); } },

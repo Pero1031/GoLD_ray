@@ -193,6 +193,28 @@ std::optional<int> BuildFogBeam(SceneContext& ctx, SceneSetup& out) {
     return std::nullopt;
 }
 
+// --scene fogspot
+// A narrow spot light (a cone) crosses a ball of fog: the beam is lit directly, and the fog around it by multiple scattering. Seen from above.
+// The camera path finds the thin beam rarely; light paths from the lamp do (--lvc).
+std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
+    const CliOptions& opt = ctx.opt;
+    auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+    auto fog = std::make_shared<HomogeneousMedium>(Real(opt.fogSigma), Real(0.9), PhaseFunction(Real(0.5)));
+    boundary->setMedium(fog);
+    out.world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
+    auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight));
+    lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(opt.spotDeg)));
+    out.lights.push_back(lamp);
+    out.keepAlive.push_back(fog);
+    out.bptLight = lamp.get();
+    out.bptMedium = fog.get();
+    out.camera.from = Point3(0.0, 0.62, 0.001);
+    out.camera.at = Point3(0.0, 0.0, 0.0);
+    out.camera.up = Vector3(0, 0, -1);
+    out.camera.fovDeg = 28.0;
+    return std::nullopt;
+}
+
 // --scene crystal
 std::optional<int> BuildCrystal(SceneContext& ctx, SceneSetup& out) {
     const CliOptions& opt = ctx.opt;

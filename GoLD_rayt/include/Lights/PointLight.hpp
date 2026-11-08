@@ -25,6 +25,7 @@
 #include "Color/SpectralConversion.hpp"
 #include "Color/EmissionSpectrum.hpp"
 #include "Lights/Light.hpp"
+#include "Geometry/Frame.hpp"
 
 namespace rayt {
 
@@ -74,6 +75,7 @@ namespace rayt {
 
             Real invDist = math:: safe_recip(math::safe_sqrt(dist2));
             Vector3 wi = d * invDist;
+            if (!emitsToward(-wi)) return std::nullopt;   // outside the cone of a spot
 
             LightLiSample ls;
             ls.wi = wi;
@@ -106,6 +108,26 @@ namespace rayt {
             return 0.0;
         }
 
+        // ---- Spot: the same intensity inside a cone, nothing outside (for the bidirectional estimators, which sample the emission) ----
+        void setCone(const Vector3& axis, Real halfAngleRad) { m_axis = glm::normalize(axis); m_cosCone = std::cos(halfAngleRad); }
+        bool hasCone() const { return m_cosCone > Real(-1); }
+        /// True if the light emits in this direction (away from the light).
+        bool emitsToward(const Vector3& dir) const { return !hasCone() || glm::dot(m_axis, dir) >= m_cosCone; }
+        /// Density (per steradian) of sampleEmissionDir() at `dir`: uniform over the cone (or the whole sphere).
+        Real emissionPdf(const Vector3& dir) const {
+            if (!emitsToward(dir)) return Real(0);
+            return Real(1) / (Real(2) * constants::PI * (hasCone() ? Real(1) - m_cosCone : Real(2)));
+        }
+        Vector3 sampleEmissionDir(const Point2& u) const {
+            const Real c = hasCone() ? Real(1) - u.x * (Real(1) - m_cosCone) : Real(1) - Real(2) * u.x;
+            const Real sn = std::sqrt(std::max(Real(0), Real(1) - c * c));
+            const Real ph = Real(2) * constants::PI * u.y;
+            const Vector3 local(sn * std::cos(ph), sn * std::sin(ph), c);
+            if (!hasCone()) return local;
+            const frame::Frame fr(m_axis);
+            return fr.localToWorld(local);
+        }
+
         /// Position and radiant intensity (W/sr, scale included): for estimators that handle the light themselves
         /// (specular manifold NEE).
         const Point3& position() const { return m_p; }
@@ -115,5 +137,7 @@ namespace rayt {
         Point3 m_p = Point3(0.0);
         EmissionSpectrum m_I; // intensity (arbitrary scale; evaluated per wavelength when rendering)
         Real m_scale = Real(1.0);
+        Vector3 m_axis = Vector3(0, 0, 1);
+        Real m_cosCone = Real(-1);   // -1: no cone, emits in all directions
     };
 } // namespace rayt

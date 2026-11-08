@@ -162,6 +162,11 @@ struct CliOptions {
     Real fogFill = 0.4;                    // --fog-fill : intensity of the faint fill light in the fogbeam scene (0 = none)
     Real fogSigma = 1.5;                   // --fog-sigma : extinction of the fog in the fogbeam scene (1/m)
     Real fogLight = 60.0;                  // --fog-light : intensity of its lamp
+    bool lvc = false;                      // --lvc : bidirectional path tracing with a cache of light paths (VolumeBPT) in the fogspot scene
+    long long lvcPaths = 2000000;          // --lvc-paths N : light paths in the cache
+    int lvcDepth = 6;                      // --lvc-depth N : scattering vertices per sub-path
+    int lvcMask = 7;                       // --lvc-mask M : strategies, 1 = next event estimation, 2 = connections, 4 = light tracing
+    Real spotDeg = 3.0;                    // --spot-deg : half angle of the lamp's cone in the fogspot scene
     bool causticTraceOnly = false;         // --caustic-trace-only : write only the light-traced image (to look at it alone)
     bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
