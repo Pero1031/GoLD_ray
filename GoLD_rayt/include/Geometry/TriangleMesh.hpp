@@ -124,6 +124,7 @@ namespace rayt {
             m_p0 = p0();
             m_e1 = p1() - p0();
             m_e2 = p2() - p0();
+            m_dpdu = tangentFromUv();
             const Vector3 e1 = m_e1, e2 = m_e2;
             const Vector3 c = glm::cross(e1, e2);
             m_area = Real(0.5) * glm::length(c);
@@ -228,7 +229,28 @@ namespace rayt {
                 rec.n = rec.frontFace ? ns : -ns;
             }
             if (m_mesh->uv.size() == m_mesh->p.size()) rec.uv = uvAt(u, v);
+            rec.dpdu = m_dpdu;
             rec.matPtr = m_material.get();
+        }
+
+        /// Direction of increasing u (the tangent of anisotropic materials): from the texture coordinates of the corners, or along the first edge.
+        Vector3 tangentFromUv() const {
+            if (m_mesh->uv.size() == m_mesh->p.size()) {
+                const auto& a = m_mesh->uv[static_cast<size_t>(m_i0)];
+                const auto& b = m_mesh->uv[static_cast<size_t>(m_i1)];
+                const auto& c = m_mesh->uv[static_cast<size_t>(m_i2)];
+                const Real du02 = Real(a.x) - Real(c.x), dv02 = Real(a.y) - Real(c.y);
+                const Real du12 = Real(b.x) - Real(c.x), dv12 = Real(b.y) - Real(c.y);
+                const Real det = du02 * dv12 - dv02 * du12;
+                if (std::abs(det) > Real(1e-14)) {
+                    const Vector3 dp02 = p0() - p2(), dp12 = p1() - p2();
+                    const Vector3 t = (dv12 * dp02 - dv02 * dp12) / det;
+                    const Real len2 = glm::dot(t, t);
+                    if (len2 > Real(1e-20)) return t / std::sqrt(len2);
+                }
+            }
+            const Real len2 = glm::dot(m_e1, m_e1);
+            return len2 > Real(0) ? m_e1 / std::sqrt(len2) : Vector3(0.0);
         }
 
         /// Interpolated texture coordinates for barycentric weights (u, v) of p1, p2.
@@ -280,6 +302,7 @@ namespace rayt {
         Point3 m_p0 = Point3(0.0);
         Vector3 m_e1 = Vector3(0.0), m_e2 = Vector3(0.0);   // p1 - p0, p2 - p0
         Vector3 m_ng = Vector3(0, 1, 0);
+        Vector3 m_dpdu = Vector3(0.0);                       // tangent for anisotropic materials
         Real m_area = 0;
     };
 

@@ -66,8 +66,8 @@ namespace rayt {
         // ---------------------------------------------------------------------
         
         // These vectors define the local tangent space (TBN frame).
-        Vector3 dpdu;       // Tangent vector: partial derivative of position with respect to 'u'.
-        Vector3 dpdv;       // Bitangent vector: partial derivative of position with respect to 'v'.
+        Vector3 dpdu = Vector3(0.0);   // Tangent vector (unit length when set; zero = not provided: anisotropic materials then use an arbitrary one).
+        Vector3 dpdv = Vector3(0.0);   // Bitangent vector: partial derivative of position with respect to 'v'.
         Vector3 gn;         // Geometric normal: the true perpendicular vector of the underlying geometry.
 
         const Medium* medium = nullptr;   // The medium surrounding the interaction point.

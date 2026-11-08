@@ -224,7 +224,8 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
   optional metal blend and subsurface), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
-  between the layers), `RoughConductor`, `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
+  between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
+  `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Own SAH BVH or **Embree**.
 - **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).

@@ -37,6 +37,8 @@ struct MaterialSpec {
     std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
+    double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)
+    double rotation = 0;                           // conductor: degrees, rotates the tangent about the normal
     // layered: a clear coat over a base (Materials/LayeredCoat.hpp). The base reuses albedo (diffuse) or metal / table / reflectance + roughness (conductor).
     double coatIor = 1.5;
     double coatRoughness = 0.1;

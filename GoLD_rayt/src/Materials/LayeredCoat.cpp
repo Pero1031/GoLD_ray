@@ -190,6 +190,7 @@ namespace rayt {
 
             Base(const Material* m, const Spectrum& r, const SampledWavelengths& l) : mat(m), R(r), lambda(l) {
                 rec.n = rec.gn = Vector3(0, 0, 1);
+                rec.dpdu = Vector3(1, 0, 0);   // the local x axis is the tangent of the base's anisotropy
             }
             Spectrum f(const Vector3& wo, const Vector3& wi) const {
                 if (wo.z <= Real(0) || wi.z <= Real(0)) return Spectrum(0.0);
@@ -218,6 +219,14 @@ namespace rayt {
                 return s;
             }
         };
+
+        /// The local frame of the layers: z along the shading normal, x along the surface tangent (the base's anisotropy axis), if there is one.
+        frame::Frame surfaceFrame(const SurfaceInteraction& rec) {
+            frame::Frame f;
+            if (glm::dot(rec.dpdu, rec.dpdu) > Real(0)) f.buildFromNormalAndTangent(rec.n, rec.dpdu);
+            else f.buildFromW(rec.n);
+            return f;
+        }
 
         /// Transmittance of the coat along a straight path across it in direction w (Beer-Lambert; sigma = optical depth along the normal).
         Spectrum transmittance(const Spectrum& sigma, const Vector3& w) {
@@ -251,7 +260,7 @@ namespace rayt {
 
     Real LayeredCoat::pdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths&) const {
         if (glm::dot(rec.gn, wo) <= Real(0) || glm::dot(rec.gn, wi) <= Real(0)) return Real(0);
-        const frame::Frame frame(rec.n);
+        const frame::Frame frame = surfaceFrame(rec);
         const Vector3 o = frame.worldToLocal(wo), i = frame.worldToLocal(wi);
         if (o.z <= Real(0) || i.z <= Real(0)) return Real(0);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
@@ -268,7 +277,7 @@ namespace rayt {
         const SampledWavelengths& lambda, TransportMode mode) const
     {
         if (glm::dot(rec.gn, wo) <= Real(0) || glm::dot(rec.gn, wi) <= Real(0)) return Spectrum(0.0);
-        const frame::Frame frame(rec.n);
+        const frame::Frame frame = surfaceFrame(rec);
         const Vector3 o = frame.worldToLocal(wo), i = frame.worldToLocal(wi);
         if (o.z <= Real(0) || i.z <= Real(0)) return Spectrum(0.0);
 
@@ -336,7 +345,7 @@ namespace rayt {
         const SampledWavelengths& lambda, TransportMode mode) const
     {
         if (glm::dot(rec.gn, wo) <= Real(0)) return std::nullopt;
-        const frame::Frame frame(rec.n);
+        const frame::Frame frame = surfaceFrame(rec);
         const Vector3 o = frame.worldToLocal(wo);
         if (o.z <= Real(0)) return std::nullopt;
 

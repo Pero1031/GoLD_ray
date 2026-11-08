@@ -1,0 +1,128 @@
+// A turned gold bowl: the tangent (texture coordinate u) runs around the axis, so the grooves are circles and the highlights
+// stretch across them (anisotropy -0.9, roughness 0.25).
+{
+ "options": {
+  "width": 1280,
+  "spp": 192,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   1.25,
+   2.3
+  ],
+  "at": [
+   0,
+   0.17,
+   0
+  ],
+  "fov": 34
+ },
+ "environment": {
+  "type": "hdr",
+  "file": "assets/env/bryanston_park_sunrise_2k.hdr",
+  "scale": 0.7
+ },
+ "materials": {
+  "floor": {
+   "type": "diffuse",
+   "albedo": [
+    0.22,
+    0.21,
+    0.21
+   ]
+  },
+  "softbox": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 6
+  },
+  "brushed": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.25,
+   "anisotropy": -0.9
+  }
+ },
+ "objects": [
+  {
+   "shape": "quad",
+   "corner": [
+    -8,
+    0,
+    8
+   ],
+   "edge1": [
+    16,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -16
+   ],
+   "material": "floor"
+  },
+  {
+   "shape": "quad",
+   "corner": [
+    -2.0,
+    2.6,
+    -1.4
+   ],
+   "edge1": [
+    4.0,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    2.8
+   ],
+   "material": "softbox",
+   "light": true
+  },
+  {
+   "shape": "lathe",
+   "profile": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     0.22,
+     0.0
+    ],
+    [
+     0.3,
+     0.03
+    ],
+    [
+     0.62,
+     0.3
+    ],
+    [
+     0.66,
+     0.34
+    ],
+    [
+     0.62,
+     0.35
+    ],
+    [
+     0.3,
+     0.07
+    ],
+    [
+     0.0,
+     0.07
+    ]
+   ],
+   "segments": 160,
+   "material": "brushed"
+  }
+ ]
+}

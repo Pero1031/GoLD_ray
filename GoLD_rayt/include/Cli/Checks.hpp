@@ -53,6 +53,9 @@ int RunVolumeTests(const CliOptions& opt);
 // Layered coat checks (--scene layered): closed form of a smooth coat over a diffuse base, eval() against sample(), energy, reciprocity.
 int RunLayeredTests(const CliOptions& opt);
 
+// Anisotropy checks (--scene aniso): the tangent of the shapes, the anisotropic GGX, sample() against eval(), the rotation of the axes.
+int RunAnisotropyTests(const CliOptions& opt);
+
 // -----------------------------------------------------------------------------
 // Caustic photon map test (--scene caustic)
 // -----------------------------------------------------------------------------

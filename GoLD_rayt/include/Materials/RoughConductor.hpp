@@ -17,6 +17,7 @@
 #include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/Math.hpp"
+#include "Geometry/Frame.hpp"
 #include "Core/Fresnel.hpp"
 
 #include "Geometry/Frame.hpp"
@@ -52,6 +53,10 @@ namespace rayt {
         Real alpha_x;   // Roughness X
         Real alpha_y;   // Roughness Y (same as X if isotropic)
         Vector3 m_f0Rgb = Vector3(1.0);   // normal-incidence reflectance in RGB (denoiser albedo AOV)
+        Real m_rotation = Real(0);        // rotation of the roughness axes about the normal (radians), anisotropic only
+
+        /// Shading frame: x along the surface tangent (rec.dpdu) rotated by m_rotation, when the roughness is anisotropic; any frame otherwise.
+        frame::Frame shadingFrame(const SurfaceInteraction& rec) const;
 
         // ---- Multiple-scattering compensation (Kulla & Conty 2017) ----
         // Single-scattering GGX loses energy that grows with roughness. A diffuse-like lobe
@@ -229,6 +234,11 @@ namespace rayt {
             initRoughness(roughness, anisotropy);
             initMultipleScattering();
         }
+
+        /// Rotates the roughness axes about the normal, in degrees (anisotropic roughness only). The x axis (alpha_x) starts along the surface
+        /// tangent (`SurfaceInteraction::dpdu`: the circles of latitude on a sphere, the first edge of a quad, increasing u on a mesh).
+        /// anisotropy > 0: rougher along x (the highlight stretches along it); < 0: smoother along x, as on a metal brushed along x.
+        void setTangentRotation(Real degrees) { m_rotation = degrees * constants::PI / Real(180); }
 
         /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
         void setMultipleScattering(bool enabled) {

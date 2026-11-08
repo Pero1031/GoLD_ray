@@ -6,6 +6,20 @@
 
 namespace rayt {
 
+    frame::Frame RoughConductor::shadingFrame(const SurfaceInteraction& rec) const {
+        frame::Frame f;
+        const bool aniso = alpha_x != alpha_y;
+        if (aniso && glm::dot(rec.dpdu, rec.dpdu) > Real(0)) f.buildFromNormalAndTangent(rec.n, rec.dpdu);
+        else f.buildFromW(rec.n);
+        if (aniso && m_rotation != Real(0)) {
+            const Real c = std::cos(m_rotation), s = std::sin(m_rotation);
+            const Vector3 s0 = f.s, t0 = f.t;
+            f.s = c * s0 + s * t0;
+            f.t = -s * s0 + c * t0;
+        }
+        return f;
+    }
+
     Spectrum RoughConductor::eval(const SurfaceInteraction& rec,
         const Vector3& wo, const Vector3& wi,
         const SampledWavelengths& lambda,
@@ -28,7 +42,7 @@ namespace rayt {
         // 2. Transform world vectors to the local shading frame.
         // The Distribution class assumes operations in Tangent Space.
         // We need to transform World Space vectors to Local Space for D() and G().
-        frame::Frame frame(rec.n);
+        const frame::Frame frame = shadingFrame(rec);
         Vector3 wo_local = frame.worldToLocal(wo);
         Vector3 wi_local = frame.worldToLocal(wi);
         Vector3 wh_local = frame.worldToLocal(wh);
@@ -65,7 +79,7 @@ namespace rayt {
         BSDFSample bsdfSample;
 
         // 1. Setup Frame & Distribution
-        rayt::frame::Frame frame(rec.n);
+        const frame::Frame frame = shadingFrame(rec);
         Vector3 wo_local = frame.worldToLocal(wo);
         GGXDistribution dist(alpha_x, alpha_y);
 
@@ -130,7 +144,7 @@ namespace rayt {
         if (whLen2 <= Real(0.0)) return Real(0.0);
         wh = wh * math::safe_recip(math::safe_sqrt(whLen2));
 
-        rayt::frame::Frame frame(rec.n);
+        const frame::Frame frame = shadingFrame(rec);
         Vector3 wo_local = frame.worldToLocal(wo);
         Vector3 wh_local = frame.worldToLocal(wh);
 

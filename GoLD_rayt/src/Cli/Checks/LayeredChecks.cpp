@@ -169,4 +169,162 @@ int RunLayeredTests(const CliOptions& opt) {
     return allPassed ? 0 : 2;
 }
 
+// -----------------------------------------------------------------------------
+// Anisotropy checks (--scene aniso): the tangent frame from the geometry, the anisotropic GGX, the rotation of the roughness axes.
+// -----------------------------------------------------------------------------
+int RunAnisotropyTests(const CliOptions& opt) {
+    bool allPassed = true;
+    const int n = std::max(opt.spp, 64) * 1500;
+    std::cout << "[Aniso] " << n << " samples per estimate\n";
+    const double pi = constants::PI;
+
+    // ---- 1. The tangent that the shapes provide ----------------------------------------------------------------------------
+    {
+        SurfaceInteraction rec;
+        bool ok = true;
+        Sphere sphere(Point3(0, 0, 0), Real(1), std::make_shared<Lambertian>(RgbColor(Real(0.5))));
+        Ray r(Point3(0.6, 0.3, 3.0), glm::normalize(Vector3(0.0, 0.0, -1.0)));
+        ok = ok && sphere.hit(r, rec) && std::abs(glm::length(rec.dpdu) - 1.0) < 1e-9 && std::abs(glm::dot(rec.dpdu, rec.gn)) < 1e-9 && std::abs(rec.dpdu.y) < 1e-9;
+        std::cout << "[Aniso]   sphere: dpdu is a unit vector along the circle of latitude (perpendicular to the normal and to y)" << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+
+        Quad quad(Point3(0, 0, 0), Vector3(2, 0, 0), Vector3(0, 0, -2), std::make_shared<Lambertian>(RgbColor(Real(0.5))));
+        SurfaceInteraction qrec;
+        const bool qok = quad.hit(Ray(Point3(1, 1, -1), Vector3(0, -1, 0)), qrec) && glm::length(qrec.dpdu - Vector3(1, 0, 0)) < 1e-9;
+        std::cout << "[Aniso]   quad: dpdu is the first edge" << (qok ? "   OK" : "   FAIL") << "\n";
+        allPassed = qok && allPassed;
+
+        auto mesh = std::make_shared<TriangleMesh>();
+        mesh->p = { Point3(0, 0, 0), Point3(1, 0, 0), Point3(0, 1, 0) };
+        mesh->indices = { 0, 1, 2 };
+        auto mat = std::make_shared<Lambertian>(RgbColor(Real(0.5)));
+        Triangle plain(mesh, 0, mat);
+        SurfaceInteraction t0;
+        const bool noUv = plain.hit(Ray(Point3(0.2, 0.2, 1), Vector3(0, 0, -1)), t0) && glm::length(t0.dpdu - Vector3(1, 0, 0)) < 1e-9;
+        mesh->uv = { Point2(0, 0), Point2(0, 1), Point2(1, 0) };   // u grows along +y
+        Triangle withUv(mesh, 0, mat);
+        SurfaceInteraction t1;
+        const bool uv = withUv.hit(Ray(Point3(0.2, 0.2, 1), Vector3(0, 0, -1)), t1) && glm::length(t1.dpdu - Vector3(0, 1, 0)) < 1e-9;
+        std::cout << "[Aniso]   triangle: dpdu along the first edge without texture coordinates" << (noUv ? "   OK" : "   FAIL")
+            << ", along increasing u with them" << (uv ? "   OK" : "   FAIL") << "\n";
+        allPassed = noUv && uv && allPassed;
+    }
+
+    // ---- 2. The visible-normal density of the anisotropic GGX integrates to 1 over the normals that face wo ------------------
+    {
+        bool ok = true;
+        for (double ax : { 0.15, 0.6 }) {
+            const GGXDistribution g(Real(ax), Real(0.3 * ax));
+            for (double az : { 0.0, 60.0, 90.0 }) {
+                const double th = 55.0 * pi / 180.0, ph = az * pi / 180.0;
+                const Vector3 wo(std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th));
+                double sum = 0;
+                const int nt = 900, np = 1800;
+                for (int i = 0; i < nt; ++i) {
+                    const double t = (i + 0.5) / nt * pi / 2;
+                    for (int j = 0; j < np; ++j) {
+                        const double p = (j + 0.5) / np * 2 * pi;
+                        const Vector3 wh(std::sin(t) * std::cos(p), std::sin(t) * std::sin(p), std::cos(t));
+                        if (glm::dot(wo, wh) > Real(0)) sum += g.pdf(wo, wh) * std::sin(t);   // only normals facing wo are visible (and ever occur as a half vector)
+                    }
+                }
+                sum *= (pi / 2 / nt) * (2 * pi / np);
+                const bool o = std::abs(sum - 1.0) < 0.01;
+                ok = ok && o;
+                std::cout << "[Aniso]   GGX (alpha " << ax << " x " << 0.3 * ax << "), wo azimuth " << az << " deg: integral of the visible normal density " << sum << (o ? "   OK" : "   FAIL") << "\n";
+            }
+        }
+        allPassed = ok && allPassed;
+    }
+
+    // ---- 3. Rough anisotropic gold: sample() against eval(), and the rotation of the axes -------------------------------------
+    auto goldTable = std::make_shared<color::ComplexIorTable>();
+    {
+        std::string err;
+        if (!io::loadComplexIor_RefractiveIndexInfoCsv("assets/Metal_data/Johnson_Au.csv", *goldTable, &err)) {
+            std::cout << "[Aniso] cannot read the gold table: " << err << "\n";
+            return 2;
+        }
+    }
+    SurfaceInteraction rec;
+    rec.p = Point3(0.0); rec.n = Vector3(0, 0, 1); rec.gn = Vector3(0, 0, 1); rec.dpdu = Vector3(1, 0, 0);
+#if defined(RAYT_SPECTRAL_MODE)
+    const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+#else
+    const SampledWavelengths lambda;
+#endif
+    auto outgoing = [&](double polarDeg, double azimuthDeg) {
+        const double t = polarDeg * pi / 180.0, p = azimuthDeg * pi / 180.0;
+        return Vector3(std::sin(t) * std::cos(p), std::sin(t) * std::sin(p), std::cos(t));
+    };
+    auto albedoBySample = [&](const Material& m, const Vector3& wo) {
+        Estimate e;
+        for (int i = 0; i < n; ++i) {
+            const auto bs = m.sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+            e.add(bs ? average(bs->f * (std::max(bs->wi.z, Real(0)) / bs->pdf)) : 0.0);
+        }
+        e.finish();
+        return e;
+    };
+    auto albedoByEval = [&](const Material& m, const Vector3& wo) {
+        Estimate e;
+        for (int i = 0; i < n; ++i) {
+            const Real r = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+            const Vector3 wi(r * std::cos(phi), r * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - r * r)));
+            e.add(average(m.eval(rec, wo, wi, lambda, TransportMode::Radiance)) * constants::PI);
+        }
+        e.finish();
+        return e;
+    };
+    auto gold = [&](double rotationDeg) {
+        auto m = std::make_shared<RoughConductor>(goldTable, Real(0.35), Real(-0.9));   // smoother along the tangent: brushed along it
+        m->setTangentRotation(Real(rotationDeg));
+        return m;
+    };
+    {
+        const auto m = gold(0);
+        for (double az : { 0.0, 45.0, 90.0 }) {
+            const Vector3 wo = outgoing(60, az);
+            const Estimate a = albedoBySample(*m, wo), b = albedoByEval(*m, wo);
+            const double se = std::sqrt(a.se * a.se + b.se * b.se);
+            const bool ok = std::abs(a.mean - b.mean) <= 4 * se + 0.01 * a.mean;
+            std::cout << "[Aniso]   brushed gold (roughness 0.35, anisotropy -0.9), wo 60 deg polar, " << az << " deg azimuth: albedo by sample() " << a.mean
+                << "   by eval() " << b.mean << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+        const double a0 = albedoBySample(*m, outgoing(60, 0)).mean, a90 = albedoBySample(*m, outgoing(60, 90)).mean;
+        const bool differs = std::abs(a0 - a90) > 0.01 * a0;
+        std::cout << "[Aniso]   the albedo depends on the azimuth (" << a0 << " along the tangent, " << a90 << " across): " << (differs ? "OK" : "FAIL (no anisotropy?)") << "\n";
+        allPassed = differs && allPassed;
+    }
+    {
+        // Rotating the axes by rho about the normal = looking from azimuth - rho at the unrotated surface.
+        const struct { double az, rot; } cases[] = { { 90, 90 }, { 30, 60 }, { 150, 45 } };
+        for (const auto& c : cases) {
+            const Estimate a = albedoBySample(*gold(c.rot), outgoing(60, c.az));
+            const Estimate b = albedoBySample(*gold(0), outgoing(60, c.az - c.rot));
+            const double se = std::sqrt(a.se * a.se + b.se * b.se);
+            const bool ok = std::abs(a.mean - b.mean) <= 4 * se + 0.003 * a.mean;
+            std::cout << "[Aniso]   azimuth " << c.az << " deg, axes rotated by " << c.rot << " deg: " << a.mean << "   azimuth " << c.az - c.rot << " deg, not rotated: " << b.mean << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+    }
+    {
+        // A lacquer over brushed gold: the base keeps the tangent of the surface.
+        LayeredCoat::Params p; p.ior = Real(1.5); p.roughness = Real(0.15);
+        auto base = std::make_shared<RoughConductor>(goldTable, Real(0.35), Real(-0.9), Real(1.5));
+        base->setTangentRotation(Real(30));
+        const LayeredCoat m(p, base);
+        const Vector3 wo = outgoing(55, 20);
+        const Estimate a = albedoBySample(m, wo), b = albedoByEval(m, wo);
+        const double se = std::sqrt(a.se * a.se + b.se * b.se);
+        const bool ok = std::abs(a.mean - b.mean) <= 4 * se + 0.01 * a.mean;
+        std::cout << "[Aniso]   lacquer over brushed gold: albedo by sample() " << a.mean << "   by eval() " << b.mean << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+    }
+
+    std::cout << "[Aniso] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
+    return allPassed ? 0 : 2;
+}
+
 } // namespace rayt::cli

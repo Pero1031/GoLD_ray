@@ -86,6 +86,13 @@ namespace rayt {
             // Assign the material property
             rec.matPtr = m_material.get();
 
+            // Tangent for anisotropic materials: along the circles of latitude (around the y axis). Zero at the poles.
+            {
+                const Vector3 around = glm::cross(Vector3(0, 1, 0), outwardNormal);
+                const Real len2 = glm::dot(around, around);
+                rec.dpdu = len2 > Real(1e-12) ? around / std::sqrt(len2) : Vector3(0.0);
+            }
+
             // TODO: Implement spherical UV mapping for texture lookup (e.g., lat/long).
 
             return true;

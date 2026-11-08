@@ -1,0 +1,148 @@
+// Brushed gold: a sphere's tangent runs along the circles of latitude. Left to right: isotropic (roughness 0.3), brushed along the tangent
+// (anisotropy -0.9: the highlight stretches across the grooves), and the grooves rotated by 45 and by 90 degrees about the normal.
+{
+ "options": {
+  "width": 1280,
+  "spp": 192,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   1.5,
+   6.6
+  ],
+  "at": [
+   0,
+   0.45,
+   0
+  ],
+  "fov": 24
+ },
+ "environment": {
+  "type": "hdr",
+  "file": "assets/env/bryanston_park_sunrise_2k.hdr",
+  "scale": 0.7
+ },
+ "materials": {
+  "floor": {
+   "type": "diffuse",
+   "albedo": [
+    0.22,
+    0.21,
+    0.21
+   ]
+  },
+  "softbox": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 6
+  },
+  "iso": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.3
+  },
+  "b0": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.3,
+   "anisotropy": -0.9
+  },
+  "b45": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.3,
+   "anisotropy": -0.9,
+   "rotation": 45
+  },
+  "b90": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.3,
+   "anisotropy": -0.9,
+   "rotation": 90
+  }
+ },
+ "objects": [
+  {
+   "shape": "quad",
+   "corner": [
+    -8,
+    0,
+    8
+   ],
+   "edge1": [
+    16,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -16
+   ],
+   "material": "floor"
+  },
+  {
+   "shape": "quad",
+   "corner": [
+    -2.2,
+    3.2,
+    -1.4
+   ],
+   "edge1": [
+    4.4,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    2.8
+   ],
+   "material": "softbox",
+   "light": true
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -1.7249999999999999,
+    0.5,
+    0
+   ],
+   "radius": 0.5,
+   "material": "iso"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.575,
+    0.5,
+    0
+   ],
+   "radius": 0.5,
+   "material": "b0"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.575,
+    0.5,
+    0
+   ],
+   "radius": 0.5,
+   "material": "b45"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    1.7249999999999999,
+    0.5,
+    0
+   ],
+   "radius": 0.5,
+   "material": "b90"
+  }
+ ]
+}

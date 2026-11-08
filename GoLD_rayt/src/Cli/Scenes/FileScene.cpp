@@ -92,7 +92,8 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     return 1;
                 }
             }
-            auto metal = std::make_shared<RoughConductor>(table, Real(m.roughness));
+            auto metal = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy));
+            metal->setTangentRotation(Real(m.rotation));
             metal->setMultipleScattering(m.multipleScattering);
             materials[name] = metal;
             break;
@@ -160,7 +161,8 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     return 1;
                 }
             }
-            auto base = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(0), Real(m.coatIor));
+            auto base = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy), Real(m.coatIor));
+            base->setTangentRotation(Real(m.rotation));
             base->setMultipleScattering(m.multipleScattering);
             materials[name] = std::make_shared<LayeredCoat>(lp, base);
             break;

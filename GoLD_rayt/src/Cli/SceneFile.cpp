@@ -102,7 +102,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (m.contains("albedo") && !s.reflectance.empty()) Fail(where, "takes either \"albedo\" (RGB) or \"reflectance\" (a CSV of R(wavelength)), not both");
     }
     else if (type == "conductor") {
-        CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "multipleScattering" }, where);
+        CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, where);
         s.type = MaterialSpec::Type::Conductor;
         Optional<std::string>(m, "metal", where, s.metal, ReadString);
         Optional<std::string>(m, "table", where, s.table, ReadString);
@@ -111,8 +111,11 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Fail(where, "needs exactly one of \"metal\" (Au, Ag or Cu), \"table\" (a CSV of n and k) or \"reflectance\" (a CSV of R(wavelength))");
         if (!s.metal.empty() && s.metal != "Au" && s.metal != "Ag" && s.metal != "Cu") Fail(where + ".metal", "must be Au, Ag or Cu");
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
+        Optional<double>(m, "anisotropy", where, s.anisotropy, ReadNumber);
+        Optional<double>(m, "rotation", where, s.rotation, ReadNumber);
         Optional<bool>(m, "multipleScattering", where, s.multipleScattering, ReadBool);
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
+        if (s.anisotropy < -1 || s.anisotropy > 1) Fail(where + ".anisotropy", "must be between -1 and 1");
     }
     else if (type == "layered") {   // "coat": { ior, roughness, tint, samples }, "base": { albedo | metal | table | reflectance, roughness, multipleScattering }
         CheckKeys(m, { "type", "coat", "base" }, where);
@@ -137,7 +140,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         const json& b = m.at("base");
         const std::string bw = where + ".base";
         if (!b.is_object()) Fail(bw, "must be an object (albedo, or metal / table / reflectance, with roughness)");
-        CheckKeys(b, { "albedo", "metal", "table", "reflectance", "roughness", "multipleScattering" }, bw);
+        CheckKeys(b, { "albedo", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, bw);
         if (b.contains("albedo")) s.albedo = ReadColor(b.at("albedo"), bw + ".albedo");
         Optional<std::string>(b, "metal", bw, s.metal, ReadString);
         Optional<std::string>(b, "table", bw, s.table, ReadString);
@@ -147,8 +150,11 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         s.baseIsConductor = !b.contains("albedo");
         if (!s.metal.empty() && s.metal != "Au" && s.metal != "Ag" && s.metal != "Cu") Fail(bw + ".metal", "must be Au, Ag or Cu");
         Optional<double>(b, "roughness", bw, s.roughness, ReadNumber);
+        Optional<double>(b, "anisotropy", bw, s.anisotropy, ReadNumber);
+        Optional<double>(b, "rotation", bw, s.rotation, ReadNumber);
         Optional<bool>(b, "multipleScattering", bw, s.multipleScattering, ReadBool);
         if (s.roughness < 0 || s.roughness > 1) Fail(bw + ".roughness", "must be between 0 and 1");
+        if (s.anisotropy < -1 || s.anisotropy > 1) Fail(bw + ".anisotropy", "must be between -1 and 1");
     }
     else if (type == "dielectric") {
         CheckKeys(m, { "type", "ior", "roughness", "abbe", "sellmeier", "medium" }, where);

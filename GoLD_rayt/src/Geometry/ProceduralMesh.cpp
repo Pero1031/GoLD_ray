@@ -13,12 +13,16 @@ TriangleMesh MakeLatheMesh(const std::vector<Point2>& profile, int segments) {
         if (len <= Real(0)) continue;
         const Real nr = dy / len, ny = -dr / len;
         const int base = static_cast<int>(m.p.size());
+        int side = 0;
         for (const Point2& q : { a, b }) {
             for (int j = 0; j < segments; ++j) {
                 const Real phi = Real(2) * constants::PI * Real(j) / Real(segments);
                 m.p.push_back(Point3(q.x * std::cos(phi), q.y, q.x * std::sin(phi)));
                 m.n.push_back(Vector3(nr * std::cos(phi), ny, nr * std::sin(phi)));
+                // u around the axis, v along the profile: the tangent of anisotropic materials then runs around the axis (like turned metal)
+                m.uv.push_back(Point2(Real(j) / Real(segments), (Real(s) + Real(side)) / Real(profile.size() - 1)));
             }
+            ++side;
         }
         auto addTriangle = [&](int i0, int i1, int i2) {
             const Vector3 c = glm::cross(Vector3(m.p[i1] - m.p[i0]), Vector3(m.p[i2] - m.p[i0]));

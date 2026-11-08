@@ -65,6 +65,7 @@ namespace rayt {
             rec.t = t;
             rec.p = p;
             rec.setFaceNormal(r.d, m_n);
+            rec.dpdu = m_lx > Real(0) ? m_x : Vector3(0.0);   // tangent for anisotropic materials: along the first edge
             rec.matPtr = m_material.get();
             return true;
         }
