@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include <nlohmann/json.hpp>
+#include "Color/Sellmeier.hpp"
 
 namespace rayt::cli {
 
@@ -114,7 +115,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
     }
     else if (type == "dielectric") {
-        CheckKeys(m, { "type", "ior", "roughness", "abbe", "medium" }, where);
+        CheckKeys(m, { "type", "ior", "roughness", "abbe", "sellmeier", "medium" }, where);
         s.type = MaterialSpec::Type::Dielectric;
         if (m.contains("medium")) {
             const json& md = m.at("medium");
@@ -158,6 +159,24 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(m, "ior", where, s.ior, ReadNumber);
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
         Optional<double>(m, "abbe", where, s.abbe, ReadNumber);
+        if (m.contains("sellmeier")) {   // "sellmeier": "diamond" | { "b": [b1, b2, b3], "c": [c1, c2, c3] }  (c in um^2)
+            const json& sm = m.at("sellmeier");
+            const std::string sw = where + ".sellmeier";
+            if (s.abbe != 0) Fail(sw, "and \"abbe\" both give the dispersion: use one of them");
+            if (sm.is_string()) {
+                Sellmeier test;
+                s.sellmeierPreset = sm.get<std::string>();
+                if (!sellmeierPreset(s.sellmeierPreset, test)) Fail(sw, "is the unknown glass \"" + s.sellmeierPreset + "\" (diamond, sapphire, bk7 or silica)");
+            }
+            else if (sm.is_object()) {
+                CheckKeys(sm, { "b", "c" }, sw);
+                if (!sm.contains("b") || !sm.contains("c") || !sm.at("b").is_array() || !sm.at("c").is_array() || sm.at("b").size() < 1 || sm.at("b").size() > 3 || sm.at("b").size() != sm.at("c").size())
+                    Fail(sw, "needs \"b\" and \"c\": lists of 1 to 3 numbers each, the same length");
+                s.hasSellmeier = true;
+                for (size_t i = 0; i < sm.at("b").size(); ++i) { s.sellmeierB[i] = ReadNumber(sm.at("b")[i], sw + ".b"); s.sellmeierC[i] = ReadNumber(sm.at("c")[i], sw + ".c"); }
+            }
+            else Fail(sw, "must be a glass name (diamond, sapphire, bk7, silica) or { \"b\": [...], \"c\": [...] }");
+        }
         if (!(s.ior > 0)) Fail(where + ".ior", "must be above 0");
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
     }

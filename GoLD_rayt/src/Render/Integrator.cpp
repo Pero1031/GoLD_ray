@@ -390,7 +390,7 @@ namespace rayt {
             if (!rec.matPtr->isSpecular()) {
                 st.L += st.beta * sampleAllLights(scene, rec, -r.d, lambda);
                 // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
-                if (m_caustics && photonsAllowedIn(r.medium)) st.L += st.beta * m_caustics->radiance(rec, -r.d, lambda);
+                if (m_caustics && photonsAllowedIn(r.medium) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.L += st.beta * m_caustics->radiance(rec, -r.d, lambda);
                 // The same caustic of point lights, solved exactly through a flat-faced glass body (manifold NEE)
                 if (m_specularNee && !r.medium) st.L += st.beta * m_specularNee->sample(scene, rec, -r.d, lambda);
             }

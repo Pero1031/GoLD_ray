@@ -63,7 +63,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 |---|---|
 | `diffuse` | `albedo`（RGB）、または `reflectance`（測定した反射率 R(λ) の CSV。**どちらか 1 つ**） |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`multipleScattering` |
-| `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`medium`（内側を散乱媒質で満たす。下） |
+| `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`medium`（内側を散乱媒質で満たす。下） |
 | `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
 | `emission` | `spectrum`、`radiance`、`twoSided` |
 

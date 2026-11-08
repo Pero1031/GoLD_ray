@@ -397,3 +397,9 @@ docs/HANDOFF.md
 
 # Third-party research code for reading only (not part of the repository)
 /references/
+
+# The procedural diamond / ring meshes (tools/data/make_ring.py; small, so they are kept)
+!/GoLD_rayt/assets/Meshes/ring/*.obj
+
+# Poly Haven studio HDRI (CC0, 25 MB): kept locally, not in the repository
+/GoLD_rayt/assets/env/ferndale_studio_12_4k.hdr

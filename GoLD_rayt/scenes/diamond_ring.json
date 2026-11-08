@@ -1,0 +1,25 @@
+{
+  // A gold ring with a round brilliant-cut diamond (the meshes come from tools/data/make_ring.py): the diamond has the Sellmeier dispersion of
+  // diamond (n_d 2.417, Abbe 55), so the light that is split inside the stone leaves it as colored fire. Four prongs hold the stone. A table of black
+  // glass (it reflects the ring and the lights, nothing is behind it), three softboxes and a small bright lamp in a dark room. Metres: a 6.5 mm stone on a ring of 17.8 mm inner diameter. Spectral build (dispersion is spectral).
+  "options": { "width": 900, "height": 600, "spp": 512, "depth": 24 },
+  "camera": { "from": [0.034, 0.030, 0.052], "at": [0, 0.0105, 0], "fov": 21 },
+  "materials": {
+    "gold":    { "type": "conductor", "metal": "Au", "roughness": 0.06 },
+    "diamond": { "type": "dielectric", "sellmeier": "diamond", "roughness": 0 },
+    "table":   { "type": "dielectric", "ior": 1.5, "roughness": 0.22 },
+    "box":     { "type": "emission", "spectrum": "d65", "radiance": 8 },
+    "front":   { "type": "emission", "spectrum": "d65", "radiance": 1.5 },
+    "lamp":    { "type": "emission", "spectrum": "d65", "radiance": 500 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Meshes/ring/ring.obj", "material": "gold" },
+    { "shape": "mesh", "file": "assets/Meshes/ring/diamond.obj", "scale": 0.0065, "translate": [0, 0.0133, 0], "material": "diamond" },
+    { "shape": "quad", "corner": [-0.6, -0.0109, -0.6], "edge1": [0, 0, 1.2], "edge2": [1.2, 0, 0], "material": "table" },
+    { "shape": "quad", "corner": [-0.14, 0.02, 0.10], "edge1": [0, 0, -0.20], "edge2": [0, 0.15, 0], "material": "box" },
+    { "shape": "quad", "corner": [ 0.13, 0.02, -0.10], "edge1": [0, 0.15, 0], "edge2": [0, 0, 0.20], "material": "box" },
+    { "shape": "quad", "corner": [-0.09, 0.09, -0.09], "edge1": [0.18, 0, 0], "edge2": [0, 0, 0.18], "material": "box" },
+    { "shape": "quad", "corner": [-0.06, -0.005, 0.10], "edge1": [0.12, 0, 0], "edge2": [0, 0.05, 0], "material": "front" },
+    { "shape": "sphere", "center": [0.05, 0.085, 0.035], "radius": 0.008, "material": "lamp" }
+  ]
+}

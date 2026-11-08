@@ -176,6 +176,32 @@ namespace rayt {
             return Ray(rayOrigin, rayDirection);*/
         }
 
+        /**
+         * @brief Projects a world point onto the film of the pinhole view (the lens is ignored): the inverse of generateRay().
+         *
+         * @param s, t     film coordinates in [0, 1) (as in generateRay)
+         * @param cosCam   cosine of the angle between the direction to the point and the view axis
+         * @param dist     distance from the camera position to the point
+         * @return false if the point is behind the camera or outside the film.
+         */
+        bool project(const Point3& p, Real& s, Real& t, Real& cosCam, Real& dist) const {
+            const Vector3 d = p - m_origin;
+            const Real z = glm::dot(d, -m_w);   // depth along the view axis
+            if (z <= Real(0)) return false;
+            dist = glm::length(d);
+            cosCam = z / dist;
+            const Point3 hit = m_origin + d * (m_focusDist / z);   // the point on the focal plane
+            const Vector3 q = hit - m_lowerLeftCorner;
+            s = glm::dot(q, m_horizontal) / glm::dot(m_horizontal, m_horizontal);
+            t = glm::dot(q, m_vertical) / glm::dot(m_vertical, m_vertical);
+            return s >= Real(0) && s < Real(1) && t >= Real(0) && t < Real(1);
+        }
+
+        /// Area of the film rectangle on the focal plane (world units), and the focus distance: the geometry of the pixel footprint.
+        Real focalPlaneArea() const { return glm::length(m_horizontal) * glm::length(m_vertical); }
+        Real focusDistance() const { return m_focusDist; }
+        Real lensRadius() const { return m_lensRadius; }
+
         // Accessors
         const Point3& origin() const { return m_origin; }
         const Medium* medium() const { return m_medium; }

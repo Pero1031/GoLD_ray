@@ -23,6 +23,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `gold_compare_gamut.py`, `erato_compare_gamut.py` | the same comparison on the bowl and on the statue, measured on what an sRGB, Display P3 or Rec.2020 display shows (with the noise floor) |
 | **`data/`** | |
 | `sr5100.py` | reads and converts CSV exports of the Topcon SR-5100 (spectral radiance) into the two-column CSV the renderer reads |
+| `make_ring.py` | writes the meshes of the diamond ring scene: a round brilliant-cut diamond (flat facets, planar by construction) and a ring band with four prongs |
 | `mesh_clean.py` | cleans an OBJ for the renderer: welds vertices, recomputes smooth normals, optionally closes the open boundaries |
 | **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display), `scielab.py` (S-CIELAB spatial filtering) |
 

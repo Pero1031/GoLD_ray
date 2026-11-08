@@ -77,6 +77,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--crystal-inside") o.crystalInside = true;
             else if (a == "--caustic-method") o.causticMethod = value("--caustic-method");
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
+            else if (a == "--caustic-trace") o.causticTrace = true;
             else if (a == "--caustic-passes") o.causticPasses = std::stoi(value("--caustic-passes"));
             else if (a == "--caustic-radius")o.causticRadius = std::stod(value("--caustic-radius"));
             else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));

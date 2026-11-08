@@ -71,28 +71,6 @@ int RenderScene(CliOptions& opt) {
             << specularNee->numLights() << " point light(s)\n";
     }
 
-    CausticPhotonMap causticMap;
-    CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
-    bool causticOn = false;
-    long long nCausticPhotons = opt.causticPhotons;
-    if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
-    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
-    if (opt.scene == "manifold") {
-        if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
-        else if (causticMethod == "none") nCausticPhotons = 0;
-        else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
-    }
-    if (causticMethod == "none") nCausticPhotons = 0;
-    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold") && nCausticPhotons > 0) {
-        causticParams.numPhotons = nCausticPhotons;
-        causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
-        causticParams.targetCenter = setup.causticTarget.center;
-        causticParams.targetRadius = setup.causticTarget.radius;
-        if (specularNee) causticParams.skipTransmissionPairs = specularNee->materials();   // their T T chains are solved: do not store them twice
-        causticMap.build(*scene, causticParams);
-        causticOn = true;
-    }
-
     // ---- the camera ----
     const Point3 lookFrom = setup.camera.from;
     const Point3 lookAt = setup.camera.at;
@@ -109,6 +87,37 @@ int RenderScene(CliOptions& opt) {
         aperture,
         distToFocus
     );
+
+    CausticPhotonMap causticMap;
+    CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
+    bool causticOn = false;
+    bool traceOn = false;                  // --caustic-trace: light tracing of the caustics on directly visible surfaces
+    std::vector<Vector3> traceSum;         // the light-traced images of all photon sets (summed)
+    long long nCausticPhotons = opt.causticPhotons;
+    if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
+    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
+    if (opt.scene == "manifold") {
+        if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
+        else if (causticMethod == "none") nCausticPhotons = 0;
+        else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
+    }
+    if (causticMethod == "none") nCausticPhotons = 0;
+    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold") && nCausticPhotons > 0) {
+        causticParams.numPhotons = nCausticPhotons;
+        causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
+        causticParams.targetCenter = setup.causticTarget.center;
+        causticParams.targetRadius = setup.causticTarget.radius;
+        if (specularNee) causticParams.skipTransmissionPairs = specularNee->materials();   // their T T chains are solved: do not store them twice
+        if (opt.causticTrace) {   // also connect every caustic photon to the camera (pinhole): unbiased, sharp, on directly visible surfaces
+            causticParams.lightTraceCamera = camera.get();
+            causticParams.traceWidth = imageWidth;
+            causticParams.traceHeight = imageHeight;
+            traceOn = true;
+        }
+        causticMap.build(*scene, causticParams);
+        causticOn = true;
+        if (traceOn) traceSum = causticMap.splat();
+    }
 
     if (opt.traceX >= 0) {
         TracePixelDebug(*scene, *camera, opt.traceX, opt.traceY, imageWidth, imageHeight, 12, 24,
@@ -135,6 +144,11 @@ int RenderScene(CliOptions& opt) {
 
     integrator->setMaxVolumeEvents(opt.volumeCap);
     integrator->setCausticMap(&causticMap);   // ignored while the map is empty
+    if (traceOn) {
+        integrator->setSkipDirectCaustics(true);
+        std::cout << "[Caustics] light tracing: the caustics on surfaces the camera sees directly are splatted from the photon paths (no gather there)\n";
+    }
+    else if (opt.causticTrace) std::cout << "[Caustics] --caustic-trace needs the photon map (--caustics N > 0, caustic method photons): ignored\n";
     integrator->setSpecularNee(specularNee.get());
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
@@ -150,7 +164,10 @@ int RenderScene(CliOptions& opt) {
         // The last pass renders into `film` (so the denoiser features come from it); the earlier ones go to a scratch film.
         std::vector<Vector3> sum(static_cast<size_t>(imageWidth) * static_cast<size_t>(imageHeight), Vector3(0.0));
         for (int pass = 0; pass < causticPasses; ++pass) {
-            if (pass > 0) causticMap.build(*scene, causticParams);   // a fresh photon set (the random number streams continue)
+            if (pass > 0) {
+                causticMap.build(*scene, causticParams);   // a fresh photon set (the random number streams continue)
+                if (traceOn) for (size_t i = 0; i < traceSum.size(); ++i) traceSum[i] += causticMap.splat()[i];
+            }
             std::cout << "[Caustics] pass " << pass + 1 << " / " << causticPasses << "\n";
             if (pass + 1 < causticPasses) {
                 Film scratch(imageWidth, imageHeight);
@@ -166,6 +183,14 @@ int RenderScene(CliOptions& opt) {
             }
     }
     else integrator->render(*scene, film);
+    if (traceOn) {   // add the light-traced caustic image (already an average radiance per pixel)
+        const Real inv = Real(1) / Real(causticPasses);
+        for (int y = 0; y < imageHeight; ++y)
+            for (int x = 0; x < imageWidth; ++x) {
+                const size_t i = static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x);
+                film.setPixel(x, y, film.getData()[i] + traceSum[i] * inv);
+            }
+    }
     if (setup.afterRender) setup.afterRender({ *scene, *camera, film, *integrator });
 
     if (specularNee) {

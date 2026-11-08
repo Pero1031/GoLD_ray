@@ -99,6 +99,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         }
         case MaterialSpec::Type::Dielectric: {
             auto glass = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
+            if (!m.sellmeierPreset.empty() || m.hasSellmeier) {
+                Sellmeier sm;
+                if (!m.sellmeierPreset.empty()) sellmeierPreset(m.sellmeierPreset, sm);
+                else for (int i = 0; i < 3; ++i) { sm.b[i] = Real(m.sellmeierB[i]); sm.c[i] = Real(m.sellmeierC[i]); }
+                glass->setSellmeier(sm);
+            }
             if (m.hasMedium) {   // a scattering medium inside the closed surface; equal channels make the cheaper gray medium
                 const PhaseFunction phase(Real(m.mediumG), Real(m.mediumG2), Real(m.mediumWeight));
                 if (m.mediumNoise) {   // a density field: always the walk with null collisions

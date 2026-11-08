@@ -8,8 +8,11 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
+#include <string>
 
 #include "Core/Types.hpp"
+#include "Color/Sellmeier.hpp"
 #include "Core/Fresnel.hpp"
 #include "Core/Math.hpp"
 #include "Core/Constants.hpp"
@@ -34,6 +37,8 @@ namespace rayt {
      */
     class Dielectric : public Material {
         Real iorRef;       // IOR at the d line (587.6 nm); the constant IOR when not dispersive
+        bool m_hasSellmeier = false;
+        Sellmeier m_sell;
         Real cauchyA = 0;  // Cauchy coefficient A (dimensionless)
         Real cauchyB = 0;  // Cauchy coefficient B [um^2]; 0 means "not dispersive"
         Real alpha_x;      // Roughness X
@@ -43,6 +48,7 @@ namespace rayt {
         // IOR to use for this path: the hero wavelength's IOR in spectral mode.
         Real iorAt(const SampledWavelengths& lambda) const {
 #if defined(RAYT_SPECTRAL_MODE)
+            if (m_hasSellmeier) return m_sell.n(lambda[0] * Real(1e-3));
             if (cauchyB != Real(0)) {
                 const Real um = lambda[0] * Real(1e-3);   // nm -> um
                 return cauchyA + cauchyB / (um * um);
@@ -61,6 +67,10 @@ namespace rayt {
          * @param abbeNumber  Abbe number V_d (typical: crown glass ~60, flint ~30, dense flint ~25,
          *                    diamond ~55). Smaller = stronger dispersion. 0 = no dispersion.
          */
+        /// Dispersion from Sellmeier coefficients (instead of an Abbe number). The IOR of the RGB build, and of non-dispersive uses, becomes n(587.6 nm).
+        void setSellmeier(const Sellmeier& s) { m_sell = s; m_hasSellmeier = true; iorRef = s.n(Real(0.5876)); }
+        const Sellmeier* sellmeier() const { return m_hasSellmeier ? &m_sell : nullptr; }
+
         /// Fills the inside of this closed surface with a participating medium (volumetric random walk).
         /// The mesh must be closed with outward normals; the outside is vacuum.
         void setMedium(std::shared_ptr<const Medium> medium) { m_medium = std::move(medium); }
@@ -84,6 +94,7 @@ namespace rayt {
         /// Index of refraction at a wavelength in nm (the constant IOR when not dispersive or in RGB mode).
         Real iorAtNm(Real nm) const {
 #if defined(RAYT_SPECTRAL_MODE)
+            if (m_hasSellmeier) return m_sell.n(nm * Real(1e-3));
             if (cauchyB != Real(0)) {
                 const Real um = nm * Real(1e-3);
                 return cauchyA + cauchyB / (um * um);
@@ -97,7 +108,7 @@ namespace rayt {
         /// True if the IOR depends on the wavelength (spectral mode with an Abbe number).
         bool isDispersive() const {
 #if defined(RAYT_SPECTRAL_MODE)
-            return cauchyB != Real(0);
+            return m_hasSellmeier || cauchyB != Real(0);
 #else
             return false;
 #endif
@@ -106,7 +117,7 @@ namespace rayt {
         /// Dispersive surfaces keep a single wavelength per path (no-op otherwise / in RGB mode).
         void prepareWavelengths(SampledWavelengths& lambda) const override {
 #if defined(RAYT_SPECTRAL_MODE)
-            if (cauchyB != Real(0)) lambda.terminateSecondary();
+            if (isDispersive()) lambda.terminateSecondary();
 #else
             (void)lambda;
 #endif

@@ -158,6 +158,7 @@ struct CliOptions {
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
     std::string gamut = "srgb";            // --gamut srgb|p3|rec2020 : primaries of the written image / .pfm / .hdr (the film stays linear sRGB)
+    bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
     bool cleanAux = false;                // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width

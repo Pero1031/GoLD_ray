@@ -96,6 +96,10 @@ namespace rayt {
          */
         void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && !map->empty()) ? map : nullptr; }
 
+        /// Light tracing took over the caustics on surfaces the camera sees directly (no bounce before): no photon gather there. The paths of the
+        /// other receivers (seen through glass, after a diffuse bounce) still use the photons.
+        void setSkipDirectCaustics(bool skip) { m_skipDirectCaustics = skip; }
+
         /// Specular manifold NEE for point lights seen through a flat-faced glass body (null = off). It adds the caustic of
         /// those lights at every non-specular vertex, computed exactly; do not use it together with a caustic photon map.
         void setSpecularNee(const SpecularNee* nee) { m_specularNee = nee; }
@@ -122,6 +126,7 @@ namespace rayt {
         int m_maxVolumeEvents = 100000;
         mutable std::atomic<long long> m_volumeCapHits{ 0 };
         const CausticPhotonMap* m_caustics = nullptr;
+        bool m_skipDirectCaustics = false;
         const SpecularNee* m_specularNee = nullptr;
 
         /// Everything that one path carries from vertex to vertex.

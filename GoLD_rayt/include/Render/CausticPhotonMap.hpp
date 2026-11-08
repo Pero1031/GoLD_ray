@@ -60,6 +60,7 @@
 #include "Core/SampledWavelengths.hpp"
 #include "Geometry/Frame.hpp"
 #include "Scene/Scene.hpp"
+#include "Render/Camera.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/LightSampler.hpp"
 #include "Materials/Material.hpp"
@@ -85,6 +86,11 @@ namespace rayt {
         /// Do not store a photon whose chain is exactly two transmissions through these materials (a T T chain of a body that the specular
         /// manifold NEE solves exactly: SpecularNee::materials()), so that the two estimators do not count it twice. Empty = store them.
         std::vector<const Material*> skipTransmissionPairs;
+
+        /// Light tracing (--caustic-trace): when set, every stored photon (L S+ D) is also connected to this camera, and its contribution is
+        /// splatted into an image of traceWidth x traceHeight pixels (CausticPhotonMap::splat()). The camera is treated as a pinhole.
+        const Camera* lightTraceCamera = nullptr;
+        int traceWidth = 0, traceHeight = 0;
     };
 
     class CausticPhotonMap {
@@ -99,6 +105,8 @@ namespace rayt {
         bool empty() const { return m_photons.empty(); }
         size_t size() const { return m_photons.size(); }
         Real radius() const { return m_radius; }
+        /// Light-traced caustic image (average radiance per pixel, linear RGB), empty unless CausticPhotonParams::lightTraceCamera was set.
+        const std::vector<Vector3>& splat() const { return m_splat; }
         size_t memoryBytes() const { return m_photons.capacity() * sizeof(Photon) + m_start.capacity() * sizeof(uint32_t); }
 
         /// Traces the photons (OpenMP) and builds the grid.
@@ -118,6 +126,10 @@ namespace rayt {
             const int nThreads = 1;
 #endif
             std::vector<std::vector<Photon>> perThread(static_cast<size_t>(nThreads));
+            const bool trace = P.lightTraceCamera && P.traceWidth > 0 && P.traceHeight > 0;
+            const size_t nPix = static_cast<size_t>(P.traceWidth) * static_cast<size_t>(P.traceHeight);
+            std::vector<std::vector<Vector3>> splatPerThread(static_cast<size_t>(nThreads));
+            if (trace) for (auto& v : splatPerThread) v.assign(nPix, Vector3(0.0));
             const long long chunk = 4096;
             const int nChunks = static_cast<int>((P.numPhotons + chunk - 1) / chunk);
             const Real invN = Real(1) / Real(P.numPhotons);
@@ -126,16 +138,23 @@ namespace rayt {
             for (int c = 0; c < nChunks; ++c) {
 #ifdef _OPENMP
                 auto& mine = perThread[static_cast<size_t>(omp_get_thread_num())];
+                auto& mySplat = splatPerThread[static_cast<size_t>(omp_get_thread_num())];
 #else
                 auto& mine = perThread[0];
+                auto& mySplat = splatPerThread[0];
 #endif
                 const long long first = static_cast<long long>(c) * chunk;
                 const long long last = std::min(P.numPhotons, first + chunk);
-                for (long long i = first; i < last; ++i) tracePhoton(scene, P, sampler, invN, mine);
+                for (long long i = first; i < last; ++i) tracePhoton(scene, P, sampler, invN, mine, mySplat);
             }
 
             size_t total = 0;
             for (const auto& v : perThread) total += v.size();
+            m_splat.clear();
+            if (trace) {
+                m_splat.assign(nPix, Vector3(0.0));
+                for (const auto& v : splatPerThread) for (size_t i = 0; i < nPix; ++i) m_splat[i] += v[i];
+            }
             m_photons.reserve(total);
             for (auto& v : perThread) { m_photons.insert(m_photons.end(), v.begin(), v.end()); std::vector<Photon>().swap(v); }
             buildGrid();
@@ -210,6 +229,7 @@ namespace rayt {
     private:
         std::vector<Photon> m_photons;   // sorted by grid bucket
         std::vector<uint32_t> m_start;   // bucket b holds photons [m_start[b], m_start[b + 1])
+        std::vector<Vector3> m_splat;    // light-traced image (see CausticPhotonParams::lightTraceCamera)
         uint32_t m_mask = 0;
         Real m_radius = Real(0.0015);
 
@@ -238,8 +258,38 @@ namespace rayt {
         }
 
         /// Emits and follows one photon; appends it to `out` when it ends as a caustic photon.
+        /**
+         * Light tracing: connects a caustic photon (flux `flux` arriving from the light at the receiver `rec`, travelling along -wiLight) to the pinhole
+         * camera. A pixel's average radiance is its footprint's reflected flux per area:  Phi f cos(theta_x) / (Omega_pix d^2),  with the solid angle
+         * Omega_pix = A_plane cos^3(theta_c) / (N F^2) of a pixel at the angle theta_c from the view axis (A_plane: the film on the focal plane at distance F,
+         * N pixels) and the distance d to the camera. `flux` is already divided by the number of emitted photons, so the sum over the photons is the
+         * image itself. The receiver's BSDF is evaluated at the photon's wavelengths: the dispersion colors are kept exactly.
+         */
+        static void connectToCamera(const Scene& scene, const CausticPhotonParams& P, const SurfaceInteraction& rec, const Vector3& wiLight,
+            const Spectrum& flux, const SampledWavelengths& lambda, std::vector<Vector3>& splat)
+        {
+            const Camera& cam = *P.lightTraceCamera;
+            if (cam.medium()) return;                                  // a camera inside a medium: not handled
+            Real s, t, cosCam, dist;
+            if (!cam.project(rec.p, s, t, cosCam, dist) || dist <= Real(0)) return;
+            const Vector3 toCam = (cam.origin() - rec.p) / dist;
+            const Real cosX = glm::dot(rec.gn, toCam);
+            if (cosX * glm::dot(rec.gn, wiLight) <= Real(0)) return;   // reflection only: the camera is on the side the photon came from
+            const Spectrum f = rec.matPtr->eval(rec, toCam, wiLight, lambda);
+            if (isBlack(f)) return;
+            if (scene.occluded(rec.SpawnRay(toCam, dist))) return;      // something between the receiver and the camera
+
+            const Real F = cam.focusDistance();
+            const Real w = F * F * Real(P.traceWidth) * Real(P.traceHeight) / (cam.focalPlaneArea() * cosCam * cosCam * cosCam);
+            const Vector3 rgb = SpectrumToRGB(flux * f, lambda) * (std::abs(cosX) * w / (dist * dist));
+            if (math::hasNonFinite(rgb)) return;
+            const int px = std::min(P.traceWidth - 1, static_cast<int>(s * Real(P.traceWidth)));
+            const int py = P.traceHeight - 1 - std::min(P.traceHeight - 1, static_cast<int>(t * Real(P.traceHeight)));   // the film's rows run top to bottom
+            splat[static_cast<size_t>(py) * static_cast<size_t>(P.traceWidth) + static_cast<size_t>(px)] += rgb;
+        }
+
         static void tracePhoton(const Scene& scene, const CausticPhotonParams& P, const LightSampler& sampler, Real invN,
-            std::vector<Photon>& out)
+            std::vector<Photon>& out, std::vector<Vector3>& splat)
         {
 #if defined(RAYT_SPECTRAL_MODE)
             SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
@@ -324,6 +374,7 @@ namespace rayt {
                             ph.rgb[0] = float(rgb.x); ph.rgb[1] = float(rgb.y); ph.rgb[2] = float(rgb.z);
                             out.push_back(ph);
                         }
+                        if (P.lightTraceCamera && !splat.empty()) connectToCamera(scene, P, rec, -r.d, power * beta, lambda, splat);
                     }
                     return;   // direct light (no specular bounce) is left to next event estimation
                 }

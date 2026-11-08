@@ -39,6 +39,11 @@ int RunAovTests();
 int RunThinFilmTests();
 
 // -----------------------------------------------------------------------------
+// Dispersion tests (--scene dispersion): the Sellmeier presets (n_d, Abbe number) and a diamond ball in a white furnace
+// -----------------------------------------------------------------------------
+int RunDispersionTests();
+
+// -----------------------------------------------------------------------------
 // Subsurface scattering tests (--scene sss)
 // -----------------------------------------------------------------------------
 int RunSssTests(const CliOptions& opt);
