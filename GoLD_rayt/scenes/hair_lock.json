@@ -1,0 +1,20 @@
+// A lock of brown hair, lit from the side and from behind. Every fiber is a cylinder with the Chiang et al. 2016 scattering function
+// (docs/HAIR.md): the key light makes the white primary highlight (R), the back light shines through the fibers (TT) and the colored secondary one (TRT).
+// The color comes from melanin: [eumelanin, pheomelanin]. Fibers are drawn 1.6 times thicker than real ones (0.08 mm radius) to keep the noise down.
+{
+ "options": { "width": 1000, "spp": 256, "depth": 48, "denoise": true },
+ "camera": { "from": [0.04, -0.12, 0.36], "at": [0, -0.12, 0], "fov": 30 },
+ "materials": {
+  "brown": { "type": "hair", "melanin": [1.3, 0.1], "betaM": 0.3, "betaN": 0.3, "tilt": 2 },
+  "key":  { "type": "emission", "spectrum": "d65", "radiance": 40 },
+  "rim":  { "type": "emission", "spectrum": "d65", "radiance": 25 },
+  "fill": { "type": "emission", "spectrum": "d65", "radiance": 2 }
+ },
+ "objects": [
+  { "shape": "hair", "style": "lock", "material": "brown", "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006,
+    "root": [0, 0, 0], "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "twist": 0.5, "frizz": 0.0007, "flyaway": 0.03, "seed": 3 },
+  { "shape": "quad", "material": "key",  "corner": [0.9, 0.25, 0.9],  "edge1": [0, 0, -0.7], "edge2": [0, -0.7, 0] },
+  { "shape": "quad", "material": "rim",  "corner": [-0.904, -0.55, -0.748], "edge1": [0, 0.8, 0], "edge2": [-0.392, 0, 0.696] },
+  { "shape": "quad", "material": "fill", "corner": [-0.9, 0.2, 0.9], "edge1": [0, -0.7, 0], "edge2": [0, 0, -0.7] }
+ ]
+}

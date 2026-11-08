@@ -29,7 +29,7 @@ struct SpectrumSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair };
     Type type = Type::Diffuse;
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
@@ -90,13 +90,35 @@ struct MaterialSpec {
     double substrateIor = 1.33;                    //   dielectric
     std::string substrateMetal;                    //   conductor: Au | Ag | Cu
     std::string substrateTable;                    //   ... or a complex IOR table
+    // hair: a dielectric fiber with pigment (Materials/Hair.hpp, docs/HAIR.md); the absorption is given as melanin, as the apparent color, or directly
+    Vector3 hairSigmaA = Vector3(0.0);             //   absorption per hair radius (R, G, B); filled from melanin or color when those are used
+    double hairEta = 1.55;
+    double hairBetaM = 0.3, hairBetaN = 0.3;       //   longitudinal / azimuthal roughness, 0..1
+    double hairTiltDeg = 2;                        //   cuticle scale tilt
+    unsigned hairLobes = 0xF;                      //   lobes switched on: bit 0 R, 1 TT, 2 TRT, 3 the rest
     SpectrumSpec spectrum;                         // emission
     double radiance = 1.0;                         // emission
     bool twoSided = false;                         // emission
 };
 
+// A set of procedural strands (Geometry/HairGenerator.hpp): a hanging "lock", or hair falling over a spherical "head".
+struct HairSpec {
+    std::string style = "lock";
+    int strands = 3000, segments = 24;
+    double length = 0.3;
+    double rootRadius = 8e-5, tipRadius = 5e-5;    // fiber radius (m)
+    int seed = 1;
+    // lock: hangs down from `root`
+    Point3 root = Point3(0.0);
+    double width = 0.012, tipWidth = 1.4, waveAmp = 0.018, waveLength = 0.16, twist = 0.5, frizz = 0.0006, flyaway = 0.03;
+    // head: roots on a sphere
+    Point3 center = Point3(0.0);
+    double headRadius = 0.09, droop = 9, outward = 0.55, sway = 5, swayFreq = 28, headFrizz = 1.2, maxPolarDeg = 105, hairline = 0.55, clumpStrength = 0.65;
+    int clumps = -1;                               // sub-locks (lock) or guide paths (head); -1: 9 for a lock, 500 for a head
+};
+
 struct ObjectSpec {
-    enum class Shape { Sphere, Quad, Mesh, Lathe, Ocean };
+    enum class Shape { Sphere, Quad, Mesh, Lathe, Ocean, Hair };
     Shape shape = Shape::Sphere;
     std::string material;
     int light = -1;                                // emission only: 1 = register as a light for next-event estimation, 0 = do not (-1: yes)
@@ -115,6 +137,7 @@ struct ObjectSpec {
     double windSpeed = 8, windDirection = 0, spread = 4, peakEnhance = 1, chop = 0.8, time = 0, minWavelength = 0.05;
     int oceanSeed = 1, rings = 400, sectors = 512;
     double rInner = 0.8, rOuter = 3000;
+    HairSpec hair;                                 // hair
 };
 
 struct PointLightSpec {

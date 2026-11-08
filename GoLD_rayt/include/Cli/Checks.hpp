@@ -56,6 +56,10 @@ int RunLayeredTests(const CliOptions& opt);
 // Anisotropy checks (--scene aniso): the tangent of the shapes, the anisotropic GGX, sample() against eval(), the rotation of the axes.
 int RunAnisotropyTests(const CliOptions& opt);
 
+// Hair checks (--scene hair): the fiber scattering function (energy, sample() against pdf() and eval(), lobe directions), the cylinder-chain
+// intersector against brute force, a white furnace around a lock of hair.
+int RunHairTests(const CliOptions& opt);
+
 // Ocean checks (--scene ocean): the wave spectrum and the set of waves drawn from it, the dispersion relation, the mesh.
 int RunOceanTests(const CliOptions& opt);
 

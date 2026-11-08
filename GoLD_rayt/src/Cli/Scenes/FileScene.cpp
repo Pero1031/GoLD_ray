@@ -209,6 +209,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             if (coverage) std::static_pointer_cast<ThinFilm>(materials[name])->setCoverage(coverage);
             break;
         }
+        case MaterialSpec::Type::Hair: {
+            Hair::Params hp;
+            hp.eta = Real(m.hairEta); hp.sigmaA = m.hairSigmaA; hp.betaM = Real(m.hairBetaM); hp.betaN = Real(m.hairBetaN); hp.alphaDeg = Real(m.hairTiltDeg); hp.lobeMask = m.hairLobes;
+            materials[name] = std::make_shared<Hair>(hp);
+            break;
+        }
         case MaterialSpec::Type::Emission: {
             EmissionSpectrum spectrum;
             if (!MakeSpectrum(m.spectrum, spectrum)) return 1;
@@ -257,6 +263,34 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         case ObjectSpec::Shape::Lathe:
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(o.profile, o.segments)), mat, opt.accel));
             break;
+        case ObjectSpec::Shape::Hair: {
+            const HairSpec& hs = o.hair;
+            auto curves = std::make_shared<HairCurves>(mat);
+            if (hs.style == "lock") {
+                hairgen::LockParams lp;
+                lp.strands = hs.strands; lp.length = Real(hs.length); lp.segments = hs.segments;
+                lp.rootRadius = Real(hs.rootRadius); lp.tipRadius = Real(hs.tipRadius);
+                lp.width = Real(hs.width); lp.tipWidth = Real(hs.tipWidth); lp.waveAmp = Real(hs.waveAmp); lp.waveLength = Real(hs.waveLength);
+                lp.twist = Real(hs.twist); lp.frizz = Real(hs.frizz); lp.flyaway = Real(hs.flyaway); lp.root = hs.root; lp.seed = unsigned(hs.seed);
+                if (hs.clumps > 0) lp.clumps = hs.clumps;
+                hairgen::MakeLock(*curves, lp);
+            }
+            else {
+                hairgen::HeadHairParams hp;
+                hp.headCenter = hs.center; hp.headRadius = Real(hs.headRadius);
+                hp.strands = hs.strands; hp.length = Real(hs.length); hp.segments = hs.segments;
+                hp.rootRadius = Real(hs.rootRadius); hp.tipRadius = Real(hs.tipRadius);
+                hp.droop = Real(hs.droop); hp.outward = Real(hs.outward); hp.waveAmp = Real(hs.sway); hp.waveFreq = Real(hs.swayFreq); hp.frizz = Real(hs.headFrizz);
+                hp.maxPolarDeg = Real(hs.maxPolarDeg); hp.hairlineHeight = Real(hs.hairline); hp.seed = unsigned(hs.seed);
+                hp.clumpStrength = Real(hs.clumpStrength);
+                if (hs.clumps > 0) hp.clumps = hs.clumps;
+                hairgen::MakeHeadHair(*curves, hp);
+            }
+            curves->build();
+            std::cout << "[Hair] " << curves->numStrands() << " strands, " << curves->numSegments() << " segments (" << hs.style << ")\n";
+            world->add(curves);
+            break;
+        }
         case ObjectSpec::Shape::Ocean: {
             OceanParams op;
             op.windSpeed = Real(o.windSpeed); op.windDeg = Real(o.windDirection); op.spread = Real(o.spread);

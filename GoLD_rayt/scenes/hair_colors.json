@@ -1,0 +1,26 @@
+// The same lock in five hair colors. Nothing but the melanin changes: [eumelanin, pheomelanin] sets the absorption inside the fiber (docs/HAIR.md).
+// Black, brown, red, blond and white (no pigment at all). Lit from the right and from behind-left, so the highlight (R) and the light through the fibers (TT, TRT) show.
+{
+ "options": { "width": 1400, "spp": 256, "depth": 64, "denoise": true },
+ "camera": { "from": [0, -0.14, 0.86], "at": [0, -0.14, 0], "fov": 32 },
+ "materials": {
+  "black": { "type": "hair", "melanin": [8, 0],       "betaM": 0.3, "betaN": 0.3 },
+  "brown": { "type": "hair", "melanin": [1.3, 0.1],   "betaM": 0.3, "betaN": 0.3 },
+  "red":   { "type": "hair", "melanin": [0.4, 1.4],   "betaM": 0.3, "betaN": 0.3 },
+  "blond": { "type": "hair", "melanin": [0.25, 0.15], "betaM": 0.3, "betaN": 0.3 },
+  "white": { "type": "hair", "melanin": [0, 0],       "betaM": 0.3, "betaN": 0.3 },
+  "key":  { "type": "emission", "spectrum": "d65", "radiance": 36 },
+  "rim":  { "type": "emission", "spectrum": "d65", "radiance": 20 },
+  "fill": { "type": "emission", "spectrum": "d65", "radiance": 2 }
+ },
+ "objects": [
+  { "shape": "hair", "style": "lock", "material": "black", "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006, "root": [-0.26, 0, 0], "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "frizz": 0.0007, "seed": 11 },
+  { "shape": "hair", "style": "lock", "material": "brown", "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006, "root": [-0.13, 0, 0], "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "frizz": 0.0007, "seed": 11 },
+  { "shape": "hair", "style": "lock", "material": "red",   "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006, "root": [0, 0, 0],     "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "frizz": 0.0007, "seed": 11 },
+  { "shape": "hair", "style": "lock", "material": "blond", "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006, "root": [0.13, 0, 0],  "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "frizz": 0.0007, "seed": 11 },
+  { "shape": "hair", "style": "lock", "material": "white", "strands": 5000, "length": 0.30, "segments": 28, "rootRadius": 0.00008, "tipRadius": 0.00006, "root": [0.26, 0, 0],  "width": 0.014, "tipWidth": 1.5, "clumps": 10, "waveAmp": 0.02, "waveLength": 0.17, "frizz": 0.0007, "seed": 11 },
+  { "shape": "quad", "material": "key",  "corner": [1.2, 0.35, 1.3], "edge1": [0, 0, -1.0], "edge2": [0, -0.9, 0] },
+  { "shape": "quad", "material": "rim",  "corner": [-1.2, -0.6, -0.5], "edge1": [0, 0.9, 0], "edge2": [-0.1, 0, 0.9] },
+  { "shape": "quad", "material": "fill", "corner": [-1.2, 0.35, 1.3], "edge1": [0, -0.9, 0], "edge2": [0, 0, -1.0] }
+ ]
+}

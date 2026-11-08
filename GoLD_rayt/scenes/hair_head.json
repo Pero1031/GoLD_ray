@@ -1,0 +1,22 @@
+// Long hair falling over a head (a plain sphere: the subject is the hair). 40000 fibers in ~500 clumps, each fiber a cylinder with the
+// Chiang et al. 2016 scattering function (docs/HAIR.md). The highlight band across the crown is the primary reflection (R), tilted by the cuticle scales;
+// the colored one under it is the secondary reflection (TRT). Fibers are drawn 1.6 times thicker than real ones (0.08 mm radius) to keep the noise down.
+// The picture in docs/img is the raw 512 spp render (18 minutes): the denoiser smooths away the single fibers.
+{
+ "options": { "width": 900, "spp": 512, "depth": 48, "denoise": true },
+ "camera": { "from": [0.5, 0.02, -0.38], "at": [0, -0.06, 0], "fov": 32 },
+ "environment": { "type": "hdr", "file": "assets/env/bryanston_park_sunrise_2k.hdr", "scale": 0.12 },
+ "materials": {
+  "hair": { "type": "hair", "melanin": [1.0, 0.15], "betaM": 0.3, "betaN": 0.3, "tilt": 2 },
+  "scalp": { "type": "diffuse", "albedo": [0.45, 0.3, 0.24] },
+  "key": { "type": "emission", "spectrum": "d65", "radiance": 40 },
+  "top": { "type": "emission", "spectrum": "d65", "radiance": 30 }
+ },
+ "objects": [
+  { "shape": "sphere", "material": "scalp", "center": [0, 0, 0], "radius": 0.09 },
+  { "shape": "hair", "style": "head", "material": "hair", "center": [0, 0, 0], "radius": 0.09, "strands": 40000, "length": 0.28, "segments": 26,
+    "rootRadius": 0.00008, "tipRadius": 0.00005, "droop": 13, "outward": 0.25, "sway": 1.6, "headFrizz": 0.3, "clumps": 500, "clumpStrength": 0.75, "seed": 7 },
+  { "shape": "quad", "material": "key", "corner": [-0.76, 0.4, -0.755], "edge1": [0, -0.6, 0], "edge2": [0.52, 0, -0.29] },
+  { "shape": "quad", "material": "top", "corner": [0.0, 0.8, -0.9], "edge1": [0.6, 0, 0], "edge2": [0, 0, 0.6] }
+ ]
+}

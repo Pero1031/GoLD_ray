@@ -73,6 +73,7 @@ namespace rayt {
         const Medium* medium = nullptr;   // The medium surrounding the interaction point.
         Real time = 0.0;                  // Ray time for motion blur / time-varying transforms.
         bool frontFace = true;            // True if the ray hit the "front" side of the surface.
+        Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
 
         // ---------------------------------------------------------------------
         // Methods
@@ -110,7 +111,7 @@ namespace rayt {
             // Use the GEOMETRIC normal (gn), not the shading normal (n),
             // to prevent normal-mapping artifacts in ray offsets.
             Vector3 offsetN = (glm::dot(gn, w) > 0.0f) ? gn : -gn;
-            return p + offsetN * constants::RAY_EPSILON;
+            return p + offsetN * rayOffset;
         }
 
         /**

@@ -25,6 +25,8 @@
 #include "Accelerators/BVH.hpp"
 #include "Accelerators/EmbreeMesh.hpp"
 #include "Geometry/Frame.hpp"
+#include "Geometry/HairCurves.hpp"
+#include "Geometry/HairGenerator.hpp"
 #include "Geometry/Quad.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Geometry/TriangleMesh.hpp"
@@ -42,6 +44,7 @@
 
 // Materials and lights
 #include "Materials/CoatedDiffuse.hpp"
+#include "Materials/Hair.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Dielectric.hpp"

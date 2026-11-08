@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 #include "Color/Sellmeier.hpp"
+#include "Materials/Hair.hpp"
 
 namespace rayt::cli {
 
@@ -91,7 +92,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 }
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -330,6 +331,48 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             else Fail(sw, "must be \"free\" or an object with one of: dielectric (index), metal (Au, Ag, Cu), table (a CSV of n and k)");
         }
     }
+    else if (type == "hair") {   // "melanin": [eumelanin, pheomelanin] | "color": [r, g, b] | "sigmaA": [r, g, b], "eta", "betaM", "betaN", "tilt"
+        CheckKeys(m, { "type", "melanin", "color", "sigmaA", "eta", "betaM", "betaN", "tilt", "lobes" }, where);
+        s.type = MaterialSpec::Type::Hair;
+        Optional<double>(m, "eta", where, s.hairEta, ReadNumber);
+        Optional<double>(m, "betaM", where, s.hairBetaM, ReadNumber);
+        Optional<double>(m, "betaN", where, s.hairBetaN, ReadNumber);
+        Optional<double>(m, "tilt", where, s.hairTiltDeg, ReadNumber);
+        if (m.contains("lobes")) {   // "lobes": ["R", "TT", "TRT", "rest"]: the lobes that are on (to show what each one does)
+            const json& l = m.at("lobes");
+            if (!l.is_array()) Fail(where + ".lobes", "must be a list of lobe names (R, TT, TRT, rest)");
+            s.hairLobes = 0;
+            for (const json& e : l) {
+                const std::string name = ReadString(e, where + ".lobes");
+                if (name == "R") s.hairLobes |= 1u; else if (name == "TT") s.hairLobes |= 2u; else if (name == "TRT") s.hairLobes |= 4u; else if (name == "rest") s.hairLobes |= 8u;
+                else Fail(where + ".lobes", "has the unknown lobe \"" + name + "\" (R, TT, TRT or rest)");
+            }
+        }
+        if (!(s.hairEta >= 1.0 && s.hairEta <= 3.0)) Fail(where + ".eta", "must be between 1 and 3");
+        if (s.hairBetaM < 0 || s.hairBetaM > 1) Fail(where + ".betaM", "must be between 0 and 1");
+        if (s.hairBetaN < 0 || s.hairBetaN > 1) Fail(where + ".betaN", "must be between 0 and 1");
+        if (int(m.contains("melanin")) + int(m.contains("color")) + int(m.contains("sigmaA")) > 1)
+            Fail(where, "takes one of \"melanin\", \"color\" and \"sigmaA\"");
+        if (m.contains("color")) {   // the apparent color of the fiber (d'Eon et al.): the absorption that gives it
+            const Vector3 c = ReadColor(m.at("color"), where + ".color");
+            for (int i = 0; i < 3; ++i) if (!(c[i] > 0 && c[i] <= 1)) Fail(where + ".color", "needs values in (0, 1]");
+            s.hairSigmaA = Hair::sigmaFromColor(c, Real(s.hairBetaN));
+        }
+        else if (m.contains("sigmaA")) {
+            s.hairSigmaA = ReadVec3(m.at("sigmaA"), where + ".sigmaA");
+            for (int i = 0; i < 3; ++i) if (s.hairSigmaA[i] < 0) Fail(where + ".sigmaA", "must not be negative");
+        }
+        else {   // melanin: brown by default; 0 / 0 is white (gray) hair
+            double eu = 1.3, ph = 0.0;
+            if (m.contains("melanin")) {
+                const json& mel = m.at("melanin");
+                if (!mel.is_array() || mel.size() != 2 || !mel[0].is_number() || !mel[1].is_number()) Fail(where + ".melanin", "must be [eumelanin, pheomelanin], like [1.3, 0]");
+                eu = mel[0].get<double>(); ph = mel[1].get<double>();
+                if (eu < 0 || ph < 0) Fail(where + ".melanin", "must not be negative");
+            }
+            s.hairSigmaA = Hair::sigmaFromMelanin(Real(eu), Real(ph));
+        }
+    }
     else if (type == "emission") {
         CheckKeys(m, { "type", "spectrum", "radiance", "twoSided" }, where);
         s.type = MaterialSpec::Type::Emission;
@@ -339,7 +382,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair or emission");
     }
     return s;
 }
@@ -453,8 +496,50 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         if (s.rings < 8 || s.rings > 2000 || s.sectors < 16 || s.sectors > 4096) Fail(where, "rings must be 8-2000 and sectors 16-4096");
         if (!(s.minWavelength >= 0.005)) Fail(where + ".minWavelength", "must be at least 0.005 m");
     }
+    else if (shape == "hair") {   // procedural strands: "style": "lock" | "head"
+        CheckKeys(o, { "shape", "material", "light", "style", "strands", "segments", "length", "rootRadius", "tipRadius", "seed", "root", "width", "tipWidth", "waveAmp",
+            "waveLength", "twist", "frizz", "flyaway", "clumps", "clumpStrength", "center", "radius", "droop", "outward", "sway", "swayFreq", "headFrizz", "maxPolar", "hairline" }, where);
+        s.shape = ObjectSpec::Shape::Hair;
+        HairSpec& h = s.hair;
+        if (o.contains("style")) h.style = ReadString(o.at("style"), where + ".style");
+        if (h.style != "lock" && h.style != "head") Fail(where + ".style", "must be \"lock\" or \"head\"");
+        if (h.style == "head") { h.strands = 40000; h.length = 0.28; h.segments = 26; }
+        double v = h.strands; Optional<double>(o, "strands", where, v, ReadNumber); h.strands = int(v);
+        v = h.segments; Optional<double>(o, "segments", where, v, ReadNumber); h.segments = int(v);
+        v = h.seed; Optional<double>(o, "seed", where, v, ReadNumber); h.seed = int(v);
+        Optional<double>(o, "length", where, h.length, ReadNumber);
+        Optional<double>(o, "rootRadius", where, h.rootRadius, ReadNumber);
+        Optional<double>(o, "tipRadius", where, h.tipRadius, ReadNumber);
+        if (o.contains("root")) h.root = ReadVec3(o.at("root"), where + ".root");
+        Optional<double>(o, "width", where, h.width, ReadNumber);
+        Optional<double>(o, "tipWidth", where, h.tipWidth, ReadNumber);
+        Optional<double>(o, "waveAmp", where, h.waveAmp, ReadNumber);
+        Optional<double>(o, "waveLength", where, h.waveLength, ReadNumber);
+        Optional<double>(o, "twist", where, h.twist, ReadNumber);
+        Optional<double>(o, "frizz", where, h.frizz, ReadNumber);
+        Optional<double>(o, "flyaway", where, h.flyaway, ReadNumber);
+        Optional<double>(o, "clumpStrength", where, h.clumpStrength, ReadNumber);
+        v = h.clumps; Optional<double>(o, "clumps", where, v, ReadNumber); h.clumps = int(v);
+        if (o.contains("center")) h.center = ReadVec3(o.at("center"), where + ".center");
+        Optional<double>(o, "radius", where, h.headRadius, ReadNumber);
+        Optional<double>(o, "droop", where, h.droop, ReadNumber);
+        Optional<double>(o, "outward", where, h.outward, ReadNumber);
+        Optional<double>(o, "sway", where, h.sway, ReadNumber);
+        Optional<double>(o, "swayFreq", where, h.swayFreq, ReadNumber);
+        Optional<double>(o, "headFrizz", where, h.headFrizz, ReadNumber);
+        Optional<double>(o, "maxPolar", where, h.maxPolarDeg, ReadNumber);
+        Optional<double>(o, "hairline", where, h.hairline, ReadNumber);
+        if (h.strands < 1 || h.strands > 2000000) Fail(where + ".strands", "must be between 1 and 2000000");
+        if (h.segments < 2 || h.segments > 200) Fail(where + ".segments", "must be between 2 and 200");
+        if (!(h.length > 0)) Fail(where + ".length", "must be above 0");
+        if (!(h.rootRadius > 0 && h.tipRadius > 0)) Fail(where, "needs rootRadius and tipRadius above 0 (metres; a real hair is about 0.00005)");
+        if (h.style == "lock" && !(h.width > 0 && h.tipWidth >= 0 && h.waveLength > 0)) Fail(where, "a lock needs width > 0, tipWidth >= 0 and waveLength > 0");
+        if (h.flyaway < 0 || h.flyaway > 1 || h.clumpStrength < 0 || h.clumpStrength > 1) Fail(where, "flyaway and clumpStrength must be between 0 and 1");
+        if (h.clumps == 0 || h.clumps > 100000) Fail(where + ".clumps", "must be between 1 and 100000");
+        if (h.style == "head" && !(h.headRadius > 0)) Fail(where + ".radius", "must be above 0");
+    }
     else {
-        Fail(where + ".shape", "is \"" + shape + "\", must be sphere, quad, mesh, lathe or ocean");
+        Fail(where + ".shape", "is \"" + shape + "\", must be sphere, quad, mesh, lathe, ocean or hair");
     }
     return s;
 }
