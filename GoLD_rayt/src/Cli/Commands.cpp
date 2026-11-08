@@ -27,6 +27,7 @@ const std::vector<Command>& Commands() {
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
         { { "layered", "layered coat (clear coat over diffuse / gold): closed form, eval vs sample, energy, reciprocity" }, [](const CliOptions& o) { return RunLayeredTests(o); } },
         { { "aniso", "anisotropic metal: tangent of the shapes, anisotropic GGX, rotation of the roughness axes" }, [](const CliOptions& o) { return RunAnisotropyTests(o); } },
+        { { "ocean", "ocean surface: wave spectrum, sampled waves, dispersion, mesh" }, [](const CliOptions& o) { return RunOceanTests(o); } },
         { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },
         { { "lvc", "bidirectional path tracing with a cache of light paths in a fog (prototype) against path tracing" }, [](const CliOptions& o) { return RunLvcTests(o); } },
         { { "manifoldtest", "prism caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, false); } },

@@ -56,6 +56,9 @@ int RunLayeredTests(const CliOptions& opt);
 // Anisotropy checks (--scene aniso): the tangent of the shapes, the anisotropic GGX, sample() against eval(), the rotation of the axes.
 int RunAnisotropyTests(const CliOptions& opt);
 
+// Ocean checks (--scene ocean): the wave spectrum and the set of waves drawn from it, the dispersion relation, the mesh.
+int RunOceanTests(const CliOptions& opt);
+
 // -----------------------------------------------------------------------------
 // Caustic photon map test (--scene caustic)
 // -----------------------------------------------------------------------------

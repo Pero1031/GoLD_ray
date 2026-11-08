@@ -45,6 +45,8 @@ struct MaterialSpec {
     Vector3 coatTint = Vector3(1.0);               //   transmittance of the coat along the normal (1 = clear)
     int coatSamples = 1;                           //   random walks per evaluation
     bool baseIsConductor = false;
+    double farRoughness = -1;                      // dielectric: >= 0: the roughness grows to this (perceptual) between farStart and farEnd (m from the y axis)
+    double farStart = 50, farEnd = 500;
     double ior = 1.5;                              // dielectric
     double abbe = 0;                               // dielectric: Abbe number (0 = no dispersion)
     std::string sellmeierPreset;                   // dielectric: Sellmeier dispersion of a named glass (diamond, sapphire, bk7, silica) ...
@@ -94,7 +96,7 @@ struct MaterialSpec {
 };
 
 struct ObjectSpec {
-    enum class Shape { Sphere, Quad, Mesh, Lathe };
+    enum class Shape { Sphere, Quad, Mesh, Lathe, Ocean };
     Shape shape = Shape::Sphere;
     std::string material;
     int light = -1;                                // emission only: 1 = register as a light for next-event estimation, 0 = do not (-1: yes)
@@ -109,6 +111,10 @@ struct ObjectSpec {
     Vector3 translate = Vector3(0.0);
     std::vector<Point2> profile;                   // lathe: (radius, height) pairs of the profile that is turned around the y axis
     int segments = 96;                             // lathe
+    // ocean: a sea surface from a wave spectrum (Geometry/ProceduralMesh.hpp, docs/WATER.md), a polar grid around the origin
+    double windSpeed = 8, windDirection = 0, spread = 4, peakEnhance = 1, chop = 0.8, time = 0, minWavelength = 0.05;
+    int oceanSeed = 1, rings = 400, sectors = 512;
+    double rInner = 0.8, rOuter = 3000;
 };
 
 struct PointLightSpec {

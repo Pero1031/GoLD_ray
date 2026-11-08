@@ -175,6 +175,158 @@ TriangleMesh MakeSeaMesh(const SeaParams& P) {
     return m;
 }
 
+
+// -----------------------------------------------------------------------------
+// Ocean from a wave spectrum
+// -----------------------------------------------------------------------------
+namespace {
+
+constexpr double kGravity = 9.81;
+
+/// Omnidirectional spectrum S(omega) of the wind sea: Pierson-Moskowitz with the JONSWAP peak enhancement.
+double WaveSpectrumOmega(double omega, double U, double gamma) {
+    if (omega <= 0) return 0.0;
+    const double alpha = 8.1e-3, beta = 0.74;
+    const double w0 = kGravity / U;
+    double S = alpha * kGravity * kGravity / std::pow(omega, 5) * std::exp(-beta * std::pow(w0 / omega, 4));
+    if (gamma > 1.0) {
+        const double wp = 0.877 * w0;
+        const double sigma = omega <= wp ? 0.07 : 0.09;
+        const double r = std::exp(-(omega - wp) * (omega - wp) / (2.0 * sigma * sigma * wp * wp));
+        S *= std::pow(gamma, r);
+    }
+    return S;
+}
+
+/// The same spectrum per wavenumber: S(k) = S(omega) d omega / d k with omega = sqrt(g k).
+double WaveSpectrumK(double k, double U, double gamma) {
+    const double omega = std::sqrt(kGravity * k);
+    return WaveSpectrumOmega(omega, U, gamma) * 0.5 * std::sqrt(kGravity / k);
+}
+
+} // namespace
+
+std::vector<OceanWave> MakeOceanWaves(const OceanParams& P) {
+    const double U = std::max(double(P.windSpeed), 1.0), gamma = double(P.peakEnhance);
+    const double kp = std::pow(0.877 * kGravity / U, 2) / kGravity;                  // omega_p^2 / g
+    const double kMin = kp / 3.0, kMax = 2.0 * constants::PI / std::max(double(P.minWavelength), 1e-3);
+    const int nk = std::max(P.kBins, 2), nd = std::max(P.dirBins, 2);
+    const double lnMin = std::log(kMin), dLn = (std::log(kMax) - lnMin) / nk;
+    const double dTheta = 2.0 * constants::PI / nd;
+
+    // Directional spreading cos^(2s)(theta / 2), normalized on the direction grid (the sum of D d theta over the bins is 1).
+    std::vector<double> dirWeight(static_cast<size_t>(nd));
+    double norm = 0;
+    for (int j = 0; j < nd; ++j) {
+        const double th = -constants::PI + (j + 0.5) * dTheta;
+        dirWeight[static_cast<size_t>(j)] = std::pow(std::max(std::cos(0.5 * th), 0.0), 2.0 * double(P.spread));
+        norm += dirWeight[static_cast<size_t>(j)] * dTheta;
+    }
+    for (double& w : dirWeight) w /= norm;
+
+    std::mt19937 rng(P.seed);
+    std::uniform_real_distribution<double> U01(0.0, 1.0);
+    std::vector<OceanWave> waves;
+    waves.reserve(static_cast<size_t>(nk) * static_cast<size_t>(nd));
+    const double wind = double(P.windDeg) * constants::PI / 180.0;
+    for (int i = 0; i < nk; ++i) {
+        for (int j = 0; j < nd; ++j) {
+            const double k = std::exp(lnMin + (i + U01(rng)) * dLn);                     // jittered inside the log bin
+            const double th = -constants::PI + (j + U01(rng)) * dTheta;
+            const double dk = k * dLn;
+            const double a = std::sqrt(2.0 * WaveSpectrumK(k, U, gamma) * dk * dirWeight[static_cast<size_t>(j)] * dTheta);
+            const double ang = wind + th;
+            OceanWave w;
+            w.k = Real(k);
+            w.kx = Real(k * std::cos(ang));
+            w.kz = Real(k * std::sin(ang));
+            w.a = Real(a);
+            w.phase = Real(2.0 * constants::PI * U01(rng));
+            w.omega = Real(std::sqrt(kGravity * k));
+            waves.push_back(w);
+        }
+    }
+    return waves;
+}
+
+OceanStats OceanSpectrumStats(const OceanParams& P, const std::vector<OceanWave>& waves) {
+    OceanStats s;
+    const double U = std::max(double(P.windSpeed), 1.0), gamma = double(P.peakEnhance);
+    const double kp = std::pow(0.877 * kGravity / U, 2) / kGravity;
+    s.peakWavenumber = kp;
+    s.kMin = kp / 3.0;
+    s.kMax = 2.0 * constants::PI / std::max(double(P.minWavelength), 1e-3);
+    for (const OceanWave& w : waves) {
+        s.heightVarianceSet += 0.5 * double(w.a) * double(w.a);
+        s.slopeVarianceSet += 0.5 * double(w.k) * double(w.k) * double(w.a) * double(w.a);
+    }
+    // Midpoint rule in ln k.
+    const int n = 20000;
+    const double lnMin = std::log(s.kMin), dLn = (std::log(s.kMax) - lnMin) / n;
+    for (int i = 0; i < n; ++i) {
+        const double k = std::exp(lnMin + (i + 0.5) * dLn);
+        const double dens = WaveSpectrumK(k, U, gamma) * k * dLn;
+        s.heightVarianceSpectrum += dens;
+        s.slopeVarianceSpectrum += k * k * dens;
+    }
+    return s;
+}
+
+Real OceanHeightAt(const std::vector<OceanWave>& waves, Real time, Real x, Real z) {
+    Real h = 0;
+    for (const OceanWave& w : waves) h += w.a * std::cos(w.kx * x + w.kz * z - w.omega * time + w.phase);
+    return h;
+}
+
+TriangleMesh MakeOceanMesh(const OceanParams& P) {
+    const std::vector<OceanWave> waves = MakeOceanWaves(P);
+    const Real Q = std::clamp(P.chop, Real(0), Real(1)) * Real(0.8);
+    const Real growth = std::pow(P.rOuter / P.rInner, Real(1) / Real(P.rings - 1));
+    const Real azimuthStep = Real(2) * constants::PI / Real(P.sectors);
+    // Per-component constants of the vertex loop: unit direction and the wavelength (for the fade).
+    struct Comp { Real kx, kz, k, a, ph0, dx, dz, lambda; };
+    std::vector<Comp> comps;
+    comps.reserve(waves.size());
+    for (const OceanWave& w : waves)
+        comps.push_back({ w.kx, w.kz, w.k, w.a, w.phase - w.omega * P.time, w.kx / w.k, w.kz / w.k, Real(2) * constants::PI / w.k });
+
+    TriangleMesh m;
+    auto addVertex = [&](Real r, Real theta) {
+        const Real x0 = r * std::cos(theta), z0 = r * std::sin(theta);
+        const Real spacing = std::max(std::max(r, P.rInner) * (growth - Real(1)), r * azimuthStep);
+        Real dx = 0, dy = 0, dz = 0, nx = 0, ny = 1, nz = 0;
+        for (const Comp& c : comps) {
+            const Real fade = std::clamp((c.lambda / spacing - Real(2)) / Real(3), Real(0), Real(1));
+            if (fade <= Real(0)) continue;
+            const Real ph = c.kx * x0 + c.kz * z0 + c.ph0;
+            const Real cs = std::cos(ph), sn = std::sin(ph), a = fade * c.a;
+            dx -= Q * a * c.dx * sn;  dz -= Q * a * c.dz * sn;  dy += a * cs;
+            nx -= c.k * a * c.dx * cs;  nz -= c.k * a * c.dz * cs;  ny -= Q * c.k * a * sn;
+        }
+        m.p.push_back(Point3(x0 + dx, dy, z0 + dz));
+        m.n.push_back(glm::normalize(Vector3(nx, std::max(ny, Real(0.05)), nz)));
+    };
+    auto addTriangle = [&](int a, int b, int c) {
+        const Vector3 cr = glm::cross(Vector3(m.p[b] - m.p[a]), Vector3(m.p[c] - m.p[a]));
+        if (glm::length(cr) < Real(1e-14)) return;
+        if (glm::dot(cr, m.n[a]) < Real(0)) std::swap(b, c);   // counter-clockwise seen from above
+        m.indices.insert(m.indices.end(), { a, b, c });
+    };
+
+    addVertex(Real(0), Real(0));   // center
+    for (int i = 0; i < P.rings; ++i)
+        for (int j = 0; j < P.sectors; ++j)
+            addVertex(P.rInner * std::pow(growth, Real(i)), Real(2) * constants::PI * Real(j) / Real(P.sectors));
+    auto ring = [&](int i, int j) { return 1 + i * P.sectors + (j % P.sectors); };
+    for (int j = 0; j < P.sectors; ++j) addTriangle(0, ring(0, j), ring(0, j + 1));
+    for (int i = 0; i + 1 < P.rings; ++i)
+        for (int j = 0; j < P.sectors; ++j) {
+            addTriangle(ring(i, j), ring(i, j + 1), ring(i + 1, j + 1));
+            addTriangle(ring(i, j), ring(i + 1, j + 1), ring(i + 1, j));
+        }
+    return m;
+}
+
 TriangleMesh MakePrismMesh(const std::vector<Point2>& xz, Real height) {
     TriangleMesh m;
     Point2 c(0, 0);

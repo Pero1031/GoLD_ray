@@ -1,0 +1,87 @@
+// The sea at low sun: a wind sea (Pierson-Moskowitz spectrum, 9 m/s, waves coming toward the camera), the sun 8 degrees above the horizon
+// (a sphere light 2 km away) and a single-scattering sky (tools/data/make_sky.py --sun-el 8 --sun-dir 0 -1). The water is one open sheet
+// with an absorbing and slightly scattering medium below it (pure-water absorption, a little particle scattering, forward peaked);
+// its roughness grows with the distance (the mesh cannot resolve the small waves far away: Cox-Munk slope variance, alpha about 0.2).
+{
+ "options": {
+  "width": 1280,
+  "spp": 128,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   2.2,
+   0
+  ],
+  "at": [
+   0,
+   1.9,
+   -10
+  ],
+  "fov": 40
+ },
+ "environment": {
+  "type": "hdr",
+  "file": "assets/env/sky_el8.hdr",
+  "scale": 3.2
+ },
+ "materials": {
+  "sea": {
+   "type": "dielectric",
+   "ior": 1.333,
+   "roughness": 0.0,
+   "distanceRoughness": {
+    "roughness": 0.45,
+    "start": 30,
+    "end": 300
+   },
+   "medium": {
+    "sigmaT": [
+     0.32,
+     0.08,
+     0.032
+    ],
+    "albedo": [
+     0.0625,
+     0.25,
+     0.625
+    ],
+    "g": 0.9
+   }
+  },
+  "sun": {
+   "type": "emission",
+   "spectrum": {
+    "rgb": [
+     1.516,
+     0.917,
+     0.302
+    ]
+   },
+   "radiance": 22059
+  }
+ },
+ "objects": [
+  {
+   "shape": "ocean",
+   "material": "sea",
+   "windSpeed": 10,
+   "windDirection": 90,
+   "spread": 4,
+   "chop": 0.8,
+   "seed": 3,
+   "rOuter": 3000
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0,
+    278.4,
+    -1980.6
+   ],
+   "radius": 9.25,
+   "material": "sun"
+  }
+ ]
+}

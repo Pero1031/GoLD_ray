@@ -156,11 +156,40 @@ namespace rayt {
             const Vector3& wo, const Vector3& wi,
             const SampledWavelengths& lambda) const override;
 
-        bool isSpecular() const override { return isSmooth(); }
-        bool isNullInterface() const override { return iorRef == Real(1) && isSmooth() && !isDispersive(); }
+        bool isSpecular() const override { return isSmooth() && !m_hasFar; }
+        bool isNullInterface() const override { return iorRef == Real(1) && isSmooth() && !m_hasFar && !isDispersive(); }
+
+        /// The roughness grows with the distance from the y axis, from this material's own roughness up to `farRoughness` (perceptual, as in the
+        /// constructor) between the radii `start` and `end` (metres, in the x-z plane). For a sea: the mesh cannot resolve the small waves far away,
+        /// and the slope they would add is given back as roughness (the sun glitter keeps its width toward the horizon).
+        void setDistanceRoughness(Real farRoughness, Real start, Real end) {
+            m_farAlpha = MicrofacetDistribution::roughnessToAlpha(farRoughness);
+            m_farStart = start;
+            m_farEnd = std::max(end, start + Real(1e-3));
+            m_hasFar = true;
+        }
 
     private:
         bool isSmooth() const { return alpha_x < 0.001 && alpha_y < 0.001; }
+
+        bool m_hasFar = false;
+        Real m_farAlpha = Real(0), m_farStart = Real(0), m_farEnd = Real(1);
+
+        /// The roughness at this hit (the material's, or the distance-dependent one).
+        void alphasAt(const SurfaceInteraction& rec, Real& ax, Real& ay) const {
+            ax = alpha_x; ay = alpha_y;
+            if (!m_hasFar) return;
+            const Real r = std::hypot(rec.p.x, rec.p.z);
+            Real t = std::clamp((r - m_farStart) / (m_farEnd - m_farStart), Real(0), Real(1));
+            t = t * t * (Real(3) - Real(2) * t);
+            ax += (std::max(ax, m_farAlpha) - ax) * t;
+            ay += (std::max(ay, m_farAlpha) - ay) * t;
+        }
+        bool smoothAt(const SurfaceInteraction& rec) const {
+            Real ax, ay;
+            alphasAt(rec, ax, ay);
+            return ax < 0.001 && ay < 0.001;
+        }
     };
 
 } // namespace rayt

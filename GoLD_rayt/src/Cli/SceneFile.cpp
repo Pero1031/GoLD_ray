@@ -157,7 +157,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(bw + ".anisotropy", "must be between -1 and 1");
     }
     else if (type == "dielectric") {
-        CheckKeys(m, { "type", "ior", "roughness", "abbe", "sellmeier", "medium" }, where);
+        CheckKeys(m, { "type", "ior", "roughness", "distanceRoughness", "abbe", "sellmeier", "medium" }, where);
         s.type = MaterialSpec::Type::Dielectric;
         if (m.contains("medium")) {
             const json& md = m.at("medium");
@@ -203,6 +203,18 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
         Optional<double>(m, "ior", where, s.ior, ReadNumber);
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
+        if (m.contains("distanceRoughness")) {   // "distanceRoughness": { "roughness", "start", "end" } (metres from the y axis)
+            const json& dr = m.at("distanceRoughness");
+            const std::string dw = where + ".distanceRoughness";
+            if (!dr.is_object()) Fail(dw, "must be an object (roughness, start, end)");
+            CheckKeys(dr, { "roughness", "start", "end" }, dw);
+            s.farRoughness = 0.3;
+            Optional<double>(dr, "roughness", dw, s.farRoughness, ReadNumber);
+            Optional<double>(dr, "start", dw, s.farStart, ReadNumber);
+            Optional<double>(dr, "end", dw, s.farEnd, ReadNumber);
+            if (s.farRoughness < 0 || s.farRoughness > 1) Fail(dw + ".roughness", "must be between 0 and 1");
+            if (!(s.farEnd > s.farStart)) Fail(dw, "needs end above start");
+        }
         Optional<double>(m, "abbe", where, s.abbe, ReadNumber);
         if (m.contains("sellmeier")) {   // "sellmeier": "diamond" | { "b": [b1, b2, b3], "c": [c1, c2, c3] }  (c in um^2)
             const json& sm = m.at("sellmeier");
@@ -418,8 +430,31 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         if (o.contains("segments")) s.segments = static_cast<int>(ReadNumber(o.at("segments"), where + ".segments"));
         if (s.segments < 3) Fail(where + ".segments", "must be at least 3");
     }
+    else if (shape == "ocean") {   // a sea surface from a wave spectrum
+        CheckKeys(o, { "shape", "material", "light", "windSpeed", "windDirection", "spread", "peakEnhance", "chop", "time", "minWavelength",
+            "seed", "rings", "sectors", "rInner", "rOuter" }, where);
+        s.shape = ObjectSpec::Shape::Ocean;
+        Optional<double>(o, "windSpeed", where, s.windSpeed, ReadNumber);
+        Optional<double>(o, "windDirection", where, s.windDirection, ReadNumber);
+        Optional<double>(o, "spread", where, s.spread, ReadNumber);
+        Optional<double>(o, "peakEnhance", where, s.peakEnhance, ReadNumber);
+        Optional<double>(o, "chop", where, s.chop, ReadNumber);
+        Optional<double>(o, "time", where, s.time, ReadNumber);
+        Optional<double>(o, "minWavelength", where, s.minWavelength, ReadNumber);
+        Optional<double>(o, "rInner", where, s.rInner, ReadNumber);
+        Optional<double>(o, "rOuter", where, s.rOuter, ReadNumber);
+        double v = s.oceanSeed;
+        Optional<double>(o, "seed", where, v, ReadNumber); s.oceanSeed = int(v);
+        v = s.rings; Optional<double>(o, "rings", where, v, ReadNumber); s.rings = int(v);
+        v = s.sectors; Optional<double>(o, "sectors", where, v, ReadNumber); s.sectors = int(v);
+        if (!(s.windSpeed >= 1 && s.windSpeed <= 40)) Fail(where + ".windSpeed", "must be between 1 and 40 m/s");
+        if (s.chop < 0 || s.chop > 1) Fail(where + ".chop", "must be between 0 and 1");
+        if (!(s.rInner > 0 && s.rOuter > s.rInner * 4)) Fail(where, "needs 0 < rInner and rOuter > 4 rInner");
+        if (s.rings < 8 || s.rings > 2000 || s.sectors < 16 || s.sectors > 4096) Fail(where, "rings must be 8-2000 and sectors 16-4096");
+        if (!(s.minWavelength >= 0.005)) Fail(where + ".minWavelength", "must be at least 0.005 m");
+    }
     else {
-        Fail(where + ".shape", "is \"" + shape + "\", must be sphere, quad, mesh or lathe");
+        Fail(where + ".shape", "is \"" + shape + "\", must be sphere, quad, mesh, lathe or ocean");
     }
     return s;
 }

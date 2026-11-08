@@ -12,7 +12,7 @@ namespace rayt {
         TransportMode mode) const {
 
         // Delta lobes: eval() returns 0 (Dirac delta)
-        if (isSmooth()) return Spectrum(0.0);
+        if (smoothAt(rec)) return Spectrum(0.0);
 
         const Real ior = iorAt(lambda);
 
@@ -58,7 +58,9 @@ namespace rayt {
         Vector3 wi_local = frame.worldToLocal(wi);
         Vector3 wh_local = frame.worldToLocal(wh);
 
-        GGXDistribution dist(alpha_x, alpha_y);
+        Real ax, ay;
+        alphasAt(rec, ax, ay);
+        GGXDistribution dist(ax, ay);
         Real D = dist.D(wh_local);
         Real G = dist.G(wo_local, wi_local);
         Real F = entering
@@ -111,7 +113,7 @@ namespace rayt {
         Vector3 n_eff = rec.n;
 
         // --- Case A: Smooth (delta) ---
-        if (isSmooth()) {
+        if (smoothAt(rec)) {
             Real F = entering
                 ? rayt::fresnel::fresnelDielectric(std::abs(cosThetaO), 1.0, ior)
                 : rayt::fresnel::fresnelDielectric(std::abs(cosThetaO), ior, 1.0);
@@ -150,7 +152,9 @@ namespace rayt {
         // --- Case B: Rough (microfacet) ---
         rayt::frame::Frame frame(rec.n);
         Vector3 wo_local = frame.worldToLocal(wo);
-        GGXDistribution dist(alpha_x, alpha_y);
+        Real ax, ay;
+        alphasAt(rec, ax, ay);
+        GGXDistribution dist(ax, ay);
 
         Vector3 wo_sampling = wo_local;
         if (wo_sampling.z < 0) wo_sampling = -wo_sampling;
@@ -229,7 +233,7 @@ namespace rayt {
         const Vector3& wo, const Vector3& wi,
         const SampledWavelengths& lambda) const {
 
-        if (isSmooth()) return 0.0;
+        if (smoothAt(rec)) return 0.0;
 
         const Real ior = iorAt(lambda);
 
@@ -261,7 +265,9 @@ namespace rayt {
             : rayt::fresnel::fresnelDielectric(std::abs(dot_wo_wh), ior, 1.0);
 
         rayt::frame::Frame frame(rec.n);
-        GGXDistribution dist(alpha_x, alpha_y);
+        Real ax, ay;
+        alphasAt(rec, ax, ay);
+        GGXDistribution dist(ax, ay);
 
         Vector3 wo_local = frame.worldToLocal(wo);
         if (wo_local.z < 0) wo_local = -wo_local;

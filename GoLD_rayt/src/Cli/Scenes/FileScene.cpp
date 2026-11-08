@@ -128,6 +128,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 else
                     glass->setMedium(std::make_shared<ChromaticMedium>(m.mediumSigmaT, m.mediumAlbedo, phase));
             }
+            if (m.farRoughness >= 0) glass->setDistanceRoughness(Real(m.farRoughness), Real(m.farStart), Real(m.farEnd));
             materials[name] = glass;
             break;
         }
@@ -256,6 +257,17 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         case ObjectSpec::Shape::Lathe:
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(MakeLatheMesh(o.profile, o.segments)), mat, opt.accel));
             break;
+        case ObjectSpec::Shape::Ocean: {
+            OceanParams op;
+            op.windSpeed = Real(o.windSpeed); op.windDeg = Real(o.windDirection); op.spread = Real(o.spread);
+            op.peakEnhance = Real(o.peakEnhance); op.chop = Real(o.chop); op.time = Real(o.time); op.minWavelength = Real(o.minWavelength);
+            op.seed = static_cast<unsigned>(o.oceanSeed); op.rings = o.rings; op.sectors = o.sectors;
+            op.rInner = Real(o.rInner); op.rOuter = Real(o.rOuter);
+            TriangleMesh sea = MakeOceanMesh(op);
+            std::cout << "[Ocean] " << sea.numTriangles() << " triangles, wind " << o.windSpeed << " m/s toward " << o.windDirection << " deg\n";
+            world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(sea)), mat, opt.accel));
+            break;
+        }
         }
     }
 

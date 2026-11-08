@@ -41,6 +41,50 @@ TriangleMesh MakePoolSurface(Real w, Real d, Real steep, unsigned seed, Real spa
 
 TriangleMesh MakeSeaMesh(const SeaParams& P);
 
+// Ocean surface from a wave spectrum (spectral synthesis; Tessendorf 2001 evaluates the same sum on a grid with an FFT).
+//
+// Wind speed U (m/s at 10 m) sets the Pierson-Moskowitz spectrum S(omega) = alpha g^2 omega^-5 exp(-beta (g / (U omega))^4), optionally
+// sharpened at the peak (JONSWAP, `peakEnhance` = gamma). Waves travel with the wind, spread over directions as cos^(2s)(theta / 2).
+// Deep-water dispersion omega^2 = g k turns the spectrum into S(k) and gives every component its phase speed. The surface is the sum of
+// kBins x dirBins plane waves, one random wavenumber, direction and phase per (log k, direction) bin, each with the amplitude
+// a = sqrt(2 S(k) dk D(theta) dtheta): the energy of its bin. The sum is not periodic (no tiling), and its height and slope
+// statistics follow the spectrum (checked by --scene ocean). `chop` scales the horizontal (Gerstner) displacement that sharpens crests.
+// The mesh is the polar grid of the sea (rings growing geometrically); a component the local spacing cannot resolve fades out.
+struct OceanParams {
+    Real windSpeed = Real(8);       // m/s
+    Real windDeg = Real(0);         // direction the waves travel to, atan2(z, x) in degrees
+    Real spread = Real(4);          // s of the directional spreading cos^(2s)(theta / 2)
+    Real peakEnhance = Real(1);     // JONSWAP gamma (1 = Pierson-Moskowitz, 3.3 = a growing sea)
+    Real chop = Real(0.8);          // 0 = pure heights, 1 = full Gerstner displacement
+    Real time = Real(0);            // seconds (waves move at their phase speed)
+    Real minWavelength = Real(0.05);
+    unsigned seed = 1;
+    int kBins = 56, dirBins = 24;
+    Real rInner = Real(0.8), rOuter = Real(3000);
+    int rings = 400, sectors = 512;
+};
+
+struct OceanWave {
+    Real kx, kz, k, a, phase, omega;
+};
+
+/// The plane waves of the spectrum (random phases, jittered wavenumbers and directions): the same set the mesh is built from.
+std::vector<OceanWave> MakeOceanWaves(const OceanParams& P);
+
+/// Height variance and mean-square slope of the set (sum of a^2 / 2, sum of k^2 a^2 / 2) next to the values of the continuous spectrum
+/// between the same wavenumber limits (numerical integral), for the self-check.
+struct OceanStats {
+    double heightVarianceSet = 0, heightVarianceSpectrum = 0;
+    double slopeVarianceSet = 0, slopeVarianceSpectrum = 0;
+    double peakWavenumber = 0, kMin = 0, kMax = 0;
+};
+OceanStats OceanSpectrumStats(const OceanParams& P, const std::vector<OceanWave>& waves);
+
+/// Height of the surface (no displacement, no fading) at (x, z): the sum of the components.
+Real OceanHeightAt(const std::vector<OceanWave>& waves, Real time, Real x, Real z);
+
+TriangleMesh MakeOceanMesh(const OceanParams& P);
+
 // -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------

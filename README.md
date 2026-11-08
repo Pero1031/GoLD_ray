@@ -226,7 +226,8 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   optional metal blend and subsurface), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX). Own SAH BVH or **Embree**.
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), and an ocean surface built from a wave spectrum (wind speed, sun glitter).
+  Own SAH BVH or **Embree**.
 - **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
   Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
