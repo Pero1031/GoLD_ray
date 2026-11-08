@@ -1,0 +1,21 @@
+{
+  // A cloud in a clear sky, lit by the sun from behind. The sky is a single-scattering atmosphere
+  // (tools/data/make_sky.py --sun-el 12 --sun-dir -0.15 -0.97: Rayleigh + Mie), the sun a small sphere light
+  // with the color of sunlight that crossed the atmosphere. The droplets scatter by Mie theory.
+  // Single scattering leaves the sky darker than a real one (no multiple scattering): "scale" brightens it.
+  // Needs --media-nee: the sun is found only by sampling it at every collision in the cloud.
+  "options": { "width": 640, "spp": 128, "media-nee": true, "denoise": true },
+  "camera": { "from": [0, 0.0, 0.55], "at": [0, 0.07, 0], "fov": 24 },
+  "environment": { "type": "hdr", "file": "assets/env/sky_el12.hdr", "scale": 2.5 },
+  "materials": {
+    "cloud": { "type": "dielectric", "ior": 1.0,
+               "medium": { "sigmaT": 420, "albedo": 0.9999, "phaseTable": "assets/Cloud/mie_reff10.csv",
+                           "noise": { "frequency": 22, "octaves": 5, "lo": 0.42, "hi": 0.62, "seed": 7, "maskCenter": [0, 0.1, 0], "maskRadius": 0.1, "maskStart": 0.45 } } },
+    "sun": { "type": "emission", "spectrum": { "rgb": [1.387, 0.942, 0.434] }, "radiance": 27645 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [0, 0.1, 0], "radius": 0.1, "material": "cloud" },
+    // 0.53 degrees across, 20 m away, 12 degrees above the horizon, behind the cloud
+    { "shape": "sphere", "center": [-2.990, 4.158, -19.333], "radius": 0.0925, "material": "sun" }
+  ]
+}

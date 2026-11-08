@@ -49,19 +49,31 @@
 ## 5. 限界
 
 - 位相関数は波長によらない（可視光の平均）。霧虹・glory の色の縞は出ない。波長ごとの位相関数には、媒質の重み付け（ヒーロー波長）の拡張が要る。
-- 雲は、小さな球の中のノイズ密度（`cloud_noise` と同じ）。形はまだ雲らしくない。空は一様な暗い灰色で、青空も大気もない。
-- 太陽は点に近い球の光源。大気の散乱（空の青、夕焼け）は未実装。
+- 雲は、小さな球の中のノイズ密度（`cloud_noise` と同じ）。形はまだ雲らしくない。
+- 太陽は点に近い球の光源。空は単散乱だけなので、実際より暗い（第 7 節）。
 - 粒の大きさは 1 種類（有効半径 10 µm）。小さい粒（霧、薄い雲）は、`mie_phase.py --reff` で別の表を作れる。
 
 ## 6. 次の候補
 
-1. 大気と空（Rayleigh + Mie の単散乱 → 環境マップ）で、青空と太陽を作る。
+1. 空の多重散乱（今は倍率で補っている）。
 2. 雲の形（fBm + 球ではなく積雲の高さの分布）と、パウダー効果・銀縁の見え方。
 3. 波長ごとの位相関数（霧虹、glory）。
+
+## 7. 空と太陽
+
+`tools/data/make_sky.py` が、晴れた空の環境マップ（緯度経度の `.hdr`）と、太陽の色と位置を出す。作例は `scenes/cloud_sky.json`（空は `assets/env/sky_el12.hdr`、太陽の高さ 12°）。
+
+- 大気は、分子の Rayleigh 散乱（青が強い、高さ 8 km のスケール）と、エアロゾルの Mie 散乱（太陽の周りが白く光る、g = 0.76、高さ 1.2 km）。光が 1 回だけ散乱される経路を、視線に沿って足し合わせる（Nishita ら 1993 と同じ考え方）。波長は 400〜700 nm の 16 点で計算し、レンダラーと同じ等色関数の近似で sRGB にする。
+- 太陽の円盤は、地図に入れない（2 画素に 4 万を超える値が入るため）。小さな球の光源として、シーンに置く。色は、大気を通った後の太陽光（低い太陽ほど赤い）。
+- 単散乱だけなので、空は実際より暗い（天頂で数分の 1）。シーンの `environment.scale` で補っている。オゾンも省いてある（夕方の青に効く）。
+- 太陽が雲の後ろにあるので、雲の縁が銀色に光る（Mie の前方ピーク）。雲の内部は、前方ピークが鋭いために、明るい斑点のノイズが残りやすい。
+
+使い方: `python tools/data/make_sky.py --sun-el 12 --sun-dir -0.15 -0.97 --out GoLD_rayt/assets/env/sky_el12.hdr`。表示される太陽の色・半径・位置を、シーンファイルに書く。
 
 ## 参考文献
 
 - Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, 1983（BHMIE）。
+- Nishita, Sirai, Tadamura, Nakamae, "Display of the Earth taking into account atmospheric scattering", SIGGRAPH 1993.
 - Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 1974（粒径分布）。
 
 （書誌は記憶から書いた。公開前に照合する。）
