@@ -32,9 +32,23 @@
  * The transmittance of every edge is known: the edges of a sub-path are recorded when it is traced, an edge that connects two sub-paths (or a
  * sub-path and the light or the camera) is measured with a shadow ray, which is blocked by surfaces and crosses null interfaces.
  *
- * Not handled: glass and mirrors, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that sees
- * itself (the lamp is not a surface). Spectral mode: the medium and the surfaces are gray, so each sample carries its own wavelengths only
- * for the color of the light.
+ * Glass (smooth dielectrics). A specular vertex is a vertex of a sub-path, but it cannot be the end of a connection (the directions would not
+ * match: the probability is zero), so a chain of specular vertices behaves like one long edge. Consequences:
+ *   - a strategy that connects at a specular vertex (or lets the light or the camera be connected to one) cannot make the path and is left out
+ *     of the sum D;
+ *   - the throughput of a specular vertex is the weight W that Material::sample returns (1 for a reflection, 1/eta^2 for a refraction; the
+ *     eta^2 factors of a chain that enters and leaves a body cancel, so a chain has the same weight whichever end it was traced from). In the
+ *     contribution it enters with the cosine that the sub-path that sampled the vertex used, so that f / p of the strategy that made the path
+ *     is exactly the product of the sampled weights;
+ *   - in the densities a specular vertex scatters with density 1 (the Dirac factors are left out) and keeps its geometric conversion cos / d^2.
+ *     The choice between reflection and refraction has the same probability from both ends and is left out as well.
+ * The MIS weights n_s p_s / D sum to one over the strategies of a path whatever the p_s are, so an inexact convention for the Dirac factors
+ * could only make the estimate noisier, never biased; the checks against independent estimators show whether it is exact enough.
+ *
+ * Not handled: dispersion (a sub-path through a dispersive glass is bound to its wavelength: connecting two such sub-paths needs equal
+ * wavelengths), rough dielectrics, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that
+ * sees itself (the lamp is not a surface). Spectral mode: the medium, the surfaces and the glass are gray, so each sample carries its own
+ * wavelengths only for the color of the light.
  */
 
 #pragma once
@@ -79,6 +93,9 @@ namespace rayt {
         bool useLightTracing = true;       ///< strategy s = n
         bool useConnections = true;        ///< strategies 0 < s < n
         bool useNee = true;                ///< strategy s = 0
+        /// Test switch: light tracing counts only the paths whose first vertex from the light is a specular one (L S ...), which is what the caustic
+        /// photon map with traceMedia counts, so that the two can be compared.
+        bool lightTraceOnlyAfterGlass = false;
     };
 
     class VolumeBPT {
@@ -123,10 +140,13 @@ namespace rayt {
                 std::vector<Vtx> Z;
                 const long long first = static_cast<long long>(c) * chunk, last = std::min(m_P.lightPaths, first + chunk);
                 for (long long i = first; i < last; ++i) {
-                    traceLightPath(Z);
-                    vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
-                    countPer[th].push_back(static_cast<uint8_t>(Z.size()));
-                    if (m_P.useLightTracing && !Z.empty()) lightTrace(Z, splatPer[th]);
+                    SampledWavelengths lam = makeLambda();
+                    traceLightPath(Z, lam);
+                    if (m_P.useConnections) {   // the cache is only needed by the connections
+                        vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
+                        countPer[th].push_back(static_cast<uint8_t>(Z.size()));
+                    }
+                    if (m_P.useLightTracing && !Z.empty()) lightTrace(Z, lam, splatPer[th]);
                 }
             }
             // concatenate (order does not matter: every light path is an independent sample)
@@ -169,8 +189,10 @@ namespace rayt {
             float p[3];
             float n[3];        ///< surface: the normal on the side of the ray that arrived (unit); fog: zero
             float rho;         ///< surface: albedo; fog: 0
+            float W;           ///< specular vertex: the weight of the sampled scattering (Material::sample); else 0
             float tIn;         ///< transmittance of the edge to the previous vertex of the sub-path (or from the light / the camera)
-            uint8_t surface;   ///< 1: a point on a surface
+            uint8_t surface;   ///< 1: a point on a surface (diffuse or specular)
+            uint8_t spec;      ///< 1: a specular vertex (smooth glass): it cannot be connected
             uint8_t inFog;     ///< 1: the rays at this vertex travel in the fog
         };
         static Point3 pos(const Vtx& v) { return Point3(v.p[0], v.p[1], v.p[2]); }
@@ -199,7 +221,8 @@ namespace rayt {
         }
 
         /// Follows a ray from outside the fog (delta tracking in the fog, null interfaces crossed, diffuse bounces on surfaces) and appends its vertices.
-        void walk(Ray r, std::vector<Vtx>& out) const {
+        /// `lam`: the wavelengths of the sub-path (a dispersive material reduces them to one).
+        void walk(Ray r, std::vector<Vtx>& out, SampledWavelengths& lam) const {
             out.clear();
             Real lenInMedium = 0;   // distance travelled in the medium since the last vertex
             for (int iter = 0; iter < 256 && static_cast<int>(out.size()) < m_P.maxVertices; ++iter) {
@@ -237,6 +260,33 @@ namespace rayt {
                     else r = rec.SpawnRay(r.d);
                     continue;
                 }
+                if (rec.matPtr->isSpecular()) {
+                    // smooth glass: reflection or refraction (chosen by Fresnel), the weight W goes into the vertex
+                    rec.matPtr->prepareWavelengths(lam);
+                    const std::optional<BSDFSample> bs = rec.matPtr->sample(rec, -r.d, Point2(sampling::Random(), sampling::Random()), lam);
+                    if (!bs || !bs->isSpecular()) return;
+                    const Real W = bs->f[0];
+                    if (!(W > Real(0)) || !std::isfinite(W)) return;
+                    const Vector3 wi = bs->wi;
+                    const Medium* before = r.medium;
+                    if (rec.matPtr->isMediumBoundary()) {   // a body standing in the fog: the medium changes as the ray enters or leaves it
+                        const bool wiOnRaySide = glm::dot(wi, rec.gn) > 0;
+                        rec.medium = (wiOnRaySide == rec.frontFace) ? rec.matPtr->mediumOutside() : rec.matPtr->mediumInside();
+                    }
+                    Vtx v = {};
+                    v.p[0] = float(rec.p.x); v.p[1] = float(rec.p.y); v.p[2] = float(rec.p.z);
+                    v.n[0] = float(rec.gn.x); v.n[1] = float(rec.gn.y); v.n[2] = float(rec.gn.z);
+                    v.W = float(W);
+                    v.tIn = float(std::exp(-m_sigT * lenInMedium));
+                    v.surface = 1;
+                    v.spec = 1;
+                    v.inFog = before ? 1 : 0;
+                    out.push_back(v);
+                    lenInMedium = 0;
+                    if (rec.medium) r = Ray(rec.p, wi, constants::RAY_EPSILON, rec.medium);
+                    else r = rec.SpawnRay(wi);
+                    continue;
+                }
                 // a diffuse surface: absorbed with probability 1 - rho, else a cosine-weighted bounce
                 if (sampling::Random() >= m_rho) return;
                 Vtx v = {};
@@ -254,9 +304,9 @@ namespace rayt {
             }
         }
 
-        void traceLightPath(std::vector<Vtx>& Z) const {
+        void traceLightPath(std::vector<Vtx>& Z, SampledWavelengths& lam) const {
             const Vector3 dir = m_light.sampleEmissionDir(Point2(sampling::Random(), sampling::Random()));
-            walk(Ray(m_lightPos, dir, constants::RAY_EPSILON, nullptr), Z);
+            walk(Ray(m_lightPos, dir, constants::RAY_EPSILON, nullptr), Z, lam);
         }
 
         /// Transmittance (scalar) of the straight segment from `a` (travelling in `mediumAtA`) to `b`; zero if a surface is in the way.
@@ -290,8 +340,10 @@ namespace rayt {
         /**
          * Contribution f(x) / D(x) of the path x_1..x_n (X[0..n-1], from the light to the camera), without the light's spectrum.
          * Tedge[0..n]: transmittance of the edges light -> x_1, x_1 -> x_2, ..., x_n -> camera.
+         * sActual: the strategy that made the path (x_1..x_s from the light, the rest from the camera): it decides which cosine a specular
+         * vertex's weight is paired with.
          */
-        Real pathContribution(const Vtx* X, int n, const Real* Tedge) const {
+        Real pathContribution(const Vtx* X, int n, const Real* Tedge, int sActual) const {
             constexpr int kMax = 40;
             if (n < 1 || n + 2 > kMax) return Real(0);
             Point3 P[kMax];
@@ -317,7 +369,7 @@ namespace rayt {
                 if (v.surface) {
                     const Vector3 nk = nrm(v);
                     const Real a = glm::dot(nk, dir[k - 1]), b = glm::dot(nk, dir[k]);
-                    if (a * b >= 0) return Real(0);                          // not a reflection
+                    if (!v.spec && a * b >= 0) return Real(0);               // a diffuse surface reflects; glass also refracts
                     cin[k] = std::abs(a); cout_[k] = std::abs(b);
                 }
                 else { cin[k] = Real(1); cout_[k] = Real(1); }
@@ -335,7 +387,12 @@ namespace rayt {
             // vertex factors and the densities of the direction a vertex scatters into, seen from the light (F) and from the camera (C)
             Real fv[kMax], scatF[kMax], scatC[kMax];
             for (int k = 1; k <= n; ++k) {
-                if (X[k - 1].surface) {
+                if (X[k - 1].spec) {
+                    fv[k] = Real(0);   // unused: the weight W replaces fv cin cout (below)
+                    scatF[k] = Real(1);
+                    scatC[k] = Real(1);
+                }
+                else if (X[k - 1].surface) {
                     fv[k] = X[k - 1].rho / constants::PI;
                     scatF[k] = cout_[k] / constants::PI;
                     scatC[k] = cin[k] / constants::PI;
@@ -352,14 +409,17 @@ namespace rayt {
 
             Real f = w;
             for (int i = 0; i <= n; ++i) f *= T[i] / d2[i];
-            for (int k = 1; k <= n; ++k) f *= fv[k] * cin[k] * cout_[k];
+            for (int k = 1; k <= n; ++k) {
+                if (X[k - 1].spec) f *= Real(X[k - 1].W) * (k <= sActual ? cin[k] : cout_[k]);   // f / p of the sampling gives W
+                else f *= fv[k] * cin[k] * cout_[k];
+            }
 
             // densities of the vertices when sampled from the light (F) and from the camera (C)
             Real pdfF[kMax], pdfC[kMax];
             for (int i = 1; i <= n; ++i) {
-                const bool surf = X[i - 1].surface != 0;
-                pdfF[i] = scatF[i - 1] * (surf ? X[i - 1].rho * cin[i] : m_sigS) * T[i - 1] / d2[i - 1];
-                pdfC[i] = scatC[i + 1] * (surf ? X[i - 1].rho * cout_[i] : m_sigS) * T[i] / d2[i];
+                const bool surf = X[i - 1].surface != 0, spec = X[i - 1].spec != 0;
+                pdfF[i] = scatF[i - 1] * (spec ? cin[i] : surf ? X[i - 1].rho * cin[i] : m_sigS) * T[i - 1] / d2[i - 1];
+                pdfC[i] = scatC[i + 1] * (spec ? cout_[i] : surf ? X[i - 1].rho * cout_[i] : m_sigS) * T[i] / d2[i];
             }
             // p_s = prod_{i <= s} pdfF[i] * prod_{i > s} pdfC[i]
             Real suffix[kMax];
@@ -370,6 +430,8 @@ namespace rayt {
             for (int sIdx = 0; sIdx <= n; ++sIdx) {
                 if (sIdx > 0) prefix *= pdfF[sIdx];
                 if (sIdx > M || n - sIdx > M) continue;                         // this strategy cannot make a path of this length
+                // a connection cannot end at a specular vertex (nor can the light or the camera be connected to one)
+                if (sIdx == 0 ? X[0].spec : sIdx == n ? X[n - 1].spec : (X[sIdx - 1].spec || X[sIdx].spec)) continue;
                 if (sIdx == 0 && !m_P.useNee) continue;
                 if (sIdx == n && !m_P.useLightTracing) continue;
                 if (sIdx > 0 && sIdx < n && !m_P.useConnections) continue;
@@ -384,19 +446,20 @@ namespace rayt {
         // ------------------------------------------------------------------------------------------------
         // Light tracing (s = n): every vertex of a light path is connected to the camera
         // ------------------------------------------------------------------------------------------------
-        void lightTrace(const std::vector<Vtx>& Z, std::vector<Vector3>& splat) const {
-            const SampledWavelengths lam = makeLambda();
+        void lightTrace(const std::vector<Vtx>& Z, const SampledWavelengths& lam, std::vector<Vector3>& splat) const {
+            if (m_P.lightTraceOnlyAfterGlass && !Z[0].spec) return;
             const Spectrum I = m_light.intensity(lam);
             Real T[40];
             for (size_t s = 1; s <= Z.size(); ++s) {
                 const Vtx& v = Z[s - 1];
+                if (v.spec) continue;                                            // the camera cannot be connected to glass
                 Real sx, sy, cosCam, dist;
                 if (!m_cam.project(pos(v), sx, sy, cosCam, dist)) continue;
                 for (size_t i = 0; i < s; ++i) T[i] = Z[i].tIn;
                 const Point3 pa = anchor(v, m_camPos);
                 T[s] = transmittanceBetween(pa, mediumOf(v), m_camPos, lam);
                 if (!(T[s] > 0)) continue;
-                const Real c = pathContribution(Z.data(), static_cast<int>(s), T);
+                const Real c = pathContribution(Z.data(), static_cast<int>(s), T, static_cast<int>(s));
                 if (c <= Real(0)) continue;
                 const Vector3 rgb = SpectrumToRGB(I * c, lam);
                 if (math::hasNonFinite(rgb)) continue;
@@ -413,10 +476,10 @@ namespace rayt {
             const Real u = (Real(i) + sampling::Random()) / Real(m_P.width);
             const Real v = (Real(j) + sampling::Random()) / Real(m_P.height);
             const Ray ray = m_cam.getRay(u, v, Point2(0.5, 0.5));
-            walk(ray, Y);
+            SampledWavelengths lam = makeLambda();
+            walk(ray, Y, lam);
             if (Y.empty()) return Vector3(0.0);
 
-            const SampledWavelengths lam = makeLambda();
             const Spectrum I = m_light.intensity(lam);
             Spectrum acc(0.0);
 
@@ -431,6 +494,7 @@ namespace rayt {
             const int nY = static_cast<int>(Y.size());
             for (int t = 1; t <= nY; ++t) {
                 const Vtx& yt = Y[t - 1];
+                if (yt.spec) continue;                                           // nothing can be connected to glass
                 // edges of the camera part, from the connection end to the camera: x_{s+j} -- x_{s+j+1} is the edge recorded at y_{t-j+1}
                 // ---- s = 0: next event estimation from y_t ----
                 if (m_P.useNee) {
@@ -442,7 +506,7 @@ namespace rayt {
                             X.clear();
                             for (int q = t - 1; q >= 0; --q) X.push_back(Y[q]);
                             for (int jj = 1; jj <= t; ++jj) T[jj] = Y[t - jj].tIn;
-                            acc += I * pathContribution(X.data(), t, T);
+                            acc += I * pathContribution(X.data(), t, T, 0);
                         }
                     }
                 }
@@ -450,6 +514,7 @@ namespace rayt {
                 for (size_t q = lb; q < le; ++q) {
                     const int s = static_cast<int>(q - lb) + 1;
                     const Vtx& zs = m_verts[q];
+                    if (zs.spec) continue;
                     const Real Tc = connectEdge(zs, yt, lam);
                     if (!(Tc > Real(0))) continue;
                     X.clear();
@@ -458,7 +523,7 @@ namespace rayt {
                     for (int e = 0; e < s; ++e) T[e] = m_verts[lb + e].tIn;
                     T[s] = Tc;
                     for (int jj = 1; jj <= t; ++jj) T[s + jj] = Y[t - jj].tIn;
-                    acc += I * pathContribution(X.data(), s + t, T);
+                    acc += I * pathContribution(X.data(), s + t, T, s);
                 }
             }
             const Vector3 rgb = SpectrumToRGB(acc, lam);

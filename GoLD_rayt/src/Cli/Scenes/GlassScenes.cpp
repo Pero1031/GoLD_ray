@@ -209,6 +209,14 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
         lamp = std::make_shared<PointLight>(Point3(-0.6, 0.12, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight));
         lamp->setCone(Vector3(0.7, -0.24, 0.0), glm::radians(Real(opt.spotDeg)));
     }
+    if (opt.spotGlass) {   // a glass ball in the fog: it focuses the spot into a caustic cone (light tracing finds it; the photon map does as well)
+        auto ball = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+        ball->setBoundaryMedia(nullptr, fog.get());
+        out.world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.04), ball));
+        out.keepAlive.push_back(ball);
+        out.causticTarget.center = Point3(0.0);
+        out.causticTarget.radius = Real(0.042);
+    }
     out.lights.push_back(lamp);
     out.keepAlive.push_back(fog);
     out.bptLight = lamp.get();

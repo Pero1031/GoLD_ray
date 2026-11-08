@@ -18,7 +18,7 @@ ImageSize ComputeImageSize(const CliOptions& opt) {
 int RenderScene(CliOptions& opt) {
     const SceneDef* def = FindScene(opt.scene);
     if (!def) { std::cerr << "[Scene] unknown scene: " << opt.scene << "\n"; return 1; }
-    if (opt.scene == "fogbeam") opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
+    if (opt.scene == "fogbeam" || (opt.scene == "fogspot" && opt.spotGlass)) opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
     const ImageSize size = ComputeImageSize(opt);
     const int imageWidth = size.width;
     const int imageHeight = size.height;
@@ -97,6 +97,7 @@ int RenderScene(CliOptions& opt) {
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
     if (opt.scene == "fogbeam" && nCausticPhotons < 0) nCausticPhotons = 20000000;
+    if (opt.scene == "fogspot" && opt.spotGlass && !opt.lvc && nCausticPhotons < 0) nCausticPhotons = 20000000;   // path tracing's reference needs the photons
     if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
     if (opt.scene == "manifold") {
         if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
@@ -104,7 +105,7 @@ int RenderScene(CliOptions& opt) {
         else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
     }
     if (causticMethod == "none") nCausticPhotons = 0;
-    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold" || opt.scene == "fogbeam") && nCausticPhotons > 0) {
+    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold" || opt.scene == "fogbeam" || opt.scene == "fogspot") && nCausticPhotons > 0) {
         causticParams.numPhotons = nCausticPhotons;
         causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
         causticParams.targetCenter = setup.causticTarget.center;
@@ -115,7 +116,7 @@ int RenderScene(CliOptions& opt) {
             causticParams.traceWidth = imageWidth;
             causticParams.traceHeight = imageHeight;
             traceOn = true;
-            causticParams.traceMedia = (opt.scene == "fogbeam");   // the photons go on through the fog and are connected to the camera there
+            causticParams.traceMedia = (opt.scene == "fogbeam" || opt.scene == "fogspot");   // the photons go on through the fog and are connected to the camera there
         }
         causticMap.build(*scene, causticParams);
         causticOn = true;

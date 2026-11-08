@@ -230,11 +230,146 @@ static bool RunLvcCase(const CliOptions& opt, bool withFloor) {
     return allPassed;
 }
 
+// A glass ball in the fog, lit by a spot: the light that the ball focuses into the fog (L S S M ...) found by the light tracing of VolumeBPT,
+// against the light tracing of the caustic photon map (traceMedia), an independent implementation that was checked against path tracing.
+// Both count the paths whose first vertex from the light is the glass, and connect every later fog vertex to the camera.
+static bool RunLvcGlassCase(const CliOptions& opt) {
+    const int W = 48, H = 27;
+    auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+    auto fog = std::make_shared<HomogeneousMedium>(Real(3), Real(0.9), PhaseFunction(Real(0.5)));
+    boundary->setMedium(fog);
+    auto ball = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+    ball->setBoundaryMedia(nullptr, fog.get());   // the ball stands in the fog: nothing inside it, fog again outside
+    auto world = std::make_shared<Aggregate>();
+    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
+    const Real Rg = 0.04;
+    world->add(std::make_shared<Sphere>(Point3(0.0), Rg, ball));
+    auto lamp = std::make_shared<PointLight>(Point3(-0.6, 0.0, 0.0), RgbColor(1.0, 1.0, 1.0), Real(60));
+    lamp->setCone(Vector3(1, 0, 0), glm::radians(Real(6)));
+    auto scene = std::make_shared<Scene>(world);
+    scene->addLight(lamp);
+    scene->finalize("uniform");
+    const Point3 from(0.0, 0.62, 0.001);
+    auto cam = std::make_shared<Camera>(from, Point3(0, 0, 0), Vector3(0, 0, -1), 28.0, double(W) / H, 0.0, glm::length(from));
+
+    // the reference: the photon map's light tracing (its splat image is the caustic part of the picture)
+    CausticPhotonParams P;
+    P.numPhotons = static_cast<long long>(opt.spp) * 100000;
+    P.radius = Real(0.003);
+    P.targetCenter = Point3(0.0);
+    P.targetRadius = Rg * Real(1.05);
+    P.lightTraceCamera = cam.get();
+    P.traceWidth = W;
+    P.traceHeight = H;
+    P.traceMedia = true;
+    CausticPhotonMap map;
+    map.build(*scene, P);
+    const std::vector<Vector3>& splat = map.splat();
+
+    auto blockMeans = [&](const Vector3* d, std::vector<double>& out, double& total) {
+        const int bx = 6, by = 3;
+        out.assign(bx * by, 0.0);
+        total = 0;
+        for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
+            const double v = d[static_cast<size_t>(y) * W + x].y;
+            out[(y / (H / by)) * bx + x / (W / bx)] += v / double((W / bx) * (H / by));
+            total += v / double(W * H);
+        }
+    };
+    std::vector<double> refB; double refTotal;
+    blockMeans(splat.data(), refB, refTotal);
+    double refMax = 0; for (double v : refB) refMax = std::max(refMax, v);
+    std::cout << "[Lvc] glass ball in fog: caustic of the photon map (light tracing): mean G " << refTotal << ", brightest block " << refMax << "\n";
+
+    VolumeBptParams bp;
+    bp.width = W; bp.height = H; bp.spp = 1; bp.lightPaths = static_cast<long long>(opt.spp) * 200000; bp.maxVertices = 12;
+    bp.useNee = false; bp.useConnections = false; bp.useLightTracing = true; bp.lightTraceOnlyAfterGlass = true;
+    Film f(W, H);
+    std::cout << "[Lvc] light tracing through the glass (specular vertices)\n";
+    VolumeBPT(*scene, *cam, *lamp, *fog, bp).render(f);
+    std::vector<double> b; double total;
+    blockMeans(f.getData(), b, total);
+    double worst = 0; int bad = 0;
+    for (size_t i = 0; i < b.size(); ++i) {
+        if (refB[i] < 0.05 * refMax) continue;
+        const double e = std::abs(b[i] - refB[i]) / refB[i];
+        worst = std::max(worst, e);
+        if (e > 0.15) ++bad;
+    }
+    const double ratio = total / refTotal;
+    const bool ok = std::abs(ratio - 1.0) < 0.04 && bad == 0;
+    std::cout << "[Lvc]   mean G " << total << "  ratio to the photon map " << ratio << "  worst bright block off by " << 100 * worst << " %" << (ok ? "   OK" : "   FAIL") << "\n";
+    // ---- the whole picture: path tracing (next event estimation in the fog) + the photon map's light tracing, against VolumeBPT with its
+    // strategies. The camera rays that meet the ball are left out: there the reference cannot make the paths that VolumeBPT makes (light that
+    // the ball focuses into the fog behind it, seen through the ball). ----
+    Film ref(W, H);
+    PathIntegrator pt(cam, 32, opt.spp * 64);
+    pt.setCausticMap(&map);
+    pt.setMediaNee(true);
+    pt.render(*scene, ref);
+    std::vector<Vector3> refImg(static_cast<size_t>(W) * H);
+    for (size_t i = 0; i < refImg.size(); ++i) refImg[i] = ref.getData()[i] + splat[i];
+    int bx0 = W, bx1 = -1, by0 = H, by1 = -1;   // the pixels that see the ball
+    for (const Point3& q : { Point3(-Rg, 0, -Rg), Point3(Rg, 0, -Rg), Point3(-Rg, 0, Rg), Point3(Rg, 0, Rg), Point3(0, Rg, 0), Point3(0, -Rg, 0) }) {
+        Real sx, sy, cc, dd;
+        if (!cam->project(q, sx, sy, cc, dd)) continue;
+        bx0 = std::min(bx0, int(sx * W)); bx1 = std::max(bx1, int(sx * W));
+        by0 = std::min(by0, H - 1 - int(sy * H)); by1 = std::max(by1, H - 1 - int(sy * H));
+    }
+    const int bxN = 6, byN = 3;
+    auto blocks2 = [&](const Vector3* d, std::vector<double>& out, std::vector<char>& used, double& total) {
+        out.assign(bxN * byN, 0.0);
+        used.assign(bxN * byN, 1);
+        total = 0;
+        int count = 0;
+        for (int by = 0; by < byN; ++by) for (int bx = 0; bx < bxN; ++bx) {
+            const int xa = bx * (W / bxN), xb = xa + W / bxN - 1, ya = by * (H / byN), yb = ya + H / byN - 1;
+            if (xb >= bx0 && xa <= bx1 && yb >= by0 && ya <= by1) used[by * bxN + bx] = 0;   // sees the ball
+        }
+        for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) {
+            const double v = d[static_cast<size_t>(y) * W + x].y;
+            const int bi = (y / (H / byN)) * bxN + x / (W / bxN);
+            out[bi] += v / double((W / bxN) * (H / byN));
+            if (used[bi]) { total += v; ++count; }
+        }
+        total /= double(std::max(count, 1));
+    };
+    std::vector<double> rb; std::vector<char> ru; double rtot;
+    blocks2(refImg.data(), rb, ru, rtot);
+    double rmax = 0; for (size_t i = 0; i < rb.size(); ++i) if (ru[i]) rmax = std::max(rmax, rb[i]);
+    std::cout << "[Lvc] glass ball in fog, whole picture (blocks without the ball): reference mean G " << rtot << ", brightest block " << rmax << "\n";
+    struct Case2 { const char* name; int mask; };
+    bool okAll = ok;
+    for (const Case2& c : { Case2{ "connections + light tracing (s > 0)", 6 }, Case2{ "all strategies, balance heuristic", 7 } }) {
+        VolumeBptParams bq;
+        bq.width = W; bq.height = H; bq.spp = opt.spp * 8; bq.lightPaths = static_cast<long long>(opt.spp) * 50000; bq.maxVertices = 10;
+        bq.useNee = (c.mask & 1) != 0; bq.useConnections = (c.mask & 2) != 0; bq.useLightTracing = (c.mask & 4) != 0;
+        Film g(W, H);
+        std::cout << "[Lvc] " << c.name << "\n";
+        VolumeBPT(*scene, *cam, *lamp, *fog, bq).render(g);
+        std::vector<double> gb; std::vector<char> gu; double gtot;
+        blocks2(g.getData(), gb, gu, gtot);
+        double worst2 = 0; int bad2 = 0;
+        for (size_t i = 0; i < gb.size(); ++i) {
+            if (!ru[i] || rb[i] < 0.05 * rmax) continue;
+            const double e = std::abs(gb[i] - rb[i]) / rb[i];
+            worst2 = std::max(worst2, e);
+            if (e > 0.20) ++bad2;
+        }
+        const double ratio2 = gtot / rtot;
+        const bool ok2 = std::abs(ratio2 - 1.0) < 0.03 && bad2 == 0;
+        okAll = okAll && ok2;
+        std::cout << "[Lvc]   mean G " << gtot << "  ratio to the reference " << ratio2 << "  worst bright block off by " << 100 * worst2 << " %" << (ok2 ? "   OK" : "   FAIL") << "\n";
+    }
+    return okAll;
+}
+
 int RunLvcTests(const CliOptions& opt) {
     const bool a = RunLvcCase(opt, false);
     const bool b = RunLvcCase(opt, true);
-    std::cout << "[Lvc] RESULT: " << ((a && b) ? "PASS" : "FAIL") << "\n";
-    return (a && b) ? 0 : 2;
+    const bool c = RunLvcGlassCase(opt);
+    std::cout << "[Lvc] RESULT: " << ((a && b && c) ? "PASS" : "FAIL") << "\n";
+    return (a && b && c) ? 0 : 2;
 }
 
 } // namespace rayt::cli
