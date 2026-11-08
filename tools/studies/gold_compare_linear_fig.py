@@ -84,7 +84,7 @@ def main():
         y = head + r * (ph + gap)
         for c, im in enumerate((a, b, m1, m2)):
             canvas.paste(Image.fromarray(im).resize((pw, ph), Image.LANCZOS), (gap + c * (pw + gap), y))
-        for c, text in ((0, LABEL.get(light, light)), (2, f"bowl mean {st[0]:.1f}"), (3, f"bowl mean {st[1]:.1f}   > 2.3: {st[3]:.0f} % of px")):
+        for c, text in ((0, LABEL.get(light, light)), (2, f"bowl mean {st[0]:.1f}"), (3, f"bowl mean {st[1]:.1f}   > 1: {st[2]:.0f} % of px")):
             over = Image.new("RGBA", (pw, 26), (0, 0, 0, 150))
             canvas.paste(over, (gap + c * (pw + gap), y + ph - 26), over)
             d.text((gap + c * (pw + gap) + 8, y + ph - 23), text, font=font(16), fill=(255, 255, 255))

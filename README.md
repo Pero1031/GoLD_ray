@@ -54,14 +54,16 @@ displayed images (Reinhard, sRGB, clipped to the display range).
 
 ![The gold bowl under three lights: RGB renderer, spectral renderer, and the CIEDE2000 difference of the linear renders and of the displayed images](docs/img/gold_rgb_vs_spectral.png)
 
-| Light | ΔE00, linear renders (mean) | ΔE00, displayed images (mean) | Displayed pixels with ΔE00 > 2.3 |
+| Light | ΔE00, linear renders (mean) | ΔE00, displayed images (mean) | Displayed pixels with ΔE00 > 1 |
 |---|---|---|---|
-| D65 daylight | 1.7 | 1.3 | 8 % |
-| Tungsten (illuminant A) | 3.5 | **2.6** | **59 %** |
-| Candle (1850 K) | **5.6** | 0.9 | 4 % |
+| D65 daylight | 1.7 | 1.3 | 65 % |
+| Tungsten (illuminant A) | 3.5 | **2.6** | **80 %** |
+| Candle (1850 K) | **5.6** | 0.9 | 36 % |
+
+(ΔE00 of about 1 is roughly the smallest difference an observer can see.)
 
 - **Tungsten**: the difference is visible on screen. The spectral gold is yellower and more saturated.
-- **D65**: small, in the bright highlights.
+- **D65**: small, in the bright highlights, close to the visibility level.
 - **Candle**: the largest measured difference, and the smallest one on an sRGB screen. A 1850 K blackbody is outside the
   sRGB gamut; the spectral render gives the gold a clearly negative blue, the RGB render almost none, and an sRGB display
   clips both to 0. **A wider gamut brings the difference back**: written as Display P3 (`--gamut p3`), the same two images

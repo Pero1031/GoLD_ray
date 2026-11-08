@@ -9,8 +9,8 @@ Output: the table below, printed and written to <out.txt>.
 
     python tools/studies/gold_compare_gamut.py <dir> <out.txt> d65 tungsten candle
 
-Columns: dE00 mean (and 95th percentile) between the RGB and the spectral image over the bowl; the share of pixels above 1 and above 2.3 (about
-the just-noticeable difference); "outside" = share of the spectral pixels whose color lies outside the gamut (a channel < 0 before the clip);
+Columns: dE00 mean (and 95th percentile) between the RGB and the spectral image over the bowl; the share of pixels above 1 (about the just-noticeable difference
+in dE00; it depends on the viewing conditions) and above 2.3 (the usual dE*ab level, kept for comparison); "outside" = share of the spectral pixels whose color lies outside the gamut (a channel < 0 before the clip);
 "noise" = the same dE00 between the two repeats a and b of one build (each is a single render, so the noise of the averaged images that are
 compared is about 1/sqrt(2) of it; the value is for the displayed, blurred images). The mean dE00 of the linear images (no clip) is gamut independent.
 """
