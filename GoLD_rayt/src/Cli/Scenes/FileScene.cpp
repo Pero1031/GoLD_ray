@@ -130,6 +130,41 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = glass;
             break;
         }
+        case MaterialSpec::Type::Layered: {   // a clear coat over a diffuse or a metal base
+            LayeredCoat::Params lp;
+            lp.ior = Real(m.coatIor);
+            lp.roughness = Real(m.coatRoughness);
+            lp.tint = m.coatTint;
+            lp.samples = m.coatSamples;
+            if (!m.baseIsConductor) {
+                materials[name] = std::make_shared<LayeredCoat>(lp, RgbColor(m.albedo));
+                break;
+            }
+            const std::string path = !m.reflectance.empty() ? m.reflectance
+                : m.table.empty() ? "assets/Metal_data/Johnson_" + m.metal + ".csv" : m.table;
+            // The base metal sits under the coat: its Fresnel reflectance uses the index relative to the coat, so it gets its own table entry.
+            auto& table = tables[path];
+            if (!table) {
+                table = std::make_shared<color::ComplexIorTable>();
+                std::string err;
+                if (!m.reflectance.empty()) {
+                    color::SpectralCurve reflectance;
+                    if (!io::loadReflectanceCsv(path, reflectance, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
+                        return 1;
+                    }
+                    *table = color::complexIorTableFromReflectance(reflectance);
+                }
+                else if (!io::loadComplexIor_RefractiveIndexInfoCsv(path, *table, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": " << path << ": " << err << "\n";
+                    return 1;
+                }
+            }
+            auto base = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(0), Real(m.coatIor));
+            base->setMultipleScattering(m.multipleScattering);
+            materials[name] = std::make_shared<LayeredCoat>(lp, base);
+            break;
+        }
         case MaterialSpec::Type::ThinFilm: {
             FilmThickness th;
             th.base = Real(m.filmThickness);

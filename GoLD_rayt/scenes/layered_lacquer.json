@@ -1,0 +1,165 @@
+// Gold under a lacquer coat. Left to right: bare gold (roughness 0.2), clear coat 0.04, satin coat 0.3, amber-tinted coat 0.04.
+{
+ "options": {
+  "width": 1280,
+  "spp": 192,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   1.6,
+   5.2
+  ],
+  "at": [
+   0,
+   0.4,
+   0
+  ],
+  "fov": 26
+ },
+ "environment": {
+  "type": "hdr",
+  "file": "assets/env/bryanston_park_sunrise_2k.hdr",
+  "scale": 0.7
+ },
+ "materials": {
+  "floor": {
+   "type": "diffuse",
+   "albedo": [
+    0.22,
+    0.2,
+    0.19
+   ]
+  },
+  "softbox": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 6
+  },
+  "gold": {
+   "type": "conductor",
+   "metal": "Au",
+   "roughness": 0.2
+  },
+  "gold_clear": {
+   "type": "layered",
+   "coat": {
+    "ior": 1.5,
+    "roughness": 0.04
+   },
+   "base": {
+    "metal": "Au",
+    "roughness": 0.2
+   }
+  },
+  "gold_satin": {
+   "type": "layered",
+   "coat": {
+    "ior": 1.5,
+    "roughness": 0.3
+   },
+   "base": {
+    "metal": "Au",
+    "roughness": 0.2
+   }
+  },
+  "gold_amber": {
+   "type": "layered",
+   "coat": {
+    "ior": 1.5,
+    "roughness": 0.04,
+    "tint": [
+     1.0,
+     0.72,
+     0.3
+    ]
+   },
+   "base": {
+    "metal": "Au",
+    "roughness": 0.2
+   }
+  }
+ },
+ "objects": [
+  {
+   "shape": "quad",
+   "corner": [
+    -6,
+    0,
+    6
+   ],
+   "edge1": [
+    12,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -12
+   ],
+   "material": "floor"
+  },
+  {
+   "shape": "quad",
+   "corner": [
+    -1.6,
+    3.0,
+    -1.2
+   ],
+   "edge1": [
+    3.2,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    2.4
+   ],
+   "material": "softbox",
+   "light": true
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -1.6500000000000001,
+    0.45,
+    0
+   ],
+   "radius": 0.45,
+   "material": "gold"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.55,
+    0.45,
+    0
+   ],
+   "radius": 0.45,
+   "material": "gold_clear"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.55,
+    0.45,
+    0
+   ],
+   "radius": 0.45,
+   "material": "gold_satin"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    1.6500000000000001,
+    0.45,
+    0
+   ],
+   "radius": 0.45,
+   "material": "gold_amber"
+  }
+ ]
+}

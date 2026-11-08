@@ -29,7 +29,7 @@ struct SpectrumSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered };
     Type type = Type::Diffuse;
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
@@ -37,6 +37,12 @@ struct MaterialSpec {
     std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
+    // layered: a clear coat over a base (Materials/LayeredCoat.hpp). The base reuses albedo (diffuse) or metal / table / reflectance + roughness (conductor).
+    double coatIor = 1.5;
+    double coatRoughness = 0.1;
+    Vector3 coatTint = Vector3(1.0);               //   transmittance of the coat along the normal (1 = clear)
+    int coatSamples = 1;                           //   random walks per evaluation
+    bool baseIsConductor = false;
     double ior = 1.5;                              // dielectric
     double abbe = 0;                               // dielectric: Abbe number (0 = no dispersion)
     std::string sellmeierPreset;                   // dielectric: Sellmeier dispersion of a named glass (diamond, sapphire, bk7, silica) ...

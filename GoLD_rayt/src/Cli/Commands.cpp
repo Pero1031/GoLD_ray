@@ -25,6 +25,7 @@ const std::vector<Command>& Commands() {
         { { "sssrw", "the BSSRDF against a volumetric random walk on a sphere and thin discs (--sssrw-albedo, --sssrw-g, --sssrw-ell, --sssrw-A)" }, [](const CliOptions& o) { return RunSssRandomWalk(o); } },
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
+        { { "layered", "layered coat (clear coat over diffuse / gold): closed form, eval vs sample, energy, reciprocity" }, [](const CliOptions& o) { return RunLayeredTests(o); } },
         { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },
         { { "lvc", "bidirectional path tracing with a cache of light paths in a fog (prototype) against path tracing" }, [](const CliOptions& o) { return RunLvcTests(o); } },
         { { "manifoldtest", "prism caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, false); } },

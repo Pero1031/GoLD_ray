@@ -178,9 +178,11 @@ namespace rayt {
          * @param table Complex IOR table (wavelengths in nm).
          * @param roughness Roughness value [0, 1].
          * @param anisotropy Anisotropy factor [-1, 1] (0 for isotropic).
+         * @param mediumIor Index of the medium the light arrives from (1 = air). A metal under a clear coat of index n works with the
+         *                  relative index (eta + i k) / n: used by LayeredCoat.
          */
         RoughConductor(const std::shared_ptr<const color::ComplexIorTable>& table,
-            Real roughness, Real anisotropy = 0.0) {
+            Real roughness, Real anisotropy = 0.0, Real mediumIor = 1.0) {
             {
                 // RGB reduction of the table: only used for the albedo AOV in spectral mode.
                 Vector3 etaRgb(1.0), kRgb(0.0);
@@ -202,6 +204,15 @@ namespace rayt {
             eta = etaRgb;
             k = kRgb;
 #endif
+            if (mediumIor != Real(1)) {
+#if defined(RAYT_SPECTRAL_MODE)
+                for (auto& e : etaLut) e /= mediumIor;
+                for (auto& kk : kLut) kk /= mediumIor;
+#else
+                eta /= mediumIor;
+                k /= mediumIor;
+#endif
+            }
             initRoughness(roughness, anisotropy);
             initMultipleScattering();
         }

@@ -91,7 +91,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 }
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, dielectric, thinFilm or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -113,6 +113,42 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
         Optional<bool>(m, "multipleScattering", where, s.multipleScattering, ReadBool);
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
+    }
+    else if (type == "layered") {   // "coat": { ior, roughness, tint, samples }, "base": { albedo | metal | table | reflectance, roughness, multipleScattering }
+        CheckKeys(m, { "type", "coat", "base" }, where);
+        s.type = MaterialSpec::Type::Layered;
+        if (m.contains("coat")) {
+            const json& c = m.at("coat");
+            const std::string cw = where + ".coat";
+            if (!c.is_object()) Fail(cw, "must be an object (ior, roughness, tint, samples)");
+            CheckKeys(c, { "ior", "roughness", "tint", "samples" }, cw);
+            Optional<double>(c, "ior", cw, s.coatIor, ReadNumber);
+            Optional<double>(c, "roughness", cw, s.coatRoughness, ReadNumber);
+            if (c.contains("tint")) s.coatTint = ReadColor(c.at("tint"), cw + ".tint");
+            double smp = s.coatSamples;
+            Optional<double>(c, "samples", cw, smp, ReadNumber);
+            s.coatSamples = int(smp);
+            if (!(s.coatIor >= 1.0 && s.coatIor <= 3.0)) Fail(cw + ".ior", "must be between 1 and 3");
+            if (s.coatRoughness < 0 || s.coatRoughness > 1) Fail(cw + ".roughness", "must be between 0 and 1");
+            for (int k = 0; k < 3; ++k) if (s.coatTint[k] < 0 || s.coatTint[k] > 1) Fail(cw + ".tint", "must be between 0 and 1");
+            if (s.coatSamples < 1 || s.coatSamples > 64) Fail(cw + ".samples", "must be between 1 and 64");
+        }
+        if (!m.contains("base")) Fail(where, "needs a \"base\" (albedo, or metal / table / reflectance)");
+        const json& b = m.at("base");
+        const std::string bw = where + ".base";
+        if (!b.is_object()) Fail(bw, "must be an object (albedo, or metal / table / reflectance, with roughness)");
+        CheckKeys(b, { "albedo", "metal", "table", "reflectance", "roughness", "multipleScattering" }, bw);
+        if (b.contains("albedo")) s.albedo = ReadColor(b.at("albedo"), bw + ".albedo");
+        Optional<std::string>(b, "metal", bw, s.metal, ReadString);
+        Optional<std::string>(b, "table", bw, s.table, ReadString);
+        Optional<std::string>(b, "reflectance", bw, s.reflectance, ReadString);
+        const int kinds = int(b.contains("albedo")) + int(!s.metal.empty()) + int(!s.table.empty()) + int(!s.reflectance.empty());
+        if (kinds != 1) Fail(bw, "needs exactly one of \"albedo\" (diffuse), \"metal\" (Au, Ag or Cu), \"table\" or \"reflectance\"");
+        s.baseIsConductor = !b.contains("albedo");
+        if (!s.metal.empty() && s.metal != "Au" && s.metal != "Ag" && s.metal != "Cu") Fail(bw + ".metal", "must be Au, Ag or Cu");
+        Optional<double>(b, "roughness", bw, s.roughness, ReadNumber);
+        Optional<bool>(b, "multipleScattering", bw, s.multipleScattering, ReadBool);
+        if (s.roughness < 0 || s.roughness > 1) Fail(bw + ".roughness", "must be between 0 and 1");
     }
     else if (type == "dielectric") {
         CheckKeys(m, { "type", "ior", "roughness", "abbe", "sellmeier", "medium" }, where);
@@ -285,7 +321,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, dielectric, thinFilm or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm or emission");
     }
     return s;
 }

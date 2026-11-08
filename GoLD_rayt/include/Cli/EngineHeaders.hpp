@@ -42,6 +42,7 @@
 
 // Materials and lights
 #include "Materials/CoatedDiffuse.hpp"
+#include "Materials/LayeredCoat.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/Lambertian.hpp"
