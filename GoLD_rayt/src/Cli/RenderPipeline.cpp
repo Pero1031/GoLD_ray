@@ -18,6 +18,7 @@ ImageSize ComputeImageSize(const CliOptions& opt) {
 int RenderScene(CliOptions& opt) {
     const SceneDef* def = FindScene(opt.scene);
     if (!def) { std::cerr << "[Scene] unknown scene: " << opt.scene << "\n"; return 1; }
+    if (opt.scene == "fogbeam") opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
     const ImageSize size = ComputeImageSize(opt);
     const int imageWidth = size.width;
     const int imageHeight = size.height;
@@ -95,6 +96,7 @@ int RenderScene(CliOptions& opt) {
     std::vector<Vector3> traceSum;         // the light-traced images of all photon sets (summed)
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
+    if (opt.scene == "fogbeam" && nCausticPhotons < 0) nCausticPhotons = 20000000;
     if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
     if (opt.scene == "manifold") {
         if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
@@ -102,7 +104,7 @@ int RenderScene(CliOptions& opt) {
         else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
     }
     if (causticMethod == "none") nCausticPhotons = 0;
-    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold") && nCausticPhotons > 0) {
+    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold" || opt.scene == "fogbeam") && nCausticPhotons > 0) {
         causticParams.numPhotons = nCausticPhotons;
         causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
         causticParams.targetCenter = setup.causticTarget.center;
@@ -113,6 +115,7 @@ int RenderScene(CliOptions& opt) {
             causticParams.traceWidth = imageWidth;
             causticParams.traceHeight = imageHeight;
             traceOn = true;
+            causticParams.traceMedia = (opt.scene == "fogbeam");   // the photons go on through the fog and are connected to the camera there
         }
         causticMap.build(*scene, causticParams);
         causticOn = true;
@@ -150,6 +153,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.causticTrace) std::cout << "[Caustics] --caustic-trace needs the photon map (--caustics N > 0, caustic method photons): ignored\n";
     integrator->setSpecularNee(specularNee.get());
+    if (opt.scene == "fogbeam") integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
     if (causticPasses > 1)
@@ -188,7 +192,7 @@ int RenderScene(CliOptions& opt) {
         for (int y = 0; y < imageHeight; ++y)
             for (int x = 0; x < imageWidth; ++x) {
                 const size_t i = static_cast<size_t>(y) * static_cast<size_t>(imageWidth) + static_cast<size_t>(x);
-                film.setPixel(x, y, film.getData()[i] + traceSum[i] * inv);
+                film.setPixel(x, y, (opt.causticTraceOnly ? Vector3(0.0) : film.getData()[i]) + traceSum[i] * inv);
             }
     }
     if (setup.afterRender) setup.afterRender({ *scene, *camera, film, *integrator });

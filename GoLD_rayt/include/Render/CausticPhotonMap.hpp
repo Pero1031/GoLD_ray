@@ -65,13 +65,16 @@
 #include "Lights/LightSampler.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Medium.hpp"
+#include "Render/Transmittance.hpp"
 #include "Color/SpectralConversion.hpp"
 
 namespace rayt {
 
-    /// Photons are traced and gathered in air and inside purely absorbing media (their transmittance is a weight); a scattering
-    /// medium is not traced, so neither tracing nor gathering happens inside one.
-    inline bool photonsAllowedIn(const Medium* medium) { return !medium || medium->attenuatesContinuously(); }
+    /// Photons are traced and gathered in air and inside purely absorbing media (their transmittance is a weight). A scattering medium is
+    /// traced only when the map traces media (CausticPhotonParams::traceMedia) and the medium is gray (the same for every wavelength).
+    inline bool photonsAllowedIn(const Medium* medium, bool mediaTraced = false) {
+        return !medium || medium->attenuatesContinuously() || (mediaTraced && medium->isSpectrallyConstant());
+    }
 
     struct CausticPhotonParams {
         long long numPhotons = 1000000;   ///< photons emitted (the number stored is smaller: misses and direct light are dropped)
@@ -91,6 +94,12 @@ namespace rayt {
         /// splatted into an image of traceWidth x traceHeight pixels (CausticPhotonMap::splat()). The camera is treated as a pinhole.
         const Camera* lightTraceCamera = nullptr;
         int traceWidth = 0, traceHeight = 0;
+
+        /// Volumetric caustics (needs lightTraceCamera): a photon goes on through a gray scattering medium (delta tracking), and every real
+        /// scattering event after at least one specular bounce (L S+ M) is connected to the camera. Null interfaces (a fog boundary) are
+        /// crossed without counting as a bounce, and the connections cross them too. A photon that scatters before its first specular bounce
+        /// is dropped: light that reaches the medium directly is left to the camera paths (PathIntegrator::setMediaNee).
+        bool traceMedia = false;
     };
 
     class CausticPhotonMap {
@@ -107,12 +116,15 @@ namespace rayt {
         Real radius() const { return m_radius; }
         /// Light-traced caustic image (average radiance per pixel, linear RGB), empty unless CausticPhotonParams::lightTraceCamera was set.
         const std::vector<Vector3>& splat() const { return m_splat; }
+        /// True if the photons were traced through scattering media (see CausticPhotonParams::traceMedia).
+        bool tracesMedia() const { return m_tracesMedia; }
         size_t memoryBytes() const { return m_photons.capacity() * sizeof(Photon) + m_start.capacity() * sizeof(uint32_t); }
 
         /// Traces the photons (OpenMP) and builds the grid.
         void build(const Scene& scene, const CausticPhotonParams& P) {
             const auto t0 = std::chrono::steady_clock::now();
             m_radius = P.radius;
+            m_tracesMedia = P.traceMedia && P.lightTraceCamera;
             m_photons.clear();
             m_start.clear();
             std::vector<std::shared_ptr<Light>> lights;   // only the lights whose caustics belong to the photons
@@ -231,6 +243,7 @@ namespace rayt {
         std::vector<uint32_t> m_start;   // bucket b holds photons [m_start[b], m_start[b + 1])
         std::vector<Vector3> m_splat;    // light-traced image (see CausticPhotonParams::lightTraceCamera)
         uint32_t m_mask = 0;
+        bool m_tracesMedia = false;
         Real m_radius = Real(0.0015);
 
         static Real luminance(const Vector3& c) { return Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z; }
@@ -277,14 +290,47 @@ namespace rayt {
             if (cosX * glm::dot(rec.gn, wiLight) <= Real(0)) return;   // reflection only: the camera is on the side the photon came from
             const Spectrum f = rec.matPtr->eval(rec, toCam, wiLight, lambda);
             if (isBlack(f)) return;
-            if (scene.occluded(rec.SpawnRay(toCam, dist))) return;      // something between the receiver and the camera
+            Spectrum T(1.0);
+            if (P.traceMedia) {   // fog between the receiver and the camera: attenuation, and its boundary is crossed
+                T = shadowTransmittance(scene, rec.OffsetRayOrigin(toCam), rec.medium, toCam, dist - Real(2) * constants::RAY_EPSILON, lambda, rec.time);
+                if (isBlack(T)) return;
+            }
+            else if (scene.occluded(rec.SpawnRay(toCam, dist))) return;   // something between the receiver and the camera
 
             const Real F = cam.focusDistance();
             const Real w = F * F * Real(P.traceWidth) * Real(P.traceHeight) / (cam.focalPlaneArea() * cosCam * cosCam * cosCam);
-            const Vector3 rgb = SpectrumToRGB(flux * f, lambda) * (std::abs(cosX) * w / (dist * dist));
+            const Vector3 rgb = SpectrumToRGB(flux * f * T, lambda) * (std::abs(cosX) * w / (dist * dist));
             if (math::hasNonFinite(rgb)) return;
             const int px = std::min(P.traceWidth - 1, static_cast<int>(s * Real(P.traceWidth)));
             const int py = P.traceHeight - 1 - std::min(P.traceHeight - 1, static_cast<int>(t * Real(P.traceHeight)));   // the film's rows run top to bottom
+            splat[static_cast<size_t>(py) * static_cast<size_t>(P.traceWidth) + static_cast<size_t>(px)] += rgb;
+        }
+
+        /**
+         * Light tracing in a medium: connects a photon that scatters at `x` (it arrived travelling along `dirIn`, flux `flux`) to the camera.
+         * A scattering event deposits the flux as radiant intensity  flux * phase(cos)  into the direction of the camera; the pixel that sees
+         * the point averages the radiance over its footprint, so (as for a surface, with the phase function in place of  f cos(theta_x) )
+         * the contribution is  flux * phase * T / (Omega_pix d^2),  T the transmittance to the camera.
+         */
+        static void connectMediumToCamera(const Scene& scene, const CausticPhotonParams& P, const Point3& x, const Vector3& dirIn, const Medium& med,
+            const Spectrum& flux, const SampledWavelengths& lambda, std::vector<Vector3>& splat)
+        {
+            const Camera& cam = *P.lightTraceCamera;
+            if (cam.medium()) return;
+            Real s, t, cosCam, dist;
+            if (!cam.project(x, s, t, cosCam, dist) || dist <= Real(0)) return;
+            const Vector3 toCam = (cam.origin() - x) / dist;
+            const Real ph = med.phase(glm::dot(dirIn, toCam));   // travel direction before and after the collision
+            if (ph <= Real(0)) return;
+            const Spectrum T = shadowTransmittance(scene, x, &med, toCam, dist - Real(2) * constants::RAY_EPSILON, lambda);
+            if (isBlack(T)) return;
+
+            const Real F = cam.focusDistance();
+            const Real w = F * F * Real(P.traceWidth) * Real(P.traceHeight) / (cam.focalPlaneArea() * cosCam * cosCam * cosCam);
+            const Vector3 rgb = SpectrumToRGB(flux * T, lambda) * (ph * w / (dist * dist));
+            if (math::hasNonFinite(rgb)) return;
+            const int px = std::min(P.traceWidth - 1, static_cast<int>(s * Real(P.traceWidth)));
+            const int py = P.traceHeight - 1 - std::min(P.traceHeight - 1, static_cast<int>(t * Real(P.traceHeight)));
             splat[static_cast<size_t>(py) * static_cast<size_t>(P.traceWidth) + static_cast<size_t>(px)] += rgb;
         }
 
@@ -335,6 +381,7 @@ namespace rayt {
             // ---- specular chain ----
             Ray r(origin, dir, constants::RAY_EPSILON, nullptr);
             int specularBounces = 0;
+            int mediumEvents = 0, passes = 0;   // scattering events in media; null interfaces crossed (both bounded)
             bool onlyTransmissions = true;   // every specular bounce so far was a transmission
             const Material* firstMaterial = nullptr;    // the materials of the first two specular bounces (for skipTransmissionPairs)
             const Material* secondMaterial = nullptr;
@@ -343,10 +390,44 @@ namespace rayt {
                 if (!scene.hit(r, rec)) return;
 
                 if (r.medium) {
-                    if (!r.medium->attenuatesContinuously()) return;           // a scattering medium: not traced
-                    beta *= r.medium->transmittance(rec.t, lambda);
+                    if (!r.medium->attenuatesContinuously()) {
+                        if (!P.traceMedia || !r.medium->isSpectrallyConstant()) return;   // a scattering medium that is not traced
+                        // Gray scattering medium: delta tracking (null collisions for a density field), as in the camera path's walk.
+                        const Medium& med = *r.medium;
+                        const Real sT = med.sigmaTSpectrum(lambda)[0], sS = med.sigmaSSpectrum(lambda)[0];
+                        Real tCur = 0;
+                        bool scattered = false;
+                        for (;;) {
+                            tCur -= std::log(Real(1) - sampling::Random()) / sT;
+                            if (tCur >= rec.t) break;                          // reaches the surface
+                            if (++mediumEvents > 4096) return;
+                            const Point3 x = r.o + r.d * tCur;
+                            const Real q = med.density(x), u = sampling::Random();
+                            if (u >= q) continue;                              // null collision
+                            if (u * sT >= q * sS) return;                      // absorbed
+                            // A real scattering event. Without a specular bounce before it the photon is direct light of the medium (left to
+                            // the camera paths), and its direction was aimed at the target: drop it.
+                            if (specularBounces == 0) return;
+                            if (P.lightTraceCamera && !splat.empty()) connectMediumToCamera(scene, P, x, r.d, med, power * beta, lambda, splat);
+                            const Point2 uPhase(sampling::Random(), sampling::Random());
+                            r = Ray(x, med.samplePhase(r.d, uPhase), Real(0), &med);
+                            scattered = true;
+                            break;
+                        }
+                        if (scattered) { --depth; continue; }                  // follow the new direction (not a specular bounce)
+                    }
+                    else beta *= r.medium->transmittance(rec.t, lambda);
                 }
                 rec.medium = r.medium;
+
+                // A boundary with no optical effect (the surface of a fog): cross it, switching the medium; not a bounce.
+                if (rec.matPtr->isNullInterface() && ++passes < 256) {
+                    if (rec.matPtr->isMediumBoundary()) rec.medium = rec.frontFace ? rec.matPtr->mediumInside() : rec.matPtr->mediumOutside();
+                    if (rec.medium) { r = Ray(rec.p, r.d, constants::RAY_EPSILON, rec.medium); r.time = rec.time; }
+                    else r = rec.SpawnRay(r.d);
+                    --depth;
+                    continue;
+                }
 
                 const Real opacity = rec.matPtr->opacity(rec);
                 if (opacity < Real(1) && sampling::Random() >= opacity) { r = rec.SpawnRay(r.d); continue; }
@@ -397,9 +478,9 @@ namespace rayt {
                 }
 
                 const Vector3 wi = s->wi;
-                if (const Medium* inner = rec.matPtr->mediumInside()) {
+                if (rec.matPtr->isMediumBoundary()) {
                     const bool wiOnRaySide = glm::dot(wi, rec.gn) > 0;
-                    rec.medium = (wiOnRaySide == rec.frontFace) ? nullptr : inner;
+                    rec.medium = (wiOnRaySide == rec.frontFace) ? rec.matPtr->mediumOutside() : rec.matPtr->mediumInside();
                 }
                 if (rec.medium) {
                     r = Ray(rec.p, wi, constants::RAY_EPSILON, rec.medium);

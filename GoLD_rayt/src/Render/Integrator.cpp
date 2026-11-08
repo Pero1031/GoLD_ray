@@ -172,7 +172,7 @@ namespace rayt {
 
             // ========== Participating medium ==========
             if (r.medium) {
-                const MediumStep step = advanceInMedium(r, hit, hit ? rec.t : constants::INFINITY_VAL, st, lambda);
+                const MediumStep step = advanceInMedium(r, scene, hit, hit ? rec.t : constants::INFINITY_VAL, st, lambda);
                 if (step == MediumStep::Ended) break;
                 if (step == MediumStep::Scattered) {
                     --depth;   // a collision in a medium is not a surface bounce
@@ -185,6 +185,13 @@ namespace rayt {
             if (!hit) {
                 addEscapedRadiance(r, scene, lambda, aov, st);
                 break;
+            }
+
+            // A boundary with no optical effect (the surface of a fog): cross it, switching the medium. Not a bounce.
+            if (m_mediaNee && rec.matPtr->isNullInterface() && ++st.passThrough < 64) {
+                r = nextRay(rec, r.d);
+                --depth;
+                continue;
             }
 
             // Translucent layer: with probability 1 - opacity the ray continues straight through.
@@ -230,7 +237,7 @@ namespace rayt {
     // Participating media
     // ------------------------------------------------------------------------------------------------
 
-    PathIntegrator::MediumStep PathIntegrator::advanceInMedium(Ray& r, bool hit, Real tSurface, PathState& st,
+    PathIntegrator::MediumStep PathIntegrator::advanceInMedium(Ray& r, const Scene& scene, bool hit, Real tSurface, PathState& st,
         const SampledWavelengths& lambda) const
     {
         const Medium& med = *r.medium;
@@ -305,11 +312,31 @@ namespace rayt {
 
             // A real scattering collision at tNext.
             const Point3 p = r.o + r.d * tNext;
+            if (m_mediaNee) st.L += st.beta * sampleLightsInMedium(scene, p, r.d, med, lambda);
             const Vector3 dir = med.samplePhase(r.d, Point2(sampling::Random(), sampling::Random()));
+            const Real cosScatter = glm::dot(r.d, dir);
             r = Ray(p, dir, Real(0), &med);   // p is inside the medium: nothing to skip (an epsilon would hide nearby surfaces)
             st.hasLastBsdf = true;
-            st.lastSpecular = true;    // no NEE was done here: a light hit next is not MIS weighted
-            st.fromReceiver = false;   // photons are not traced through scattering media: what follows is counted here
+            if (m_mediaNee) {
+                // Light was sampled here: an emitter that the phase-sampled ray finds next is weighed against it (the phase function is the
+                // density of the direction). A reference point without a normal: gn = 0.
+                st.lastSpecular = false;
+                st.lastPdf = med.phase(cosScatter);
+                st.lastRec = SurfaceInteraction();
+                st.lastRec.p = p;
+                st.lastRec.gn = Vector3(0.0);
+                st.lastRec.n = Vector3(0.0);
+                st.lastRec.medium = &med;
+                // Light tracing accounts for the specular chains that start at a medium vertex that the camera sees straight. A vertex behind
+                // glass cannot be connected to the camera: its chains stay with the camera path.
+                if (!st.sawReceiver && !st.viaSpecular) st.mediumLT = true;
+                st.sawReceiver = true;
+                st.fromReceiver = mediaTraced() && (st.mediumLT || st.fromReceiver);
+            }
+            else {
+                st.lastSpecular = true;    // no NEE was done here: a light hit next is not MIS weighted
+                st.fromReceiver = false;   // photons are not traced through scattering media: what follows is counted here
+            }
             return MediumStep::Scattered;
         }
     }
@@ -390,7 +417,7 @@ namespace rayt {
             if (!rec.matPtr->isSpecular()) {
                 st.L += st.beta * sampleAllLights(scene, rec, -r.d, lambda);
                 // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
-                if (m_caustics && photonsAllowedIn(r.medium) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.L += st.beta * m_caustics->radiance(rec, -r.d, lambda);
+                if (m_caustics && photonsAllowedIn(r.medium, mediaTraced()) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.L += st.beta * m_caustics->radiance(rec, -r.d, lambda);
                 // The same caustic of point lights, solved exactly through a flat-faced glass body (manifold NEE)
                 if (m_specularNee && !r.medium) st.L += st.beta * m_specularNee->sample(scene, rec, -r.d, lambda);
             }
@@ -419,12 +446,15 @@ namespace rayt {
         const Vector3 wi = sample.wi;   // the new direction
         Assert(math::isNormalized(wi) && "BSDF sample direction must be unit length");
 
+        if (sample.isSpecular()) { if (!st.sawReceiver) st.viaSpecular = true; }
+        else st.sawReceiver = true;
+
         st.lastPdf = pdf;
         st.lastSpecular = sample.isSpecular();
         st.hasLastBsdf = true;
         // A non-delta bounce starts a chain that belongs to the photons; a delta lobe of a material that also has
         // diffuse lobes (a coat) is not a photon path (photons only continue through purely specular materials).
-        if (!st.lastSpecular) { if (photonsAllowedIn(rayMedium)) st.fromReceiver = true; }
+        if (!st.lastSpecular) { if (photonsAllowedIn(rayMedium, mediaTraced())) st.fromReceiver = true; }
         else if (!rec.matPtr->isSpecular()) st.fromReceiver = false;
 
         // Is this a specular (delta) bounce?
@@ -465,9 +495,9 @@ namespace rayt {
     Ray PathIntegrator::nextRay(SurfaceInteraction& rec, const Vector3& wi) {
         // A closed boundary with a medium inside: the new direction goes to the inside or the outside.
         // gn faces the incoming ray, frontFace says that this side is the outside of the surface.
-        if (const Medium* inner = rec.matPtr->mediumInside()) {
+        if (rec.matPtr->isMediumBoundary()) {
             const bool wiOnRaySide = glm::dot(wi, rec.gn) > 0;
-            rec.medium = (wiOnRaySide == rec.frontFace) ? nullptr : inner;
+            rec.medium = (wiOnRaySide == rec.frontFace) ? rec.matPtr->mediumOutside() : rec.matPtr->mediumInside();
         }
         if (rec.medium) {
             // The new ray travels in a medium: start exactly on the surface (tMin keeps it from hitting that
@@ -528,7 +558,20 @@ namespace rayt {
         const Real pdfLight = ls->pdf * pSelect;   // density of this NEE sample, w.r.t. solid angle
 
         // ========== Visibility Test ==========
-        if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {
+        Spectrum transmittance(1.0);
+        if (m_mediaNee) {   // null interfaces are crossed, media attenuate
+            const Point3 origin = rec.OffsetRayOrigin(wi);
+            Vector3 dirS = wi;
+            Real tMaxS = constants::INFINITY_VAL;
+            if (std::isfinite(ls->tMax)) {
+                const Vector3 toLight = ls->pLight - origin;
+                const Real dist = glm::length(toLight);
+                if (dist > Real(0)) { dirS = toLight / dist; tMaxS = dist * (Real(1) - Real(1e-4)); }
+            }
+            transmittance = shadowTransmittance(scene, origin, rec.medium, dirS, tMaxS, lambda, rec.time);
+            if (isBlack(transmittance)) return Ld;
+        }
+        else if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {
             return Ld;
         }
 
@@ -549,9 +592,68 @@ namespace rayt {
 
         // ========== Final Contribution ==========
         // Li already includes the geometry term from light sampling.
-        Ld = f * Li * cosTheta * w / pdfLight;
+        Ld = f * Li * transmittance * (cosTheta * w / pdfLight);
 
         return Ld;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Next event estimation in a medium
+    // ------------------------------------------------------------------------------------------------
+
+    Spectrum PathIntegrator::sampleLightsInMedium(const Scene& scene, const Point3& p, const Vector3& dirIn, const Medium& med,
+        const SampledWavelengths& lambda) const
+    {
+        Spectrum Ld(0.0);
+        const LightSampler* sampler = scene.lightSampler();
+        if (!sampler || !sampler->hasLights()) return Ld;
+
+        LightSampleContext ctx;
+        ctx.p = p;
+        ctx.gn = Vector3(0.0);   // a point in a medium has no orientation
+        ctx.medium = &med;
+
+        if (sampler->samplesAll()) {
+            for (size_t i = 0; i < sampler->numLights(); ++i) {
+                const Light* light = sampler->lightAt(i);
+                const Real pm = sampler->pmf(ctx, light);
+                if (pm > Real(0)) Ld += estimateDirectInMedium(scene, p, dirIn, med, lambda, ctx, light, pm);
+            }
+            return Ld;
+        }
+        const auto sampled = sampler->sample(ctx, sampling::Random());
+        if (!sampled || sampled->p <= Real(0)) return Ld;
+        return estimateDirectInMedium(scene, p, dirIn, med, lambda, ctx, sampled->light, sampled->p);
+    }
+
+    Spectrum PathIntegrator::estimateDirectInMedium(const Scene& scene, const Point3& p, const Vector3& dirIn, const Medium& med,
+        const SampledWavelengths& lambda, const LightSampleContext& ctx, const Light* light, Real pSelect) const
+    {
+        auto ls = light->sampleLi(ctx, Point2(sampling::Random(), sampling::Random()), lambda);
+        if (!ls || ls->pdf <= 0 || isBlack(ls->Li)) return Spectrum(0.0);
+
+        const Vector3 wi = ls->wi;
+        const Real pdfLight = ls->pdf * pSelect;
+
+        // The light travels along -wi into the collision and leaves along -dirIn (toward the camera): the angle between those two
+        // travel directions has the cosine dot(wi, dirIn).
+        const Real ph = med.phase(glm::dot(wi, dirIn));
+        if (ph <= Real(0)) return Spectrum(0.0);
+
+        Vector3 dirS = wi;
+        Real tMaxS = constants::INFINITY_VAL;
+        if (std::isfinite(ls->tMax)) {
+            const Vector3 toLight = ls->pLight - p;
+            const Real dist = glm::length(toLight);
+            if (dist > Real(0)) { dirS = toLight / dist; tMaxS = dist * (Real(1) - Real(1e-4)); }
+        }
+        const Spectrum T = shadowTransmittance(scene, p, &med, dirS, tMaxS, lambda);
+        if (isBlack(T)) return Spectrum(0.0);
+
+        Real w = 1.0;
+        if (!ls->isDelta && pdfLight > 0) w = math::powerHeuristic(pdfLight, ph);   // the phase-sampled ray has the density ph
+
+        return ls->Li * T * (ph * w / pdfLight);
     }
 
     bool PathIntegrator::visible(const Scene& scene, const SurfaceInteraction& ref, const Vector3& wi, Real tMax,

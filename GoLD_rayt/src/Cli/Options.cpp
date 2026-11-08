@@ -78,6 +78,11 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--caustic-method") o.causticMethod = value("--caustic-method");
             else if (a == "--caustics") o.causticPhotons = std::stoll(value("--caustics"));
             else if (a == "--caustic-trace") o.causticTrace = true;
+            else if (a == "--caustic-trace-only") { o.causticTrace = true; o.causticTraceOnly = true; }
+            else if (a == "--fog-prism-deg") o.fogPrismDeg = std::stod(value("--fog-prism-deg"));
+            else if (a == "--fog-fill") o.fogFill = std::stod(value("--fog-fill"));
+            else if (a == "--fog-sigma") o.fogSigma = std::stod(value("--fog-sigma"));
+            else if (a == "--fog-light") o.fogLight = std::stod(value("--fog-light"));
             else if (a == "--caustic-passes") o.causticPasses = std::stoi(value("--caustic-passes"));
             else if (a == "--caustic-radius")o.causticRadius = std::stod(value("--caustic-radius"));
             else if (a == "--cam-elev") o.camElev = std::stod(value("--cam-elev"));

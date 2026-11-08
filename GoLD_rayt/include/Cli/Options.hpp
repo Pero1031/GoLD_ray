@@ -158,6 +158,11 @@ struct CliOptions {
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
     std::string gamut = "srgb";            // --gamut srgb|p3|rec2020 : primaries of the written image / .pfm / .hdr (the film stays linear sRGB)
+    Real fogPrismDeg = 21.0;               // --fog-prism-deg : rotation of the prism in the fogbeam scene (degrees)
+    Real fogFill = 0.4;                    // --fog-fill : intensity of the faint fill light in the fogbeam scene (0 = none)
+    Real fogSigma = 1.5;                   // --fog-sigma : extinction of the fog in the fogbeam scene (1/m)
+    Real fogLight = 60.0;                  // --fog-light : intensity of its lamp
+    bool causticTraceOnly = false;         // --caustic-trace-only : write only the light-traced image (to look at it alone)
     bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
     bool cleanAux = false;                // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)

@@ -136,6 +136,63 @@ std::optional<int> BuildManifold(SceneContext& ctx, SceneSetup& out) {
     return std::nullopt;
 }
 
+// --scene fogbeam
+// A point light behind a narrow slit sends a thin sheet of light through a dispersive prism, in a ball of fog (a closed surface with no
+// optical effect around a homogeneous medium). The sheet is lit directly by next event estimation inside the medium; the rainbow fan behind the
+// prism (L S S M) is found by light tracing of the photons, which go on through the fog and are connected to the camera at every collision.
+std::optional<int> BuildFogBeam(SceneContext& ctx, SceneSetup& out) {
+    const CliOptions& opt = ctx.opt;
+    auto& worldList = out.world;
+    const std::string& accel = opt.accel;
+
+    // Metres. The prism stands at the origin, the light travels along +x.
+    auto glass = std::make_shared<Dielectric>(Real(1.55), Real(0.0), Real(0.0), opt.abbe);
+    std::vector<Point2> tri;
+    for (int k = 0; k < 3; ++k) {
+        const Real ang = glm::radians(Real(90 + 120 * k - opt.fogPrismDeg));
+        tri.push_back(Point2(Real(0.035) * std::cos(ang), Real(0.035) * std::sin(ang)));
+    }
+    // (the beam hits a face at 30 degrees when the base is parallel to it; about 51 degrees is the minimum deviation of a 60 degree prism of n = 1.55)
+    TriangleMesh prism = MakePrismMesh(tri, Real(0.07));
+    prism.transform(glm::dmat3(1.0), Vector3(0, -0.035, 0));
+    worldList->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(prism)), glass, accel));
+
+    // The fog: a ball of homogeneous medium inside a null interface (ior 1, smooth).
+    auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+    auto fog = std::make_shared<HomogeneousMedium>(Real(opt.fogSigma), Real(0.95), PhaseFunction(Real(0.3)));
+    boundary->setMedium(fog);
+    worldList->add(std::make_shared<Sphere>(Point3(0.0), Real(0.32), boundary));
+    glass->setBoundaryMedia(nullptr, fog.get());   // the prism stands in the fog: no fog inside the glass, fog again outside
+    out.keepAlive.push_back(fog);
+
+    // The aperture: a black plate at x = -0.42 with a slit 4 mm wide and 2.4 cm high (the sheet is then as tall as the prism where it arrives, 7 cm).
+    auto plate = std::make_shared<Lambertian>(RgbColor(0.0));
+    const Real xp = Real(-0.42), hw = Real(0.002), y0 = Real(-0.012), y1 = Real(0.012), E = Real(0.6);
+    worldList->add(std::make_shared<Quad>(Point3(xp, -E, -E), Vector3(0, 2 * E, 0), Vector3(0, 0, E - hw), plate));            // z < -hw
+    worldList->add(std::make_shared<Quad>(Point3(xp, -E, hw), Vector3(0, 2 * E, 0), Vector3(0, 0, E - hw), plate));            // z > hw
+    worldList->add(std::make_shared<Quad>(Point3(xp, -E, -hw), Vector3(0, y0 + E, 0), Vector3(0, 0, 2 * hw), plate));          // below the slit
+    worldList->add(std::make_shared<Quad>(Point3(xp, y1, -hw), Vector3(0, E - y1, 0), Vector3(0, 0, 2 * hw), plate));          // above the slit
+    out.keepAlive.push_back(plate);
+
+    out.lights.push_back(std::make_shared<PointLight>(Point3(-0.62, 0.0, 0.0), RgbColor(1.0, 0.97, 0.92), Real(opt.fogLight)));
+    // A faint fill light from above lights the fog a little, so that the prism shows as a dark shape in it. It sends no photons: its caustics
+    // (a point light, so nothing can find them by chance) are left out.
+    if (opt.fogFill > 0) {
+        auto fill = std::make_shared<PointLight>(Point3(0.25, 0.45, 0.35), RgbColor(1.0, 0.97, 0.92), Real(opt.fogFill));
+        fill->setPhotonCaustics(false);
+        out.lights.push_back(fill);
+    }
+    out.causticTarget.center = Point3(0.0);
+    out.causticTarget.radius = Real(0.056);   // the prism's bounding sphere (circumradius 0.035, half height 0.035)
+
+    // From above, so that the horizontal fan is seen undistorted (+x to the right, +z down the picture; the fan leaves toward -z).
+    out.camera.from = Point3(0.08, 0.60, -0.068);
+    out.camera.at = Point3(0.08, 0.0, -0.07);
+    out.camera.up = Vector3(0, 0, -1);
+    out.camera.fovDeg = 26.0;
+    return std::nullopt;
+}
+
 // --scene crystal
 std::optional<int> BuildCrystal(SceneContext& ctx, SceneSetup& out) {
     const CliOptions& opt = ctx.opt;

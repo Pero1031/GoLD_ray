@@ -7,12 +7,13 @@
 namespace rayt::cli {
 
 void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth,
-    Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics, const SpecularNee* nee, bool skipDirectCaustics)
+    Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics, const SpecularNee* nee, bool skipDirectCaustics, bool mediaNee)
 {
     PathIntegrator integrator(nullptr, maxDepth, 1);
     integrator.setCausticMap(caustics);
     integrator.setSkipDirectCaustics(skipDirectCaustics);
     integrator.setSpecularNee(nee);
+    integrator.setMediaNee(mediaNee);
     double sx = 0, sy = 0, sz = 0, qx = 0, qy = 0, qz = 0;
     int bad = 0;
 

@@ -33,6 +33,7 @@ void PrintHelp(std::ostream& out) {
         << "  --env FILE        environment map (.hdr)      --light d65|tungsten|candle|led   light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --caustic-trace   with --caustics: light tracing of the caustics on surfaces the camera sees directly (sharp edges, no radius)\n"
+        << "  --fog-sigma S, --fog-light I, --fog-fill F, --fog-prism-deg D   fogbeam scene: extinction of the fog (1/m, default 1.5), intensity of the lamp (60) and of a faint fill light (0.4), rotation of the prism\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"
         << "\n"
         << "The options of single scenes (--sea-steep, --pmx-yaw, --caustics, ...) are listed in include/Cli/Options.hpp.\n"

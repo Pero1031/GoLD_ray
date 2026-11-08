@@ -265,9 +265,20 @@ namespace rayt {
         /// The profile shared by all surfaces light may leave from after entering this one (null = no SSS).
         virtual const SubsurfaceProfile* subsurface() const { return nullptr; }
 
+        /// True for a boundary with no optical effect of its own (index 1, smooth): it only separates a medium from the air. A ray crosses it
+        /// unchanged (the integrators pass through it without counting a bounce), and shadow rays are not blocked by it.
+        virtual bool isNullInterface() const { return false; }
+
         /// The participating medium inside this (closed) surface, or null. The integrator puts a ray that
         /// crosses the surface inwards into this medium and takes it out again when it leaves.
         virtual const Medium* mediumInside() const { return nullptr; }
+
+        /// True if crossing this surface changes the medium of the ray: it then travels in mediumInside() after crossing inwards and in
+        /// mediumOutside() after crossing outwards. (A surface without a boundary medium leaves the ray's medium as it is.)
+        virtual bool isMediumBoundary() const { return mediumInside() != nullptr; }
+
+        /// The medium outside this surface (null = air); only meaningful when isMediumBoundary(). A glass object standing in a fog sets it to the fog.
+        virtual const Medium* mediumOutside() const { return nullptr; }
 
         /// Pseudo material for the exit vertex of a subsurface path (valid when subsurface() is not null).
         virtual const Material* subsurfaceExit() const { return nullptr; }

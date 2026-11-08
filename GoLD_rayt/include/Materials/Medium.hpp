@@ -46,6 +46,12 @@
 
 namespace rayt {
 
+    /// The Henyey-Greenstein density 1 / (4 pi) (1 - g^2) / (1 + g^2 - 2 g cos)^(3/2), cos between the old and the new propagation direction.
+    inline Real henyeyGreenstein(Real cosTheta, Real g) {
+        const Real d = Real(1) + g * g - Real(2) * g * cosTheta;
+        return (Real(1) - g * g) / (Real(4) * constants::PI * d * std::sqrt(std::max(d, Real(1e-12))));
+    }
+
     /// A new direction from the Henyey-Greenstein phase function for a ray travelling along `dir` (g > 0: forward).
     inline Vector3 sampleHenyeyGreenstein(const Vector3& dir, Real g, const Point2& u) {
         // cos(theta) between the old and the new propagation direction, by inverting the
@@ -83,6 +89,12 @@ namespace rayt {
 
         Real meanCosine() const { return w * g1 + (Real(1) - w) * g2; }
 
+        /// The density (per steradian) of scattering from the propagation direction d_in into d_out, with cosTheta = dot(d_in, d_out)
+        /// (cosTheta = 1 is straight on: forward scattering for g > 0). Sample() draws from exactly this density.
+        Real eval(Real cosTheta) const {
+            return w * henyeyGreenstein(cosTheta, g1) + (Real(1) - w) * henyeyGreenstein(cosTheta, g2);
+        }
+
         /// A new direction for a ray travelling along `dir`, drawn with exactly the phase function's density.
         Vector3 sample(const Vector3& dir, const Point2& u) const {
             // The first number picks the lobe and, rescaled, is reused for the angle (it stays uniform in [0, 1)).
@@ -102,6 +114,13 @@ namespace rayt {
 
         /// New propagation direction after a scattering collision of a ray travelling along `dir`.
         virtual Vector3 samplePhase(const Vector3& dir, const Point2& u) const = 0;
+
+        /// Density (per steradian) of the phase function, cosTheta = dot(incoming propagation direction, outgoing propagation direction).
+        /// The density that samplePhase() draws from. (Isotropic unless a medium says otherwise.)
+        virtual Real phase(Real /*cosTheta*/) const { return Real(1) / (Real(4) * constants::PI); }
+
+        /// True if the density is the same everywhere (q = 1): the transmittance along a segment is then exp(-sigma_t d), without sampling.
+        virtual bool isHomogeneous() const { return false; }
 
         /// Relative density q(x) in [0, 1] at a world-space point: sigma_t(x) = q(x) sigmaTSpectrum(). Homogeneous media: 1.
         /// With q < 1 null collisions make up the difference to the majorant.
@@ -159,6 +178,7 @@ namespace rayt {
         Vector3 samplePhase(const Vector3& dir, const Point2&) const override { return dir; }
 
         bool attenuatesContinuously() const override { return true; }
+        bool isHomogeneous() const override { return true; }
 
         /// Absorption coefficient (1/m) at one wavelength, scale included.
         Real sigmaA(Real lambda_nm) const { return m_scale * m_sigmaA.evaluate(lambda_nm, color::Extrapolate::Clamp); }
@@ -196,6 +216,8 @@ namespace rayt {
         const PhaseFunction& phase() const { return m_phase; }
 
         bool isSpectrallyConstant() const override { return true; }
+        bool isHomogeneous() const override { return true; }
+        Real phase(Real cosTheta) const override { return m_phase.eval(cosTheta); }
         Spectrum sigmaTSpectrum(const SampledWavelengths&) const override { return Spectrum(m_sigmaT); }
         Spectrum sigmaSSpectrum(const SampledWavelengths&) const override { return Spectrum(m_sigmaT * m_albedo); }
 
@@ -227,6 +249,8 @@ namespace rayt {
         }
 
         bool isSpectrallyConstant() const override { return m_constant; }
+        bool isHomogeneous() const override { return m_density == nullptr; }
+        Real phase(Real cosTheta) const override { return m_phase.eval(cosTheta); }
         Real density(const Point3& p) const override { return m_density ? std::clamp((*m_density)(p), Real(0), Real(1)) : Real(1); }
         bool isHeterogeneous() const { return m_density != nullptr; }
         Real anisotropy() const { return m_phase.meanCosine(); }

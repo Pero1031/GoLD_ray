@@ -35,6 +35,7 @@
 #include "Render/Camera.hpp"
 #include "Render/SubsurfaceProbe.hpp"
 #include "Render/CausticPhotonMap.hpp"
+#include "Render/Transmittance.hpp"
 #include "Render/SpecularNee.hpp"
 #include "Lights/Light.hpp"
 #include "Lights/EnvLight.hpp"
@@ -94,11 +95,23 @@ namespace rayt {
          * BSDF-sampled ray finds through a chain of specular bounces that started at such a vertex (L S+ D paths), so
          * nothing is counted twice. Every specular object must lie inside the map's target sphere. An empty map is ignored.
          */
-        void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && !map->empty()) ? map : nullptr; }
+        void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && (!map->empty() || map->tracesMedia())) ? map : nullptr; }   // a map that only traces media stores no photons
 
         /// Light tracing took over the caustics on surfaces the camera sees directly (no bounce before): no photon gather there. The paths of the
         /// other receivers (seen through glass, after a diffuse bounce) still use the photons.
         void setSkipDirectCaustics(bool skip) { m_skipDirectCaustics = skip; }
+
+        /**
+         * @brief Light inside participating media: next event estimation at every scattering event, and shadow rays that cross null interfaces.
+         *
+         * Off (default): no light is sampled in a medium (the medium sits inside glass: only paths that find a light by chance count), and a
+         * shadow ray is blocked by every surface. On: a medium that is bounded by a null interface (a fog) is lit directly. Both kinds of
+         * next event estimation (at medium vertices and at surfaces) weigh the shadow ray by the transmittance of the media it crosses, a
+         * phase-sampled ray that finds an emitter is MIS weighted against the estimate, and a camera path passes null interfaces without
+         * counting a bounce. With a photon map that traces media (CausticPhotonParams::traceMedia) the light that a path finds after a specular
+         * bounce that followed a medium vertex (L S+ M) is dropped: light tracing accounts for it.
+         */
+        void setMediaNee(bool on) { m_mediaNee = on; }
 
         /// Specular manifold NEE for point lights seen through a flat-faced glass body (null = off). It adds the caustic of
         /// those lights at every non-specular vertex, computed exactly; do not use it together with a caustic photon map.
@@ -128,6 +141,10 @@ namespace rayt {
         const CausticPhotonMap* m_caustics = nullptr;
         bool m_skipDirectCaustics = false;
         const SpecularNee* m_specularNee = nullptr;
+        bool m_mediaNee = false;
+
+        /// The photon map traces scattering media: a path's gather and its drop rule treat them like air.
+        bool mediaTraced() const { return m_caustics && m_caustics->tracesMedia(); }
 
         /// Everything that one path carries from vertex to vertex.
         struct PathState {
@@ -142,6 +159,12 @@ namespace rayt {
             // True from a non-specular scattering vertex on until the next non-specular event, as long as only perfectly
             // specular bounces follow: light found now would be an L S+ D path, which the caustic photon map accounts for.
             bool fromReceiver = false;
+
+            // Light tracing connects a medium vertex to the camera only when the segment between them is free of specular bounces, so the
+            // camera path may drop the light it finds after a specular chain only if its FIRST receiver (a medium vertex or a non-specular
+            // surface) was seen straight: viaSpecular = a specular bounce came before that receiver, sawReceiver = a receiver was met,
+            // mediumLT = the first receiver was a medium vertex that was seen straight.
+            bool viaSpecular = false, sawReceiver = false, mediumLT = false;
 
             int passThrough = 0;              ///< translucent layers passed (bounded)
             int volumeEvents = 0;             ///< collisions inside participating media (not counted in depth)
@@ -159,7 +182,12 @@ namespace rayt {
             Ended        ///< the path is over (absorbed, a leaky boundary, the collision cap)
         };
 
-        MediumStep advanceInMedium(Ray& r, bool hit, Real tSurface, PathState& st, const SampledWavelengths& lambda) const;
+        MediumStep advanceInMedium(Ray& r, const Scene& scene, bool hit, Real tSurface, PathState& st, const SampledWavelengths& lambda) const;
+
+        /// Next event estimation at a scattering event of `med` at `p` (the path arrived travelling along `dirIn`): the light is chosen like at a surface.
+        Spectrum sampleLightsInMedium(const Scene& scene, const Point3& p, const Vector3& dirIn, const Medium& med, const SampledWavelengths& lambda) const;
+        Spectrum estimateDirectInMedium(const Scene& scene, const Point3& p, const Vector3& dirIn, const Medium& med, const SampledWavelengths& lambda,
+            const LightSampleContext& ctx, const Light* light, Real pSelect) const;
 
         /// The ray left the scene: adds the backdrop or the environment light (with the MIS weight) and records the AOV.
         void addEscapedRadiance(const Ray& r, const Scene& scene, const SampledWavelengths& lambda, PathAOV* aov, PathState& st) const;

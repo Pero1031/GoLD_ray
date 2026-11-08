@@ -44,6 +44,9 @@ namespace rayt {
         Real alpha_x;      // Roughness X
         Real alpha_y;      // Roughness Y
         std::shared_ptr<const Medium> m_medium;   // medium inside the surface (null = a plain glass boundary)
+        bool m_hasBoundary = false;               // setBoundaryMedia(): inside and outside media given explicitly
+        const Medium* m_inside = nullptr;
+        const Medium* m_outside = nullptr;
 
         // IOR to use for this path: the hero wavelength's IOR in spectral mode.
         Real iorAt(const SampledWavelengths& lambda) const {
@@ -74,7 +77,13 @@ namespace rayt {
         /// Fills the inside of this closed surface with a participating medium (volumetric random walk).
         /// The mesh must be closed with outward normals; the outside is vacuum.
         void setMedium(std::shared_ptr<const Medium> medium) { m_medium = std::move(medium); }
-        const Medium* mediumInside() const override { return m_medium.get(); }
+        const Medium* mediumInside() const override { return m_hasBoundary ? m_inside : m_medium.get(); }
+
+        /// For a closed surface that stands inside another medium (a prism in a fog): the medium that fills it (null = vacuum) and the one around it.
+        /// The media must outlive the material. Replaces setMedium().
+        void setBoundaryMedia(const Medium* inside, const Medium* outside) { m_hasBoundary = true; m_inside = inside; m_outside = outside; }
+        bool isMediumBoundary() const override { return m_hasBoundary || m_medium != nullptr; }
+        const Medium* mediumOutside() const override { return m_hasBoundary ? m_outside : nullptr; }
 
         Dielectric(Real ior, Real roughness, Real anisotropy = 0.0, Real abbeNumber = 0.0) : iorRef(ior) {
             Real aspect = std::sqrt(1.0 - anisotropy * 0.9);
@@ -148,6 +157,7 @@ namespace rayt {
             const SampledWavelengths& lambda) const override;
 
         bool isSpecular() const override { return isSmooth(); }
+        bool isNullInterface() const override { return iorRef == Real(1) && isSmooth() && !isDispersive(); }
 
     private:
         bool isSmooth() const { return alpha_x < 0.001 && alpha_y < 0.001; }

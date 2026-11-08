@@ -14,6 +14,7 @@ std::optional<int> BuildGlassSpheres(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildFurnace(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildBlob(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildManifold(SceneContext& ctx, SceneSetup& out);
+std::optional<int> BuildFogBeam(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildCrystal(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildWater(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildSea(SceneContext& ctx, SceneSetup& out);

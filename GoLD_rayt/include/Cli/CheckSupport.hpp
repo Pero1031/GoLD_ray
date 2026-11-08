@@ -17,7 +17,7 @@ namespace rayt::cli {
 // Light tests (--scene lights)
 // -----------------------------------------------------------------------------
 // Mean linear RGB (and its standard error) of Li() along one fixed ray.
-void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth, Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics = nullptr, const SpecularNee* nee = nullptr, bool skipDirectCaustics = false);
+void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth, Vector3& mean, Vector3& se, int& badSamples, const CausticPhotonMap* caustics = nullptr, const SpecularNee* nee = nullptr, bool skipDirectCaustics = false, bool mediaNee = false);
 
 // Passes when every channel is within 4 standard errors (+0.5 % of the value) of the expectation.
 bool ReportLightCase(const std::string& name, const Vector3& expected, const Vector3& mean, const Vector3& se, int bad);

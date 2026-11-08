@@ -86,6 +86,67 @@ int RunCausticTests(const CliOptions& opt) {
         }
     }
 
+    // ---- volumetric caustics: a glass ball in a ball of fog under a uniform sky. Path tracing alone finds the light that the glass focuses into
+    // the fog (the sky is large); light tracing with a photon map that goes through the fog finds the same light from the other end ----
+    {
+        auto fogWorld = std::make_shared<Aggregate>();
+        auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
+        auto fog = std::make_shared<HomogeneousMedium>(Real(8), Real(0.9), PhaseFunction(Real(0.3)));
+        boundary->setMedium(fog);
+        fogWorld->add(std::make_shared<Sphere>(Point3(0.0), Real(0.25), boundary));
+        const Real Rg = 0.04;
+        auto ball = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+        ball->setBoundaryMedia(nullptr, fog.get());   // the ball stands in the fog
+        fogWorld->add(std::make_shared<Sphere>(Point3(0.0), Rg, ball));
+        auto fogScene = std::make_shared<Scene>(fogWorld);
+        fogScene->setEnvLight(sky);
+        fogScene->finalize("spatial");
+
+        const int nFog = n * 8;   // the caustic is a small part of the fog radiance: more samples
+        const Point3 from(0.0, 0.12, 0.7);
+        const int W = 160, H = 160;
+        Camera cam(from, Point3(0, 0, 0), Vector3(0, 1, 0), 22.0, 1.0, 0.0, glm::length(from));
+        CausticPhotonParams P3;
+        P3.numPhotons = static_cast<long long>(opt.spp) * 32000;
+        P3.radius = Real(0.004);
+        P3.targetCenter = Point3(0.0);
+        P3.targetRadius = Rg * Real(1.05);
+        P3.lightTraceCamera = &cam;
+        P3.traceWidth = W;
+        P3.traceHeight = H;
+        P3.traceMedia = true;
+        CausticPhotonMap map3;
+        map3.build(*fogScene, P3);
+        const auto& splat = map3.splat();
+        std::cout << "[Caustic] volumetric light tracing: a glass ball in fog (sigma_t 8, albedo 0.9, g 0.3) under a uniform sky; path tracing alone vs. path tracing + the splat (5x5 pixels)\n";
+        const Point3 fogTargets[] = { Point3(0.0, 0.0, -0.06), Point3(0.07, 0.0, 0.0), Point3(-0.06, 0.03, -0.12), Point3(0.02, -0.07, -0.05), Point3(0.0, 0.1, 0.05) };
+        for (const Point3& T : fogTargets) {
+            Real s, t, cosC, dist;
+            if (!cam.project(T, s, t, cosC, dist)) { std::cout << "[Caustic]   fog point is outside the view   FAIL\n"; allPassed = false; continue; }
+            const int px = static_cast<int>(s * W), py = H - 1 - static_cast<int>(t * H);
+            Vector3 splatMean(0.0);
+            int cnt = 0;
+            for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx) {
+                const int x = px + dx, y = py + dy;
+                if (x < 0 || y < 0 || x >= W || y >= H) continue;
+                splatMean += splat[static_cast<size_t>(y) * W + x];
+                ++cnt;
+            }
+            splatMean /= Real(std::max(cnt, 1));
+            const Ray ray = cam.getRay((Real(px) + Real(0.5)) / Real(W), Real(1) - (Real(py) + Real(0.5)) / Real(H), Point2(0.5, 0.5));
+            Vector3 meanA, seA, meanB, seB; int badA = 0, badB = 0;
+            EstimateRadiance(*fogScene, ray, nFog, depth, meanA, seA, badA, nullptr, nullptr, false, true);
+            EstimateRadiance(*fogScene, ray, nFog, depth, meanB, seB, badB, &map3, nullptr, true, true);
+            const Vector3 total = meanB + splatMean;
+            bool ok = (badA == 0 && badB == 0);
+            for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanA[c] - total[c]) <= 4.0 * std::sqrt(seA[c] * seA[c] + seB[c] * seB[c]) + 0.003 * meanA[c];   // the caustic is about 1 % of the fog radiance: a tight bound
+            allPassed = allPassed && ok;
+            std::cout << "[Caustic]   fog point (" << T.x << ", " << T.y << ", " << T.z << "):  path tracing " << meanA.y << " +- " << seA.y
+                << "   with light tracing " << total.y << " (splat " << splatMean.y << ", paths dropped " << meanA.y - meanB.y << ")   ratio R/G/B " << total.x / meanA.x << " / " << total.y / meanA.y
+                << " / " << total.z / meanA.z << (ok ? "   OK" : "   FAIL") << "\n";
+        }
+    }
+
     std::cout << "[Caustic] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
