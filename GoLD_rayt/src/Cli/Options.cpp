@@ -90,6 +90,12 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--gal-fog") o.galFog = std::stod(value("--gal-fog"));
             else if (a == "--gal-look") o.galLook = ParseRgb(value("--gal-look"), "--gal-look");   // x,y,z
             else if (a == "--gal-floor") o.galFloor = std::stoi(value("--gal-floor"));
+            else if (a == "--sssrw-albedo") o.sssrwAlbedo = std::stod(value("--sssrw-albedo"));
+            else if (a == "--sssrw-g") o.sssrwG = std::stod(value("--sssrw-g"));
+            else if (a == "--sssrw-ell") o.sssrwEll = std::stod(value("--sssrw-ell"));
+            else if (a == "--sssrw-A") o.sssrwA = std::stod(value("--sssrw-A"));
+            else if (a == "--sssrw-lamp-deg") o.sssrwLampDeg = std::stod(value("--sssrw-lamp-deg"));
+            else if (a == "--sssrw-sphere") o.sssrwSphere = std::stod(value("--sssrw-sphere"));
             else if (a == "--gal-scale") o.galScale = std::stod(value("--gal-scale"));
             else if (a == "--gal-dist") o.galDist = std::stod(value("--gal-dist"));
             else if (a == "--gal-albedo") o.galAlbedo = std::stod(value("--gal-albedo"));

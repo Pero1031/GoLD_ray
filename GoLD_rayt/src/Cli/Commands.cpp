@@ -22,6 +22,7 @@ const std::vector<Command>& Commands() {
         { { "dispersion", "Sellmeier presets of glasses (n_d, Abbe number) and a diamond in a white furnace" }, [](const CliOptions&) { return RunDispersionTests(); } },
         { { "thinfilm", "thin-film interference checks (Airy's formula, sample() weights, white furnace)" }, [](const CliOptions&) { return RunThinFilmTests(); } },
         { { "sss", "subsurface scattering checks" }, [](const CliOptions& o) { return RunSssTests(o); } },
+        { { "sssrw", "the BSSRDF against a volumetric random walk on a sphere and thin discs (--sssrw-albedo, --sssrw-g, --sssrw-ell, --sssrw-A)" }, [](const CliOptions& o) { return RunSssRandomWalk(o); } },
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
         { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },

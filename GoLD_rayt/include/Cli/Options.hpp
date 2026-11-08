@@ -173,6 +173,12 @@ struct CliOptions {
     Real galFov = 11.0;
     Vector3 galLook = Vector3(0.0, -999.0, 0.0);   // --gal-look x,y,z : where the camera looks (y = -999: the object's default)
     int galFloor = 1;                      // --gal-floor 0 : no floor and no wall: the glass in the haze only (use --gal-fog 1 or more)
+    double sssrwAlbedo = 0.99;             // --sssrw-albedo : single-scattering albedo of the medium in --scene sssrw
+    double sssrwG = 0.0;                   // --sssrw-g : its Henyey-Greenstein anisotropy
+    double sssrwEll = 0.002;               // --sssrw-ell : the reduced mean free path (m) = the scatter distance of the BSSRDF
+    double sssrwA = 0.0;                   // --sssrw-A : the diffuse color of the BSSRDF (0: Monte Carlo of the semi-infinite medium)
+    double sssrwLampDeg = 0.0;             // --sssrw-lamp-deg : the lamp's angle from the axis of the discs (0: on the axis, in line with the camera)
+    double sssrwSphere = 5.0;              // --sssrw-sphere : the radius of the sphere in scatter distances
     Real galScale = 1.0;                   // --gal-scale : size of the object (the wall moves with it)
     Real galDist = 0.0;                    // --gal-dist : distance of the lamp and the camera from the object (0: the scene's default)
     Real galAlbedo = 0.3;                  // --gal-albedo : albedo of the floor and the wall

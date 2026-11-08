@@ -1,0 +1,183 @@
+# BSSRDF (Burley profile + probe rays) against a volumetric random walk (--scene sssrw), 256 spp, reduced mean free path 2 mm; see docs/SSS.md, 9.2
+# the lamp is on the axis of the discs (0 degrees) unless a file says otherwise
+
+=== albedo 0.99, g 0, A 0.752, sphere 5 l
+medium: albedo 0.99, g 0, reduced mean free path 2 mm (sigma_t 500 /m); BSSRDF: A 0.752, scatter distance 2 mm; 256 spp
+sphere, radius 5 l = 10 mm, lit from the side (60 degrees from the viewing direction)
+  total radiance (sum over the picture), volume 1454, BSSRDF 1316.85, ratio BSSRDF / volume 0.905673
+  radiance along the horizontal diameter (x in sphere radii; the lit side is on the right)
+     x/R    volume   BSSRDF   ratio
+   -0.96    0.017    0.018    1.06
+   -0.84    0.029    0.028    0.95
+   -0.72    0.051    0.043    0.85
+   -0.60    0.096    0.051    0.54
+   -0.48    0.150    0.096    0.64
+   -0.36    0.223    0.145    0.65
+   -0.24    0.279    0.203    0.73
+   -0.12    0.344    0.266    0.77
+   +0.00    0.401    0.331    0.83
+   +0.12    0.436    0.403    0.92
+   +0.24    0.485    0.446    0.92
+   +0.36    0.506    0.500    0.99
+   +0.48    0.563    0.573    1.02
+   +0.60    0.574    0.565    0.98
+   +0.72    0.584    0.619    1.06
+   +0.84    0.571    0.647    1.13
+   +0.96    0.523    0.609    1.17
+discs of thickness t (radius 15 l); the spot covers the center; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0681   0.7253  10.65               0.0670   0.6232   9.30
+   0.50           0.1362   0.7321   5.38               0.1329   0.5534   4.16
+   1.00           0.2593   0.7250   2.80               0.2368   0.4261   1.80
+   2.00           0.4393   0.7209   1.64               0.3390   0.2645   0.78
+   4.00           0.6179   0.7317   1.18               0.3015   0.1138   0.38
+   8.00           0.7090   0.7453   1.05               0.1216   0.0217   0.18
+
+=== albedo 0.99, g 0, A 0.752, sphere 2 l
+medium: albedo 0.99, g 0, reduced mean free path 2 mm (sigma_t 500 /m); BSSRDF: A 0.752, scatter distance 2 mm; 256 spp
+sphere, radius 2 l = 4 mm, lit from the side (60 degrees from the viewing direction)
+  total radiance (sum over the picture), volume 1154.03, BSSRDF 1011.06, ratio BSSRDF / volume 0.876111
+  radiance along the horizontal diameter (x in sphere radii; the lit side is on the right)
+     x/R    volume   BSSRDF   ratio
+   -0.96    0.034    0.042    1.23
+   -0.84    0.065    0.062    0.95
+   -0.72    0.105    0.068    0.65
+   -0.60    0.134    0.086    0.64
+   -0.48    0.187    0.100    0.54
+   -0.36    0.222    0.138    0.62
+   -0.24    0.248    0.169    0.68
+   -0.12    0.284    0.223    0.79
+   +0.00    0.312    0.264    0.84
+   +0.12    0.346    0.287    0.83
+   +0.24    0.371    0.332    0.89
+   +0.36    0.373    0.331    0.89
+   +0.48    0.387    0.373    0.96
+   +0.60    0.403    0.388    0.96
+   +0.72    0.403    0.415    1.03
+   +0.84    0.374    0.432    1.16
+   +0.96    0.287    0.401    1.40
+discs of thickness t (radius 15 l); the spot covers the center; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0671   0.7162  10.68               0.0676   0.6303   9.32
+   0.50           0.1387   0.7215   5.20               0.1331   0.5452   4.10
+   1.00           0.2607   0.7228   2.77               0.2387   0.4283   1.79
+   2.00           0.4401   0.7268   1.65               0.3381   0.2643   0.78
+   4.00           0.6198   0.7418   1.20               0.2988   0.1142   0.38
+   8.00           0.7063   0.7508   1.06               0.1233   0.0217   0.18
+
+=== albedo 0.99, g 0, A 0.752, sphere 10 l
+medium: albedo 0.99, g 0, reduced mean free path 2 mm (sigma_t 500 /m); BSSRDF: A 0.752, scatter distance 2 mm; 256 spp
+sphere, radius 10 l = 20 mm, lit from the side (60 degrees from the viewing direction)
+  total radiance (sum over the picture), volume 1553.63, BSSRDF 1414.47, ratio BSSRDF / volume 0.910425
+  radiance along the horizontal diameter (x in sphere radii; the lit side is on the right)
+     x/R    volume   BSSRDF   ratio
+   -0.96    0.005    0.002    0.47
+   -0.84    0.007    0.005    0.77
+   -0.72    0.022    0.013    0.61
+   -0.60    0.038    0.024    0.63
+   -0.48    0.101    0.056    0.56
+   -0.36    0.188    0.128    0.68
+   -0.24    0.253    0.190    0.75
+   -0.12    0.343    0.276    0.80
+   +0.00    0.411    0.357    0.87
+   +0.12    0.471    0.428    0.91
+   +0.24    0.534    0.495    0.93
+   +0.36    0.604    0.563    0.93
+   +0.48    0.658    0.641    0.98
+   +0.60    0.696    0.689    0.99
+   +0.72    0.706    0.725    1.03
+   +0.84    0.725    0.779    1.07
+   +0.96    0.671    0.733    1.09
+discs of thickness t (radius 15 l); the spot covers the center; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0683   0.7223  10.57               0.0678   0.6282   9.27
+   0.50           0.1366   0.7216   5.28               0.1332   0.5410   4.06
+   1.00           0.2609   0.7192   2.76               0.2385   0.4242   1.78
+   2.00           0.4388   0.7228   1.65               0.3373   0.2723   0.81
+   4.00           0.6154   0.7339   1.19               0.2985   0.1109   0.37
+   8.00           0.7090   0.7497   1.06               0.1242   0.0216   0.17
+
+=== albedo 0.9, g 0, A 0.415, sphere 5 l
+medium: albedo 0.9, g 0, reduced mean free path 2 mm (sigma_t 500 /m); BSSRDF: A 0.415, scatter distance 2 mm; 256 spp
+sphere, radius 5 l = 10 mm, lit from the side (60 degrees from the viewing direction)
+  total radiance (sum over the picture), volume 978.103, BSSRDF 766.256, ratio BSSRDF / volume 0.783411
+  radiance along the horizontal diameter (x in sphere radii; the lit side is on the right)
+     x/R    volume   BSSRDF   ratio
+   -0.96    0.003    0.003    0.79
+   -0.84    0.008    0.006    0.70
+   -0.72    0.022    0.012    0.55
+   -0.60    0.045    0.015    0.34
+   -0.48    0.092    0.036    0.39
+   -0.36    0.139    0.072    0.52
+   -0.24    0.176    0.110    0.63
+   -0.12    0.217    0.150    0.69
+   +0.00    0.262    0.200    0.76
+   +0.12    0.271    0.238    0.88
+   +0.24    0.313    0.268    0.86
+   +0.36    0.337    0.297    0.88
+   +0.48    0.365    0.329    0.90
+   +0.60    0.395    0.365    0.93
+   +0.72    0.407    0.374    0.92
+   +0.84    0.413    0.399    0.97
+   +0.96    0.375    0.376    1.00
+discs of thickness t (radius 15 l); the spot covers the center; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0591   0.4123   6.98               0.0592   0.3330   5.63
+   0.50           0.1165   0.4178   3.59               0.1135   0.2701   2.38
+   1.00           0.2095   0.4092   1.95               0.1868   0.1874   1.00
+   2.00           0.3126   0.4151   1.33               0.2289   0.0933   0.41
+   4.00           0.3779   0.4201   1.11               0.1365   0.0265   0.19
+   8.00           0.3953   0.4388   1.11               0.0213   0.0020   0.09
+
+=== albedo 0.99, g 0.8, A 0.522, sphere 5 l  (the discs: the lamp in line with the camera: forward peak, NOT a valid comparison for the transmission; see the 45 degree runs below)
+medium: albedo 0.99, g 0.8, reduced mean free path 2 mm (sigma_t 2403.85 /m); BSSRDF: A 0.522, scatter distance 2 mm; 256 spp
+sphere, radius 5 l = 10 mm, lit from the side (60 degrees from the viewing direction)
+  total radiance (sum over the picture), volume 1077.64, BSSRDF 945.756, ratio BSSRDF / volume 0.877618
+  radiance along the horizontal diameter (x in sphere radii; the lit side is on the right)
+     x/R    volume   BSSRDF   ratio
+   -0.96    0.005    0.007    1.49
+   -0.84    0.018    0.012    0.64
+   -0.72    0.032    0.018    0.56
+   -0.60    0.059    0.029    0.50
+   -0.48    0.099    0.051    0.52
+   -0.36    0.143    0.103    0.72
+   -0.24    0.200    0.145    0.72
+   -0.12    0.245    0.191    0.78
+   +0.00    0.324    0.245    0.76
+   +0.12    0.372    0.290    0.78
+   +0.24    0.443    0.339    0.77
+   +0.36    0.471    0.351    0.74
+   +0.48    0.458    0.410    0.89
+   +0.60    0.464    0.441    0.95
+   +0.72    0.470    0.470    1.00
+   +0.84    0.407    0.473    1.16
+   +0.96    0.308    0.469    1.52
+discs of thickness t (radius 15 l); the spot covers the center; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0329   0.5120  15.54               4.7746   0.4292   0.09
+   0.50           0.0886   0.5159   5.82               3.7671   0.3566   0.09
+   1.00           0.2102   0.5179   2.46               1.5560   0.2660   0.17
+   2.00           0.3808   0.5191   1.36               0.5567   0.1458   0.26
+   4.00           0.4987   0.5216   1.05               0.2289   0.0505   0.22
+   8.00           0.5373   0.5310   0.99               0.0463   0.0062   0.13
+
+=== albedo 0.99, g 0, A 0.752, discs, lamp 45 degrees off the axis
+discs of thickness t (radius 15 l); the spot covers the center; the lamp 45 degrees from the axis; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0649   0.5093   7.85               0.0647   0.4493   6.94
+   0.50           0.1268   0.5165   4.07               0.1216   0.3977   3.27
+   1.00           0.2230   0.5115   2.29               0.1975   0.3093   1.57
+   2.00           0.3494   0.5268   1.51               0.2424   0.1959   0.81
+   4.00           0.4565   0.5193   1.14               0.1876   0.0818   0.44
+   8.00           0.5072   0.5194   1.02               0.0752   0.0159   0.21
+
+=== albedo 0.99, g 0.8, A 0.522, discs, lamp 45 degrees off the axis
+discs of thickness t (radius 15 l); the spot covers the center; the lamp 45 degrees from the axis; the mean radiance of the central region of the picture
+  t / l   reflection: volume  BSSRDF  ratio    transmission: volume  BSSRDF  ratio
+   0.25           0.0407   0.3643   8.96               0.2302   0.3035   1.32
+   0.50           0.0960   0.3644   3.80               0.3578   0.2567   0.72
+   1.00           0.1865   0.3673   1.97               0.4042   0.1841   0.46
+   2.00           0.2955   0.3744   1.27               0.2910   0.1039   0.36
+   4.00           0.3539   0.3675   1.04               0.1306   0.0366   0.28
+   8.00           0.3801   0.3695   0.97               0.0264   0.0044   0.17
+

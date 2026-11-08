@@ -18,6 +18,11 @@ namespace rayt::cli {
 int RunSkinLayers(const CliOptions& opt);
 
 // -----------------------------------------------------------------------------
+// The BSSRDF against a volumetric random walk on a sphere and on thin discs (--scene sssrw; docs/SSS.md, 9.2)
+// -----------------------------------------------------------------------------
+int RunSssRandomWalk(const CliOptions& opt);
+
+// -----------------------------------------------------------------------------
 // BVH benchmark (--scene bench): the reference recursive BVH vs the SAH flat BVH
 // -----------------------------------------------------------------------------
 int RunBvhBenchmark(const CliOptions& opt);
