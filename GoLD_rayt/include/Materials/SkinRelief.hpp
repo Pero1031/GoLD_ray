@@ -11,7 +11,8 @@
  *   - two scales: the fine network and a coarser one (cells `coarseScale` times larger, `coarseWeight` times as deep): real skin has
  *     a few deep primary lines and many shallow secondary ones;
  *   - `stretch` elongates the cells along the x axis (skin lines run in a preferred direction);
- *   - pores: in a fraction of the cells a round dimple around the feature point: depth * exp(-(F1 / radius)^2).
+ *   - pores: in a fraction of the cells a round dimple around the feature point: depth * exp(-(F1 / radius)^2). Pores differ in
+ *     size (and depth with it), and their density follows a low-frequency noise (some regions are pored, others smooth).
  * The height h(p) (metres, negative = a dent) changes the normal, n' = normalize(n - grad_t h), the way a bump map does: the
  * geometry is not displaced, so the silhouette stays smooth and at grazing angles there are the usual artefacts of bump mapping
  * (shadowing inside the dents is not computed). The gradient is taken by central differences along two tangents.
@@ -27,6 +28,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/Math.hpp"
+#include "Materials/DensityField.hpp"
 
 namespace rayt {
 
@@ -41,11 +43,14 @@ namespace rayt {
             Real coarseWeight = Real(0.8);     ///< ... and furrows this many times as deep as the fine one (0 = fine network only)
             Real poreDepth = Real(0.00008);    ///< depth of the pores (m)
             Real poreRadius = Real(0.00007);   ///< radius of the pores (m)
-            Real poreFraction = Real(0.35);    ///< fraction of the cells that hold a pore
+            Real poreFraction = Real(0.35);    ///< fraction of the cells that hold a pore (where the density noise is average)
+            Real poreSizeVariation = Real(0.5);     ///< each pore is (1 +- this) times the radius and depth (0 = all alike)
+            Real poreDensityVariation = Real(0.6);  ///< 0 = an even density; 1 = from none to twice the fraction, following a noise
+            Real poreDensityFreq = Real(60);        ///< features per metre of that noise (about 1.5 cm regions)
             unsigned seed = 1;
         };
 
-        explicit SkinRelief(const Params& p) : m_p(p) {}
+        explicit SkinRelief(const Params& p) : m_p(p), m_density(p.poreDensityFreq, 2, Real(0.3), Real(0.7), p.seed + 101u) {}
 
         const Params& params() const { return m_p; }
 
@@ -65,11 +70,21 @@ namespace rayt {
                 const Real ec = (g2 - g1) / (Real(0.7) * m_p.furrowWidth);
                 h -= m_p.furrowDepth * m_p.coarseWeight * (Real(0.3) + Real(0.7) * Real(0.5) * (unit(jd, 0u) + unit(jd2, 0u))) * std::exp(-ec * ec);
             }
-            if (unit(id, 0u) < m_p.poreFraction) {
-                const Real r = f1 * m_p.cell / m_p.poreRadius;
-                h -= m_p.poreDepth * std::exp(-r * r);
-            }
+            Real size = 1;
+            const Real pore = poreShape(p, f1, id, size);
+            h -= m_p.poreDepth * size * pore;
             return h;
+        }
+
+        /// How much of a pore is at p, 0..1 (1 at the center of a pore). Pores are darker than the skin around them.
+        Real poreMask(const Point3& p) const {
+            Point3 q = p / m_p.cell;
+            q.x /= m_p.stretch;
+            Real f1, f2;
+            unsigned id, id2;
+            worley(q, m_p.seed, f1, f2, id, id2);
+            Real size = 1;
+            return poreShape(p, f1, id, size);
         }
 
         /// The bent normal at p for the smooth normal n. `wo` (towards the viewer) keeps it from turning away from the viewer.
@@ -87,6 +102,18 @@ namespace rayt {
         }
 
     private:
+        /// The pore of the nearest cell: 0 if the cell has none, else exp(-(F1 / radius)^2); `size` is the size factor of this pore.
+        Real poreShape(const Point3& p, Real f1, unsigned id, Real& size) const {
+            const Real u = unit(id, 0u);
+            const Real v = m_p.poreDensityVariation;
+            if (u >= m_p.poreFraction * (Real(1) + v)) return Real(0);   // no density factor lets this cell hold a pore
+            const Real density = (Real(1) - v) + v * Real(2) * m_density(p);
+            if (u >= m_p.poreFraction * density) return Real(0);
+            size = Real(1) + m_p.poreSizeVariation * (Real(2) * unit(hash(static_cast<int>(id), 7, 13, m_p.seed, 9u), 0u) - Real(1));
+            const Real r = f1 * m_p.cell / (m_p.poreRadius * size);
+            return std::exp(-r * r);
+        }
+
         static unsigned hash(int x, int y, int z, unsigned seed, unsigned salt) {
             std::uint32_t h = static_cast<std::uint32_t>(x) * 0x8da6b343u ^ static_cast<std::uint32_t>(y) * 0xd8163841u
                 ^ static_cast<std::uint32_t>(z) * 0xcb1ab31fu ^ seed * 0x9e3779b9u ^ salt * 0x85ebca6bu;
@@ -115,6 +142,7 @@ namespace rayt {
         }
 
         Params m_p;
+        NoiseDensity m_density;
     };
 
 } // namespace rayt

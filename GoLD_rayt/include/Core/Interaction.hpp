@@ -73,6 +73,7 @@ namespace rayt {
         const Medium* medium = nullptr;   // The medium surrounding the interaction point.
         Real time = 0.0;                  // Ray time for motion blur / time-varying transforms.
         bool frontFace = true;            // True if the ray hit the "front" side of the surface.
+        Vector3 albedoTint = Vector3(1.0);   // Multiplies the base color: set once per hit by Material::perturbShading (skin pigment), so that eval / pdf / sample do not recompute it.
         Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
 
         // ---------------------------------------------------------------------

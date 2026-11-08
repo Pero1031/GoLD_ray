@@ -35,6 +35,7 @@
 #include "Materials/Material.hpp"
 #include "Materials/Subsurface.hpp"
 #include "Materials/SkinRelief.hpp"
+#include "Materials/SkinPigment.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
 
@@ -74,8 +75,24 @@ namespace rayt {
         /// A micro-relief that bends the shading normal (skin furrows and pores, Materials/SkinRelief.hpp). Set before rendering.
         void setRelief(std::shared_ptr<const SkinRelief> relief) { m_relief = std::move(relief); }
 
+        /// An uneven skin color (freckles, uneven pigment, redness: Materials/SkinPigment.hpp), and how much the pores of the relief darken the skin
+        /// (0..1; needs the relief). With subsurface scattering the factor is applied where the light goes in and where it comes out (square root each).
+        void setPigment(std::shared_ptr<const SkinPigment> pigment, Real poreDarkness = Real(0)) {
+            m_pigment = std::move(pigment);
+            m_poreDark = std::clamp(poreDarkness, Real(0), Real(1));
+        }
+
+        Spectrum subsurfaceExitTint(const SurfaceInteraction& pi, const SampledWavelengths& lambda) const override {
+            if (!hasPigment()) return Spectrum(1.0);
+            return RgbColor(glm::sqrt(pigmentFactor(pi.p))).reflectance(lambda);
+        }
+
         void perturbShading(SurfaceInteraction& rec, const Vector3& wo) const override {
             if (m_relief) rec.n = m_relief->perturb(rec.p, rec.n, wo);
+            if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
+                const Vector3 f = pigmentFactor(rec.p);
+                rec.albedoTint = m_profile ? glm::sqrt(f) : f;
+            }
         }
 
         const SubsurfaceProfile* subsurface() const override { return m_profile.get(); }
@@ -110,10 +127,24 @@ namespace rayt {
 
     private:
         std::shared_ptr<const SkinRelief> m_relief;
+        std::shared_ptr<const SkinPigment> m_pigment;
+        Real m_poreDark = Real(0);
+
+        bool hasPigment() const { return m_pigment || (m_poreDark > Real(0) && m_relief); }
+
+        /// The reflectance multiplier of the pigment and of the pores at p.
+        Vector3 pigmentFactor(const Point3& p) const {
+            Vector3 f(1.0);
+            if (m_pigment) f *= m_pigment->factor(p);
+            if (m_poreDark > Real(0) && m_relief) f *= Vector3(1.0) - m_poreDark * m_relief->poreMask(p) * Vector3(0.30, 0.42, 0.45);
+            return f;
+        }
 
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
-            if (!m_tex) return m_albedo;
-            return RgbColor(m_albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));
+            if (!m_tex && rec.albedoTint == Vector3(1.0)) return m_albedo;
+            Vector3 c = m_albedo.rgb() * rec.albedoTint;
+            if (m_tex) c *= m_tex->rgb(rec.uv.x, rec.uv.y);
+            return RgbColor(c);
         }
 
         static Spectrum schlick(const Spectrum& f0, Real cosTheta) {

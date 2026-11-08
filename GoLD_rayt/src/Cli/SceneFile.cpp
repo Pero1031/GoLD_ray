@@ -374,7 +374,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -391,7 +391,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& r = m.at("relief");
             const std::string rw = where + ".relief";
             if (!r.is_object()) Fail(rw, "must be an object (cellMm, furrowDepthMm, furrowWidth, poreDepthMm, poreRadiusMm, poreFraction, seed)");
-            CheckKeys(r, { "cellMm", "furrowDepthMm", "furrowWidth", "stretch", "coarseScale", "coarseWeight", "poreDepthMm", "poreRadiusMm", "poreFraction", "seed" }, rw);
+            CheckKeys(r, { "cellMm", "furrowDepthMm", "furrowWidth", "stretch", "coarseScale", "coarseWeight", "poreDepthMm", "poreRadiusMm", "poreFraction", "poreSizeVariation", "poreDensityVariation", "poreDensityFreq", "poreDarkness", "seed" }, rw);
             s.skinRelief = true;
             Optional<double>(r, "cellMm", rw, s.reliefCellMm, ReadNumber);
             Optional<double>(r, "furrowDepthMm", rw, s.reliefFurrowDepthMm, ReadNumber);
@@ -399,6 +399,13 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Optional<double>(r, "stretch", rw, s.reliefStretch, ReadNumber);
             Optional<double>(r, "coarseScale", rw, s.reliefCoarseScale, ReadNumber);
             Optional<double>(r, "coarseWeight", rw, s.reliefCoarseWeight, ReadNumber);
+            Optional<double>(r, "poreSizeVariation", rw, s.reliefPoreSizeVariation, ReadNumber);
+            Optional<double>(r, "poreDensityVariation", rw, s.reliefPoreDensityVariation, ReadNumber);
+            Optional<double>(r, "poreDensityFreq", rw, s.reliefPoreDensityFreq, ReadNumber);
+            Optional<double>(r, "poreDarkness", rw, s.reliefPoreDarkness, ReadNumber);
+            if (s.reliefPoreSizeVariation < 0 || s.reliefPoreSizeVariation >= 1 || s.reliefPoreDensityVariation < 0 || s.reliefPoreDensityVariation > 1 || s.reliefPoreDarkness < 0 || s.reliefPoreDarkness > 1)
+                Fail(rw, "poreSizeVariation must be in [0, 1), poreDensityVariation and poreDarkness in [0, 1]");
+            if (!(s.reliefPoreDensityFreq > 0)) Fail(rw + ".poreDensityFreq", "must be above 0");
             Optional<double>(r, "poreDepthMm", rw, s.reliefPoreDepthMm, ReadNumber);
             Optional<double>(r, "poreRadiusMm", rw, s.reliefPoreRadiusMm, ReadNumber);
             Optional<double>(r, "poreFraction", rw, s.reliefPoreFraction, ReadNumber);
@@ -406,6 +413,26 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (!(s.reliefCellMm > 0 && s.reliefFurrowWidth > 0 && s.reliefPoreRadiusMm > 0 && s.reliefStretch > 0 && s.reliefCoarseScale >= 1 && s.reliefCoarseWeight >= 0)) Fail(rw, "needs cellMm, furrowWidth, poreRadiusMm and stretch above 0, coarseScale >= 1 and coarseWeight >= 0");
             if (s.reliefFurrowDepthMm < 0 || s.reliefPoreDepthMm < 0) Fail(rw, "depths must not be negative");
             if (s.reliefPoreFraction < 0 || s.reliefPoreFraction > 1) Fail(rw + ".poreFraction", "must be between 0 and 1");
+        }
+        if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
+            const json& g = m.at("pigment");
+            const std::string gw = where + ".pigment";
+            if (!g.is_object()) Fail(gw, "must be an object (freckleCellMm, freckleFraction, freckleRadiusMm, freckleStrength, clusterFreq, blotchFreq, blotchStrength, rednessFreq, rednessStrength, seed)");
+            CheckKeys(g, { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" }, gw);
+            s.skinPigment = true;
+            Optional<double>(g, "freckleCellMm", gw, s.pigFreckleCellMm, ReadNumber);
+            Optional<double>(g, "freckleFraction", gw, s.pigFreckleFraction, ReadNumber);
+            Optional<double>(g, "freckleRadiusMm", gw, s.pigFreckleRadiusMm, ReadNumber);
+            Optional<double>(g, "freckleStrength", gw, s.pigFreckleStrength, ReadNumber);
+            Optional<double>(g, "clusterFreq", gw, s.pigClusterFreq, ReadNumber);
+            Optional<double>(g, "blotchFreq", gw, s.pigBlotchFreq, ReadNumber);
+            Optional<double>(g, "blotchStrength", gw, s.pigBlotchStrength, ReadNumber);
+            Optional<double>(g, "rednessFreq", gw, s.pigRednessFreq, ReadNumber);
+            Optional<double>(g, "rednessStrength", gw, s.pigRednessStrength, ReadNumber);
+            double sd = s.pigSeed; Optional<double>(g, "seed", gw, sd, ReadNumber); s.pigSeed = int(sd);
+            if (!(s.pigFreckleCellMm > 0 && s.pigFreckleRadiusMm > 0 && s.pigClusterFreq > 0 && s.pigBlotchFreq > 0 && s.pigRednessFreq > 0)) Fail(gw, "cell sizes, radius and frequencies must be above 0");
+            for (double v : { s.pigFreckleFraction, s.pigFreckleStrength, s.pigBlotchStrength, s.pigRednessStrength })
+                if (v < 0 || v > 1) Fail(gw, "fractions and strengths must be between 0 and 1");
         }
     }
     else if (type == "emission") {

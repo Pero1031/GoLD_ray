@@ -218,8 +218,21 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 rp.cell = Real(m.reliefCellMm * 1e-3); rp.furrowDepth = Real(m.reliefFurrowDepthMm * 1e-3); rp.furrowWidth = Real(m.reliefFurrowWidth);
                 rp.poreDepth = Real(m.reliefPoreDepthMm * 1e-3); rp.poreRadius = Real(m.reliefPoreRadiusMm * 1e-3);
                 rp.stretch = Real(m.reliefStretch); rp.coarseScale = Real(m.reliefCoarseScale); rp.coarseWeight = Real(m.reliefCoarseWeight);
+                rp.poreSizeVariation = Real(m.reliefPoreSizeVariation); rp.poreDensityVariation = Real(m.reliefPoreDensityVariation); rp.poreDensityFreq = Real(m.reliefPoreDensityFreq);
                 rp.poreFraction = Real(m.reliefPoreFraction); rp.seed = unsigned(m.reliefSeed);
                 skin->setRelief(std::make_shared<SkinRelief>(rp));
+            }
+            if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {
+                std::shared_ptr<const SkinPigment> pigment;
+                if (m.skinPigment) {
+                    SkinPigment::Params gp;
+                    gp.freckleCell = Real(m.pigFreckleCellMm * 1e-3); gp.freckleFraction = Real(m.pigFreckleFraction); gp.freckleRadius = Real(m.pigFreckleRadiusMm * 1e-3);
+                    gp.freckleStrength = Real(m.pigFreckleStrength); gp.clusterFreq = Real(m.pigClusterFreq); gp.blotchFreq = Real(m.pigBlotchFreq);
+                    gp.blotchStrength = Real(m.pigBlotchStrength); gp.rednessFreq = Real(m.pigRednessFreq); gp.rednessStrength = Real(m.pigRednessStrength);
+                    gp.seed = unsigned(m.pigSeed);
+                    pigment = std::make_shared<SkinPigment>(gp);
+                }
+                skin->setPigment(pigment, Real(m.reliefPoreDarkness));
             }
             materials[name] = skin;
             break;

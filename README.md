@@ -17,7 +17,7 @@ A 3D path tracer in C++20, built around **spectral rendering of metals** (gold f
 color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
 own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
 layered coats and anisotropic metal, scattering media (fog, clouds with Mie scattering), a wave-spectrum sea with sun glitter,
-hair fibers, and MMD characters with skin subsurface scattering (plus a procedural skin micro-relief).
+hair fibers, and MMD characters with skin subsurface scattering (plus a procedural micro-relief and uneven color).
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
@@ -224,7 +224,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
-  optional metal blend, subsurface scattering and a procedural skin micro-relief of furrows and pores that bends the shading normal), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
+  optional metal blend, subsurface scattering, a procedural skin micro-relief of furrows and pores that bends the shading normal, and uneven skin color: freckles, flush), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter), and
@@ -334,7 +334,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene volume` | scattering media: Beer-Lambert, white furnace, similarity relation, null collisions, the tabulated (Mie) phase function against its own density |
 | `--scene layered` | the layered coat: a closed form for a smooth coat, `eval()` against `sample()`, energy, reciprocity |
 | `--scene aniso` | anisotropic metal: the tangent of the shapes, the visible-normal density, rotation of the roughness axes |
-| `--scene relief` | the skin micro-relief: the height field, the bent normals, a skin sphere in a white furnace with and without the relief |
+| `--scene relief` | the skin micro-relief and pigment: the height field, the bent normals, the pores, a skin sphere in a white furnace with and without them |
 | `--scene hair` | hair: the fiber scattering function (energy, `sample()` against `pdf()` and `eval()`, lobe directions), the cylinder intersector against brute force, white furnaces around a fiber and a lock |
 | `--scene ocean` | the ocean: the wave set against its spectrum, Pierson-Moskowitz closed form, dispersion, directional spreading |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |

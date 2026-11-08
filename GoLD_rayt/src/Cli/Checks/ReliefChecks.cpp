@@ -102,6 +102,81 @@ int RunReliefTests(const CliOptions& opt) {
         allPassed = ok && allPassed;
     }
 
+    // ---- 5. The pigment field: a factor in (0, 1], the same value every time, spots cover a part of the skin, red is absorbed least -----------
+    const SkinPigment pigment{ SkinPigment::Params() };
+    {
+        double lo = 1.0, sum[3] = { 0, 0, 0 };
+        long spotted = 0;
+        bool inRange = true;
+        for (int i = 0; i < n; ++i) {
+            const Point3 p(sampling::Random() * 0.04, sampling::Random() * 0.04, sampling::Random() * 0.04);
+            const Vector3 f = pigment.factor(p);
+            for (int c = 0; c < 3; ++c) { inRange = inRange && f[c] > 0 && f[c] <= 1.0 + 1e-12; sum[c] += f[c]; lo = std::min<double>(lo, f[c]); }
+            if (f.z < 0.9) ++spotted;
+        }
+        const Point3 q(0.0123, 0.0045, 0.0078);
+        const double cover = double(spotted) / n;
+        const bool ok = inRange && pigment.factor(q) == pigment.factor(q) && cover > 0.005 && cover < 0.3 && sum[0] > sum[1] && sum[0] > sum[2] && lo < 0.75;
+        std::cout << "[Relief] 5. pigment over 4 cm^3: mean factor (" << sum[0] / n << ", " << sum[1] / n << ", " << sum[2] / n << "), darkest " << lo
+            << ", " << 100.0 * cover << " % of the points darker than 0.9 in blue" << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+    }
+
+    // ---- 6. A skin sphere with pigment (and with subsurface scattering) in a white furnace: darker than without it, never brighter -------------
+    {
+        auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+        auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4));
+        auto build = [&](bool sss, bool withPigment) {
+            auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
+            if (sss) skin->setSubsurface(profile);
+            if (withPigment) skin->setPigment(std::make_shared<SkinPigment>(SkinPigment::Params()), Real(0));
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(whiteSky);
+            scene->finalize("spatial");
+            return scene;
+        };
+        for (bool sss : { false, true }) {
+            const auto plain = build(sss, false), spotted = build(sss, true);
+            const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+            Vector3 sumP(0.0), sumS(0.0);
+            int bad = 0;
+            for (int i = 0; i < rays; ++i) {
+                const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
+                const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
+                Vector3 mP, sP, mS, sS; int bP = 0, bS = 0;
+                EstimateRadiance(*plain, ray, perRay, 8, mP, sP, bP);
+                EstimateRadiance(*spotted, ray, perRay, 8, mS, sS, bS);
+                sumP += mP; sumS += mS; bad += bP + bS;
+            }
+            const Vector3 mp = sumP / Real(rays), ms = sumS / Real(rays);
+            bool ok = bad == 0;
+            for (int c = 0; c < 3; ++c) ok = ok && ms[c] <= mp[c] * 1.01 && ms[c] >= mp[c] * 0.75;
+            std::cout << "[Relief] 6. furnace" << (sss ? " with subsurface scattering" : "") << ": uniform skin (" << mp.x << ", " << mp.y << ", " << mp.z << "), with pigment ("
+                << ms.x << ", " << ms.y << ", " << ms.z << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+    }
+
+    // ---- 7. Pores: the mask is in [0, 1], pores differ in size, and their density follows the noise ---------------------------------------
+    {
+        double top = 0, covered = 0;
+        bool inRange = true;
+        std::vector<double> block(8, 0.0);   // pore coverage in eight 2 cm blocks along x
+        for (int i = 0; i < n; ++i) {
+            const Point3 p(sampling::Random() * 0.16, sampling::Random() * 0.01, sampling::Random() * 0.01);
+            const Real m = relief.poreMask(p);
+            inRange = inRange && m >= 0 && m <= 1.0 + 1e-12;
+            top = std::max<double>(top, m);
+            if (m > 0.5) { covered += 1; block[std::min(7, int(p.x / 0.02))] += 1; }
+        }
+        const double lo = *std::min_element(block.begin(), block.end()), hi = *std::max_element(block.begin(), block.end());
+        const bool ok = inRange && top > 0.8 && covered > 0 && hi > 1.3 * std::max(lo, 1.0);
+        std::cout << "[Relief] 7. pores: mask in [0, 1], largest " << top << ", pore coverage per 2 cm block from " << lo << " to " << hi << " of " << n / 8 << " points" << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+    }
+
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

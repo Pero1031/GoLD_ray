@@ -125,6 +125,8 @@ namespace rayt {
         weight = Spectrum(0.0);
         for (int c = 0; c < kSssChannels; ++c) weight[c] = params.albedo[c] * profileAt(c, distance) / pdf;
 
+        if (pi.matPtr) weight = weight * pi.matPtr->subsurfaceExitTint(pi, lambda);   // a pigment in the top layer is passed again on the way out
+
         // --- the exit vertex: outward normal, the exit lobe as its material --------------------
         exitVertex = pi;
         exitVertex.gn = pi.frontFace ? pi.gn : -pi.gn;   // scene.hit() flips the normals toward the probe ray

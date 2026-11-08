@@ -289,6 +289,10 @@ namespace rayt {
         /// Pseudo material for the exit vertex of a subsurface path (valid when subsurface() is not null).
         virtual const Material* subsurfaceExit() const { return nullptr; }
 
+        /// A factor on the light that leaves at the exit point `pi` (a surface sharing this material's profile), for a pigment in the top layer
+        /// of the skin: the light passes it going in (taken in subsurfaceParams) and coming out (here). The default is 1.
+        virtual Spectrum subsurfaceExitTint(const SurfaceInteraction& /*pi*/, const SampledWavelengths& /*lambda*/) const { return Spectrum(1.0); }
+
         /// Profile parameters at this hit (only called when subsurface() is not null).
         virtual void subsurfaceParams(const SurfaceInteraction& /*rec*/, const SampledWavelengths& /*lambda*/,
             SubsurfaceParams& /*out*/) const {}
