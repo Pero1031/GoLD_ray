@@ -45,8 +45,13 @@
  * The MIS weights n_s p_s / D sum to one over the strategies of a path whatever the p_s are, so an inexact convention for the Dirac factors
  * could only make the estimate noisier, never biased; the checks against independent estimators show whether it is exact enough.
  *
- * Not handled: dispersion (a sub-path through a dispersive glass is bound to its wavelength: connecting two such sub-paths needs equal
- * wavelengths), rough dielectrics, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that
+ * Dispersion. The shape of a path through a dispersive glass depends on the wavelength, so two sub-paths can be connected only if they have
+ * the same wavelength. Instead of keeping track of wavelengths per sub-path, VolumeBptParams::passes = K renders the picture K times with one
+ * wavelength per pass (stratified over the visible spectrum): inside a pass every sub-path, light and camera alike, has that wavelength, so
+ * the wavelengths of connected sub-paths always agree. The density of the wavelength is the same factor in every strategy and cancels in the
+ * MIS weights.
+ *
+ * Not handled: rough dielectrics, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that
  * sees itself (the lamp is not a surface). Spectral mode: the medium, the surfaces and the glass are gray, so each sample carries its own
  * wavelengths only for the color of the light.
  */
@@ -96,6 +101,9 @@ namespace rayt {
         /// Test switch: light tracing counts only the paths whose first vertex from the light is a specular one (L S ...), which is what the caustic
         /// photon map with traceMedia counts, so that the two can be compared.
         bool lightTraceOnlyAfterGlass = false;
+        /// 1: every sub-path draws its own wavelengths. K > 1 (needed with dispersive glass): the picture is rendered K times, each time with ONE
+        /// wavelength shared by every sub-path (see VolumeBPT::render); spp and lightPaths are the totals over all passes.
+        int passes = 1;
     };
 
     class VolumeBPT {
@@ -109,6 +117,8 @@ namespace rayt {
             m_albedo = m_sigS / m_sigT;
             m_rho = m_P.surfaceAlbedo;
             m_P.maxVertices = std::min(m_P.maxVertices, 16);
+            m_spp = m_P.spp;
+            m_N = m_P.lightPaths;
             m_lightPos = m_light.position();
             m_camPos = m_cam.origin();
         }
@@ -118,69 +128,32 @@ namespace rayt {
             const auto t0 = std::chrono::steady_clock::now();
             const int W = m_P.width, H = m_P.height;
             const size_t nPix = static_cast<size_t>(W) * static_cast<size_t>(H);
-#ifdef _OPENMP
-            const int nThreads = omp_get_max_threads();
-#else
-            const int nThreads = 1;
+            const int K = std::max(1, m_P.passes);
+            m_spp = std::max(1, m_P.spp / K);                 // per pass
+            m_N = std::max<long long>(1, m_P.lightPaths / K);
+            std::vector<Vector3> total(nPix, Vector3(0.0));
+            double tLight = 0;
+            size_t cached = 0;
+            for (int k = 0; k < K; ++k) {
+                m_passLambdaOn = false;
+#if defined(RAYT_SPECTRAL_MODE)
+                if (K > 1) {   // one wavelength for the whole pass, stratified over the passes
+                    m_passLambda = SampledWavelengths::sampleVisible((Real(k) + sampling::Random()) / Real(K));
+                    m_passLambda.terminateSecondary();
+                    m_passLambdaOn = true;
+                }
 #endif
-
-            // ---- 1. the cache of light sub-paths (and the light-traced image) ----
-            std::vector<std::vector<Vtx>> vPer(nThreads);
-            std::vector<std::vector<uint8_t>> countPer(nThreads);
-            std::vector<std::vector<Vector3>> splatPer(nThreads, std::vector<Vector3>(nPix, Vector3(0.0)));
-            const long long chunk = 4096;
-            const int nChunks = static_cast<int>((m_P.lightPaths + chunk - 1) / chunk);
-#pragma omp parallel for schedule(dynamic, 1)
-            for (int c = 0; c < nChunks; ++c) {
-#ifdef _OPENMP
-                const int th = omp_get_thread_num();
-#else
-                const int th = 0;
-#endif
-                std::vector<Vtx> Z;
-                const long long first = static_cast<long long>(c) * chunk, last = std::min(m_P.lightPaths, first + chunk);
-                for (long long i = first; i < last; ++i) {
-                    SampledWavelengths lam = makeLambda();
-                    traceLightPath(Z, lam);
-                    if (m_P.useConnections) {   // the cache is only needed by the connections
-                        vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
-                        countPer[th].push_back(static_cast<uint8_t>(Z.size()));
-                    }
-                    if (m_P.useLightTracing && !Z.empty()) lightTrace(Z, lam, splatPer[th]);
-                }
+                std::vector<Vector3> img;
+                tLight += renderPass(img);
+                cached = std::max(cached, m_verts.size());
+                for (size_t p = 0; p < nPix; ++p) total[p] += img[p];
             }
-            // concatenate (order does not matter: every light path is an independent sample)
-            m_verts.clear(); m_start.clear();
-            m_start.push_back(0);
-            for (int th = 0; th < nThreads; ++th) {
-                size_t at = 0;
-                for (size_t k = 0; k < countPer[th].size(); ++k) {
-                    m_verts.insert(m_verts.end(), vPer[th].begin() + at, vPer[th].begin() + at + countPer[th][k]);
-                    at += countPer[th][k];
-                    m_start.push_back(static_cast<uint32_t>(m_verts.size()));
-                }
-                std::vector<Vtx>().swap(vPer[th]);
-            }
-            m_nStored = m_start.size() - 1;
-            const double tLight = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-
-            // ---- 2. camera sub-paths: connections and next event estimation ----
-            std::vector<Vector3> img(nPix, Vector3(0.0));
-#pragma omp parallel for schedule(dynamic, 1)
-            for (int j = 0; j < H; ++j) {
-                std::vector<Vtx> Y, X;
-                for (int i = 0; i < W; ++i) {
-                    Vector3 sum(0.0);
-                    for (int k = 0; k < m_P.spp; ++k) sum += cameraSample(i, j, Y, X);
-                    img[static_cast<size_t>(H - 1 - j) * static_cast<size_t>(W) + static_cast<size_t>(i)] = sum;
-                }
-            }
-            for (int th = 0; th < nThreads; ++th) for (size_t p = 0; p < nPix; ++p) img[p] += splatPer[th][p];
-            for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) film.setPixel(x, y, img[static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)]);
+            m_passLambdaOn = false;
+            for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) film.setPixel(x, y, total[static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)] / Real(K));
 
             const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-            std::cout << "[VolumeBPT] " << m_P.lightPaths << " light paths (" << m_verts.size() << " vertices cached, " << tLight << " s), "
-                << double(W) * H * m_P.spp << " camera samples, " << sec << " s in all\n";
+            std::cout << "[VolumeBPT] " << m_N * K << " light paths (up to " << cached << " vertices cached per pass, " << tLight << " s), "
+                << double(W) * H * m_spp * K << " camera samples, " << K << " pass" << (K > 1 ? "es" : "") << ", " << sec << " s in all\n";
         }
 
     private:
@@ -212,7 +185,80 @@ namespace rayt {
         std::vector<uint32_t> m_start;
         size_t m_nStored = 0;
 
-        static SampledWavelengths makeLambda() {
+        int m_spp = 1;                 // camera samples per pixel in the current pass
+        long long m_N = 1;             // light paths in the current pass
+        SampledWavelengths m_passLambda;
+        bool m_passLambdaOn = false;
+
+        /// One complete estimate of the picture with the current wavelengths: the cache of light sub-paths (and the light-traced image),
+        /// then the camera sub-paths with their connections. Returns the time of the light stage.
+        double renderPass(std::vector<Vector3>& img) {
+            const auto t0 = std::chrono::steady_clock::now();
+            const int W = m_P.width, H = m_P.height;
+            const size_t nPix = static_cast<size_t>(W) * static_cast<size_t>(H);
+#ifdef _OPENMP
+            const int nThreads = omp_get_max_threads();
+#else
+            const int nThreads = 1;
+#endif
+
+            // ---- 1. the cache of light sub-paths (and the light-traced image) ----
+            std::vector<std::vector<Vtx>> vPer(nThreads);
+            std::vector<std::vector<uint8_t>> countPer(nThreads);
+            std::vector<std::vector<Vector3>> splatPer(nThreads, std::vector<Vector3>(nPix, Vector3(0.0)));
+            const long long chunk = 4096;
+            const int nChunks = static_cast<int>((m_N + chunk - 1) / chunk);
+#pragma omp parallel for schedule(dynamic, 1)
+            for (int c = 0; c < nChunks; ++c) {
+#ifdef _OPENMP
+                const int th = omp_get_thread_num();
+#else
+                const int th = 0;
+#endif
+                std::vector<Vtx> Z;
+                const long long first = static_cast<long long>(c) * chunk, last = std::min(m_N, first + chunk);
+                for (long long i = first; i < last; ++i) {
+                    SampledWavelengths lam = makeLambda();
+                    traceLightPath(Z, lam);
+                    if (m_P.useConnections) {   // the cache is only needed by the connections
+                        vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
+                        countPer[th].push_back(static_cast<uint8_t>(Z.size()));
+                    }
+                    if (m_P.useLightTracing && !Z.empty()) lightTrace(Z, lam, splatPer[th]);
+                }
+            }
+            // concatenate (order does not matter: every light path is an independent sample)
+            m_verts.clear(); m_start.clear();
+            m_start.push_back(0);
+            for (int th = 0; th < nThreads; ++th) {
+                size_t at = 0;
+                for (size_t k = 0; k < countPer[th].size(); ++k) {
+                    m_verts.insert(m_verts.end(), vPer[th].begin() + at, vPer[th].begin() + at + countPer[th][k]);
+                    at += countPer[th][k];
+                    m_start.push_back(static_cast<uint32_t>(m_verts.size()));
+                }
+                std::vector<Vtx>().swap(vPer[th]);
+            }
+            m_nStored = m_start.size() - 1;
+            const double tLight = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+
+            // ---- 2. camera sub-paths: connections and next event estimation ----
+            img.assign(nPix, Vector3(0.0));
+#pragma omp parallel for schedule(dynamic, 1)
+            for (int j = 0; j < H; ++j) {
+                std::vector<Vtx> Y, X;
+                for (int i = 0; i < W; ++i) {
+                    Vector3 sum(0.0);
+                    for (int k = 0; k < m_spp; ++k) sum += cameraSample(i, j, Y, X);
+                    img[static_cast<size_t>(H - 1 - j) * static_cast<size_t>(W) + static_cast<size_t>(i)] = sum;
+                }
+            }
+            for (int th = 0; th < nThreads; ++th) for (size_t p = 0; p < nPix; ++p) img[p] += splatPer[th][p];
+            return tLight;
+        }
+
+        SampledWavelengths makeLambda() const {
+            if (m_passLambdaOn) return m_passLambda;   // one wavelength for the whole pass (dispersion)
 #if defined(RAYT_SPECTRAL_MODE)
             return SampledWavelengths::sampleVisible(sampling::Random());
 #else
@@ -435,7 +481,7 @@ namespace rayt {
                 if (sIdx == 0 && !m_P.useNee) continue;
                 if (sIdx == n && !m_P.useLightTracing) continue;
                 if (sIdx > 0 && sIdx < n && !m_P.useConnections) continue;
-                const Real count = (sIdx == n) ? Real(m_P.lightPaths) : Real(m_P.spp);
+                const Real count = (sIdx == n) ? Real(m_N) : Real(m_spp);
                 D += count * prefix * suffix[sIdx];
             }
             if (!(D > Real(0)) || !std::isfinite(D)) return Real(0);

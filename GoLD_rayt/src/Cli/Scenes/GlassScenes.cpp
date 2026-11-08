@@ -217,11 +217,33 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
         out.causticTarget.center = Point3(0.0);
         out.causticTarget.radius = Real(0.042);
     }
+    if (opt.spotPrism) {   // the dispersive prism of the fogbeam scene, without the slit: the spot lights all of it
+        auto glass = std::make_shared<Dielectric>(Real(1.55), Real(0.0), Real(0.0), opt.abbe);
+        std::vector<Point2> tri;
+        for (int k = 0; k < 3; ++k) {
+            const Real ang = glm::radians(Real(90 + 120 * k - opt.fogPrismDeg));
+            tri.push_back(Point2(Real(0.035) * std::cos(ang), Real(0.035) * std::sin(ang)));
+        }
+        TriangleMesh prism = MakePrismMesh(tri, Real(0.07));
+        prism.transform(glm::dmat3(1.0), Vector3(0, -0.035, 0));
+        glass->setBoundaryMedia(nullptr, fog.get());
+        out.world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(prism)), glass, opt.accel));
+        out.keepAlive.push_back(glass);
+        out.causticTarget.center = Point3(0.0);
+        out.causticTarget.radius = Real(0.056);
+        lamp->setCone(Vector3(1, 0, 0), glm::radians(std::max(Real(opt.spotDeg), Real(5.5))));
+    }
     out.lights.push_back(lamp);
     out.keepAlive.push_back(fog);
     out.bptLight = lamp.get();
     out.bptMedium = fog.get();
-    if (opt.spotFloor) {
+    if (opt.spotPrism) {   // from above, the fan leaves toward -z (as in the fogbeam scene)
+        out.camera.from = Point3(0.08, 0.60, -0.068);
+        out.camera.at = Point3(0.08, 0.0, -0.07);
+        out.camera.up = Vector3(0, 0, -1);
+        out.camera.fovDeg = 30.0;
+    }
+    else if (opt.spotFloor) {
         out.camera.from = Point3(0.0, 0.5, 0.42);
         out.camera.at = Point3(0.03, -0.06, 0.0);
         out.camera.up = Vector3(0, 1, 0);

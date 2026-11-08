@@ -84,6 +84,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--lvc") o.lvc = true;
             else if (a == "--spot-floor") o.spotFloor = true;
             else if (a == "--spot-glass") o.spotGlass = true;
+            else if (a == "--spot-prism") o.spotPrism = true;
+            else if (a == "--lvc-passes") o.lvcPasses = std::stoi(value("--lvc-passes"));
             else if (a == "--lvc-paths") o.lvcPaths = std::stoll(value("--lvc-paths"));
             else if (a == "--lvc-depth") o.lvcDepth = std::stoi(value("--lvc-depth"));
             else if (a == "--lvc-mask") o.lvcMask = std::stoi(value("--lvc-mask"));

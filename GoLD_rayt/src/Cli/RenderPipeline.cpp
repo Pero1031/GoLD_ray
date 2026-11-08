@@ -18,7 +18,7 @@ ImageSize ComputeImageSize(const CliOptions& opt) {
 int RenderScene(CliOptions& opt) {
     const SceneDef* def = FindScene(opt.scene);
     if (!def) { std::cerr << "[Scene] unknown scene: " << opt.scene << "\n"; return 1; }
-    if (opt.scene == "fogbeam" || (opt.scene == "fogspot" && opt.spotGlass)) opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
+    if (opt.scene == "fogbeam" || (opt.scene == "fogspot" && (opt.spotGlass || opt.spotPrism))) opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
     const ImageSize size = ComputeImageSize(opt);
     const int imageWidth = size.width;
     const int imageHeight = size.height;
@@ -97,7 +97,7 @@ int RenderScene(CliOptions& opt) {
     long long nCausticPhotons = opt.causticPhotons;
     if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
     if (opt.scene == "fogbeam" && nCausticPhotons < 0) nCausticPhotons = 20000000;
-    if (opt.scene == "fogspot" && opt.spotGlass && !opt.lvc && nCausticPhotons < 0) nCausticPhotons = 20000000;   // path tracing's reference needs the photons
+    if (opt.scene == "fogspot" && (opt.spotGlass || opt.spotPrism) && !opt.lvc && nCausticPhotons < 0) nCausticPhotons = 20000000;   // path tracing's reference needs the photons
     if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
     if (opt.scene == "manifold") {
         if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
@@ -189,7 +189,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.lvc && setup.bptLight && setup.bptMedium) {
         VolumeBptParams bp;
-        bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth; bp.surfaceAlbedo = setup.bptAlbedo;
+        bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth; bp.passes = opt.lvcPasses; bp.surfaceAlbedo = setup.bptAlbedo;
         bp.useNee = (opt.lvcMask & 1) != 0; bp.useConnections = (opt.lvcMask & 2) != 0; bp.useLightTracing = (opt.lvcMask & 4) != 0;
         VolumeBPT(*scene, *camera, *setup.bptLight, *setup.bptMedium, bp).render(film);
     }

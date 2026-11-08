@@ -233,12 +233,12 @@ static bool RunLvcCase(const CliOptions& opt, bool withFloor) {
 // A glass ball in the fog, lit by a spot: the light that the ball focuses into the fog (L S S M ...) found by the light tracing of VolumeBPT,
 // against the light tracing of the caustic photon map (traceMedia), an independent implementation that was checked against path tracing.
 // Both count the paths whose first vertex from the light is the glass, and connect every later fog vertex to the camera.
-static bool RunLvcGlassCase(const CliOptions& opt) {
+static bool RunLvcGlassCase(const CliOptions& opt, Real abbe) {
     const int W = 48, H = 27;
     auto boundary = std::make_shared<Dielectric>(Real(1.0), Real(0.0));
     auto fog = std::make_shared<HomogeneousMedium>(Real(3), Real(0.9), PhaseFunction(Real(0.5)));
     boundary->setMedium(fog);
-    auto ball = std::make_shared<Dielectric>(Real(1.5), Real(0.0));
+    auto ball = std::make_shared<Dielectric>(Real(1.5), Real(0.0), Real(0.0), abbe);   // abbe > 0: dispersive (spectral build)
     ball->setBoundaryMedia(nullptr, fog.get());   // the ball stands in the fog: nothing inside it, fog again outside
     auto world = std::make_shared<Aggregate>();
     world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.3), boundary));
@@ -279,10 +279,10 @@ static bool RunLvcGlassCase(const CliOptions& opt) {
     std::vector<double> refB; double refTotal;
     blockMeans(splat.data(), refB, refTotal);
     double refMax = 0; for (double v : refB) refMax = std::max(refMax, v);
-    std::cout << "[Lvc] glass ball in fog: caustic of the photon map (light tracing): mean G " << refTotal << ", brightest block " << refMax << "\n";
+    std::cout << "[Lvc] " << (abbe > 0 ? "dispersive " : "") << "glass ball in fog: caustic of the photon map (light tracing): mean G " << refTotal << ", brightest block " << refMax << "\n";
 
     VolumeBptParams bp;
-    bp.width = W; bp.height = H; bp.spp = 1; bp.lightPaths = static_cast<long long>(opt.spp) * 200000; bp.maxVertices = 12;
+    bp.width = W; bp.height = H; bp.spp = 1; bp.lightPaths = static_cast<long long>(opt.spp) * (abbe > 0 ? 400000 : 200000); bp.maxVertices = 12; bp.passes = abbe > 0 ? 32 : 1;
     bp.useNee = false; bp.useConnections = false; bp.useLightTracing = true; bp.lightTraceOnlyAfterGlass = true;
     Film f(W, H);
     std::cout << "[Lvc] light tracing through the glass (specular vertices)\n";
@@ -294,10 +294,10 @@ static bool RunLvcGlassCase(const CliOptions& opt) {
         if (refB[i] < 0.05 * refMax) continue;
         const double e = std::abs(b[i] - refB[i]) / refB[i];
         worst = std::max(worst, e);
-        if (e > 0.15) ++bad;
+        if (e > (abbe > 0 ? 0.25 : 0.15)) ++bad;   // one wavelength per pass: more color noise
     }
     const double ratio = total / refTotal;
-    const bool ok = std::abs(ratio - 1.0) < 0.04 && bad == 0;
+    const bool ok = std::abs(ratio - 1.0) < (abbe > 0 ? 0.06 : 0.04) && bad == 0;
     std::cout << "[Lvc]   mean G " << total << "  ratio to the photon map " << ratio << "  worst bright block off by " << 100 * worst << " %" << (ok ? "   OK" : "   FAIL") << "\n";
     // ---- the whole picture: path tracing (next event estimation in the fog) + the photon map's light tracing, against VolumeBPT with its
     // strategies. The camera rays that meet the ball are left out: there the reference cannot make the paths that VolumeBPT makes (light that
@@ -337,12 +337,12 @@ static bool RunLvcGlassCase(const CliOptions& opt) {
     std::vector<double> rb; std::vector<char> ru; double rtot;
     blocks2(refImg.data(), rb, ru, rtot);
     double rmax = 0; for (size_t i = 0; i < rb.size(); ++i) if (ru[i]) rmax = std::max(rmax, rb[i]);
-    std::cout << "[Lvc] glass ball in fog, whole picture (blocks without the ball): reference mean G " << rtot << ", brightest block " << rmax << "\n";
+    std::cout << "[Lvc] " << (abbe > 0 ? "dispersive " : "") << "glass ball in fog, whole picture (blocks without the ball): reference mean G " << rtot << ", brightest block " << rmax << "\n";
     struct Case2 { const char* name; int mask; };
     bool okAll = ok;
     for (const Case2& c : { Case2{ "connections + light tracing (s > 0)", 6 }, Case2{ "all strategies, balance heuristic", 7 } }) {
         VolumeBptParams bq;
-        bq.width = W; bq.height = H; bq.spp = opt.spp * 8; bq.lightPaths = static_cast<long long>(opt.spp) * 50000; bq.maxVertices = 10;
+        bq.width = W; bq.height = H; bq.spp = opt.spp * (abbe > 0 ? 16 : 8); bq.lightPaths = static_cast<long long>(opt.spp) * (abbe > 0 ? 100000 : 50000); bq.maxVertices = 10; bq.passes = abbe > 0 ? 32 : 1;
         bq.useNee = (c.mask & 1) != 0; bq.useConnections = (c.mask & 2) != 0; bq.useLightTracing = (c.mask & 4) != 0;
         Film g(W, H);
         std::cout << "[Lvc] " << c.name << "\n";
@@ -354,10 +354,10 @@ static bool RunLvcGlassCase(const CliOptions& opt) {
             if (!ru[i] || rb[i] < 0.05 * rmax) continue;
             const double e = std::abs(gb[i] - rb[i]) / rb[i];
             worst2 = std::max(worst2, e);
-            if (e > 0.20) ++bad2;
+            if (e > (abbe > 0 ? 0.25 : 0.20)) ++bad2;
         }
         const double ratio2 = gtot / rtot;
-        const bool ok2 = std::abs(ratio2 - 1.0) < 0.03 && bad2 == 0;
+        const bool ok2 = std::abs(ratio2 - 1.0) < (abbe > 0 ? 0.05 : 0.03) && bad2 == 0;
         okAll = okAll && ok2;
         std::cout << "[Lvc]   mean G " << gtot << "  ratio to the reference " << ratio2 << "  worst bright block off by " << 100 * worst2 << " %" << (ok2 ? "   OK" : "   FAIL") << "\n";
     }
@@ -367,7 +367,7 @@ static bool RunLvcGlassCase(const CliOptions& opt) {
 int RunLvcTests(const CliOptions& opt) {
     const bool a = RunLvcCase(opt, false);
     const bool b = RunLvcCase(opt, true);
-    const bool c = RunLvcGlassCase(opt);
+    const bool c = RunLvcGlassCase(opt, Real(0)) && RunLvcGlassCase(opt, Real(10));
     std::cout << "[Lvc] RESULT: " << ((a && b && c) ? "PASS" : "FAIL") << "\n";
     return (a && b && c) ? 0 : 2;
 }
