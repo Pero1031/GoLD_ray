@@ -19,6 +19,7 @@ std::optional<int> BuildWater(SceneContext& ctx, SceneSetup& out) {
     auto& studioLights = out.lights;
     Point3& causticCenter = out.causticTarget.center;
     Real& causticTargetRadius = out.causticTarget.radius;
+    out.caustics.photonMap = true;   // only with --caustics N: there is no default number of photons
 
     // Everything is in metres: a tumbler (10 cm tall, 6-7.6 cm wide) filled to 8 cm, standing 0.5 mm above a table, in front
     // of a wall of vertical stripes (their mirror-reversed, squeezed image is the classic sign of a water-filled cylinder).
@@ -172,6 +173,9 @@ std::optional<int> BuildPool(SceneContext& ctx, SceneSetup& out) {
     auto& studioLights = out.lights;
     Point3& causticCenter = out.causticTarget.center;
     Real& causticTargetRadius = out.causticTarget.radius;
+    out.caustics.photonMap = true;
+    out.caustics.defaultPhotons = 8000000;
+    out.caustics.defaultRadius = Real(0.015);   // a pool is metres wide: the network on its floor is coarse
 
     // Metres. Basin 3.2 x 5.2 m, water level y = 0, deck 12 cm above it, the floor at -depth. The camera stands on the deck at +z
     // looking toward -z. The water is one open rippled sheet carrying the absorbing medium; the sun is an area light that

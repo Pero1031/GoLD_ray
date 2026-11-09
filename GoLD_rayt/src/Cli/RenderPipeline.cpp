@@ -18,7 +18,6 @@ ImageSize ComputeImageSize(const CliOptions& opt) {
 int RenderScene(CliOptions& opt) {
     const SceneDef* def = FindScene(opt.scene);
     if (!def) { std::cerr << "[Scene] unknown scene: " << opt.scene << "\n"; return 1; }
-    if (opt.scene == "fogbeam" || (opt.scene == "fogspot" && (opt.spotGlass || opt.spotPrism))) opt.causticTrace = true;   // the fan in the fog exists only as light-traced photons
     const ImageSize size = ComputeImageSize(opt);
     const int imageWidth = size.width;
     const int imageHeight = size.height;
@@ -30,6 +29,8 @@ int RenderScene(CliOptions& opt) {
     SceneSetup setup;
     SceneContext ctx{ opt, mats, env };
     if (const std::optional<int> exitCode = def->build(ctx, setup)) return *exitCode;
+    const CausticSetup& caustics = setup.caustics;       // what the scene asks of the photon map and the manifold NEE
+    if (caustics.lightTraceOnly) opt.causticTrace = true;
 
     // ---- the scene: lights, caustics ----
     // The builders collect the objects in a plain list (spheres, quads, whole meshes with their own BVH, hair). Rays go through
@@ -61,14 +62,14 @@ int RenderScene(CliOptions& opt) {
     // Caustic photon map (water / pool scene, --caustics N): photons from the lights through the water onto the table / the basin.
     // Caustic method of the point-light scenes: manifold = the T T chains of the flat-faced glass bodies are solved exactly (specular manifold NEE),
     // the photon map (if --caustics N > 0) carries the other chains only; photons = the photon map alone; none = direct light only.
-    // Defaults: the prism scene uses manifold alone, the crystal scene the photon map; manifold in the crystal scene needs --crystal-inside
-    // (with water in the tumbler the chains through the wall continue into the water: four refractions, not handled).
-    std::string causticMethod = opt.causticMethod.empty() ? (opt.scene == "manifold" ? "manifold" : "photons") : opt.causticMethod;
-    if (causticMethod == "manifold" && opt.scene == "crystal" && !opt.crystalInside) {
-        std::cout << "[Caustics] --caustic-method manifold in the crystal scene needs --crystal-inside (no water in the tumbler); using the photon map\n";
+    // The scene's CausticSetup holds its defaults (the prism scene uses manifold alone, the crystal scene the photon map) and says
+    // when the manifold NEE cannot be used.
+    std::string causticMethod = opt.causticMethod.empty() ? caustics.defaultMethod : opt.causticMethod;
+    if (causticMethod == "manifold" && !caustics.manifoldUnavailable.empty()) {
+        std::cout << "[Caustics] " << caustics.manifoldUnavailable << "; using the photon map\n";
         causticMethod = "photons";
     }
-    const bool useManifold = (causticMethod == "manifold") && (opt.scene == "manifold" || opt.scene == "crystal") && !setup.manifoldBodies.empty();
+    const bool useManifold = (causticMethod == "manifold") && !setup.manifoldBodies.empty();   // only scenes with flat-faced glass bodies list them
     std::unique_ptr<SpecularNee> specularNee;
     if (useManifold) {
         specularNee = std::make_unique<SpecularNee>(setup.manifoldBodies, *scene);
@@ -98,20 +99,14 @@ int RenderScene(CliOptions& opt) {
     bool causticOn = false;
     bool traceOn = false;                  // --caustic-trace: light tracing of the caustics on directly visible surfaces
     std::vector<Vector3> traceSum;         // the light-traced images of all photon sets (summed)
+    // The number of photons: --caustics N, or the scene's default (a smaller one while the manifold NEE solves the T T chains).
     long long nCausticPhotons = opt.causticPhotons;
-    if (opt.scene == "pool" && nCausticPhotons < 0) nCausticPhotons = 8000000;
-    if (opt.scene == "fogbeam" && nCausticPhotons < 0) nCausticPhotons = 20000000;
-    if (opt.scene == "fogspot" && (opt.spotGlass || opt.spotPrism) && !opt.lvc && nCausticPhotons < 0) nCausticPhotons = 20000000;   // path tracing's reference needs the photons
-    if (opt.scene == "crystal" && nCausticPhotons < 0) nCausticPhotons = useManifold ? 8000000 : (opt.crystalInside ? 24000000 : 16000000);
-    if (opt.scene == "manifold") {
-        if (causticMethod == "photons") nCausticPhotons = nCausticPhotons > 0 ? nCausticPhotons : 16000000;
-        else if (causticMethod == "none") nCausticPhotons = 0;
-        else nCausticPhotons = std::max<long long>(nCausticPhotons, 0);   // manifold: photons only if asked for (they then carry the other chains)
-    }
+    const long long defaultPhotons = (useManifold && caustics.defaultPhotonsWithManifold >= 0) ? caustics.defaultPhotonsWithManifold : caustics.defaultPhotons;
+    if (nCausticPhotons < 0 || (nCausticPhotons == 0 && causticMethod == "photons" && caustics.photonMethodNeedsPhotons)) nCausticPhotons = defaultPhotons;
     if (causticMethod == "none") nCausticPhotons = 0;
-    if ((opt.scene == "water" || opt.scene == "pool" || opt.scene == "crystal" || opt.scene == "manifold" || opt.scene == "fogbeam" || opt.scene == "fogspot") && nCausticPhotons > 0) {
+    if (caustics.photonMap && nCausticPhotons > 0) {
         causticParams.numPhotons = nCausticPhotons;
-        causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : Real(opt.scene == "pool" ? 0.015 : opt.scene == "crystal" ? (opt.crystalInside ? 0.0012 : 0.0006) : 0.0015);
+        causticParams.radius = opt.causticRadius > 0 ? opt.causticRadius : caustics.defaultRadius;
         causticParams.targetCenter = setup.causticTarget.center;
         causticParams.targetRadius = setup.causticTarget.radius;
         if (specularNee) causticParams.skipTransmissionPairs = specularNee->materials();   // their T T chains are solved: do not store them twice
@@ -120,7 +115,7 @@ int RenderScene(CliOptions& opt) {
             causticParams.traceWidth = imageWidth;
             causticParams.traceHeight = imageHeight;
             traceOn = true;
-            causticParams.traceMedia = (opt.scene == "fogbeam" || opt.scene == "fogspot");   // the photons go on through the fog and are connected to the camera there
+            causticParams.traceMedia = caustics.throughMedia;   // the photons go on through the fog and are connected to the camera there
         }
         causticMap.build(*scene, causticParams);
         causticOn = true;
@@ -158,7 +153,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.causticTrace) std::cout << "[Caustics] --caustic-trace needs the photon map (--caustics N > 0, caustic method photons): ignored\n";
     integrator->setSpecularNee(specularNee.get());
-    if (opt.scene == "fogbeam" || opt.scene == "fogspot" || opt.mediaNee) integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
+    if (setup.mediaNee || opt.mediaNee) integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";
     if (causticPasses > 1)

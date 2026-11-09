@@ -6,7 +6,8 @@
 //   SceneDef      one line of the scene table: name, picture format, default depth, kind of environment, builder
 //
 // A scene builder only places objects and decides how the scene is seen. The common steps (registering lights, caustics,
-// the integrator, rendering, saving) are in RenderPipeline.hpp.
+// the integrator, rendering, saving) are in RenderPipeline.hpp. The pipeline does not know the scenes by name: what a scene
+// needs from it (photon counts, the fog's lighting) is in its SceneSetup.
 
 #include <functional>
 #include <memory>
@@ -68,6 +69,20 @@ struct CausticTarget {
     Real radius = 0;
 };
 
+// How a scene uses the caustic photon map and the specular manifold NEE. The scene states its defaults here; the pipeline
+// applies them together with the options (--caustics, --caustic-radius, --caustic-method, --caustic-trace).
+struct CausticSetup {
+    bool photonMap = false;                      // the scene has a caustic photon map (--caustics N)
+    long long defaultPhotons = -1;               // photons when --caustics is not given (-1: no photon map unless it is asked for)
+    long long defaultPhotonsWithManifold = -1;   // the same while the manifold NEE solves the T T chains (-1: defaultPhotons)
+    bool photonMethodNeedsPhotons = false;       // --caustic-method photons with --caustics 0 still traces defaultPhotons (the map is then the only source of the caustic)
+    Real defaultRadius = Real(0.0015);           // gather radius (m) when --caustic-radius is not given
+    std::string defaultMethod = "photons";       // the caustic method when --caustic-method is not given
+    std::string manifoldUnavailable;             // why the manifold NEE cannot be used in this set-up (empty: it can); the photon map is used instead
+    bool lightTraceOnly = false;                 // the caustics exist only as light-traced photons: --caustic-trace is always on
+    bool throughMedia = false;                   // the photons go on through the fog and are connected to the camera at every collision
+};
+
 // Everything the pipeline hands to the hooks after rendering.
 struct RenderResult {
     const Scene& scene;
@@ -83,6 +98,8 @@ struct SceneSetup {
     std::optional<Vector3> background;                           // color seen by camera rays that hit nothing (instead of the environment)
     std::string lightSampler;                                    // how next-event estimation picks a light, when the scene needs a specific one (empty = --light-sampler)
     CausticTarget causticTarget;
+    CausticSetup caustics;                                       // the scene's defaults for the photon map and the manifold NEE
+    bool mediaNee = false;                                       // the fog is lit by next event estimation at every collision, and its boundary does not block shadow rays (as --media-nee)
     const PointLight* bptLight = nullptr;                        // fogspot: the lamp and the fog, for --lvc (VolumeBPT)
     const Medium* bptMedium = nullptr;
     Real bptAlbedo = Real(0.5);                                  // albedo of the diffuse surfaces (all the same)

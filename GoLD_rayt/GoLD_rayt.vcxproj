@@ -317,6 +317,11 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Cli\SceneFileMaterials.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Cli\Scenes\FileScene.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
@@ -430,6 +435,7 @@
     <ClInclude Include="include\Cli\Scenes.hpp" />
     <ClInclude Include="include\Cli\Help.hpp" />
     <ClInclude Include="include\Cli\SceneFile.hpp" />
+    <ClInclude Include="include\Cli\SceneFileReaders.hpp" />
     <ClInclude Include="include\Cli\SceneDescription.hpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

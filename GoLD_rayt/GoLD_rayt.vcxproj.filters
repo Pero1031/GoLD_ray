@@ -183,6 +183,9 @@
     <ClCompile Include="src\Cli\SceneFile.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Cli\SceneFileMaterials.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Cli\Scenes\FileScene.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -501,6 +504,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Cli\SceneFile.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Cli\SceneFileReaders.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Cli\SceneDescription.hpp">

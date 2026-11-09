@@ -128,6 +128,13 @@ std::optional<int> BuildManifold(SceneContext& ctx, SceneSetup& out) {
     studioLights.push_back(std::make_shared<PointLight>(pw.lamp, RgbColor(1.0, 0.96, 0.90), Real(0.6)));
     causticCenter = Point3(0.0, 0.035, 0.0);        // only used by --caustic-method photons
     causticTargetRadius = Real(0.06);
+    // The manifold NEE alone is the default; photons are added to it only if --caustics asks (they then carry the other chains).
+    // With --caustic-method photons the photon map is the only source of the caustic, so it always gets photons.
+    out.caustics.photonMap = true;
+    out.caustics.defaultMethod = "manifold";
+    out.caustics.defaultPhotons = 16000000;
+    out.caustics.defaultPhotonsWithManifold = 0;
+    out.caustics.photonMethodNeedsPhotons = true;
     {
         out.camera.from = Point3(0.16, 0.26, 0.30);
         out.camera.at = Point3(0.12, 0.0, -0.06);
@@ -184,6 +191,11 @@ std::optional<int> BuildFogBeam(SceneContext& ctx, SceneSetup& out) {
     }
     out.causticTarget.center = Point3(0.0);
     out.causticTarget.radius = Real(0.056);   // the prism's bounding sphere (circumradius 0.035, half height 0.035)
+    out.caustics.photonMap = true;
+    out.caustics.defaultPhotons = 20000000;
+    out.caustics.lightTraceOnly = true;       // the fan in the fog exists only as light-traced photons
+    out.caustics.throughMedia = true;
+    out.mediaNee = true;                      // the fog is lit by next event estimation, its boundary does not block shadow rays
 
     // From above, so that the horizontal fan is seen undistorted (+x to the right, +z down the picture; the fan leaves toward -z).
     out.camera.from = Point3(0.08, 0.60, -0.068);
@@ -238,6 +250,13 @@ std::optional<int> BuildFogSpot(SceneContext& ctx, SceneSetup& out) {
     out.keepAlive.push_back(fog);
     out.bptLight = lamp.get();
     out.bptMedium = fog.get();
+    // With a glass object in the fog its caustics exist only as light-traced photons; path tracing's reference needs them (--lvc finds them itself).
+    const bool glassInFog = opt.spotGlass || opt.spotPrism;
+    out.caustics.photonMap = true;
+    out.caustics.defaultPhotons = (glassInFog && !opt.lvc) ? 20000000 : -1;
+    out.caustics.lightTraceOnly = glassInFog;
+    out.caustics.throughMedia = true;
+    out.mediaNee = true;
     if (opt.spotPrism) {   // from above, the fan leaves toward -z (as in the fogbeam scene)
         out.camera.from = Point3(0.115, 0.60, -0.108);
         out.camera.at = Point3(0.115, 0.0, -0.11);
@@ -363,6 +382,14 @@ std::optional<int> BuildCrystal(SceneContext& ctx, SceneSetup& out) {
     auto& manifoldBodies = out.manifoldBodies;
     Point3& causticCenter = out.causticTarget.center;
     Real& causticTargetRadius = out.causticTarget.radius;
+    // The photon map is the default. --caustic-method manifold solves the T T chains of the flat-faced pieces exactly and leaves the
+    // other chains to fewer photons; with water in the tumbler the chains through its wall go on into the water (four refractions,
+    // not handled), so it needs --crystal-inside.
+    out.caustics.photonMap = true;
+    out.caustics.defaultPhotons = opt.crystalInside ? 24000000 : 16000000;
+    out.caustics.defaultPhotonsWithManifold = 8000000;
+    out.caustics.defaultRadius = Real(opt.crystalInside ? 0.0012 : 0.0006);
+    if (!opt.crystalInside) out.caustics.manifoldUnavailable = "--caustic-method manifold in the crystal scene needs --crystal-inside (no water in the tumbler)";
 
     // Metres. A 40 cm wide disc in an empty black space; faceted glass objects on it (all inside a 15 cm sphere around
     // (0, 4 cm, 0): the photon targeting sphere), one small warm point light above. The flat facets bend light in one
