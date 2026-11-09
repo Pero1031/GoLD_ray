@@ -273,6 +273,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     skin->setFilm(std::make_shared<SkinFilm>(fp, relief));
                 }
             }
+            if (m.skinScatterOn) {
+                SkinScatter::Params sp;
+                sp.rho0 = Real(m.scatRho0); sp.frequency = Real(m.scatFrequency); sp.threshold = Real(m.scatThreshold); sp.softness = Real(m.scatSoftness);
+                sp.hydration = Real(m.scatHydration); sp.kappaH = Real(m.scatKappaH); sp.gap = Real(m.scatGapUm * 1e-6); sp.seed = std::uint32_t(m.scatSeed);
+                skin->setScatter(std::make_shared<SkinScatter>(sp));
+            }
             if (m.skinGlossVariation > 0) skin->setGlossVariation(Real(m.skinGlossVariation), Real(m.skinGlossFreq), std::uint32_t(m.skinGlossSeed));
             if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {
                 std::shared_ptr<const SkinPigment> pigment;

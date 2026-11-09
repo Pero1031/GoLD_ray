@@ -78,6 +78,7 @@ namespace rayt {
         Vector3 albedoTint = Vector3(1.0);   // Multiplies the base color: set once per hit by Material::perturbShading (skin pigment), so that eval / pdf / sample do not recompute it.
         Vector3 ns = Vector3(0.0);           // Normal of the specular lobe where it differs from n (the top of a liquid film on skin, Materials/SkinFilm.hpp); zero = the same as n.
         Real filmCover = Real(0);            // 0..1: how much of the surface here is under the film (set with ns by Material::perturbShading).
+        Real surfScatter = Real(0);          // Reflectance of the white local scatter of flaking skin here (Materials/SkinScatter.hpp), set by Material::perturbShading.
         Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
 
         // ---------------------------------------------------------------------

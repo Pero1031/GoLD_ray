@@ -116,6 +116,9 @@ struct MaterialSpec {
     int skinGlossSeed = 1;
     bool skinFilmOn = false;                       //   a liquid film that pools in the furrows (Materials/SkinFilm.hpp, docs/SKIN_MOISTURE.md); needs the relief
     double skinFilmThicknessUm = 5, skinFilmIor = 1.33, skinFilmRoughness = 0.02, skinFilmSoftnessUm = 1.5;
+    bool skinScatterOn = false;                    //   the white scatter of flaking skin (Materials/SkinScatter.hpp)
+    double scatRho0 = 0.08, scatFrequency = 300, scatThreshold = 0.52, scatSoftness = 0.08, scatHydration = 0, scatKappaH = 0.3, scatGapUm = 1.0;
+    int scatSeed = 1;
     bool skinPigment = false;                    //   uneven color (Materials/SkinPigment.hpp)
     double pigFreckleCellMm = 2.5, pigFreckleFraction = 0.5, pigFreckleRadiusMm = 0.8, pigFreckleStrength = 0.8, pigClusterFreq = 40;
     double pigBlotchFreq = 150, pigBlotchStrength = 0.15, pigRednessFreq = 35, pigRednessStrength = 0.5;

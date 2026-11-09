@@ -5,6 +5,7 @@
 #include "Cli/EngineHeaders.hpp"
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinFilm.hpp"
+#include "Materials/SkinScatter.hpp"
 
 namespace rayt::cli {
 
@@ -355,11 +356,13 @@ int RunReliefTests(const CliOptions& opt) {
         }
 
         // (d) eval() and sample() are two estimators of the same albedo (a film over the relief: the lobe about the film's normal, the diffuse one about the skin's).
-        for (bool sss : { false, true }) {
+        for (int variant = 0; variant < 4; ++variant) {   // without / with subsurface scattering, without / with the white scatter of flaking skin (11 below)
+            const bool sss = (variant & 1) != 0, scat = (variant & 2) != 0;
             SkinFilm::Params fp; fp.thickness = Real(15e-6); fp.roughness = Real(0.3);
             auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.3), Real(0.6), Real(0));
             skin->setRelief(reliefP);
             skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP));
+            if (scat) { SkinScatter::Params sp; sp.rho0 = Real(0.4); sp.threshold = Real(0.5); skin->setScatter(std::make_shared<SkinScatter>(sp)); }
             if (sss) skin->setSubsurface(std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4)));
 #if defined(RAYT_SPECTRAL_MODE)
             const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
@@ -390,7 +393,7 @@ int RunReliefTests(const CliOptions& opt) {
             }
             const double mS = sumS / points, mE = sumE / points, se = std::sqrt(varS + varE) / points;
             const bool ok = std::abs(mS - mE) <= 4 * se + 0.02 * mE && mE < 1.0;
-            std::cout << "[Relief] 10d. film over the relief" << (sss ? " with subsurface scattering" : "") << ": albedo from sample() " << mS << ", from eval() " << mE << " +- " << se
+            std::cout << "[Relief] 10d. film over the relief" << (sss ? " with subsurface scattering" : "") << (scat ? " and the white scatter" : "") << ": albedo from sample() " << mS << ", from eval() " << mE << " +- " << se
                 << " (mean film cover " << cover / points << ")" << (ok ? "   OK" : "   FAIL") << "\n";
             allPassed = ok && allPassed;
         }
@@ -430,6 +433,100 @@ int RunReliefTests(const CliOptions& opt) {
                 std::cout << "[Relief] 10e. furnace" << (sss ? " with subsurface scattering" : "") << ": dry (" << md.x << ", " << md.y << ", " << md.z << "), with a 10 um film ("
                     << mw.x << ", " << mw.y << ", " << mw.z << ")" << (ok ? "   OK" : "   FAIL") << "\n";
                 allPassed = ok && allPassed;
+            }
+        }
+    }
+
+    // ---- 11. The white scatter of flaking skin (Materials/SkinScatter.hpp, docs/SKIN_MOISTURE.md 2.3) ------------------------------------------
+    {
+        // (a) The index-matching factor.
+        {
+            const double fa = SkinScatter::match(Real(1.55), Real(1)), fs = SkinScatter::match(Real(1.55), Real(1.55)), fw = SkinScatter::match(Real(1.55), Real(1.33)),
+                fg = SkinScatter::match(Real(1.55), Real(1.47));
+            const bool ok = fa == 1.0 && fs < 1e-12 && std::abs(fw - 0.125) < 0.002 && std::abs(fg - 0.0151) < 0.001;
+            std::cout << "[Relief] 11a. index matching of the flakes (1.55) by a liquid: air " << fa << ", index 1.55 " << fs << ", water " << fw << ", glycerin " << fg
+                << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (b) The field: between 0 and rho0, patchy, deterministic; a film and the hydration lower it by the factors above.
+        {
+            SkinScatter::Params sp; sp.rho0 = Real(0.1); sp.kappaH = Real(0.4);
+            const SkinScatter dry(sp);
+            SkinScatter::Params sh = sp; sh.hydration = Real(1);
+            const SkinScatter hyd(sh);
+            bool inRange = true;
+            double sumDry = 0, sumWater = 0, sumHyd = 0, sumGly = 0;
+            long flaked = 0;
+            const int m = std::min(n, 40000);
+            for (int i = 0; i < m; ++i) {
+                const Point3 p(sampling::Random() * 0.1, sampling::Random() * 0.1, 0.0);
+                const Real r = dry.reflectance(p, Real(1), Real(0));
+                inRange = inRange && r >= 0 && r <= sp.rho0 * Real(1.0001);
+                sumDry += r; sumHyd += hyd.reflectance(p, Real(1), Real(0));
+                sumWater += dry.reflectance(p, Real(1.33), Real(10e-6)); sumGly += dry.reflectance(p, Real(1.47), Real(10e-6));
+                if (r > 0.5 * sp.rho0) ++flaked;
+            }
+            const Point3 q(0.0123, 0.0045, 0.0);
+            const double cover = double(flaked) / m;
+            const bool ok = inRange && dry.reflectance(q, Real(1), Real(0)) == dry.reflectance(q, Real(1), Real(0)) && cover > 0.05 && cover < 0.7
+                && std::abs(sumHyd / sumDry - 0.6) < 0.01 && std::abs(sumWater / sumDry - 0.125) < 0.01 && std::abs(sumGly / sumDry - 0.0151) < 0.005;
+            std::cout << "[Relief] 11b. flakes: mean rho " << sumDry / m << " (rho0 " << sp.rho0 << "), " << 100.0 * cover << " % of the points above half of it; hydrated / dry "
+                << sumHyd / sumDry << ", under 10 um of water / dry " << sumWater / sumDry << ", of glycerin " << sumGly / sumDry << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (c) A skin sphere in a white furnace: the white scatter makes it brighter and never above 1; a film cuts it back.
+        // (d) The direction of a wet surface: under a water film the skin is darker and more saturated (CIELAB of the furnace colour; Sawayama et al. 2017 saw this in photographs).
+        {
+            auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+            auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4));
+            auto reliefP = std::make_shared<SkinRelief>(rp);
+            auto lab = [](const Vector3& c) {   // linear sRGB (white = 1) -> L*, C*
+                const double X = 0.4124 * c.x + 0.3576 * c.y + 0.1805 * c.z, Y = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z, Z = 0.0193 * c.x + 0.1192 * c.y + 0.9505 * c.z;
+                auto f = [](double t) { return t > 216.0 / 24389.0 ? std::cbrt(t) : (24389.0 / 27.0 * t + 16.0) / 116.0; };
+                const double fx = f(X / 0.9505), fy = f(Y), fz = f(Z / 1.089);
+                return std::array<double, 2>{ 116.0 * fy - 16.0, std::hypot(500.0 * (fx - fy), 200.0 * (fy - fz)) };
+            };
+            for (bool sss : { false, true }) {
+                auto build = [&](bool scatter, bool film) {
+                    auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
+                    skin->setRelief(reliefP);
+                    if (sss) skin->setSubsurface(profile);
+                    if (film) { SkinFilm::Params fp; fp.thickness = Real(10e-6); skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP)); }
+                    if (scatter) { SkinScatter::Params sp; sp.rho0 = Real(0.3); sp.threshold = Real(0.5); sp.softness = Real(0.05); skin->setScatter(std::make_shared<SkinScatter>(sp)); }
+                    auto world = std::make_shared<Aggregate>();
+                    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
+                    auto scene = std::make_shared<Scene>(world);
+                    scene->setEnvLight(whiteSky);
+                    scene->finalize("spatial");
+                    return scene;
+                };
+                const auto plain = build(false, false), flaky = build(true, false), wet = build(true, true), wetPlain = build(false, true);
+                const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+                Vector3 sP(0.0), sF(0.0), sW(0.0), sWP(0.0);
+                int bad = 0;
+                for (int i = 0; i < rays; ++i) {
+                    const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
+                    const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
+                    Vector3 m1, s1, m2, s2, m3, s3, m4, s4; int b1 = 0, b2 = 0, b3 = 0, b4 = 0;
+                    EstimateRadiance(*plain, ray, perRay, 8, m1, s1, b1);
+                    EstimateRadiance(*flaky, ray, perRay, 8, m2, s2, b2);
+                    EstimateRadiance(*wet, ray, perRay, 8, m3, s3, b3);
+                    EstimateRadiance(*wetPlain, ray, perRay, 8, m4, s4, b4);
+                    sP += m1; sF += m2; sW += m3; sWP += m4; bad += b1 + b2 + b3 + b4;
+                }
+                const Vector3 mp = sP / Real(rays), mf = sF / Real(rays), mw = sW / Real(rays), mwp = sWP / Real(rays);
+                bool okC = bad == 0;
+                for (int c = 0; c < 3; ++c) okC = okC && mf[c] >= mp[c] * 0.99 && mf[c] <= 1.0 && mw[c] <= mf[c] * 1.01;
+                std::cout << "[Relief] 11c. furnace" << (sss ? " with subsurface scattering" : "") << ": no flakes (" << mp.x << ", " << mp.y << ", " << mp.z << "), flakes (" << mf.x << ", " << mf.y << ", " << mf.z
+                    << "), flakes under a 10 um water film (" << mw.x << ", " << mw.y << ", " << mw.z << ")" << (okC ? "   OK" : "   FAIL") << "\n";
+                allPassed = okC && allPassed;
+                const auto d = lab(mf), w = lab(mw), wp = lab(mwp);
+                const bool okD = w[0] < d[0] && w[1] > d[1];
+                std::cout << "[Relief] 11d. wetting the flaking skin" << (sss ? " (with subsurface scattering)" : "") << ": L* " << d[0] << " -> " << w[0] << ", chroma C* " << d[1] << " -> " << w[1]
+                    << " (a skin without flakes: L* " << wp[0] << ", C* " << wp[1] << " under the film)" << (okD ? "   OK (darker, more saturated)" : "   FAIL") << "\n";
+                allPassed = okD && allPassed;
             }
         }
     }

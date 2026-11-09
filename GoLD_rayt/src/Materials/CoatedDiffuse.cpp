@@ -25,8 +25,12 @@ namespace rayt {
             // The integrator weighs by |cos(rec.n, wi)|; a lobe about the film's normal wants cos(ns, wi), so change one for the other.
             if (split) f = f * (cosIs / std::max(std::abs(cosI), Real(1e-3)));
         }
-        if (!m_profile && cosO > 0 && cosI > 0)   // with subsurface scattering the diffuse lobe is the subsurface event
-            f = f + diffuse(R, std::max(cosOs, Real(0)), std::max(cosIs, Real(0)), rec);
+        if (cosO > 0 && cosI > 0) {
+            if (!m_profile)   // with subsurface scattering the diffuse lobe is the subsurface event
+                f = f + diffuse(R, std::max(cosOs, Real(0)), std::max(cosIs, Real(0)), rec);
+            if (rec.surfScatter > Real(0))   // the white scatter of flaking skin: local and diffuse, in both cases
+                f = f + Spectrum(scatterLobe(rec, std::max(cosOs, Real(0)), std::max(cosIs, Real(0))));
+        }
         return f;
     }
 
@@ -50,13 +54,21 @@ namespace rayt {
             specularLobe = true;
         }
         else if (m_profile) {
-            // The light passes the coat (probability 1 - F) and enters: the integrator picks the exit.
-            // Choosing it with probability 1 - pS gives the weight (1 - F) / (1 - pS), exactly 1 unless pS was clamped.
-            s.f = Spectrum((Real(1) - coatF(rec, wo_local.z)) / (Real(1) - pS));
-            s.pdf = Real(1);
-            s.wi = rec.n;
-            s.flags = BxDFFlags::Subsurface;
-            return s;
+            // The light passes the coat (probability 1 - F) and enters. The white scatter of flaking skin takes the share rho of it, as a cosine lobe about n;
+            // the rest (1 - rho) is the subsurface event: the integrator picks the exit.
+            // Choosing the subsurface event with probability (1 - pS)(1 - rho) gives the weight (1 - F)(1 - rho) / ((1 - pS)(1 - rho)) = (1 - F) / (1 - pS).
+            const Real rho = scatterAt(rec);
+            const Real ux = (u.x - pS) / (Real(1) - pS);
+            if (ux >= rho) {
+                s.f = Spectrum((Real(1) - coatF(rec, wo_local.z)) / (Real(1) - pS));
+                s.pdf = Real(1);
+                s.wi = rec.n;
+                s.flags = BxDFFlags::Subsurface;
+                return s;
+            }
+            const Real r = math::safe_sqrt(ux / rho), phi = Real(2) * constants::PI * u.y;
+            const frame::Frame skin(rec.n);
+            s.wi = skin.localToWorld(Vector3(r * std::cos(phi), r * std::sin(phi), math::safe_sqrt(Real(1) - ux / rho)));
         }
         else {
             const Real ux = (u.x - pS) / (Real(1) - pS);
@@ -94,7 +106,10 @@ namespace rayt {
         const Real pdfSpec = (cosIs > 0 && dotOH > 0) ? dist.pdf(wo_local, wh_local) / (Real(4) * dotOH) : Real(0);
 
         const Real pS = lobeProbability(rec, cosOs);
-        if (m_profile) return pS * pdfSpec;   // the rest of the probability is the subsurface event (no direction)
+        if (m_profile) {   // the rest of the probability is the subsurface event (no direction), except the white scatter's share: a cosine lobe about n
+            const Real pdfScatter = (cosI > 0 && cosO > 0) ? scatterAt(rec) * cosI / constants::PI : Real(0);
+            return pS * pdfSpec + (Real(1) - pS) * pdfScatter;
+        }
         const Real pdfDiffuse = (cosI > 0 && cosO > 0) ? cosI / constants::PI : Real(0);
         return pS * pdfSpec + (Real(1) - pS) * pdfDiffuse;
     }

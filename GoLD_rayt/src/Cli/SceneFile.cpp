@@ -374,7 +374,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -481,6 +481,23 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (!(s.skinFilmThicknessUm >= 0) || !(s.skinFilmIor >= 1 && s.skinFilmIor <= 2.5) || !(s.skinFilmRoughness >= 0 && s.skinFilmRoughness <= 1) || !(s.skinFilmSoftnessUm > 0))
                 Fail(fw, "needs thicknessUm >= 0, ior between 1 and 2.5, roughness between 0 and 1 and softnessUm above 0");
             s.skinFilmOn = s.skinFilmThicknessUm > 0;   // 0 = no film
+        }
+        if (m.contains("scatter")) {   // "scatter": { "rho0", "frequency", "threshold", "softness", "hydration", "kappaH", "gapUm", "seed" }: the white scatter of flaking (dry) skin
+            const json& sc = m.at("scatter");
+            const std::string sw = where + ".scatter";
+            if (!sc.is_object()) Fail(sw, "must be an object (rho0, frequency, threshold, softness, hydration, kappaH, gapUm, seed)");
+            CheckKeys(sc, { "rho0", "frequency", "threshold", "softness", "hydration", "kappaH", "gapUm", "seed" }, sw);
+            Optional<double>(sc, "rho0", sw, s.scatRho0, ReadNumber);
+            Optional<double>(sc, "frequency", sw, s.scatFrequency, ReadNumber);
+            Optional<double>(sc, "threshold", sw, s.scatThreshold, ReadNumber);
+            Optional<double>(sc, "softness", sw, s.scatSoftness, ReadNumber);
+            Optional<double>(sc, "hydration", sw, s.scatHydration, ReadNumber);
+            Optional<double>(sc, "kappaH", sw, s.scatKappaH, ReadNumber);
+            Optional<double>(sc, "gapUm", sw, s.scatGapUm, ReadNumber);
+            double sd = s.scatSeed; Optional<double>(sc, "seed", sw, sd, ReadNumber); s.scatSeed = int(sd);
+            if (!(s.scatRho0 >= 0 && s.scatRho0 <= 0.9) || !(s.scatFrequency > 0) || !(s.scatSoftness > 0) || !(s.scatHydration >= 0 && s.scatHydration <= 1) || !(s.scatKappaH >= 0 && s.scatKappaH <= 1) || !(s.scatGapUm > 0))
+                Fail(sw, "needs rho0 between 0 and 0.9, frequency, softness and gapUm above 0, hydration and kappaH between 0 and 1");
+            s.skinScatterOn = s.scatRho0 > 0;
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
             const json& g = m.at("pigment");

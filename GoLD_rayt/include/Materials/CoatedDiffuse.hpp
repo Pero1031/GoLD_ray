@@ -37,6 +37,7 @@
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinPigment.hpp"
 #include "Materials/SkinFilm.hpp"
+#include "Materials/SkinScatter.hpp"
 #include "Materials/DensityField.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
@@ -81,6 +82,10 @@ namespace rayt {
         /// follows the smooth top of the film, with the film's Fresnel reflectance and roughness, where the film covers the skin. Set before rendering.
         void setFilm(std::shared_ptr<const SkinFilm> film) { m_film = std::move(film); }
 
+        /// A white local scatter of flaking skin (Materials/SkinScatter.hpp): a third lobe, a Lambertian reflection under the coat that takes its share of the light
+        /// that enters (what is left goes to the diffuse lobe or the subsurface event). A liquid film (setFilm) cuts it by index matching. Set before rendering.
+        void setScatter(std::shared_ptr<const SkinScatter> scatter) { m_scatter = std::move(scatter); }
+
         /// An uneven skin color (freckles, uneven pigment, redness: Materials/SkinPigment.hpp), and how much the pores of the relief darken the skin
         /// (0..1; needs the relief). With subsurface scattering the factor is applied where the light goes in and where it comes out (square root each).
         void setPigment(std::shared_ptr<const SkinPigment> pigment, Real poreDarkness = Real(0)) {
@@ -116,6 +121,8 @@ namespace rayt {
                 if (c < Real(0.05)) ns = glm::normalize(ns + wo * (Real(0.05) - c));
                 rec.ns = ns;
             }
+            if (m_scatter)
+                rec.surfScatter = m_scatter->reflectance(rec.p, m_film ? m_film->params().ior : Real(1), m_film ? m_film->params().thickness : Real(0));
             if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
                 const Vector3 f = pigmentFactor(rec.p, rec.gn);
                 rec.albedoTint = m_profile ? glm::sqrt(f) : f;
@@ -155,6 +162,7 @@ namespace rayt {
     private:
         std::shared_ptr<const SkinRelief> m_relief;
         std::shared_ptr<const SkinFilm> m_film;
+        std::shared_ptr<const SkinScatter> m_scatter;
         std::shared_ptr<const SkinPigment> m_pigment;
         std::shared_ptr<const NoiseDensity> m_gloss;
         Real m_glossAmount = Real(0);
@@ -207,11 +215,21 @@ namespace rayt {
         /// The normal of the specular lobe: the top of the film where one was set at this hit, else the shading normal.
         const Vector3& specNormal(const SurfaceInteraction& rec) const { return glm::dot(rec.ns, rec.ns) > Real(0) ? rec.ns : rec.n; }
 
+        /// The share of the entering light that the white scatter of flaking skin takes (0 where there is none).
+        Real scatterAt(const SurfaceInteraction& rec) const { return std::clamp(rec.surfScatter, Real(0), Real(0.95)); }
+
         /// cosO, cosI: cosines with the normal of the specular lobe (the Fresnel reflectance of the top is a function of them).
+        /// The base takes what the white scatter leaves: (1 - rho).
         Spectrum diffuse(const Spectrum& R, Real cosO, Real cosI, const SurfaceInteraction& rec) const {
-            const Real k = (Real(1) - m_m) * (Real(1) - coatF(rec, cosO)) * (Real(1) - coatF(rec, cosI))
+            const Real k = (Real(1) - m_m) * (Real(1) - scatterAt(rec)) * (Real(1) - coatF(rec, cosO)) * (Real(1) - coatF(rec, cosI))
                 / (Real(1) - fAvgAt(rec)) / constants::PI;
             return R * k;
+        }
+
+        /// The white scatter: a Lambertian reflection of reflectance rho under the coat, normalised like the diffuse lobe.
+        Real scatterLobe(const SurfaceInteraction& rec, Real cosO, Real cosI) const {
+            return (Real(1) - m_m) * scatterAt(rec) * (Real(1) - coatF(rec, cosO)) * (Real(1) - coatF(rec, cosI))
+                / (Real(1) - fAvgAt(rec)) / constants::PI;
         }
 
         Spectrum specular(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const Spectrum& R,
