@@ -237,6 +237,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         }
         case MaterialSpec::Type::Skin: {
             auto skin = std::make_shared<CoatedDiffuse>(RgbColor(m.albedo), Real(m.roughness), Real(m.skinSpecular), Real(0));
+            if (!m.skinLotionNote.empty()) std::cout << "[Lotion] material \"" << name << "\": " << m.skinLotionNote << "\n";
             if (m.skinSss)   // the exit point is searched on every surface that shares this material
                 skin->setSubsurface(std::make_shared<SubsurfaceProfile>(m.skinScatterMm * Real(0.001) * Real(m.skinSssScale), Real(1.4)));
             if (m.skinRelief) {

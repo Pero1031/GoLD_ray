@@ -6,6 +6,7 @@
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinFilm.hpp"
 #include "Materials/SkinScatter.hpp"
+#include "Materials/SkinLotion.hpp"
 
 namespace rayt::cli {
 
@@ -529,6 +530,36 @@ int RunReliefTests(const CliOptions& opt) {
                 allPassed = okD && allPassed;
             }
         }
+    }
+
+    // ---- 12. The time course of a lotion (Materials/SkinLotion.hpp) ------------------------------------------------------------------------
+    {
+        const SkinLotion::Params lp;
+        const bool valid = std::string(SkinLotion::validate(lp)).empty();
+        SkinLotion::Params bad = lp; bad.hydrationDecay = bad.hydrationRise;
+        const bool rejects = !std::string(SkinLotion::validate(bad)).empty();
+
+        const SkinLotion::State s0 = SkinLotion::at(lp, Real(0)), sTau = SkinLotion::at(lp, lp.waterTau), sEnd = SkinLotion::at(lp, Real(36000));
+        const double iorStart = (1.33 * 0.95 + 1.47 * 0.05);
+        const bool start = std::abs(double(s0.thickness - lp.dose)) < 1e-12 && std::abs(double(s0.ior) - iorStart) < 1e-6 && s0.hydration == Real(0);
+        const bool tauOk = std::abs(double(sTau.water) - double(lp.dose) * 0.95 / std::exp(1.0)) < 1e-12;
+        const bool end = std::abs(double(sEnd.thickness) - double(lp.dose) * 0.05) < 1e-9 && std::abs(double(sEnd.ior) - 1.47) < 1e-6 && std::abs(double(sEnd.roughness) - 0.08) < 1e-6 && sEnd.hydration >= 0 && sEnd.hydration < 1e-6;
+        bool monotone = true;
+        double prevT = 1e9, prevN = 0, peak = 0, peakT = 0;
+        for (int i = 0; i <= 3600; ++i) {
+            const double t = double(i) * 2.0;   // 0 .. 2 h
+            const SkinLotion::State s = SkinLotion::at(lp, Real(t));
+            monotone = monotone && double(s.thickness) <= prevT + 1e-15 && double(s.ior) >= prevN - 1e-12 && s.hydration >= 0 && s.hydration <= lp.hydrationPeak * Real(1.0001);
+            prevT = double(s.thickness); prevN = double(s.ior);
+            if (s.hydration > peak) { peak = double(s.hydration); peakT = t; }
+        }
+        const double tp = double(SkinLotion::hydrationPeakTime(lp));
+        const bool peakOk = std::abs(peak - double(lp.hydrationPeak)) < 0.005 * double(lp.hydrationPeak) && std::abs(peakT - tp) <= 2.0;
+        const bool ok = valid && rejects && start && tauOk && end && monotone && peakOk;
+        std::cout << "[Relief] 12. lotion over time (default: 10 um, 5 % humectant, water tau " << double(lp.waterTau) << " s): at 0 s film " << double(s0.thickness) * 1e6 << " um, index " << double(s0.ior)
+            << "; at one tau " << double(sTau.water) * 1e6 << " um of water; at 10 h " << double(sEnd.thickness) * 1e6 << " um of humectant (index " << double(sEnd.ior) << "); hydration peaks at " << peak << " at "
+            << peakT << " s (formula " << tp << " s); thickness falls and index rises with time: " << (monotone ? "yes" : "NO") << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
     }
 
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

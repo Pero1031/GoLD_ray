@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include "Color/Sellmeier.hpp"
 #include "Materials/Hair.hpp"
+#include "Materials/SkinLotion.hpp"
 
 namespace rayt::cli {
 
@@ -374,7 +375,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter", "lotion" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -498,6 +499,40 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (!(s.scatRho0 >= 0 && s.scatRho0 <= 0.9) || !(s.scatFrequency > 0) || !(s.scatSoftness > 0) || !(s.scatHydration >= 0 && s.scatHydration <= 1) || !(s.scatKappaH >= 0 && s.scatKappaH <= 1) || !(s.scatGapUm > 0))
                 Fail(sw, "needs rho0 between 0 and 0.9, frequency, softness and gapUm above 0, hydration and kappaH between 0 and 1");
             s.skinScatterOn = s.scatRho0 > 0;
+        }
+        if (m.contains("lotion")) {   // "lotion": { "doseUm", "glycerin", "timeS", "waterTauS", ... }: the film and the hydration `timeS` seconds after a lotion was applied (replaces "film")
+            const json& lo = m.at("lotion");
+            const std::string lw = where + ".lotion";
+            if (!lo.is_object()) Fail(lw, "must be an object (doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness)");
+            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness" }, lw);
+            if (!s.skinRelief) Fail(lw, "needs a \"relief\" (the liquid pools in its furrows)");
+            if (m.contains("film")) Fail(lw, "sets the film itself: write either \"film\" or \"lotion\"");
+            SkinLotion::Params lp;
+            double doseUm = double(lp.dose) * 1e6, timeS = 0, tau = lp.waterTau, hp = lp.hydrationPeak, hr = lp.hydrationRise, hd = lp.hydrationDecay, wi = lp.waterIor, hi = lp.humectantIor, wr = lp.waterRoughness, rr = lp.residueRoughness, gl = lp.glycerin;
+            Optional<double>(lo, "doseUm", lw, doseUm, ReadNumber);
+            Optional<double>(lo, "glycerin", lw, gl, ReadNumber);
+            Optional<double>(lo, "timeS", lw, timeS, ReadNumber);
+            Optional<double>(lo, "waterTauS", lw, tau, ReadNumber);
+            Optional<double>(lo, "hydrationPeak", lw, hp, ReadNumber);
+            Optional<double>(lo, "hydrationRiseS", lw, hr, ReadNumber);
+            Optional<double>(lo, "hydrationDecayS", lw, hd, ReadNumber);
+            Optional<double>(lo, "waterIor", lw, wi, ReadNumber);
+            Optional<double>(lo, "humectantIor", lw, hi, ReadNumber);
+            Optional<double>(lo, "waterRoughness", lw, wr, ReadNumber);
+            Optional<double>(lo, "residueRoughness", lw, rr, ReadNumber);
+            lp.dose = Real(doseUm * 1e-6); lp.glycerin = Real(gl); lp.waterTau = Real(tau); lp.hydrationPeak = Real(hp); lp.hydrationRise = Real(hr); lp.hydrationDecay = Real(hd);
+            lp.waterIor = Real(wi); lp.humectantIor = Real(hi); lp.waterRoughness = Real(wr); lp.residueRoughness = Real(rr);
+            const std::string why = SkinLotion::validate(lp);
+            if (!why.empty()) Fail(lw, why);
+            if (!(timeS >= 0)) Fail(lw + ".timeS", "must not be negative");
+            const SkinLotion::State st = SkinLotion::at(lp, Real(timeS));
+            s.skinFilmOn = st.thickness > 0;
+            s.skinFilmThicknessUm = double(st.thickness) * 1e6; s.skinFilmIor = double(st.ior); s.skinFilmRoughness = double(st.roughness);
+            if (s.skinScatterOn) s.scatHydration = double(st.hydration);
+            std::ostringstream note;
+            note << "t = " << timeS << " s: film " << s.skinFilmThicknessUm << " um (water " << double(st.water) * 1e6 << " + humectant " << double(st.residue) * 1e6 << "), index " << s.skinFilmIor
+                << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration);
+            s.skinLotionNote = note.str();
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
             const json& g = m.at("pigment");
