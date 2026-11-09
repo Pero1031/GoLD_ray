@@ -119,6 +119,7 @@ struct MaterialSpec {
     bool skinFoundationOn = false;                 //   a layer of foundation make-up on top (Materials/CosmeticLayer.hpp): "foundation"
     double fndThickness = 0.5, fndDiffuserFraction = 0.9, fndG1 = 0.5, fndG2 = -0.2, fndLobeWeight = 0.7;   //   its optical thickness, share of diffusers, their two lobes
     double fndPlateletRoughness = 0.15, fndPlateletTiltDeg = 0;                                               //   the platelets
+    double fndLeveling = 1.0;                                                                                 //   how far the layer levels the skin relief (0: follows it, 1: smooth)
     Vector3 fndDiffuserAlbedo = Vector3(0.97, 0.94, 0.90), fndPlateletAlbedo = Vector3(0.85);                 //   the colours of the two particles
     bool skinScatterOn = false;                    //   the white scatter of flaking skin (Materials/SkinScatter.hpp)
     double scatRho0 = 0.08, scatFrequency = 300, scatThreshold = 0.52, scatSoftness = 0.08, scatHydration = 0, scatKappaH = 0.3, scatGapUm = 1.0;

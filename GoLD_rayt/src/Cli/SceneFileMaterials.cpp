@@ -447,7 +447,9 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& fd = m.at("foundation");
             const std::string fw = where + ".foundation";
             if (!fd.is_object()) Fail(fw, "must be an object (preset, thickness, diffuserFraction, diffuserAlbedo, plateletAlbedo, g1, g2, lobeWeight, plateletRoughness, plateletTiltDeg)");
-            CheckKeys(fd, { "preset", "thickness", "diffuserFraction", "diffuserAlbedo", "plateletAlbedo", "g1", "g2", "lobeWeight", "plateletRoughness", "plateletTiltDeg" }, fw);
+            CheckKeys(fd, { "preset", "thickness", "diffuserFraction", "diffuserAlbedo", "plateletAlbedo", "g1", "g2", "lobeWeight", "plateletRoughness", "plateletTiltDeg", "leveling" }, fw);
+            Optional<double>(fd, "leveling", fw, s.fndLeveling, ReadNumber);
+            if (!(s.fndLeveling >= 0 && s.fndLeveling <= 1)) Fail(fw + ".leveling", "must be between 0 (the layer follows the skin relief) and 1 (it levels it)");
             CosmeticLayer::Params cp;
             if (fd.contains("preset")) {   // one of the four foundations fitted in the paper; the keys after it change single values
                 const std::string preset = ReadString(fd.at("preset"), fw + ".preset");

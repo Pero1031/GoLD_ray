@@ -22,12 +22,15 @@ namespace rayt {
 
         // A layer of foundation on top: the mirror-like lobe is seen through the light that crosses the layer without a collision (both ways),
         // the diffuse lobes through all the light that crosses it, with the bounces between skin and layer summed.
-        const bool layered = m_cosmetic && cosO > 0 && cosI > 0;
-        Real straight = Real(1);
-        Spectrum through(1.0);
+        // The layer has its own normal (it levels the relief): what it lets through depends on the directions against that normal, and where
+        // a direction is below the layer's plane nothing reaches the skin.
+        const Real cosOl = m_cosmetic ? glm::dot(layerNormal(rec), wo) : cosO, cosIl = m_cosmetic ? glm::dot(layerNormal(rec), wi) : cosI;
+        const bool layered = m_cosmetic && cosOl > 0 && cosIl > 0;
+        Real straight = m_cosmetic ? Real(0) : Real(1);
+        Spectrum through(m_cosmetic ? 0.0 : 1.0);
         if (layered) {
-            straight = m_cosmetic->straight(cosO) * m_cosmetic->straight(cosI);
-            through = RgbColor(m_cosmetic->through(cosO)).reflectance(lambda) * RgbColor(m_cosmetic->through(cosI)).reflectance(lambda);
+            straight = m_cosmetic->straight(cosOl) * m_cosmetic->straight(cosIl);
+            through = RgbColor(m_cosmetic->through(cosOl)).reflectance(lambda) * RgbColor(m_cosmetic->through(cosIl)).reflectance(lambda);
             const Spectrum back = RgbColor(m_cosmetic->backDiffuse()).reflectance(lambda);
             for (int i = 0; i < kSssChannels; ++i) through[i] /= std::max(Real(1) - std::clamp(back[i] * R[i], Real(0), Real(1)), Real(0.05));
         }
@@ -37,7 +40,7 @@ namespace rayt {
             f = specular(rec, wo, wi, R, cosOs, cosIs);
             // The integrator weighs by |cos(rec.n, wi)|; a lobe about the film's normal wants cos(ns, wi), so change one for the other.
             if (split) f = f * (cosIs / std::max(std::abs(cosI), Real(1e-3)));
-            if (m_cosmetic) f = f * (layered ? straight : Real(0));
+            f = f * straight;
         }
         if (cosO > 0 && cosI > 0) {
             Spectrum below(0.0);
@@ -46,21 +49,23 @@ namespace rayt {
             if (rec.surfScatter > Real(0))   // the white scatter of flaking skin: local and diffuse, in both cases
                 below = below + Spectrum(scatterLobe(rec, std::max(cosOs, Real(0)), std::max(cosIs, Real(0))));
             f = f + below * through;
-            if (m_cosmetic) f = f + cosmeticReflection(rec, wo, wi, lambda);
         }
+        if (layered) f = f + cosmeticReflection(rec, wo, wi, lambda);
         return f;
     }
 
     Spectrum CoatedDiffuse::cosmeticReflection(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths& lambda) const {
-        const frame::Frame skin(rec.n);
+        const frame::Frame skin = layerFrame(rec);
         const Vector3 o = skin.worldToLocal(wo), i = skin.worldToLocal(wi);
         if (o.z <= Real(1e-4) || i.z <= Real(1e-4)) return Spectrum(0.0);
         // The walk follows the light: it arrives travelling along -wi and is seen leaving along wo; its samples average to f cos(theta_o).
-        return m_cosmetic->layer().reflectionSampleT<Spectrum>(-i, o, m_cosmeticDiffuser.reflectance(lambda), m_cosmeticPlatelet.reflectance(lambda)) * (Real(1) / o.z);
+        // The integrator weighs by |cos(rec.n, wi)|; the layer's lobe wants the cosine with its own normal, so change one for the other.
+        const Real swap = i.z / std::max(std::abs(glm::dot(rec.n, wi)), Real(1e-3));
+        return m_cosmetic->layer().reflectionSampleT<Spectrum>(-i, o, m_cosmeticDiffuser.reflectance(lambda), m_cosmeticPlatelet.reflectance(lambda)) * (swap / o.z);
     }
 
     Real CoatedDiffuse::cosmeticPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const {
-        const frame::Frame skin(rec.n);
+        const frame::Frame skin = layerFrame(rec);
         const Vector3 o = skin.worldToLocal(wo), i = skin.worldToLocal(wi);
         if (o.z <= 0 || i.z <= 0) return Real(0);
         const CosmeticLayer& layer = m_cosmetic->layer();
@@ -83,12 +88,12 @@ namespace rayt {
         // A layer of foundation: its own reflection is one more lobe, chosen with a probability that follows how much the layer reflects.
         Point2 u = uIn;
         Real pL = Real(0);
-        const Real cosOn = glm::dot(rec.n, wo);
+        const Real cosOn = m_cosmetic ? glm::dot(layerNormal(rec), wo) : Real(0);   // against the layer's own normal
         if (m_cosmetic && cosOn > 0) {
             pL = m_cosmetic->lobeProbability(cosOn);
             if (pL > 0 && u.x < pL) {
                 const Real ux = u.x / pL;
-                const frame::Frame skin(rec.n);
+                const frame::Frame skin = layerFrame(rec);
                 const Vector3 o = skin.worldToLocal(wo);
                 const CosmeticLayer& layer = m_cosmetic->layer();
                 const Real q = std::min(layer.plateletShare(-o), Real(0.9));
@@ -157,7 +162,7 @@ namespace rayt {
     {
         if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return Real(0);
         if (!m_cosmetic) return skinPdf(rec, wo, wi);
-        const Real cosOn = glm::dot(rec.n, wo);
+        const Real cosOn = glm::dot(layerNormal(rec), wo);
         const Real pL = cosOn > 0 ? m_cosmetic->lobeProbability(cosOn) : Real(0);
         return pL * (pL > 0 ? cosmeticPdf(rec, wo, wi) : Real(0)) + (Real(1) - pL) * skinPdf(rec, wo, wi);
     }

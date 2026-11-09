@@ -308,7 +308,9 @@ private:
 ///   throughDiffuse()   through() averaged over a cosine-weighted hemisphere.
 class CosmeticCoat {
 public:
-    explicit CosmeticCoat(const CosmeticLayer::Params& p, int walksPerBin = 20000) : m_layer(p) {
+    /// walksPerBin: the tables are estimates. Their error does not average out during a render (it is the same for every sample), so it
+    /// has to be small: 100000 walks leave about 0.15 % in a table value (20000 left 0.35 %, which showed as +-0.6 % in a white furnace).
+    explicit CosmeticCoat(const CosmeticLayer::Params& p, int walksPerBin = 100000) : m_layer(p) {
         for (int b = 0; b < kBins; ++b) {
             const Real mu = (b + Real(0.5)) / kBins;
             Vector3 refl(0), thru(0);

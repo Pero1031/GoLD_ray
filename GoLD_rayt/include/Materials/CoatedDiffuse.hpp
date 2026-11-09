@@ -95,8 +95,11 @@ namespace rayt {
         /// A layer of foundation make-up on top of everything (Materials/CosmeticLayer.hpp, docs/COSMETICS.md). The reflection of the layer itself is
         /// computed by its random walk at every evaluation; the skin is seen through the layer's tables: the mirror-like lobe through the light that
         /// crosses the layer without a collision, the diffuse lobes and the subsurface light through all the light that crosses it, with the light
-        /// that bounces between skin and layer summed (1 / (1 - Rback A)). The layer follows the shading normal. Set before rendering.
-        void setCosmetic(std::shared_ptr<const CosmeticCoat> coat) {
+        /// that bounces between skin and layer summed (1 / (1 - Rback A)).
+        /// `leveling` (0..1): how far the layer levels the relief of the skin (setRelief). 1: its surface follows the smooth normal, the furrows and pores
+        /// do not show in its reflection (a paste fills them); 0: it follows the bent normal of the skin. The skin's own lobes keep the relief. Set before rendering.
+        void setCosmetic(std::shared_ptr<const CosmeticCoat> coat, Real leveling = Real(1)) {
+            m_cosmeticLeveling = std::clamp(leveling, Real(0), Real(1));
             m_cosmetic = std::move(coat);
             if (m_cosmetic) {
                 m_cosmeticDiffuser = RgbColor(m_cosmetic->layer().params().diffuserAlbedo);
@@ -160,6 +163,12 @@ namespace rayt {
                 rec.ns = ns;
             }
             if (m_scatter || m_emulTau > Real(0)) rec.surfScatter = scatterTotal(rec.p, smoothN, filmThickness);
+            if (m_cosmetic && m_relief && m_cosmeticLeveling > Real(0)) {   // the make-up levels the relief: its normal goes from the bent one towards the smooth one
+                Vector3 nl = glm::normalize(rec.n * (Real(1) - m_cosmeticLeveling) + smoothN * m_cosmeticLeveling);
+                const Real c = glm::dot(nl, wo);
+                if (c < Real(0.05)) nl = glm::normalize(nl + wo * (Real(0.05) - c));
+                rec.nl = nl;
+            }
             if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
                 const Vector3 f = pigmentFactor(rec.p, rec.gn);
                 rec.albedoTint = m_profile ? glm::sqrt(f) : f;
@@ -202,6 +211,17 @@ namespace rayt {
         std::shared_ptr<const SkinScatter> m_scatter;
         Real m_emulTau = Real(0);
         std::shared_ptr<const CosmeticCoat> m_cosmetic;
+        Real m_cosmeticLeveling = Real(1);
+        /// The normal of the make-up layer at this hit: the levelled one where perturbShading set it, else the shading normal.
+        const Vector3& layerNormal(const SurfaceInteraction& rec) const { return glm::dot(rec.nl, rec.nl) > Real(0) ? rec.nl : rec.n; }
+        /// The frame of the make-up layer: its normal, and the tangent of the shape where it gives one. With an arbitrary tangent the direction a
+        /// platelet tilt leans to would jump along lines on the surface (a visible seam in the sheen).
+        frame::Frame layerFrame(const SurfaceInteraction& rec) const {
+            frame::Frame f;
+            if (glm::dot(rec.dpdu, rec.dpdu) > Real(0)) f.buildFromNormalAndTangent(layerNormal(rec), rec.dpdu);
+            else f.buildFromW(layerNormal(rec));
+            return f;
+        }
         RgbColor m_cosmeticDiffuser{ Vector3(1.0) }, m_cosmeticPlatelet{ Vector3(1.0) };   // the albedos of the layer's two particles
 
         /// One sample of the reflection of the foundation layer alone (a BSDF value; noisy, its mean is the layer's BSDF).

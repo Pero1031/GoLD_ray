@@ -287,7 +287,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 cp.lobeWeight = Real(m.fndLobeWeight); cp.plateletRoughness = Real(m.fndPlateletRoughness); cp.plateletTiltDeg = Real(m.fndPlateletTiltDeg);
                 cp.diffuserAlbedo = m.fndDiffuserAlbedo; cp.plateletAlbedo = m.fndPlateletAlbedo;
                 const auto coat = std::make_shared<CosmeticCoat>(cp);
-                skin->setCosmetic(coat);
+                skin->setCosmetic(coat, Real(m.fndLeveling));
                 const Vector3 r = coat->reflected(Real(1)), t = coat->through(Real(1));
                 std::cout << "[Foundation] a layer of thickness " << cp.thickness << ", " << 100 * cp.diffuserFraction << " % diffusers, platelet roughness " << cp.plateletRoughness
                     << ": seen from the normal it reflects (" << r.x << ", " << r.y << ", " << r.z << "), lets through (" << t.x << ", " << t.y << ", " << t.z

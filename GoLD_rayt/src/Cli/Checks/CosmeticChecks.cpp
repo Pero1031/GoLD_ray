@@ -386,6 +386,44 @@ int RunCosmeticTests(const CliOptions& opt) {
             std::abs(bySample.mean - byEval.mean) <= 4 * se + 0.02 * byEval.mean && byEval.mean < 1.0,
             Fixed(bySample.mean) + " and " + Fixed(byEval.mean) + " +- " + Fixed(se));
     }
+    {   // (c2) on a skin with relief: the layer's normal is the smooth one when it levels (1) and the bent one when it does not (0), and
+        //      sample() and eval() still describe the same reflection when the two normals differ
+        const auto relief = std::make_shared<SkinRelief>(SkinRelief::Params{});
+        CosmeticLayer::Params p;
+        CosmeticLayer::preset("dewy1", p);
+        p.thickness = 1.0; p.diffuserFraction = 0.6;
+        const auto coat = std::make_shared<CosmeticCoat>(p);
+        const Vector3 wo = Dir(40, 0, false);
+        for (Real leveling : { Real(1), Real(0), Real(0.5) }) {
+            auto skin = makeSkin(false);
+            skin->setRelief(relief);
+            skin->setCosmetic(coat, leveling);
+            double worstTilt = 0, meanBent = 0, sumS = 0, sumE = 0, var = 0;
+            const int points = 16, per = 20000 * scale;
+            for (int k = 0; k < points; ++k) {
+                SurfaceInteraction rec = flatHit(skin.get(), wo);
+                rec.p = Point3(sampling::Random() * 0.005, sampling::Random() * 0.005, 0.0);
+                skin->perturbShading(rec, wo);
+                const Vector3 nl = glm::dot(rec.nl, rec.nl) > 0 ? rec.nl : rec.n;
+                worstTilt = std::max(worstTilt, double(std::acos(std::clamp(nl.z, Real(-1), Real(1)))) * 180 / constants::PI);
+                meanBent += double(std::acos(std::clamp(rec.n.z, Real(-1), Real(1)))) * 180 / constants::PI / points;
+                Estimate bySample, byEval;
+                for (int i = 0; i < per; ++i) {
+                    const auto bs = skin->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+                    bySample.add(bs ? double(average(bs->f)) * std::abs(glm::dot(rec.n, bs->wi)) / bs->pdf : 0.0);
+                    const Real r = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+                    const Vector3 wi(r * std::cos(phi), r * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - r * r)));
+                    byEval.add(wi.z > Real(1e-3) ? double(average(skin->eval(rec, wo, wi, lambda, TransportMode::Radiance))) * std::abs(glm::dot(rec.n, wi)) * constants::PI / wi.z : 0.0);
+                }
+                bySample.finish(); byEval.finish();
+                sumS += bySample.mean; sumE += byEval.mean; var += bySample.se * bySample.se + byEval.se * byEval.se;
+            }
+            const double mS = sumS / points, mE = sumE / points, se = std::sqrt(var) / points;
+            const bool normalOk = leveling >= 1 ? worstTilt < 0.01 : (leveling <= 0 ? true : worstTilt > 0.01);
+            report("relief, leveling " + Fixed(leveling, 1) + ": the layer's normal, and the albedo from sample() and from eval()", normalOk && std::abs(mS - mE) <= 4 * se + 0.02 * mE && mE < 1.0,
+                "largest tilt of the layer's normal " + Fixed(worstTilt, 2) + " deg (skin normal: " + Fixed(meanBent, 2) + " deg on average); " + Fixed(mS) + " and " + Fixed(mE) + " +- " + Fixed(se));
+        }
+    }
     {   // (d) white furnace: a white ball under a layer that absorbs nothing stays white (the skin's mirror-like lobe is only seen through the light that
         //     crosses the layer without a collision, so a few percent may be missing), and a skin ball under a foundation is never brighter than 1
         auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));
