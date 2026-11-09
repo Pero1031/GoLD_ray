@@ -363,7 +363,7 @@ int RunReliefTests(const CliOptions& opt) {
             auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.3), Real(0.6), Real(0));
             skin->setRelief(reliefP);
             skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP));
-            if (scat) { SkinScatter::Params sp; sp.rho0 = Real(0.4); sp.threshold = Real(0.5); skin->setScatter(std::make_shared<SkinScatter>(sp)); }
+            if (scat) { SkinScatter::Params sp; sp.rho0 = Real(0.4); sp.threshold = Real(0.5); skin->setScatter(std::make_shared<SkinScatter>(sp)); skin->setEmulsion(Real(1.0)); }   // flakes and the emulsion layer together
             if (sss) skin->setSubsurface(std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4)));
 #if defined(RAYT_SPECTRAL_MODE)
             const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
@@ -560,6 +560,85 @@ int RunReliefTests(const CliOptions& opt) {
             << "; at one tau " << double(sTau.water) * 1e6 << " um of water; at 10 h " << double(sEnd.thickness) * 1e6 << " um of humectant (index " << double(sEnd.ior) << "); hydration peaks at " << peak << " at "
             << peakT << " s (formula " << tp << " s); thickness falls and index rises with time: " << (monotone ? "yes" : "NO") << (ok ? "   OK" : "   FAIL") << "\n";
         allPassed = ok && allPassed;
+    }
+
+    // ---- 13. An emulsion: oil droplets in the lotion (Materials/SkinLotion.hpp, docs/SKIN_MOISTURE.md 5.5) ------------------------------------------
+    {
+        // (a) The extinction efficiency of a droplet (anomalous diffraction): 0 for an index of 1, a first maximum of about 3.2 at rho = 2 x (m - 1) = 4.09, continuous at the series.
+        {
+            double best = 0, bestRho = 0;
+            for (int i = 1; i <= 2000; ++i) {
+                const double rho = 0.005 * i;   // x = rho / 2 for m = 2
+                const double q = double(SkinLotion::dropletEfficiency(Real(2), Real(rho / 2)));
+                if (q > best) { best = q; bestRho = rho; }
+            }
+            const double qa = double(SkinLotion::dropletEfficiency(Real(1.0245), Real(1))), qb = double(SkinLotion::dropletEfficiency(Real(1.0255), Real(1)));   // rho = 0.049 and 0.051: no step between the series and the formula
+            const bool ok = SkinLotion::dropletEfficiency(Real(1), Real(7)) == Real(0) && best > 3.1 && best < 3.3 && std::abs(bestRho - 4.09) < 0.3
+                && std::abs(qa / (0.049 * 0.049 / 2.0) - 1.0) < 0.01 && std::abs(qb / (0.051 * 0.051 / 2.0) - 1.0) < 0.01;   // Q = rho^2 / 2 for small rho, on both sides of the switch
+            std::cout << "[Relief] 13a. droplet efficiency (anomalous diffraction): m = 1 -> 0; first maximum " << best << " at rho = " << bestRho << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (b) The time course of an emulsion: oil 8 % of 10 um stays, the droplets scatter (transport optical depth about 0.09) and the scatter fades as they merge and as the water dries.
+        {
+            SkinLotion::Params ep; ep.oil = Real(0.08);
+            const bool valid = std::string(SkinLotion::validate(ep)).empty();
+            SkinLotion::Params bad = ep; bad.oil = Real(0.95);
+            const bool rejects = !std::string(SkinLotion::validate(bad)).empty();
+            const SkinLotion::State s0 = SkinLotion::at(ep, Real(0)), sEnd = SkinLotion::at(ep, Real(36000));
+            const SkinLotion::State plain = SkinLotion::at(SkinLotion::Params(), Real(0));
+            // The scatter never exceeds its start: the water dries (the droplets' index gets close to the medium's, and goes through 1 when the medium is as dense as the oil, so the
+            // efficiency need not fall monotonically after that, but it stays tiny) and the droplets merge.
+            bool monotone = true;
+            for (int i = 0; i <= 600; ++i) monotone = monotone && double(SkinLotion::at(ep, Real(10.0 * i)).emulsionTau) <= double(s0.emulsionTau) * 1.0000001;
+            const bool ok = valid && rejects && plain.emulsionTau == Real(0) && std::abs(double(s0.oil) - 0.8e-6) < 1e-12 && s0.emulsionTau > 0.085 && s0.emulsionTau < 0.096
+                && sEnd.emulsionTau < 1e-6 && std::abs(double(sEnd.thickness) - 1.3e-6) < 1e-9 && std::abs(double(sEnd.ior) - (1.45 * 0.8 + 1.47 * 0.5) / 1.3) < 1e-6 && monotone;
+            std::cout << "[Relief] 13b. emulsion (8 % oil, 1 um droplets, 10 um): transport optical depth " << double(s0.emulsionTau) << " at 0 s, " << double(SkinLotion::at(ep, Real(600)).emulsionTau)
+                << " at 600 s, " << double(sEnd.emulsionTau) << " at 10 h; the film at 10 h is " << double(sEnd.thickness) * 1e6 << " um (oil + humectant), index " << double(sEnd.ior)
+                << "; a plain lotion has none; never above its start: " << (monotone ? "yes" : "NO") << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (c) A skin sphere in a white furnace with a film: the emulsion adds a white layer, which brightens the dark channels and never gives more than 1.
+        {
+            auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+            auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4));
+            auto reliefP = std::make_shared<SkinRelief>(rp);
+            for (bool sss : { false, true }) {
+                auto build = [&](bool emulsion) {
+                    auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
+                    skin->setRelief(reliefP);
+                    if (sss) skin->setSubsurface(profile);
+                    SkinFilm::Params fp; fp.thickness = Real(10e-6);
+                    skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP));
+                    if (emulsion) skin->setEmulsion(Real(0.5));
+                    auto world = std::make_shared<Aggregate>();
+                    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
+                    auto scene = std::make_shared<Scene>(world);
+                    scene->setEnvLight(whiteSky);
+                    scene->finalize("spatial");
+                    return scene;
+                };
+                const auto clear = build(false), milky = build(true);
+                const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+                Vector3 sC(0.0), sM(0.0);
+                int bad = 0;
+                for (int i = 0; i < rays; ++i) {
+                    const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
+                    const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
+                    Vector3 mC, eC, mM, eM; int bC = 0, bM = 0;
+                    EstimateRadiance(*clear, ray, perRay, 8, mC, eC, bC);
+                    EstimateRadiance(*milky, ray, perRay, 8, mM, eM, bM);
+                    sC += mC; sM += mM; bad += bC + bM;
+                }
+                const Vector3 mc = sC / Real(rays), mm = sM / Real(rays);
+                bool ok = bad == 0 && mm.z > mc.z * 1.02;
+                for (int c = 0; c < 3; ++c) ok = ok && mm[c] >= mc[c] * 0.97 && mm[c] <= 1.0;   // the red channel (the brightest, 0.80) hardly changes: a white layer over it gives +1 % at most
+                std::cout << "[Relief] 13c. furnace" << (sss ? " with subsurface scattering" : "") << ", a 10 um film: clear (" << mc.x << ", " << mc.y << ", " << mc.z << "), with the emulsion layer (tau 0.5) ("
+                    << mm.x << ", " << mm.y << ", " << mm.z << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+                allPassed = ok && allPassed;
+            }
+        }
     }
 
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

@@ -272,6 +272,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     fp.thickness = Real(m.skinFilmThicknessUm * 1e-6); fp.ior = Real(m.skinFilmIor); fp.roughness = Real(m.skinFilmRoughness);
                     fp.softness = Real(m.skinFilmSoftnessUm * 1e-6);
                     skin->setFilm(std::make_shared<SkinFilm>(fp, relief));
+                    if (m.skinEmulsionTau > 0) skin->setEmulsion(Real(m.skinEmulsionTau));
                 }
             }
             if (m.skinScatterOn) {

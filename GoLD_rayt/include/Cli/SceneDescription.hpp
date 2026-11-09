@@ -119,7 +119,8 @@ struct MaterialSpec {
     bool skinScatterOn = false;                    //   the white scatter of flaking skin (Materials/SkinScatter.hpp)
     double scatRho0 = 0.08, scatFrequency = 300, scatThreshold = 0.52, scatSoftness = 0.08, scatHydration = 0, scatKappaH = 0.3, scatGapUm = 1.0;
     int scatSeed = 1;
-    std::string skinLotionNote;                    //   a lotion at one time sets the film and the hydration above (Materials/SkinLotion.hpp); this describes the state it chose
+    double skinEmulsionTau = 0;                    //   transport optical depth of the oil droplets of an emulsion across the film (Materials/SkinLotion.hpp; set by "lotion" with "oil")
+    std::string skinLotionNote;                   //   a lotion at one time sets the film and the hydration above (Materials/SkinLotion.hpp); this describes the state it chose
     bool skinPigment = false;                    //   uneven color (Materials/SkinPigment.hpp)
     double pigFreckleCellMm = 2.5, pigFreckleFraction = 0.5, pigFreckleRadiusMm = 0.8, pigFreckleStrength = 0.8, pigClusterFreq = 40;
     double pigBlotchFreq = 150, pigBlotchStrength = 0.15, pigRednessFreq = 35, pigRednessStrength = 0.5;

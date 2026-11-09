@@ -504,7 +504,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& lo = m.at("lotion");
             const std::string lw = where + ".lotion";
             if (!lo.is_object()) Fail(lw, "must be an object (doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness)");
-            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness", "bulk" }, lw);
+            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness", "bulk", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG" }, lw);
             if (!s.skinRelief) Fail(lw, "needs a \"relief\" (the liquid pools in its furrows)");
             if (m.contains("film")) Fail(lw, "sets the film itself: write either \"film\" or \"lotion\"");
             SkinLotion::Params lp;
@@ -522,6 +522,13 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Optional<double>(lo, "residueRoughness", lw, rr, ReadNumber);
             double bulk = 0; Optional<double>(lo, "bulk", lw, bulk, ReadNumber);   // the scatter distance of the skin grows by (1 + bulk * hydration): a hydrated skin scatters less inside
             if (!(bulk >= 0)) Fail(lw + ".bulk", "must not be negative");
+            double oil = lp.oil, oilIor = lp.oilIor, dropletUm = double(lp.dropletDiameter) * 1e6, coalesce = lp.coalesceTau, dropletG = lp.dropletG;   // an emulsion: oil droplets in the water
+            Optional<double>(lo, "oil", lw, oil, ReadNumber);
+            Optional<double>(lo, "oilIor", lw, oilIor, ReadNumber);
+            Optional<double>(lo, "dropletUm", lw, dropletUm, ReadNumber);
+            Optional<double>(lo, "coalesceTauS", lw, coalesce, ReadNumber);
+            Optional<double>(lo, "dropletG", lw, dropletG, ReadNumber);
+            lp.oil = Real(oil); lp.oilIor = Real(oilIor); lp.dropletDiameter = Real(dropletUm * 1e-6); lp.coalesceTau = Real(coalesce); lp.dropletG = Real(dropletG);
             lp.dose = Real(doseUm * 1e-6); lp.glycerin = Real(gl); lp.waterTau = Real(tau); lp.hydrationPeak = Real(hp); lp.hydrationRise = Real(hr); lp.hydrationDecay = Real(hd);
             lp.waterIor = Real(wi); lp.humectantIor = Real(hi); lp.waterRoughness = Real(wr); lp.residueRoughness = Real(rr);
             const std::string why = SkinLotion::validate(lp);
@@ -532,9 +539,11 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             s.skinFilmThicknessUm = double(st.thickness) * 1e6; s.skinFilmIor = double(st.ior); s.skinFilmRoughness = double(st.roughness);
             if (s.skinScatterOn) s.scatHydration = double(st.hydration);
             if (bulk > 0) s.skinSssScale *= 1.0 + bulk * double(st.hydration);
+            s.skinEmulsionTau = double(st.emulsionTau);
             std::ostringstream note;
             note << "t = " << timeS << " s: film " << s.skinFilmThicknessUm << " um (water " << double(st.water) * 1e6 << " + humectant " << double(st.residue) * 1e6 << "), index " << s.skinFilmIor
-                << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration) << (bulk > 0 ? ", scatter distance x " + std::to_string(1.0 + bulk * double(st.hydration)) : std::string());
+                << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration) << (bulk > 0 ? ", scatter distance x " + std::to_string(1.0 + bulk * double(st.hydration)) : std::string())
+                << (oil > 0 ? ", oil " + std::to_string(double(st.oil) * 1e6) + " um, droplets: transport optical depth " + std::to_string(double(st.emulsionTau)) : std::string());
             s.skinLotionNote = note.str();
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)

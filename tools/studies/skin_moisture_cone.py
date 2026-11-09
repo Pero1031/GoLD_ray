@@ -36,14 +36,17 @@ STATES = {
     "m3": {"scatter": FLAKES, "sssScale": 1.3},
     "peak": {"scatter": dict(FLAKES, kappaH=0.3), "lotion": {"timeS": 200, "bulk": 0.3}},
     "hour": {"scatter": dict(FLAKES, kappaH=0.3), "lotion": {"timeS": 3600, "bulk": 0.3}},
+    # a rich emulsion (20 um of liquid, 15 % oil, 1 um droplets) just after it was applied and an hour later; the same hydration as the water lotion
+    "emul0": {"scatter": dict(FLAKES, kappaH=0.3), "lotion": {"timeS": 0, "bulk": 0.3, "doseUm": 20, "oil": 0.15}},
+    "emul3600": {"scatter": dict(FLAKES, kappaH=0.3), "lotion": {"timeS": 3600, "bulk": 0.3, "doseUm": 20, "oil": 0.15}},
     "plain124": {"scatter": {"rho0": 0.0}, "sssScale": 1.24},
     "plain1038": {"scatter": {"rho0": 0.0}, "sssScale": 1.038},
 }
 BACK = {"shape": "quad", "material": "back", "corner": [-0.0008, 0.0, -0.03], "edge1": [0.0016, 0, 0], "edge2": [0, 0.0615, 0]}
 FRONT = {"shape": "quad", "material": "front", "corner": [-0.2, 0.2, 0.25], "edge1": [0.2, 0, 0], "edge2": [0, -0.2, 0.1]}
 BACK_RADIANCE, FRONT_RADIANCE = 100.0, 1.2
-BULK_OF = {"dry": "1000", "m1": "1000", "m2": "1000", "m3": "1300", "peak": "1240", "hour": "1038"}
-REFERENCE_OF = {"dry": "m1", "m1": "m1", "m2": "m1", "peak": "plain124", "hour": "plain1038"}
+BULK_OF = {"dry": "1000", "m1": "1000", "m2": "1000", "m3": "1300", "peak": "1240", "hour": "1038", "emul0": "1000", "emul3600": "1038"}
+REFERENCE_OF = {"dry": "m1", "m1": "m1", "m2": "m1", "peak": "plain124", "hour": "plain1038", "emul0": "m1", "emul3600": "plain1038"}
 EDGES = (3, 5, 7, 9, 11, 13, 15, 17.5)   # diameter bins (mm)
 Y_W = np.array([0.2126, 0.7152, 0.0722])
 M = np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]])
@@ -96,13 +99,13 @@ def lab(rgb, white):
 
 
 def analyze(d):
-    back = {s: profile(d / f"cone_{s}_back.pfm", BACK_RADIANCE) for s in ("dry", "m1", "m2", "peak", "hour", "plain124", "plain1038")}
-    front = {s: profile(d / f"cone_{s}_front.pfm", FRONT_RADIANCE) for s in ("dry", "m1", "m2", "m3", "peak", "hour")}
+    back = {s: profile(d / f"cone_{s}_back.pfm", BACK_RADIANCE) for s in ("dry", "m1", "m2", "peak", "hour", "emul0", "emul3600", "plain124", "plain1038")}
+    front = {s: profile(d / f"cone_{s}_front.pfm", FRONT_RADIANCE) for s in ("dry", "m1", "m2", "m3", "peak", "hour", "emul0", "emul3600")}
     walk = {b: profile(d / f"walk_s{b}.pfm", BACK_RADIANCE) for b in ("1000", "1038", "1240", "1300")}
     mids = [0.5 * (a + b) for a, b in zip(EDGES[:-1], EDGES[1:])]
     glow = {s: walk[BULK_OF[s]] * (back[s] / back[REFERENCE_OF[s]] if s in REFERENCE_OF else 1.0) for s in BULK_OF}
     Y = lambda a: a @ Y_W
-    names = ("m1", "m2", "m3", "peak", "hour")
+    names = ("m1", "m2", "m3", "peak", "hour", "emul0", "emul3600")
     print("glow (luminance per unit radiance of the back light): dry, and the ratio to it")
     for i, m in enumerate(mids):
         print(f"  {m:5.1f} mm  {Y(glow['dry'][i]):8.4f} | " + " | ".join(f"{s} {Y(glow[s][i]) / Y(glow['dry'][i]):5.2f}" for s in names))

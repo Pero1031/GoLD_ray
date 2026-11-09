@@ -86,6 +86,11 @@ namespace rayt {
         /// that enters (what is left goes to the diffuse lobe or the subsurface event). A liquid film (setFilm) cuts it by index matching. Set before rendering.
         void setScatter(std::shared_ptr<const SkinScatter> scatter) { m_scatter = std::move(scatter); }
 
+        /// The oil droplets of an emulsion in the liquid film (needs the film): a white layer on top of the skin whose transport optical depth is `tauMean` across the film of mean
+        /// thickness and grows and shrinks with the local thickness of the film (it pools in the furrows). Reflects R = 0.75 tau / (1 + 0.75 tau) of the light that arrives (two-stream, no
+        /// absorption); it is combined with the flakes below it into one white scatter (rec.surfScatter). Set before rendering.
+        void setEmulsion(Real tauMean) { m_emulTau = std::max(tauMean, Real(0)); }
+
         /// An uneven skin color (freckles, uneven pigment, redness: Materials/SkinPigment.hpp), and how much the pores of the relief darken the skin
         /// (0..1; needs the relief). With subsurface scattering the factor is applied where the light goes in and where it comes out (square root each).
         void setPigment(std::shared_ptr<const SkinPigment> pigment, Real poreDarkness = Real(0)) {
@@ -96,8 +101,8 @@ namespace rayt {
         Spectrum subsurfaceExitTint(const SurfaceInteraction& pi, const SampledWavelengths& lambda) const override {
             Spectrum tint(1.0);
             if (hasPigment()) tint = RgbColor(glm::sqrt(pigmentFactor(pi.p, pi.gn))).reflectance(lambda);
-            if (m_scatter) {   // the light that comes out passes the white scatter of flaking skin too: (1 - rho), and what the flakes send back is scattered once more (1 / (1 - rho A))
-                const Real rho = std::clamp(m_scatter->reflectance(pi.p, m_film ? m_film->params().ior : Real(1), m_film ? m_film->params().thickness : Real(0)), Real(0), Real(0.95));
+            if (m_scatter || m_emulTau > Real(0)) {   // the light that comes out passes the white scatter (flakes, emulsion) too: (1 - rho), and what it sends back is scattered once more (1 / (1 - rho A))
+                const Real rho = std::clamp(scatterTotal(pi.p, pi.gn), Real(0), Real(0.95));
                 if (rho > Real(0)) {
                     const Spectrum A = m_albedo.reflectance(lambda);
                     Spectrum f(1.0);
@@ -123,16 +128,17 @@ namespace rayt {
             }
             const Vector3 smoothN = rec.n;
             if (m_relief) rec.n = m_relief->perturb(rec.p, smoothN, wo);
+            Real filmThickness = 0;
             if (m_film && m_relief) {   // the specular lobe follows the top of the film where there is one, the bent skin normal elsewhere
                 const SkinFilm::Hit f = m_film->at(rec.p, smoothN, wo);
+                filmThickness = f.thickness;
                 rec.filmCover = f.cover;
                 Vector3 ns = glm::normalize(rec.n * (Real(1) - f.cover) + f.normal * f.cover);
                 const Real c = glm::dot(ns, wo);
                 if (c < Real(0.05)) ns = glm::normalize(ns + wo * (Real(0.05) - c));
                 rec.ns = ns;
             }
-            if (m_scatter)
-                rec.surfScatter = m_scatter->reflectance(rec.p, m_film ? m_film->params().ior : Real(1), m_film ? m_film->params().thickness : Real(0));
+            if (m_scatter || m_emulTau > Real(0)) rec.surfScatter = scatterTotal(rec.p, smoothN, filmThickness);
             if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
                 const Vector3 f = pigmentFactor(rec.p, rec.gn);
                 rec.albedoTint = m_profile ? glm::sqrt(f) : f;
@@ -173,6 +179,21 @@ namespace rayt {
         std::shared_ptr<const SkinRelief> m_relief;
         std::shared_ptr<const SkinFilm> m_film;
         std::shared_ptr<const SkinScatter> m_scatter;
+        Real m_emulTau = Real(0);
+
+        /// The white scatter at p: the emulsion layer (on top) and the flakes (below) as two non-absorbing layers, R = Re + (1 - Re)^2 Rf / (1 - Re Rf).
+        /// `localThickness` < 0: not known (the exit of a subsurface path): look it up.
+        Real scatterTotal(const Point3& p, const Vector3& n, Real localThickness = Real(-1)) const {
+            Real rf = 0;
+            if (m_scatter) rf = m_scatter->reflectance(p, m_film ? m_film->params().ior : Real(1), m_film ? m_film->params().thickness : Real(0));
+            Real re = 0;
+            if (m_emulTau > Real(0) && m_film) {
+                if (localThickness < Real(0)) localThickness = m_film->at(p, n, n).thickness;
+                const Real tau = m_emulTau * localThickness / std::max(m_film->params().thickness, Real(1e-12));
+                re = Real(0.75) * tau / (Real(1) + Real(0.75) * tau);
+            }
+            return re + (Real(1) - re) * (Real(1) - re) * rf / std::max(Real(1) - re * rf, Real(0.05));
+        }
         std::shared_ptr<const SkinPigment> m_pigment;
         std::shared_ptr<const NoiseDensity> m_gloss;
         Real m_glossAmount = Real(0);
