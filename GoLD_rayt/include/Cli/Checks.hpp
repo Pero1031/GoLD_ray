@@ -42,6 +42,7 @@ int RunThinFilmTests();
 // Dispersion tests (--scene dispersion): the Sellmeier presets (n_d, Abbe number) and a diamond ball in a white furnace
 // -----------------------------------------------------------------------------
 int RunDispersionTests();
+int RunCosmeticTests(const CliOptions& opt);   // --scene cosmetic: a layer of foundation (diffusers and platelets in a thin slab)
 
 // -----------------------------------------------------------------------------
 // Subsurface scattering tests (--scene sss)
