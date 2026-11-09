@@ -106,8 +106,8 @@ RGB ビルドの薄膜は、反射率 R(λ, θ, d) を、D65 のセンサー重�
 - **滑らかな面だけです。** 粗い面（微小面）の虹色には、Belcour と Barla（2017）の拡張が参考になります。
 - 偏光は、s と p の平均だけです。薄膜の自由度（膜厚の時間変化、蒸発、シャボン玉の両面）は、単純化しています（球の面に 1 回の膜で、近い側と遠い側を通るので、2 回通ります）。
 
-## 参考文献（書誌は未確認。引用前に確認すること）
+## 参考文献（書誌は、2026-11-09 に、Web 検索で確認した。Born & Wolf は教科書で、版は未確認）
 
 - M. Born, E. Wolf, *Principles of Optics*（薄膜、多重反射の和）
-- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", 1992（干渉の CG への応用の初期の仕事）
-- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", SIGGRAPH 2017（粗い面への拡張）
+- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", Eurographics Workshop on Photosimulation, Realism and Physics in Computer Graphics, 1990, pp. 185-194（書籍 *Photorealism in Computer Graphics*, Springer, 1992 に収録。干渉の CG への応用の初期の仕事）
+- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", ACM TOG 36(4), Article 65, 2017（SIGGRAPH 2017。粗い面への拡張）

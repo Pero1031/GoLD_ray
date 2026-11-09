@@ -25,7 +25,7 @@ namespace rayt {
     };
 
     /// Sellmeier coefficients of some glasses ("diamond", "sapphire", "bk7", "silica"). Returns false for an unknown name.
-    /// Diamond: the two-term fit of Peter / Thormahlen (n_d 2.417); sapphire: Malitson 1962, ordinary ray (1.768); BK7: Schott (1.5168);
+    /// Diamond: the two-term fit of Peter, Z. Phys. 15 (1923) (n_d 2.417); sapphire: Malitson 1962, ordinary ray (1.768); BK7: Schott (1.5168);
     /// fused silica: Malitson 1965 (1.4585). Written from the usual published values: check n_d and the Abbe number (--scene dispersion).
     inline bool sellmeierPreset(const std::string& name, Sellmeier& out) {
         if (name == "diamond") { out = Sellmeier{ { Real(0.3306), Real(4.3356), 0 }, { Real(0.1750 * 0.1750), Real(0.1060 * 0.1060), 0 } }; return true; }

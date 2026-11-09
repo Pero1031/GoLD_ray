@@ -168,10 +168,10 @@ p = 0（R）は、法線について鏡像（φ = −2 γₒ）。p = 1（TT）�
 
 ## 7. 参考文献
 
-**書誌は記憶から書いた。公開する前に、Web 検索で確認する。**
+**書誌は、2026-11-09 に、Web 検索で確認した**（著者、題名、誌名、巻号、年、ページ）。メラニンの σₐ の値（pbrt-v4 の `HairMaterial`）の出典は、pbrt 側の記述を未照合。
 
-- Marschner, Jensen, Cammarano, Worley, Hanrahan. *Light Scattering from Human Hair Fibers.* ACM Transactions on Graphics (SIGGRAPH) 22(3), 2003.（R、TT、TRT の 3 ローブ）
-- d'Eon, Francois, Hill, Letteri, Aubry. *An Energy-Conserving Hair Reflectance Model.* Computer Graphics Forum (EGSR) 30(4), 2011.（エネルギー保存、Mₚ の式、見た目の色から σₐ を決める近似）
-- Chiang, Bitterli, Tappan, Burley. *A Practical and Controllable Hair and Fur Model for Production Path Tracing.* Computer Graphics Forum (Eurographics) 35(2), 2016.（Nₚ のロジスティック分布、粗さの式、重点サンプリング）
+- Marschner, Jensen, Cammarano, Worley, Hanrahan. *Light Scattering from Human Hair Fibers.* ACM Transactions on Graphics (SIGGRAPH) 22(3), 780-791, 2003.（R、TT、TRT の 3 ローブ）
+- d'Eon, Francois, Hill, Letteri, Aubry. *An Energy-Conserving Hair Reflectance Model.* Computer Graphics Forum (EGSR) 30(4), 1181-1187, 2011.（エネルギー保存、Mₚ の式、見た目の色から σₐ を決める近似）
+- Chiang, Bitterli, Tappan, Burley. *A Practical and Controllable Hair and Fur Model for Production Path Tracing.* Computer Graphics Forum (Eurographics) 35(2), 275-283, 2016.（Nₚ のロジスティック分布、粗さの式、重点サンプリング）
 - Pharr, Jakob, Humphreys. *Physically Based Rendering: From Theory to Implementation*, 4th ed. 2023.（`HairBxDF` の実装。メラニンの σₐ の値）
-- Zinke, Yuksel, Weber, Keyser. *Dual Scattering Approximation for Fast Multiple Scattering in Hair.* ACM Transactions on Graphics (SIGGRAPH) 27(3), 2008.（未対応。限界の節で言及）
+- Zinke, Yuksel, Weber, Keyser. *Dual Scattering Approximation for Fast Multiple Scattering in Hair.* ACM Transactions on Graphics (SIGGRAPH) 27(3), Article 32, 2008.（未対応。限界の節で言及）

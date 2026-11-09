@@ -72,8 +72,8 @@
 
 ## 参考文献
 
-- Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, 1983（BHMIE）。
-- Nishita, Sirai, Tadamura, Nakamae, "Display of the Earth taking into account atmospheric scattering", SIGGRAPH 1993.
-- Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 1974（粒径分布）。
+- Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, Wiley, 1983（BHMIE）。
+- Nishita, Sirai, Tadamura, Nakamae, "Display of the Earth taking into account atmospheric scattering", SIGGRAPH 1993, 175-182.
+- Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 527-610, 1974（粒径分布）。
 
-（書誌は記憶から書いた。公開前に照合する。）
+（書誌は、2026-11-09 に、Web 検索で確認した。）

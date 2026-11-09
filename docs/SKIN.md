@@ -161,11 +161,11 @@
 
 ## 7. 参考文献
 
-**書誌は記憶から書いた。公開する前に、Web 検索で確認する。**
+**書誌は、2026-11-09 に、Web 検索で確認した**（著者、題名、誌名、巻号、年、ページ）。Haro ら、Graham ら、Weiss ら、Barros と Walter は、検索の要約で確認した（論文の全文は、Weiss らだけ読んだ）。
 
-- S. Worley. *A Cellular Texture Basis Function.* SIGGRAPH 1996.（Worley ノイズ）
-- A. Haro, B. Guenter, I. Essa. *Real-time, Photo-realistic, Physically Based Rendering of Fine Scale Human Skin Structure.* Eurographics Workshop on Rendering, 2001.（型取りから作った法線マップをテクスチャ合成で広げる）
-- P. Graham, B. Tunwattanapong, J. Busch, X. Yu, A. Jones, P. Debevec, A. Ghosh. *Measurement-Based Synthesis of Facial Microgeometry.* Computer Graphics Forum (Eurographics) 32(2), 2013.（測定した接写パッチの合成）
-- S. Weiss, J. Moulin, P. Chandran, G. Zoss, P. Gotardo, D. Bradley. *Graph-Based Synthesis for Skin Micro Wrinkles.* Eurographics Symposium on Geometry Processing, 2023.（毛穴を点にしたグラフで皮溝を作る。2.4 節で実装）
-- R. S. Barros, M. Walter. *Synthesis of Human Skin Pigmentation Disorders.* Computer Graphics Forum 36(1), 2017.（反応拡散による色素の斑。ここでは使っていない）
+- S. Worley. *A Cellular Texture Basis Function.* SIGGRAPH 1996, 291-294.（Worley ノイズ）
+- A. Haro, B. Guenter, I. Essa. *Real-time, Photo-realistic, Physically Based Rendering of Fine Scale Human Skin Structure.* Eurographics Workshop on Rendering, 53-62, 2001.（型取りから作った法線マップをテクスチャ合成で広げる）
+- P. Graham, B. Tunwattanapong, J. Busch, X. Yu, A. Jones, P. Debevec, A. Ghosh. *Measurement-Based Synthesis of Facial Microgeometry.* Computer Graphics Forum (Eurographics) 32(2), 335-344, 2013.（測定した接写パッチの合成）
+- S. Weiss, J. Moulin, P. Chandran, G. Zoss, P. Gotardo, D. Bradley. *Graph-Based Synthesis for Skin Micro Wrinkles.* Computer Graphics Forum 42(5) (Eurographics Symposium on Geometry Processing), 2023.（毛穴を点にしたグラフで皮溝を作る。2.4 節で実装）
+- R. S. Barros, M. Walter. *Synthesis of Human Skin Pigmentation Disorders.* Computer Graphics Forum 36(1), 330-344, 2017.（反応拡散による色素の斑。ここでは使っていない）
 - P. Christensen, B. Burley. *Approximate Reflectance Profiles for Efficient Subsurface Scattering.* Pixar Technical Memo 15-04, 2015.（プロファイル、アルベド逆変換）
