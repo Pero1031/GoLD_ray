@@ -27,6 +27,8 @@ void PrintHelp(std::ostream& out) {
         << "common options:\n"
         << "  --width N         picture width (the height follows the format of the scene)   --height N   set the height as well\n"
         << "  --spp N           samples per pixel      --depth N   maximum path depth\n"
+        << "  --seed N          the same picture again, noise included (path tracing; not the photon map or --lvc). Without it every run\n"
+        << "                    draws a new seed and prints it\n"
         << "  --out FILE        .png / .bmp / .jpg (tone mapped), .hdr or .pfm (linear float; .pfm keeps negative values)\n"
         << "  --gamut srgb|p3|rec2020   primaries of the output (default srgb): the .png gets a cICP tag, .pfm / .hdr hold linear values in them\n"
         << "  --bits 8|16       bits per channel of a .png (default 8; 16 keeps a wide gamut free of banding)\n"

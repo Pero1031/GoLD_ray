@@ -159,8 +159,8 @@ namespace rayt {
 
     } // namespace
 
-    BVH::BVH(std::vector<std::shared_ptr<Hittable>> objects, int maxLeafSize)
-        : m_owned(std::move(objects)), m_maxLeaf(std::max(1, maxLeafSize))
+    BVH::BVH(std::vector<std::shared_ptr<Hittable>> objects, int maxLeafSize, bool recordInPlace)
+        : m_owned(std::move(objects)), m_maxLeaf(std::max(1, maxLeafSize)), m_recordInPlace(recordInPlace)
     {
         const size_t n = m_owned.size();
         if (n == 0) return;
@@ -314,6 +314,7 @@ namespace rayt {
 
         Ray ray = r;
         const Hittable* best = nullptr;
+        bool hitInPlace = false;
         int stack[kStackSize];
         int sp = 0;
         int cur = 0;
@@ -324,6 +325,14 @@ namespace rayt {
                 if (node.nPrims > 0) {
                     for (int i = 0; i < node.nPrims; ++i) {
                         const Hittable* prim = m_prims[static_cast<size_t>(node.offset + i)];
+                        if (m_recordInPlace) {
+                            // An object writes rec only when it is hit inside [tMin, ray.tMax], i.e. closer than anything so far.
+                            if (prim->hit(ray, rec)) {
+                                hitInPlace = true;
+                                ray.tMax = rec.t;
+                            }
+                            continue;
+                        }
                         Real t;
                         if (prim->intersectT(ray, t)) {   // distance only; the record is built once, below
                             best = prim;
@@ -347,6 +356,7 @@ namespace rayt {
                 cur = stack[--sp];
             }
         }
+        if (m_recordInPlace) return hitInPlace;
         if (!best) return false;
 
         // Build the hit record for the winner only. The same arithmetic finds the same t, so a

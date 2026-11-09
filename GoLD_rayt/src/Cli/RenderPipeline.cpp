@@ -32,7 +32,11 @@ int RenderScene(CliOptions& opt) {
     if (const std::optional<int> exitCode = def->build(ctx, setup)) return *exitCode;
 
     // ---- the scene: lights, caustics ----
-    auto scene = std::make_shared<Scene>(setup.world);
+    // The builders collect the objects in a plain list (spheres, quads, whole meshes with their own BVH, hair). Rays go through
+    // one BVH over all of them, so a scene of many small objects does not test every object for every ray.
+    const auto worldBvh = std::make_shared<BVH>(setup.world->objects, 4, /*recordInPlace=*/true);
+    std::cout << "[Scene] " << worldBvh->numPrimitives() << " objects in a BVH of " << worldBvh->numNodes() << " nodes.\n";
+    auto scene = std::make_shared<Scene>(worldBvh);
 
     if (setup.background) scene->setCameraBackground(*setup.background);
 

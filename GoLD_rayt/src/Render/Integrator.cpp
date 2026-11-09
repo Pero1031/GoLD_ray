@@ -57,9 +57,12 @@ namespace rayt {
         std::atomic<int> linesCompleted(0);
         const int totalLines = height;
         const bool wantAOVs = film.hasAOVs();
+        const std::uint64_t renderCall = static_cast<std::uint64_t>(m_renderCalls++);
 
 #pragma omp parallel for schedule(dynamic, 1)
         for (int j = 0; j < height; ++j) {
+            // With --seed a row always draws the same random numbers, whichever thread renders it and in whatever order.
+            sampling::SeedStream(1, renderCall, static_cast<std::uint64_t>(j));
             for (int i = 0; i < width; ++i) {
                 Vector3 pixelColor(0.0);   // linear sRGB
                 Vector3 pixelAlbedo(0.0), pixelNormal(0.0);
@@ -119,13 +122,13 @@ namespace rayt {
     }
 
     void PathIntegrator::renderOnePass(const Scene& scene, Film& film, int sampleIndex) {
-        (void)sampleIndex;
         int width = film.width();
         int height = film.height();
 
         // Parallelization (OpenMP)
 #pragma omp parallel for schedule(dynamic, 1)
         for (int j = 0; j < height; ++j) {
+            sampling::SeedStream(2, static_cast<std::uint64_t>(sampleIndex), static_cast<std::uint64_t>(j));   // no-op without a run seed
             for (int i = 0; i < width; ++i) {
 
                 // 1. Take one sample

@@ -1,8 +1,11 @@
 ﻿/**
- * @file Scene/HittableList.hpp
+ * @file Scene/Aggregate.hpp
  * @brief A container for multiple Hittable objects.
  * * Provides a simple aggregate structure to manage a collection of scene objects.
  * Performs linear intersection testing and computes the collective bounding box.
+ *
+ * The scene builders collect their objects in one; the command-line renderer then puts a BVH over the list
+ * (RenderPipeline.cpp), so the linear test is only used by small scenes that are built directly (self-checks, the GUI).
  */
 
 

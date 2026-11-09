@@ -137,6 +137,7 @@ namespace rayt {
         int m_maxDepth;
         int m_spp;
         int m_maxVolumeEvents = 100000;
+        int m_renderCalls = 0;   // render() calls so far: with --seed every call draws its own random streams (--caustic-passes)
         mutable std::atomic<long long> m_volumeCapHits{ 0 };
         const CausticPhotonMap* m_caustics = nullptr;
         bool m_skipDirectCaustics = false;

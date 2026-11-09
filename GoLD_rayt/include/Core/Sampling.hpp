@@ -10,7 +10,9 @@
 #include <random>
 #include <numbers>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 
 #include <glm/gtc/constants.hpp>
 
@@ -29,13 +31,51 @@ namespace rayt::sampling {
      * * Uses the Mersenne Twister engine with 'thread_local' storage to ensure
      * high-performance, thread-safe parallel rendering without mutex contention.
      */
-    inline Real Random() {
-        static thread_local std::mt19937 generator(std::random_device{}());
+    namespace detail {
+        /// This thread's generator. Until SeedStream() is called on the thread it starts from the operating system's entropy.
+        inline std::mt19937& Generator() {
+            static thread_local std::mt19937 generator(std::random_device{}());
+            return generator;
+        }
+        inline std::atomic<std::uint64_t>& RunSeed() { static std::atomic<std::uint64_t> seed{ 0 }; return seed; }
+        inline std::atomic<bool>& HasRunSeed() { static std::atomic<bool> has{ false }; return has; }
+        /// The finalizer of splitmix64: turns nearby numbers into unrelated ones.
+        inline std::uint64_t Mix(std::uint64_t z) {
+            z += 0x9E3779B97F4A7C15ULL;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+            return z ^ (z >> 31);
+        }
+    }
 
-        // Fixed seed for deterministic debugging
-        //static thread_local std::mt19937 generator(12345);
+    inline Real Random() {
         static thread_local std::uniform_real_distribution<Real> distribution(0.0, 1.0);
-        return distribution(generator);
+        return distribution(detail::Generator());
+    }
+
+    /**
+     * @brief The seed of the whole run (--seed). Without it the random numbers differ from run to run.
+     *
+     * The seed alone does not fix anything: the threads share the work in a different order every time. A piece of work
+     * that must repeat calls SeedStream() with its own number when it starts (the path tracer: once per image row).
+     */
+    inline void SetRunSeed(std::uint64_t seed) {
+        detail::RunSeed().store(seed);
+        detail::HasRunSeed().store(true);
+    }
+
+    /**
+     * @brief Restarts this thread's random numbers for one piece of work: the stream is a function of the run seed and of
+     *        (domain, a, b) only, not of the thread or of what ran before. Does nothing when no run seed is set.
+     * @param domain which loop asks (1 = image rows of the path tracer, ...), so that two loops never share a stream
+     */
+    inline void SeedStream(std::uint64_t domain, std::uint64_t a = 0, std::uint64_t b = 0) {
+        if (!detail::HasRunSeed().load(std::memory_order_relaxed)) return;
+        std::uint64_t h = detail::Mix(detail::RunSeed().load(std::memory_order_relaxed) ^ detail::Mix(domain));
+        h = detail::Mix(h ^ detail::Mix(a));
+        h = detail::Mix(h ^ detail::Mix(b));
+        std::seed_seq seq{ static_cast<std::uint32_t>(h), static_cast<std::uint32_t>(h >> 32) };
+        detail::Generator().seed(seq);
     }
 
     /**

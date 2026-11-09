@@ -35,6 +35,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--width") o.width = std::stoi(value("--width"));
             else if (a == "--height") o.height = std::stoi(value("--height"));
             else if (a == "--spp")   o.spp = std::stoi(value("--spp"));
+            else if (a == "--seed")  o.seed = std::stoll(value("--seed"));
             else if (a == "--depth") o.maxDepth = std::stoi(value("--depth"));
             else if (a == "--env")   o.env = value("--env");
             else if (a == "--abbe")  o.abbe = std::stod(value("--abbe"));
@@ -172,6 +173,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
             throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
         if (o.height < 0) throw std::runtime_error("--height must be >= 0");
+        if (o.seed < -1) throw std::runtime_error("--seed must be >= 0");
     }
 }
 

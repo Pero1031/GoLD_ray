@@ -31,7 +31,7 @@ namespace rayt {
         * * This method MUST NOT modify the ray. If a hit is found, it writes the hit
         * distance to rec.t and fills other fields in rec.
         * * Selecting the closest hit and pruning farther tests is the caller's
-        * responsibility (e.g., HittableList/BVH manages a "closestSoFar" value and may
+        * responsibility (e.g., Aggregate/BVH manages a "closestSoFar" value and may
         * pass a reduced tMax via a copied Ray).
         * @param r   The incident ray. Its tMin/tMax define the valid search interval.
         * @param rec Output structure to store intersection details (normal, UV, etc.).

@@ -139,6 +139,7 @@ struct CliOptions {
     std::string sceneFile;             // the scene file the options came from (empty: none)
     std::shared_ptr<const SceneDescription> sceneDescription;   // its "objects" form (scene "file"), read once while parsing
     int spp = SAMPLES_PER_PIXEL;
+    long long seed = -1;               // --seed N: the random numbers of the path tracer (-1: a new seed every run, printed at the start)
     int maxDepth = MAX_DEPTH;
     std::string env = ENV_HDR_PATH;
     Real abbe = 20.0;                  // Abbe number of the dispersive glass (smaller = stronger)

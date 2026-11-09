@@ -70,10 +70,14 @@ namespace rayt {
      *  - occluded(): same traversal that stops at the first hit (shadow rays).
      *
      * The BVH keeps its primitives alive through shared_ptr.
+     *
+     * recordInPlace (for the BVH over the objects of a whole scene): hit() calls each candidate's hit() directly and keeps
+     * the closest record, as a plain list would. The default (distance first, one hit() on the winner) is right for
+     * triangles, whose record is expensive; for an object that is itself a mesh BVH it would traverse that mesh twice.
      */
     class BVH : public Hittable {
     public:
-        explicit BVH(std::vector<std::shared_ptr<Hittable>> objects, int maxLeafSize = 4);
+        explicit BVH(std::vector<std::shared_ptr<Hittable>> objects, int maxLeafSize = 4, bool recordInPlace = false);
 
         bool hit(const Ray& r, SurfaceInteraction& rec) const override;
         bool occluded(const Ray& r) const override;
@@ -111,6 +115,7 @@ namespace rayt {
         std::vector<const Hittable*> m_prims;             ///< leaf order
         int m_maxLeaf = 4;
         int m_maxDepth = 0;
+        bool m_recordInPlace = false;
     };
 
 } // namespace rayt

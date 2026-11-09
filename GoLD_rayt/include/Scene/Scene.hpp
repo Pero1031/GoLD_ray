@@ -32,7 +32,7 @@ namespace rayt {
     public:
         /**
          * @brief Constructs a scene with a geometric root.
-         * @param aggregate The root of the geometry hierarchy (usually a BVHNode or HittableList).
+         * @param aggregate The root of the geometry hierarchy (a BVH over the objects, or a plain Aggregate list for a few objects).
          */
         Scene(std::shared_ptr<Hittable> aggregate)
             : m_aggregate(aggregate) {}
@@ -163,8 +163,7 @@ namespace rayt {
 
     private:
         /**
-         * @brief The root of the spatial acceleration structure.
-         * Typically a BVHNode that provides logarithmic-time intersection tests.
+         * @brief The root of the geometry: a BVH over the objects (logarithmic-time intersection tests), or a plain list.
          */
         std::shared_ptr<Hittable> m_aggregate;
 
