@@ -257,6 +257,48 @@ int RunCosmeticTests(const CliOptions& opt) {
             << std::setw(17) << Fixed(bins[best] / std::max(Real(1e-12), bins[8]), 2) << "\n";
     }
 
+    // The same thick layers as the paper plots them (its figures 4 and 6): the reflectance relative to a white diffuser,
+    // pi f(theta_i, theta_o), for light arriving 20 ... 70 degrees from the normal and seen -40 ... +70 degrees in the plane of
+    // incidence (cones of 5 degrees half angle). One line per product and angle of incidence: r,g,b for every direction.
+    // tools/figures can turn these lines into the coloured patches of the paper (1 = as bright as the white reference).
+    // The paper does not say which way the platelets tilt; the two products with a visible tilt are printed both ways.
+    std::vector<Product> mapped = PaperProducts();
+    for (int i : { 1, 3 }) {
+        Product reversed = PaperProducts()[static_cast<size_t>(i)];
+        reversed.p.plateletTiltDeg = -reversed.p.plateletTiltDeg;
+        static const char* names[] = { "", "dewy 2 (tilt towards the light)", "", "matte 2 (tilt towards the light)" };
+        reversed.name = names[i];
+        mapped.push_back(reversed);
+    }
+    std::cout << "[Cosmetic]   reflectance relative to white, thick layer (16): theta_o = -40, -30, ..., +70 (r,g,b each)\n";
+    for (const Product& prod : mapped) {
+        CosmeticLayer::Params p = prod.p;
+        p.thickness = 16;
+        const CosmeticLayer layer(p);
+        const Real cosHalf = std::cos(5 * constants::PI / 180), coneSolidAngle = constants::TWO_PI * (1 - cosHalf);
+        for (int thetaI = 20; thetaI <= 70; thetaI += 10) {
+            const int nBins = 12;
+            std::vector<Vector3> bins(nBins, Vector3(0));
+            const int n = 150000;
+            const Vector3 w = Dir(Real(thetaI), 90, true);
+            for (int i = 0; i < n; ++i) {
+                const CosmeticLayer::Walk k = layer.walk(w);
+                if (k.lost || !k.up) continue;
+                for (int b = 0; b < nBins; ++b) {
+                    const Real th = (-40 + 10 * b) * constants::PI / 180;
+                    if (glm::dot(k.direction, Vector3(0, std::sin(th), std::cos(th))) >= cosHalf) { bins[b] += k.weight; break; }
+                }
+            }
+            std::cout << "[Cosmetic]   map " << prod.name << " | " << thetaI << " |";
+            for (int b = 0; b < nBins; ++b) {
+                const Real cosO = std::cos((-40 + 10 * b) * constants::PI / 180);
+                const Vector3 v = bins[b] * (constants::PI / (Real(n) * coneSolidAngle * cosO));
+                std::cout << " " << Fixed(v.x, 3) << "," << Fixed(v.y, 3) << "," << Fixed(v.z, 3);
+            }
+            std::cout << "\n";
+        }
+    }
+
     std::cout << "[Cosmetic] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

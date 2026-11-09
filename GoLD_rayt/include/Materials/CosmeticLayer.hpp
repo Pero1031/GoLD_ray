@@ -36,7 +36,7 @@ public:
         Real g2 = Real(-0.2);                       ///< of the second lobe
         Real lobeWeight = Real(0.7);                ///< w_g: weight of the first lobe
         Real plateletRoughness = Real(0.15);        ///< alpha_p: spread of the platelet normals (SGGX), small = aligned = sharp
-        Real plateletTiltDeg = Real(0);             ///< theta_p: the mean platelet normal is tilted from the surface normal, about the x axis
+        Real plateletTiltDeg = Real(0);             ///< theta_p: the mean platelet normal is tilted from the surface normal towards +y (degrees)
         int maxBounces = 512;                       ///< a path that scatters more often is dropped (the paper uses 512)
     };
 
@@ -59,7 +59,10 @@ public:
         const Real a2 = p.plateletRoughness * p.plateletRoughness;
         const Real th = p.plateletTiltDeg * constants::PI / Real(180);
         // (S = a^2 I + (1 - a^2) m m^T, so w^T S w and m^T S^-1 m have the closed forms used below.)
-        m_mean = Vector3(0, -std::sin(th), std::cos(th));
+        // The paper does not say which way the normal tilts. Towards +y here: for light travelling towards +y the flakes lean
+        // away from the light, and the highlight moves towards grazing. With the other sign the paper's "matte 2" (52 degrees)
+        // would be brightest back towards the light, which its measurement does not show (docs/COSMETICS.md).
+        m_mean = Vector3(0, std::sin(th), std::cos(th));
         m_a2 = a2;
     }
 
