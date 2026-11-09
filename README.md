@@ -395,13 +395,6 @@ base, columns). Bottom: bare gold, a clear coat, a satin coat and an amber coat.
 
 ![Gold bare, under a clear coat, under a satin coat and under an amber coat](docs/img/gloss_lacquered_gold.png)
 
-**The sea at low sun** (`scenes/ocean_sunset.json`): a wind sea built from a wave spectrum (Pierson-Moskowitz, 10 m/s; [details](docs/WATER.md),
-Japanese), the sun 8 degrees above the horizon and a single-scattering sky. The sun glitter comes from the slopes of the waves; the slope of
-the waves the mesh cannot resolve far away is given back as roughness (Cox-Munk). The blue-green in the troughs is light that went into the
-water and scattered back. 1280 x 720, 192 spp, OIDN-denoised, 2 minutes.
-
-![A sea at low sun with a path of sun glitter](docs/img/water_ocean_sunset.png)
-
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
 surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
 Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
@@ -412,22 +405,11 @@ thicker than real ones to keep the noise down. Checked in white furnaces and aga
 
 ![Long hair falling over a head, seen from behind](docs/img/hair_head.png)
 
-**A caustic through a prism** (`--scene manifold`): without caustics, with the photon map, and with *specular manifold NEE*
-(a prototype that solves the refraction path instead of estimating it with photons). The solved path keeps the edge of
-the dispersed band sharp; both agree within a few percent on the smooth parts (`--scene manifoldtest`).
-
-![A prism's caustic: no caustic, photon map, specular manifold NEE, and a 3x crop of the edge of the band](docs/img/gallery_prism_caustic.png)
-
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
 which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
 
 ![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
-
-**The fire of a gem** (`--scene caustics --gal-object gem --lvc`): the colored light of a cut gem, inside it and on the floor in its shadow.
-1000 x 1000, 400 M light paths, OIDN-denoised, 11 minutes. (The light that glass throws onto a wall seen *through* the glass is not produced yet.)
-
-![A cut gem with colored fire and a rainbow caustic fan on the floor in its shadow](docs/img/gallery_gem_caustic.png)
 
 **A glass ball in haze** (`--gal-object ball --gal-floor 0`): the ball focuses the beam into a cone with colored edges.
 
