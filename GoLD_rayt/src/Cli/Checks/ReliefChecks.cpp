@@ -641,6 +641,69 @@ int RunReliefTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 14. Several products one after the other: a lotion, then an emulsion (Materials/SkinLotion.hpp, docs/SKIN_MOISTURE.md 5.6) -----------------
+    {
+        SkinLotion::Params sh;   // the shared parameters; its own product is the default lotion
+        SkinLotion::Layer lotion = SkinLotion::layerOf(sh);
+        SkinLotion::Layer emulsion = lotion; emulsion.oil = Real(0.08);
+        auto sequence = [&](double gapS) { SkinLotion::Layer e = emulsion; e.at = Real(gapS); return std::vector<SkinLotion::Layer>{ lotion, e }; };
+
+        // (a) One layer and no occlusion: the integration gives the formula of check 12, and the state of the layers is the state of the one product.
+        {
+            SkinLotion::Params none = sh; none.occlusion = Real(0);
+            double worst = 0;
+            for (double t : { 1.0, 30.0, 60.0, 211.0, 600.0, 1800.0, 3600.0, 10800.0 })
+                worst = std::max(worst, std::abs(double(SkinLotion::hydrationAt(none, { lotion }, Real(t))) - double(SkinLotion::hydration(none, Real(t)))));
+            const SkinLotion::State a = SkinLotion::at(sh, Real(300)), b = SkinLotion::at(sh, std::vector<SkinLotion::Layer>{ lotion }, Real(300));
+            const bool same = a.thickness == b.thickness && a.ior == b.ior && a.hydration == b.hydration && b.occlusion == Real(0);
+            const bool ok = worst < 1e-4 && same;
+            std::cout << "[Relief] 14a. one layer, no occlusion: the integrated hydration differs from the formula by at most " << worst << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (b) Volumes add up: just before the emulsion only the lotion is there; just after, its water, humectant and oil are added; after 10 h the humectant and the oil of both stay.
+        {
+            const auto seq = sequence(180.0);
+            const SkinLotion::State before = SkinLotion::at(sh, seq, Real(179.999)), alone = SkinLotion::at(sh, Real(179.999)), after = SkinLotion::at(sh, seq, Real(180)), end = SkinLotion::at(sh, seq, Real(36000));
+            const double waterLeft = 10e-6 * 0.95 * std::exp(-180.0 / 120.0);
+            const bool ok = std::abs(double(before.thickness - alone.thickness)) < 1e-15 && before.oil == Real(0) && before.emulsionTau == Real(0)
+                && std::abs(double(after.water) - (waterLeft + 10e-6 * 0.87)) < 1e-12 && std::abs(double(after.residue) - 1.0e-6) < 1e-12 && std::abs(double(after.oil) - 0.8e-6) < 1e-12
+                && after.emulsionTau > 0 && std::abs(double(end.thickness) - 1.8e-6) < 1e-9 && end.emulsionTau < 1e-6;
+            std::cout << "[Relief] 14b. a lotion, then an emulsion at 180 s: the film goes from " << double(before.thickness) * 1e6 << " um to " << double(after.thickness) * 1e6 << " um (droplets: optical depth "
+                << double(after.emulsionTau) << "); after 10 h " << double(end.thickness) * 1e6 << " um of humectant and oil" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (c) Occlusion: without oil it changes nothing; with the oil film, the hydration an hour later grows with it; the hydration never exceeds 1; two small layers add up
+        // exactly when nothing is occluded (the model is linear then).
+        {
+            const auto seq = sequence(180.0);
+            double h[3] = {}, plain[2] = {};
+            const double occ[3] = { 0.0, 0.3, 0.6 };
+            for (int i = 0; i < 3; ++i) { SkinLotion::Params p = sh; p.occlusion = Real(occ[i]); h[i] = double(SkinLotion::at(p, seq, Real(3780)).hydration); }
+            for (int i = 0; i < 2; ++i) { SkinLotion::Params p = sh; p.occlusion = Real(i == 0 ? 0.0 : 0.6); plain[i] = double(SkinLotion::hydrationAt(p, { lotion }, Real(3600))); }
+            double top = 0;
+            for (int i = 0; i <= 720; ++i) top = std::max(top, double(SkinLotion::at(sh, seq, Real(10.0 * i)).hydration));
+            SkinLotion::Params none = sh; none.occlusion = Real(0);
+            SkinLotion::Layer la = lotion, lb = emulsion; la.hydrationPeak = lb.hydrationPeak = Real(0.4); lb.at = Real(180);
+            const double sum = 0.4 * (double(SkinLotion::hydrationShape(none, Real(900))) + double(SkinLotion::hydrationShape(none, Real(720))));
+            const double linear = std::abs(double(SkinLotion::hydrationAt(none, { la, lb }, Real(900))) - sum);
+            const bool ok = plain[0] == plain[1] && h[1] > h[0] * 1.02 && h[2] > h[1] * 1.02 && top <= 1.0 && top > 0.95 && linear < 1e-4;
+            std::cout << "[Relief] 14c. an hour after the emulsion, the hydration is " << h[0] << " / " << h[1] << " / " << h[2] << " for an occlusion of 0 / 0.3 / 0.6 (a lotion alone: " << plain[0]
+                << " either way); largest hydration " << top << "; two layers add up without occlusion (difference " << linear << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (d) Information: the hydration over time for a lotion alone, an emulsion alone, and the emulsion 60 s or 600 s after the lotion (times since the first product).
+        {
+            const std::vector<SkinLotion::Layer> onlyLotion{ lotion }, onlyEmulsion{ emulsion };
+            std::cout << "[Relief] 14d. hydration (info; occlusion " << double(sh.occlusion) << "):   time    lotion   emulsion   lotion + emulsion at 60 s   at 600 s\n";
+            for (double t : { 60.0, 300.0, 900.0, 1800.0, 3600.0, 7200.0, 10800.0 })
+                std::cout << "[Relief]       " << t << " s   " << double(SkinLotion::at(sh, onlyLotion, Real(t)).hydration) << "   " << double(SkinLotion::at(sh, onlyEmulsion, Real(t)).hydration)
+                    << "   " << double(SkinLotion::at(sh, sequence(60.0), Real(t)).hydration) << "   " << double(SkinLotion::at(sh, sequence(600.0), Real(t)).hydration) << "\n";
+        }
+    }
+
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

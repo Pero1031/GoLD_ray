@@ -1,0 +1,112 @@
+// The close-up of skin_macro.json under a small strong lamp (a sphere of 16 mm at 25 cm, near the mirror direction of the camera) instead of the softbox:
+// dry skin with whitish flaky patches ("scatter"). The glint is broad and is broken up by the furrows. The wet counterpart is skin_lamp_wet.json.
+// docs/SKIN_MOISTURE.md 5.7. About 5 minutes; the pictures of the documents are the raw renders.
+{
+ "options": {
+  "width": 1000,
+  "spp": 384,
+  "depth": 8,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   0.075,
+   0.03
+  ],
+  "at": [
+   0,
+   0,
+   0
+  ],
+  "fov": 17
+ },
+ "materials": {
+  "skin": {
+   "type": "skin",
+   "albedo": [
+    0.8,
+    0.52,
+    0.42
+   ],
+   "roughness": 0.15,
+   "specular": 0.75,
+   "scatterDistanceMm": [
+    3.67,
+    1.37,
+    0.68
+   ],
+   "relief": {
+    "wrinkles": {
+     "depthScale": 1.6
+    },
+    "poreDarkness": 1.0
+   },
+   "pigment": {
+    "freckleStrength": 0.8,
+    "blotchStrength": 0.15,
+    "rednessStrength": 0.5
+   },
+   "gloss": {
+    "variation": 0.65,
+    "frequency": 70
+   },
+   "scatter": {
+    "rho0": 0.2,
+    "threshold": 0.5,
+    "softness": 0.06
+   }
+  },
+  "key": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 800.0
+  },
+  "fill": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 3.0
+  }
+ },
+ "objects": [
+  {
+   "shape": "sphere",
+   "material": "skin",
+   "center": [
+    0,
+    -0.1,
+    0
+   ],
+   "radius": 0.1
+  },
+  {
+   "shape": "sphere",
+   "material": "key",
+   "center": [
+    0.087,
+    0.2176,
+    -0.087
+   ],
+   "radius": 0.008
+  },
+  {
+   "shape": "quad",
+   "material": "fill",
+   "corner": [
+    -0.3,
+    0.35,
+    0.35
+   ],
+   "edge1": [
+    0,
+    -0.3,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -0.3
+   ]
+  }
+ ]
+}

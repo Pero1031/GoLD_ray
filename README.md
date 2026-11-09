@@ -223,7 +223,8 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat, with an optional metal blend and subsurface scattering; used for skin, with a procedural
-  micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md), Japanese), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
+  micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md), Japanese; and with a film of water, lotion or emulsion on it:
+  [details](docs/SKIN_MOISTURE.md), Japanese), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md), Japanese), and
@@ -302,7 +303,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene volume` | scattering media: Beer-Lambert, white furnace, similarity relation, null collisions, the tabulated (Mie) phase function against its own density |
 | `--scene layered` | the layered coat: a closed form for a smooth coat, `eval()` against `sample()`, energy, reciprocity |
 | `--scene aniso` | anisotropic metal: the tangent of the shapes, the visible-normal density, rotation of the roughness axes |
-| `--scene relief` | the skin micro-relief and pigment: the height field, the bent normals, the pores, a skin sphere in a white furnace with and without them |
+| `--scene relief` | the skin micro-relief and pigment: the height field, the bent normals, the pores, a skin sphere in a white furnace with and without them; the liquid film, the scatter of dry skin, and the time course of a lotion and an emulsion |
 | `--scene hair` | hair: the fiber scattering function (energy, `sample()` against `pdf()` and `eval()`, lobe directions), the cylinder intersector against brute force, white furnaces around a fiber and a lock |
 | `--scene ocean` | the ocean: the wave set against its spectrum, Pierson-Moskowitz closed form, dispersion, directional spreading |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
@@ -369,6 +370,16 @@ thicker than real ones to keep the noise down. Checked in white furnaces and aga
 ![The same lock of hair in five colors: black, brown, red, blond and white](docs/img/gallery_hair_colors.png)
 
 ![Long hair falling over a head, seen from behind](docs/img/hair_head.png)
+
+**Skin, dry and moist** (`scenes/skin_lamp_dry.json`, `scenes/skin_lamp_wet.json`): a patch of skin 4.3 cm wide with generated furrows and pores.
+Dry skin has whitish flaky patches and a broad glint that the furrows break up. Water pools in the furrows and fills the gaps of the flakes:
+the patches go and the glint gets a sharp core. Below: a lotion alone, and a lotion followed by an emulsion one minute later, over an hour.
+The emulsion is milky at first and leaves a film of oil, which keeps the patches away after the lotion has dried
+([details](docs/SKIN_MOISTURE.md), Japanese). The amounts and time constants are assumptions, not measurements.
+
+<img src="docs/img/skin_wet.png" alt="Dry skin and wet skin under a small lamp, each with a close-up of the glint" width="620">
+
+<img src="docs/img/skin_lotion_series.png" alt="Close-ups of skin over an hour: a lotion alone, and a lotion followed by an emulsion" width="820">
 
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),

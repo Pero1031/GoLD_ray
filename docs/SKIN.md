@@ -13,7 +13,7 @@
 | 材質のフック `Material::perturbShading`（ヒットの直後に、材質が陰影の法線を差し替える）。`CoatedDiffuse::setRelief`、`setPigment`。出射点の係数のフック `Material::subsurfaceExitTint` | `include/Materials/Material.hpp`、`CoatedDiffuse.hpp`、`src/Render/Integrator.cpp` |
 | シーンファイルの `"type": "skin"`（表面下散乱と凹凸を JSON で）、`lathe` の `translate` | `src/Cli/SceneFile.cpp`、`docs/SCENE_FILE.md` |
 | 自己チェック `--scene relief` | `src/Cli/Checks/ReliefChecks.cpp` |
-| 作例 | `scenes/skin_fingers.json`（逆光の指 3 本）、`scenes/skin_macro.json`（皮膚の接写） |
+| 作例 | `scenes/skin_fingers.json`（逆光の指 3 本）、`scenes/skin_macro.json`（皮膚の接写）、`scenes/skin_lamp_dry.json`・`skin_lamp_wet.json`（濡れる前と後。`docs/SKIN_MOISTURE.md` 5.7） |
 
 ## 2. 微細な凹凸
 

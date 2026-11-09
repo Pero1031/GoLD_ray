@@ -504,7 +504,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& lo = m.at("lotion");
             const std::string lw = where + ".lotion";
             if (!lo.is_object()) Fail(lw, "must be an object (doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness)");
-            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness", "bulk", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG" }, lw);
+            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness", "bulk", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG", "occlusion", "occlusionOilUm", "layers" }, lw);
             if (!s.skinRelief) Fail(lw, "needs a \"relief\" (the liquid pools in its furrows)");
             if (m.contains("film")) Fail(lw, "sets the film itself: write either \"film\" or \"lotion\"");
             SkinLotion::Params lp;
@@ -531,19 +531,64 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             lp.oil = Real(oil); lp.oilIor = Real(oilIor); lp.dropletDiameter = Real(dropletUm * 1e-6); lp.coalesceTau = Real(coalesce); lp.dropletG = Real(dropletG);
             lp.dose = Real(doseUm * 1e-6); lp.glycerin = Real(gl); lp.waterTau = Real(tau); lp.hydrationPeak = Real(hp); lp.hydrationRise = Real(hr); lp.hydrationDecay = Real(hd);
             lp.waterIor = Real(wi); lp.humectantIor = Real(hi); lp.waterRoughness = Real(wr); lp.residueRoughness = Real(rr);
+            double occlusion = lp.occlusion, occlusionOilUm = double(lp.occlusionOil) * 1e6;   // the merged oil film slows the loss of water from the stratum corneum
+            Optional<double>(lo, "occlusion", lw, occlusion, ReadNumber);
+            Optional<double>(lo, "occlusionOilUm", lw, occlusionOilUm, ReadNumber);
+            lp.occlusion = Real(occlusion); lp.occlusionOil = Real(occlusionOilUm * 1e-6);
             const std::string why = SkinLotion::validate(lp);
             if (!why.empty()) Fail(lw, why);
             if (!(timeS >= 0)) Fail(lw + ".timeS", "must not be negative");
-            const SkinLotion::State st = SkinLotion::at(lp, Real(timeS));
+            // "layers": [ { "atS", "doseUm", "glycerin", "hydrationPeak", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG" }, ... ]: several products, each applied at its time
+            // `atS` (on the clock of `timeS`). Without it, the one product is the one written in "lotion" itself, applied at 0.
+            std::vector<SkinLotion::Layer> layers;
+            if (lo.contains("layers")) {
+                const json& arr = lo.at("layers");
+                if (!arr.is_array() || arr.empty()) Fail(lw + ".layers", "must be a list of products with at least one entry");
+                for (const char* key : { "doseUm", "glycerin", "hydrationPeak", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG" })
+                    if (lo.contains(key)) Fail(lw + "." + key, "belongs to a product: with \"layers\", write it inside the layer");
+                const SkinLotion::Layer defaults;
+                for (size_t i = 0; i < arr.size(); ++i) {
+                    const json& la = arr[i];
+                    const std::string aw = lw + ".layers[" + std::to_string(i) + "]";
+                    if (!la.is_object()) Fail(aw, "must be an object (atS, doseUm, glycerin, hydrationPeak, oil, oilIor, dropletUm, coalesceTauS, dropletG)");
+                    CheckKeys(la, { "atS", "doseUm", "glycerin", "hydrationPeak", "oil", "oilIor", "dropletUm", "coalesceTauS", "dropletG" }, aw);
+                    double atS = 0, dose = double(defaults.dose) * 1e6, glyc = defaults.glycerin, peak = defaults.hydrationPeak, loil = defaults.oil, loilIor = defaults.oilIor,
+                        drop = double(defaults.dropletDiameter) * 1e6, coal = defaults.coalesceTau, g = defaults.dropletG;
+                    Optional<double>(la, "atS", aw, atS, ReadNumber);
+                    Optional<double>(la, "doseUm", aw, dose, ReadNumber);
+                    Optional<double>(la, "glycerin", aw, glyc, ReadNumber);
+                    Optional<double>(la, "hydrationPeak", aw, peak, ReadNumber);
+                    Optional<double>(la, "oil", aw, loil, ReadNumber);
+                    Optional<double>(la, "oilIor", aw, loilIor, ReadNumber);
+                    Optional<double>(la, "dropletUm", aw, drop, ReadNumber);
+                    Optional<double>(la, "coalesceTauS", aw, coal, ReadNumber);
+                    Optional<double>(la, "dropletG", aw, g, ReadNumber);
+                    if (!(atS >= 0)) Fail(aw + ".atS", "must not be negative");
+                    SkinLotion::Layer l;
+                    l.at = Real(atS); l.dose = Real(dose * 1e-6); l.glycerin = Real(glyc); l.hydrationPeak = Real(peak);
+                    l.oil = Real(loil); l.oilIor = Real(loilIor); l.dropletDiameter = Real(drop * 1e-6); l.coalesceTau = Real(coal); l.dropletG = Real(g);
+                    const std::string whyLayer = SkinLotion::validate(SkinLotion::withLayer(lp, l));
+                    if (!whyLayer.empty()) Fail(aw, whyLayer);
+                    layers.push_back(l);
+                }
+            }
+            else layers.push_back(SkinLotion::layerOf(lp));
+            int applied = 0;
+            for (const SkinLotion::Layer& l : layers) applied += double(l.at) <= timeS ? 1 : 0;
+            oil = 0;
+            for (const SkinLotion::Layer& l : layers) oil = std::max(oil, double(l.at) <= timeS ? double(l.oil) : 0.0);
+            const SkinLotion::State st = SkinLotion::at(lp, layers, Real(timeS));
             s.skinFilmOn = st.thickness > 0;
             s.skinFilmThicknessUm = double(st.thickness) * 1e6; s.skinFilmIor = double(st.ior); s.skinFilmRoughness = double(st.roughness);
             if (s.skinScatterOn) s.scatHydration = double(st.hydration);
             if (bulk > 0) s.skinSssScale *= 1.0 + bulk * double(st.hydration);
             s.skinEmulsionTau = double(st.emulsionTau);
             std::ostringstream note;
-            note << "t = " << timeS << " s: film " << s.skinFilmThicknessUm << " um (water " << double(st.water) * 1e6 << " + humectant " << double(st.residue) * 1e6 << "), index " << s.skinFilmIor
+            note << "t = " << timeS << " s" << (lo.contains("layers") ? " (" + std::to_string(applied) + " of " + std::to_string(layers.size()) + " layers applied)" : std::string())
+                << ": film " << s.skinFilmThicknessUm << " um (water " << double(st.water) * 1e6 << " + humectant " << double(st.residue) * 1e6 << "), index " << s.skinFilmIor
                 << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration) << (bulk > 0 ? ", scatter distance x " + std::to_string(1.0 + bulk * double(st.hydration)) : std::string())
-                << (oil > 0 ? ", oil " + std::to_string(double(st.oil) * 1e6) + " um, droplets: transport optical depth " + std::to_string(double(st.emulsionTau)) : std::string());
+                << (oil > 0 ? ", oil " + std::to_string(double(st.oil) * 1e6) + " um, droplets: transport optical depth " + std::to_string(double(st.emulsionTau))
+                    + ", occlusion " + std::to_string(double(st.occlusion)) : std::string());
             s.skinLotionNote = note.str();
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
