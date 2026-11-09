@@ -196,7 +196,7 @@ GoLD_rayt.exe scenes\gold_bowl_tungsten.json --spp 64
 ```
 
 A file either names a built-in scene with options (`scenes/presets/`) or describes the scene as data: materials (diffuse,
-conductor with `"metal": "Au"`, dielectric, emission), spheres, quads, OBJ meshes, surfaces of revolution, point lights, camera and
+conductor with `"metal": "Au"`, dielectric, layered coat, thin film, hair, skin, emission), spheres, quads, OBJ meshes, surfaces of revolution, an ocean, hair strands, point lights, camera and
 environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.exe --list-scenes` lists the built-in scenes.
 
 **Command line** (`GoLD_rayt.exe [scene.json] [options]`)
@@ -222,20 +222,20 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Path tracing** with next-event estimation, multiple importance sampling, Russian roulette, thin-lens camera.
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
-- **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
-  optional metal blend, subsurface scattering, a procedural skin micro-relief that bends the shading normal (furrows between pores from a graph simulation, or a simple cellular noise), uneven skin color: freckles, flush, and oily and dry patches of the coat), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
+- **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat, with an optional metal blend and subsurface scattering; used for skin, with a procedural
+  micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md), Japanese), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter), and
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md), Japanese), and
   hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
-  (Mie scattering of cloud droplets), a single-scattering sky with a sun (`tools/data/make_sky.py`).
+  (Mie scattering of cloud droplets; [details](docs/CLOUD.md), Japanese), a single-scattering sky with a sun (`tools/data/make_sky.py`).
 - **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
   Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
-  230-420 raw samples; fine texture (stocking weave, hair strands) gets a little softer.
+  230-420 raw samples; fine texture (stocking weave, single hair fibers) gets softer.
 - **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
   environment map, roughness, exposure, samples per frame; save the image. It renders in the mode `RenderMode.hpp` selects.
   It does not load characters or use SSS or the denoiser.
@@ -263,7 +263,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Next-event estimation** picks one light with the `LightSampler`, samples it, and combines it with BSDF sampling through
   the power heuristic.
 - **Subsurface scattering** is a path event: the integrator finds an exit point with probe rays
-  (`Render/SubsurfaceProbe.hpp`) and continues from there.
+  (`Render/SubsurfaceProbe.hpp`) and continues from there ([details](docs/SSS.md), Japanese).
 - **Precision**: `Real` is `double`; Embree finds hits in float and the hit record is rebuilt in double.
 
 **Source layout** (`GoLD_rayt/include`; `src` has the entry points)
@@ -272,9 +272,9 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 |---|---|
 | `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, `RenderMode.hpp` |
 | `Color/` | spectral curves, CIE functions, illuminants, emission spectra, complex IOR tables, `R(λ)`-to-`(n,k)` |
-| `Materials/` | Lambertian, CoatedDiffuse, RoughConductor, Dielectric, DiffuseLight, Subsurface, Hair |
+| `Materials/` | Lambertian, CoatedDiffuse (with the skin relief, wrinkle simulation and pigment), LayeredCoat, RoughConductor, Dielectric, ThinFilm, Hair, DiffuseLight, Subsurface, media |
 | `Microfacet/` | GGX and the directional-albedo table for the multiple-scattering compensation |
-| `Geometry/`, `Scene/`, `Accelerators/` | shapes, aggregate, SAH BVH, Embree wrapper |
+| `Geometry/`, `Scene/`, `Accelerators/` | shapes (also hair curves and the ocean mesh), aggregate, SAH BVH, Embree wrapper |
 | `Lights/` | point / area / environment lights, light samplers |
 | `Render/` | camera, film, integrator, denoiser, subsurface probe |
 | `IO/` | CSV, metal-data, HDR / image / OBJ / PMX / VPD loaders |
@@ -319,14 +319,14 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
   alpha cut-outs).
 - **Metals and films**: Lorentz-Drude, multilayer coatings and rough films, spectral upsampling of saturated colors.
 - **Light transport**: caustics seen through glass (vertex merging), rough dielectrics and colored media in the bidirectional path tracer.
-- **Characters**: VMD motion, IK, hair / skirt physics, better hair and cloth BSDFs.
-- **Infrastructure**: a scene description file, a light tree, `ctest` integration.
+- **Hair and skin**: a comparison with measured data, curly and elliptical fibers, a second specular lobe and vellus hair for skin.
+- **Infrastructure**: a light tree, `ctest` integration.
 
 ---
 
 ## 7. Gallery
 
-More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb).
+More renders from the same engine (CPU; OIDN-denoised unless noted). The color of light is under [Spectral vs RGB](#spectral-vs-rgb).
 
 **Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
 with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
@@ -355,12 +355,10 @@ constants. 900 x 600, 768 spp, OIDN-denoised. The stone and the ring are generat
 **A clear coat over a base** (`scenes/layered_gloss.json`, `scenes/layered_lacquer.json`): lacquer on gold, car paint. The coat is a
 rough dielectric over a diffuse or metal base, and the light that bounces between the two layers is summed by a random walk
 ([details](docs/GLOSS.md), Japanese; checked against a closed form and against two independent estimators, `--scene layered`).
-Top: gloss has two independent axes, the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
-base, columns). Bottom: bare gold, a clear coat, a satin coat and an amber coat. 1280 x 720, 192 spp, OIDN-denoised.
+Gloss has two independent axes: the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
+base, columns). 1280 x 720, 192 spp, OIDN-denoised.
 
 ![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
-
-![Gold bare, under a clear coat, under a satin coat and under an amber coat](docs/img/gloss_lacquered_gold.png)
 
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
 surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
