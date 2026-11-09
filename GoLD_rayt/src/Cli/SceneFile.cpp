@@ -504,7 +504,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& lo = m.at("lotion");
             const std::string lw = where + ".lotion";
             if (!lo.is_object()) Fail(lw, "must be an object (doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness)");
-            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness" }, lw);
+            CheckKeys(lo, { "doseUm", "glycerin", "timeS", "waterTauS", "hydrationPeak", "hydrationRiseS", "hydrationDecayS", "waterIor", "humectantIor", "waterRoughness", "residueRoughness", "bulk" }, lw);
             if (!s.skinRelief) Fail(lw, "needs a \"relief\" (the liquid pools in its furrows)");
             if (m.contains("film")) Fail(lw, "sets the film itself: write either \"film\" or \"lotion\"");
             SkinLotion::Params lp;
@@ -520,6 +520,8 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Optional<double>(lo, "humectantIor", lw, hi, ReadNumber);
             Optional<double>(lo, "waterRoughness", lw, wr, ReadNumber);
             Optional<double>(lo, "residueRoughness", lw, rr, ReadNumber);
+            double bulk = 0; Optional<double>(lo, "bulk", lw, bulk, ReadNumber);   // the scatter distance of the skin grows by (1 + bulk * hydration): a hydrated skin scatters less inside
+            if (!(bulk >= 0)) Fail(lw + ".bulk", "must not be negative");
             lp.dose = Real(doseUm * 1e-6); lp.glycerin = Real(gl); lp.waterTau = Real(tau); lp.hydrationPeak = Real(hp); lp.hydrationRise = Real(hr); lp.hydrationDecay = Real(hd);
             lp.waterIor = Real(wi); lp.humectantIor = Real(hi); lp.waterRoughness = Real(wr); lp.residueRoughness = Real(rr);
             const std::string why = SkinLotion::validate(lp);
@@ -529,9 +531,10 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             s.skinFilmOn = st.thickness > 0;
             s.skinFilmThicknessUm = double(st.thickness) * 1e6; s.skinFilmIor = double(st.ior); s.skinFilmRoughness = double(st.roughness);
             if (s.skinScatterOn) s.scatHydration = double(st.hydration);
+            if (bulk > 0) s.skinSssScale *= 1.0 + bulk * double(st.hydration);
             std::ostringstream note;
             note << "t = " << timeS << " s: film " << s.skinFilmThicknessUm << " um (water " << double(st.water) * 1e6 << " + humectant " << double(st.residue) * 1e6 << "), index " << s.skinFilmIor
-                << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration);
+                << ", roughness " << s.skinFilmRoughness << ", hydration " << double(st.hydration) << (bulk > 0 ? ", scatter distance x " + std::to_string(1.0 + bulk * double(st.hydration)) : std::string());
             s.skinLotionNote = note.str();
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)

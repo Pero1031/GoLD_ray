@@ -94,8 +94,18 @@ namespace rayt {
         }
 
         Spectrum subsurfaceExitTint(const SurfaceInteraction& pi, const SampledWavelengths& lambda) const override {
-            if (!hasPigment()) return Spectrum(1.0);
-            return RgbColor(glm::sqrt(pigmentFactor(pi.p, pi.gn))).reflectance(lambda);
+            Spectrum tint(1.0);
+            if (hasPigment()) tint = RgbColor(glm::sqrt(pigmentFactor(pi.p, pi.gn))).reflectance(lambda);
+            if (m_scatter) {   // the light that comes out passes the white scatter of flaking skin too: (1 - rho), and what the flakes send back is scattered once more (1 / (1 - rho A))
+                const Real rho = std::clamp(m_scatter->reflectance(pi.p, m_film ? m_film->params().ior : Real(1), m_film ? m_film->params().thickness : Real(0)), Real(0), Real(0.95));
+                if (rho > Real(0)) {
+                    const Spectrum A = m_albedo.reflectance(lambda);
+                    Spectrum f(1.0);
+                    for (int i = 0; i < kSssChannels; ++i) f[i] = (Real(1) - rho) / std::max(Real(1) - rho * std::clamp(A[i], Real(0), Real(1)), Real(0.05));
+                    tint = tint * f;
+                }
+            }
+            return tint;
         }
 
         /// Oily and dry patches (sebum): the weight of the coat and its roughness change slowly over the skin, by up to +-`amount` (0..1) of their values,
