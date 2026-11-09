@@ -112,6 +112,8 @@ struct MaterialSpec {
     double reliefCellMm = 0.6, reliefFurrowDepthMm = 0.04, reliefFurrowWidth = 0.12, reliefPoreDepthMm = 0.08, reliefPoreRadiusMm = 0.07, reliefPoreFraction = 0.35;
     double reliefStretch = 1, reliefCoarseScale = 3, reliefCoarseWeight = 0.8;
     double reliefPoreSizeVariation = 0.5, reliefPoreDensityVariation = 0.6, reliefPoreDensityFreq = 60, reliefPoreDarkness = 0;
+    double skinGlossVariation = 0, skinGlossFreq = 60;   //   oily and dry patches (CoatedDiffuse::setGlossVariation)
+    int skinGlossSeed = 1;
     bool skinPigment = false;                      //   uneven color (Materials/SkinPigment.hpp)
     double pigFreckleCellMm = 2.5, pigFreckleFraction = 0.5, pigFreckleRadiusMm = 0.8, pigFreckleStrength = 0.8, pigClusterFreq = 40;
     double pigBlotchFreq = 150, pigBlotchStrength = 0.15, pigRednessFreq = 35, pigRednessStrength = 0.5;

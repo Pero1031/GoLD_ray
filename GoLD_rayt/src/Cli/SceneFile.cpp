@@ -374,7 +374,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -457,6 +457,16 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (!(s.reliefCellMm > 0 && s.reliefFurrowWidth > 0 && s.reliefPoreRadiusMm > 0 && s.reliefStretch > 0 && s.reliefCoarseScale >= 1 && s.reliefCoarseWeight >= 0)) Fail(rw, "needs cellMm, furrowWidth, poreRadiusMm and stretch above 0, coarseScale >= 1 and coarseWeight >= 0");
             if (s.reliefFurrowDepthMm < 0 || s.reliefPoreDepthMm < 0) Fail(rw, "depths must not be negative");
             if (s.reliefPoreFraction < 0 || s.reliefPoreFraction > 1) Fail(rw + ".poreFraction", "must be between 0 and 1");
+        }
+        if (m.contains("gloss")) {   // "gloss": { "variation": 0..0.95, "frequency": patches per metre, "seed" }: oily and dry patches
+            const json& gl = m.at("gloss");
+            const std::string glw = where + ".gloss";
+            if (!gl.is_object()) Fail(glw, "must be an object (variation, frequency, seed)");
+            CheckKeys(gl, { "variation", "frequency", "seed" }, glw);
+            Optional<double>(gl, "variation", glw, s.skinGlossVariation, ReadNumber);
+            Optional<double>(gl, "frequency", glw, s.skinGlossFreq, ReadNumber);
+            double gs = s.skinGlossSeed; Optional<double>(gl, "seed", glw, gs, ReadNumber); s.skinGlossSeed = int(gs);
+            if (s.skinGlossVariation < 0 || s.skinGlossVariation > 0.95 || !(s.skinGlossFreq > 0)) Fail(glw, "variation must be between 0 and 0.95 and frequency above 0");
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
             const json& g = m.at("pigment");

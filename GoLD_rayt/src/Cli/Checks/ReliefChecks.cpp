@@ -236,6 +236,32 @@ int RunReliefTests(const CliOptions& opt) {
         allPassed = ok2 && allPassed;
     }
 
+    // ---- 9. (information) How strongly the two kinds of relief bend the normal, with the settings of scenes/skin_macro.json ------------------------------
+    {
+        SkinRelief::Params worley;   // the Worley version of the macro scene
+        worley.cell = Real(0.0005); worley.furrowDepth = Real(0.000025); worley.furrowWidth = Real(0.1); worley.stretch = Real(1.5); worley.coarseScale = Real(3);
+        worley.coarseWeight = Real(0.7); worley.poreDepth = Real(0.0001); worley.poreRadius = Real(0.00006); worley.poreFraction = Real(0.3);
+        const SkinRelief a(worley);
+        WrinkleField::Params wp; wp.depthScale = Real(1.6); wp.steps = 300;
+        SkinRelief::Params none; none.furrowDepth = 0; none.coarseWeight = 0; none.poreDepth = 0;
+        SkinRelief b(none);
+        b.setWrinkles(std::make_shared<WrinkleField>(wp));
+        const Vector3 nrm(0, 1, 0), wo(0, 1, 0);
+        for (int k = 0; k < 2; ++k) {
+            const SkinRelief& rel = k == 0 ? a : b;
+            std::vector<double> tilts;
+            tilts.reserve(size_t(n));
+            for (int i = 0; i < n; ++i) {
+                const Point3 p(sampling::Random() * 0.02, 0.0, sampling::Random() * 0.02);
+                tilts.push_back(std::acos(std::clamp<double>(rel.perturb(p, nrm, wo).y, -1, 1)) * 180.0 / constants::PI);
+            }
+            std::sort(tilts.begin(), tilts.end());
+            double mean = 0; for (double t : tilts) mean += t;
+            std::cout << "[Relief] 9. (information) " << (k == 0 ? "Worley furrows and pores" : "wrinkle graph") << ": normal tilt mean " << mean / n << " deg, median "
+                << tilts[tilts.size() / 2] << ", 90th percentile " << tilts[tilts.size() * 9 / 10] << ", share above 10 deg " << 100.0 * double(tilts.end() - std::upper_bound(tilts.begin(), tilts.end(), 10.0)) / n << " %\n";
+        }
+    }
+
     std::cout << "[Relief] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

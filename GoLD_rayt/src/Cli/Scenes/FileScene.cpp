@@ -267,6 +267,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 }
                 skin->setRelief(relief);
             }
+            if (m.skinGlossVariation > 0) skin->setGlossVariation(Real(m.skinGlossVariation), Real(m.skinGlossFreq), std::uint32_t(m.skinGlossSeed));
             if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {
                 std::shared_ptr<const SkinPigment> pigment;
                 if (m.skinPigment) {

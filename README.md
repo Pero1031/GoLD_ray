@@ -224,7 +224,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat,
-  optional metal blend, subsurface scattering, a procedural skin micro-relief that bends the shading normal (furrows between pores from a graph simulation, or a simple cellular noise), and uneven skin color: freckles, flush), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
+  optional metal blend, subsurface scattering, a procedural skin micro-relief that bends the shading normal (furrows between pores from a graph simulation, or a simple cellular noise), uneven skin color: freckles, flush, and oily and dry patches of the coat), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter), and

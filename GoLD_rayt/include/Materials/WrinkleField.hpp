@@ -84,18 +84,20 @@ namespace rayt {
             std::vector<Level> levels;      ///< empty: the default skin (skinDefault())
         };
 
-        /// Three levels: deeper primary wrinkles along x, shallower diagonal secondary ones, and the finest, more regular network.
+        /// Three levels for a region with a weak preferred direction (a cheek): primary wrinkles with a slight direction along x, secondary ones across,
+        /// and the finest, almost isotropic network. The finest level is wide enough to show at a pixel of 0.04 mm.
         static std::vector<Level> skinDefault() {
             std::vector<Level> v(3);
-            v[0].spacingMm = Real(1.2);  v[0].angleDeg = Real(0);   v[0].base = Real(0.1);  v[0].distance = Real(0.7);
-            v[0].continuation = Real(0.6); v[0].similarity = Real(0.5); v[0].crossing = Real(0.7); v[0].deposit = Real(0.35);
-            v[0].width = Real(0.12); v[0].poreWidth = Real(0.2); v[0].depthUm = Real(40); v[0].wobble = Real(0.2);
-            v[1].spacingMm = Real(0.6);  v[1].angleDeg = Real(50);  v[1].base = Real(0.35); v[1].distance = Real(0.7);
+            v[0].spacingMm = Real(1.0);  v[0].angleDeg = Real(0);   v[0].base = Real(0.35); v[0].distance = Real(0.7);
+            v[0].continuation = Real(0.5); v[0].similarity = Real(0.4); v[0].crossing = Real(0.6); v[0].deposit = Real(0.35);
+            v[0].width = Real(0.13); v[0].poreWidth = Real(0.18); v[0].poreMin = Real(0.5); v[0].depthUm = Real(40); v[0].wobble = Real(0.2);
+            v[1].spacingMm = Real(0.55); v[1].angleDeg = Real(60);  v[1].base = Real(0.5);  v[1].distance = Real(0.7);
             v[1].continuation = Real(0.4); v[1].similarity = Real(0.4); v[1].crossing = Real(0.5); v[1].deposit = Real(0.3);
-            v[1].width = Real(0.14); v[1].poreWidth = Real(0.25); v[1].depthUm = Real(18); v[1].wobble = Real(0.2);
-            v[2].spacingMm = Real(0.3);  v[2].angleDeg = Real(0);   v[2].base = Real(0.8);  v[2].distance = Real(0.7);
+            v[1].width = Real(0.16); v[1].poreWidth = Real(0.2); v[1].poreMin = Real(0.5); v[1].depthUm = Real(28); v[1].wobble = Real(0.2);
+            v[2].spacingMm = Real(0.3);  v[2].angleDeg = Real(120); v[2].base = Real(1.0);  v[2].distance = Real(0.7);
             v[2].continuation = Real(0.3); v[2].similarity = Real(0.3); v[2].crossing = Real(0.5); v[2].deposit = Real(0.3);
-            v[2].width = Real(0.14); v[2].poreWidth = Real(0.12); v[2].depthUm = Real(7); v[2].wobble = Real(0.25); v[2].bulge = false; v[2].darkPores = false;
+            v[2].width = Real(0.3); v[2].poreWidth = Real(0.3); v[2].poreMin = Real(0.3); v[2].depthUm = Real(24); v[2].wobble = Real(0.25);
+            v[2].bulge = false; v[2].darkPores = false;
             return v;
         }
 

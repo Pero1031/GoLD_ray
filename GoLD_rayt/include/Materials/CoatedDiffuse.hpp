@@ -36,6 +36,7 @@
 #include "Materials/Subsurface.hpp"
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinPigment.hpp"
+#include "Materials/DensityField.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
 
@@ -87,7 +88,19 @@ namespace rayt {
             return RgbColor(glm::sqrt(pigmentFactor(pi.p, pi.gn))).reflectance(lambda);
         }
 
+        /// Oily and dry patches (sebum): the weight of the coat and its roughness change slowly over the skin, by up to +-`amount` (0..1) of their values,
+        /// the oily patches having the stronger and sharper highlight. `frequency`: patches per metre.
+        void setGlossVariation(Real amount, Real frequency, std::uint32_t seed = 1) {
+            m_glossAmount = std::clamp(amount, Real(0), Real(0.95));
+            m_gloss = m_glossAmount > Real(0) ? std::make_shared<NoiseDensity>(frequency, 2, Real(0.3), Real(0.7), seed) : nullptr;
+        }
+
         void perturbShading(SurfaceInteraction& rec, const Vector3& wo) const override {
+            if (m_gloss) {
+                const Real g = Real(2) * (*m_gloss)(rec.p) - Real(1);   // -1 (dry) .. 1 (oily)
+                rec.glossScale = Real(1) + m_glossAmount * g;
+                rec.roughScale = Real(1) - Real(0.6) * m_glossAmount * g;
+            }
             if (m_relief) rec.n = m_relief->perturb(rec.p, rec.n, wo);
             if (hasPigment()) {   // computed once per hit; with SSS the light passes the pigment twice, so it is applied half going in and half coming out
                 const Vector3 f = pigmentFactor(rec.p, rec.gn);
@@ -128,6 +141,8 @@ namespace rayt {
     private:
         std::shared_ptr<const SkinRelief> m_relief;
         std::shared_ptr<const SkinPigment> m_pigment;
+        std::shared_ptr<const NoiseDensity> m_gloss;
+        Real m_glossAmount = Real(0);
         Real m_poreDark = Real(0);
 
         bool hasPigment() const { return m_pigment || (m_poreDark > Real(0) && m_relief); }
@@ -152,11 +167,15 @@ namespace rayt {
             return f0 + (Spectrum(1.0) - f0) * k;
         }
 
-        Real coatFresnel(Real cosTheta) const { return m_w * fresnel::fresnelDielectric(cosTheta, Real(1), Real(1.5)); }
+        /// The weight of the coat and the roughness at this hit (a skin with oily and dry patches varies them; otherwise the constants).
+        Real weightAt(const SurfaceInteraction& rec) const { return std::clamp(m_w * rec.glossScale, Real(0), Real(1)); }
+        Real alphaAt(const SurfaceInteraction& rec) const { return std::clamp(m_alpha * rec.roughScale, Real(constants::ALPHA_EPSILON), Real(1)); }
 
-        Spectrum diffuse(const Spectrum& R, Real cosO, Real cosI) const {
-            const Real k = (Real(1) - m_m) * (Real(1) - coatFresnel(cosO)) * (Real(1) - coatFresnel(cosI))
-                / (Real(1) - m_w * m_fAvg) / constants::PI;
+        Real coatFresnel(Real cosTheta, Real w) const { return w * fresnel::fresnelDielectric(cosTheta, Real(1), Real(1.5)); }
+
+        Spectrum diffuse(const Spectrum& R, Real cosO, Real cosI, Real w) const {
+            const Real k = (Real(1) - m_m) * (Real(1) - coatFresnel(cosO, w)) * (Real(1) - coatFresnel(cosI, w))
+                / (Real(1) - w * m_fAvg) / constants::PI;
             return R * k;
         }
 
@@ -169,20 +188,21 @@ namespace rayt {
             wh /= std::sqrt(len2);
 
             frame::Frame frame(rec.n);
-            const GGXDistribution dist(m_alpha, m_alpha);
+            const GGXDistribution dist(alphaAt(rec), alphaAt(rec));
             const Vector3 wo_l = frame.worldToLocal(wo), wi_l = frame.worldToLocal(wi), wh_l = frame.worldToLocal(wh);
             const Real D = dist.D(wh_l), G = dist.G(wo_l, wi_l);
             const Real cosD = std::abs(glm::dot(wi, wh));
-            const Spectrum F = Spectrum(coatFresnel(cosD) * (Real(1) - m_m)) + schlick(R, cosD) * m_m;
+            const Spectrum F = Spectrum(coatFresnel(cosD, weightAt(rec)) * (Real(1) - m_m)) + schlick(R, cosD) * m_m;
             return F * (D * G / (Real(4) * cosO * cosI));
         }
 
         /// Probability of sampling the specular lobe: its weight against the diffuse lobe's.
         Real lobeProbability(const SurfaceInteraction& rec, Real cosO) const {
-            if (m_profile) return std::clamp(coatFresnel(cosO), Real(0.05), Real(0.95));   // reflected by the coat, else enters
-            const Real sW = (Real(1) - m_m) * coatFresnel(cosO) + m_m * Real(0.6);
+            const Real w = weightAt(rec);
+            if (m_profile) return std::clamp(coatFresnel(cosO, w), Real(0.05), Real(0.95));   // reflected by the coat, else enters
+            const Real sW = (Real(1) - m_m) * coatFresnel(cosO, w) + m_m * Real(0.6);
             const Vector3 c = albedoAt(rec).rgb();   // wavelength independent: the same value in eval(), sample() and pdf()
-            const Real dW = (Real(1) - m_m) * std::max({ c.x, c.y, c.z }) * (Real(1) - coatFresnel(cosO));
+            const Real dW = (Real(1) - m_m) * std::max({ c.x, c.y, c.z }) * (Real(1) - coatFresnel(cosO, w));
             return std::clamp(sW / std::max(sW + dW, Real(1e-6)), Real(0.05), Real(0.95));
         }
 

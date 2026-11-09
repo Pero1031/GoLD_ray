@@ -15,7 +15,7 @@ namespace rayt {
 
         const Spectrum R = albedoAt(rec).reflectance(lambda);
         if (m_profile) return specular(rec, wo, wi, R, cosO, cosI);   // the diffuse lobe is the subsurface event
-        return diffuse(R, cosO, cosI) + specular(rec, wo, wi, R, cosO, cosI);
+        return diffuse(R, cosO, cosI, weightAt(rec)) + specular(rec, wo, wi, R, cosO, cosI);
     }
 
     std::optional<BSDFSample> CoatedDiffuse::sample(const SurfaceInteraction& rec, const Vector3& wo, const Point2& u,
@@ -30,14 +30,14 @@ namespace rayt {
         const Real pS = lobeProbability(rec, wo_local.z);
         BSDFSample s;
         if (u.x < pS) {
-            const GGXDistribution dist(m_alpha, m_alpha);
+            const GGXDistribution dist(alphaAt(rec), alphaAt(rec));
             const Vector3 wh = frame.localToWorld(dist.sample_wh(wo_local, Point2(u.x / pS, u.y)));
             s.wi = math::reflectOutward(wo, wh);
         }
         else if (m_profile) {
             // The light passes the coat (probability 1 - w F) and enters: the integrator picks the exit.
             // Choosing it with probability 1 - pS gives the weight (1 - w F) / (1 - pS), exactly 1 unless pS was clamped.
-            s.f = Spectrum((Real(1) - coatFresnel(wo_local.z)) / (Real(1) - pS));
+            s.f = Spectrum((Real(1) - coatFresnel(wo_local.z, weightAt(rec))) / (Real(1) - pS));
             s.pdf = Real(1);
             s.wi = rec.n;
             s.flags = BxDFFlags::Subsurface;
@@ -70,7 +70,7 @@ namespace rayt {
         wh /= std::sqrt(len2);
 
         frame::Frame frame(rec.n);
-        const GGXDistribution dist(m_alpha, m_alpha);
+        const GGXDistribution dist(alphaAt(rec), alphaAt(rec));
         const Vector3 wo_local = frame.worldToLocal(wo), wh_local = frame.worldToLocal(wh);
         const Real dotOH = std::abs(glm::dot(wo_local, wh_local));
         const Real pdfSpec = dotOH > 0 ? dist.pdf(wo_local, wh_local) / (Real(4) * dotOH) : Real(0);

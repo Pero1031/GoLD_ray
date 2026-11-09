@@ -1,22 +1,119 @@
-// A patch of skin 4.3 cm wide, lit by a small softbox in the mirror direction of the camera so that the micro-relief shows in the glossy highlight.
+// A patch of skin 4.3 cm wide, lit by a softbox in the mirror direction of the camera so that the sheen of the oily coat and the micro-relief show.
 // Relief: the micro wrinkles and pores of a graph simulation (docs/SKIN.md, after Weiss et al. 2023): three levels of pores joined by wrinkles that
-// run mostly along x, begin and end at pores and cross diagonally, drawn into a 24 mm tile that repeats. Pigment: freckles (clustered, each of its own size
-// and darkness), uneven pigment and a faint flush. The relief only bends the shading normal; the pigment multiplies the reflectance where the light goes
-// in and where it comes out. The light that goes into the skin comes out somewhere else (a Burley profile, 3.7 / 1.4 / 0.7 mm). The picture in docs/img
-// is the raw 384 spp render (about 7 minutes).
+// form a network with a weak preferred direction, drawn into a 24 mm tile that repeats. Gloss: the weight and the roughness of the coat vary slowly
+// (oily and dry patches). Pigment: freckles (clustered, each of its own size and darkness), uneven pigment and a faint flush. The relief only bends the
+// shading normal. The light that goes into the skin comes out somewhere else (a Burley profile, 3.7 / 1.4 / 0.7 mm).
+// The picture in docs/img is the raw 384 spp render (about 7 minutes).
 {
- "options": { "width": 1000, "spp": 384, "depth": 8, "denoise": true },
- "camera": { "from": [0, 0.075, 0.03], "at": [0, 0, 0], "fov": 17 },
+ "options": {
+  "width": 1000,
+  "spp": 384,
+  "depth": 8,
+  "denoise": true
+ },
+ "camera": {
+  "from": [
+   0,
+   0.075,
+   0.03
+  ],
+  "at": [
+   0,
+   0,
+   0
+  ],
+  "fov": 17
+ },
  "materials": {
-  "skin": { "type": "skin", "albedo": [0.80, 0.52, 0.42], "roughness": 0.2, "specular": 0.5, "scatterDistanceMm": [3.67, 1.37, 0.68],
-            "relief": { "wrinkles": { "depthScale": 1.6 }, "poreDarkness": 1.0 },
-            "pigment": { "freckleStrength": 0.8, "blotchStrength": 0.15, "rednessStrength": 0.5 } },
-  "key":  { "type": "emission", "spectrum": "d65", "radiance": 5 },
-  "fill": { "type": "emission", "spectrum": "d65", "radiance": 3 }
+  "skin": {
+   "type": "skin",
+   "albedo": [
+    0.8,
+    0.52,
+    0.42
+   ],
+   "roughness": 0.15,
+   "specular": 0.75,
+   "scatterDistanceMm": [
+    3.67,
+    1.37,
+    0.68
+   ],
+   "relief": {
+    "wrinkles": {
+     "depthScale": 1.6
+    },
+    "poreDarkness": 1.0
+   },
+   "pigment": {
+    "freckleStrength": 0.8,
+    "blotchStrength": 0.15,
+    "rednessStrength": 0.5
+   },
+   "gloss": {
+    "variation": 0.65,
+    "frequency": 70
+   }
+  },
+  "key": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 2.2
+  },
+  "fill": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 3
+  }
  },
  "objects": [
-  { "shape": "sphere", "material": "skin", "center": [0, -0.1, 0], "radius": 0.1 },
-  { "shape": "quad", "material": "key",  "corner": [-0.075, 0.172, -0.150], "edge1": [0.15, 0, 0], "edge2": [0, 0.055, 0.14] },
-  { "shape": "quad", "material": "fill", "corner": [-0.3, 0.35, 0.35], "edge1": [0, -0.3, 0], "edge2": [0, 0, -0.3] }
+  {
+   "shape": "sphere",
+   "material": "skin",
+   "center": [
+    0,
+    -0.1,
+    0
+   ],
+   "radius": 0.1
+  },
+  {
+   "shape": "quad",
+   "material": "key",
+   "corner": [
+    -0.15,
+    0.158,
+    -0.19
+   ],
+   "edge1": [
+    0.3,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0.11,
+    0.28
+   ]
+  },
+  {
+   "shape": "quad",
+   "material": "fill",
+   "corner": [
+    -0.3,
+    0.35,
+    0.35
+   ],
+   "edge1": [
+    0,
+    -0.3,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -0.3
+   ]
+  }
  ]
 }
