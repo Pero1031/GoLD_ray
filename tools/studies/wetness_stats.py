@@ -16,7 +16,8 @@ The pebbles are spheres of random colour, half sunk into a grey ground, under a 
 about 1 m: its mirror image on a pebble is a few pixels wide).
 Surfaces (all with the same body colour): "lambert" (a diffuse surface with no reflection at the top), "rough" (a rough clear coat of
 index 1.5 over the diffuse body: the dry solid with its hazy surface reflection), "wet" (a smooth coat of index 1.33 over the body: a
-film of water). The palettes: "many" (hues all around the circle) and "one" (one hue), for the hue entropy.
+film of water). The palettes: "many" (hues all around the circle) and "one" (one hue), for the hue entropy, and "natural"
+(bright, pale, warm: closer to the dry stones of the paper's photographs; the other two are darker and more colourful).
 
 What the numbers are: the saturation is s_uv = 13 sqrt((u' - u'n)^2 + (v' - v'n)^2) with the D65 white (the paper's equation 1), the
 hue is the angle in the u'v' plane, the hue entropy is that of a 512-bin histogram (bits). The pictures of a pair share one exposure
@@ -126,7 +127,11 @@ def compare(dry_path, wet_path, label):
 
 # --- the scenes
 
-PALETTES = {"many": None, "one": 0.07}   # the hue of every pebble (None: any)
+# The colours of the pebbles: (hue range, saturation range, value range) of HSV, and the albedo of the ground.
+# "natural" is bright and pale like the dry pebbles, rock and wood of the paper's photographs; the first two are darker and more colourful.
+PALETTES = {"many": ((0.0, 1.0), (0.3, 0.65), (0.25, 0.65), [0.3, 0.3, 0.3]),
+            "one": ((0.055, 0.085), (0.3, 0.65), (0.25, 0.65), [0.3, 0.3, 0.3]),
+            "natural": ((0.04, 0.13), (0.08, 0.35), (0.55, 0.9), [0.6, 0.55, 0.47])}
 SURFACES = ("lambert", "rough", "wet")
 
 
@@ -139,7 +144,7 @@ def surface(kind, albedo):
 
 def make(out):
     out.mkdir(parents=True, exist_ok=True)
-    for palette, fixed_hue in PALETTES.items():
+    for palette, (hues, sats, values, ground) in PALETTES.items():
         rng = np.random.default_rng(11)
         pebbles = []
         for _ in range(4000):
@@ -148,11 +153,10 @@ def make(out):
             r = rng.uniform(0.012, 0.034)
             x, z = rng.uniform(-0.36, 0.36), rng.uniform(-0.42, 0.26)
             if all(np.hypot(x - px, z - pz) > 0.8 * (r + pr) for px, pz, pr, _ in pebbles):
-                hue = rng.uniform() if fixed_hue is None else (fixed_hue + rng.uniform(-0.015, 0.015)) % 1.0
-                rgb = colorsys.hsv_to_rgb(hue, rng.uniform(0.3, 0.65), rng.uniform(0.25, 0.65))
+                rgb = colorsys.hsv_to_rgb(rng.uniform(*hues), rng.uniform(*sats), rng.uniform(*values))
                 pebbles.append((x, z, r, [round(c, 4) for c in rgb]))
         for kind in SURFACES:
-            materials = {"ground": surface(kind, [0.3, 0.3, 0.3]),
+            materials = {"ground": surface(kind, ground),
                          "lamp": {"type": "emission", "spectrum": "d65", "radiance": 24},
                          "sky": {"type": "emission", "spectrum": "d65", "radiance": 1.0}}
             objects = [{"shape": "quad", "material": "ground", "corner": [-1.5, 0, 1.5], "edge1": [3, 0, 0], "edge2": [0, 0, -3]},
