@@ -113,6 +113,19 @@ namespace rayt {
             return np;
         }
 
+        /// The height (m) and the gradient (the vector t dh/dt + b dh/db in the tangent plane of n) of whichever relief is in use: the same stencil as perturb().
+        /// Used by the film that fills the furrows (Materials/SkinFilm.hpp).
+        Real surface(const Point3& p, const Vector3& n, Vector3& gradient) const {
+            const Vector3 axis = std::abs(n.y) < Real(0.9) ? Vector3(0, 1, 0) : Vector3(1, 0, 0);
+            const Vector3 t = glm::normalize(glm::cross(n, axis));
+            const Vector3 b = glm::cross(n, t);
+            const Real eps = Real(0.04) * std::min(m_p.poreRadius, m_p.furrowWidth * m_p.cell);
+            const Real dt = (heightAt(p + t * eps, n) - heightAt(p - t * eps, n)) / (Real(2) * eps);
+            const Real db = (heightAt(p + b * eps, n) - heightAt(p - b * eps, n)) / (Real(2) * eps);
+            gradient = t * dt + b * db;
+            return heightAt(p, n);
+        }
+
     private:
         Real heightAt(const Point3& p, const Vector3& n) const { return m_wrinkles ? m_wrinkles->height(p, n) : height(p); }
 

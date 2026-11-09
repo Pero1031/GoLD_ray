@@ -266,6 +266,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     relief->setWrinkles(field);
                 }
                 skin->setRelief(relief);
+                if (m.skinFilmOn) {
+                    SkinFilm::Params fp;
+                    fp.thickness = Real(m.skinFilmThicknessUm * 1e-6); fp.ior = Real(m.skinFilmIor); fp.roughness = Real(m.skinFilmRoughness);
+                    fp.softness = Real(m.skinFilmSoftnessUm * 1e-6);
+                    skin->setFilm(std::make_shared<SkinFilm>(fp, relief));
+                }
             }
             if (m.skinGlossVariation > 0) skin->setGlossVariation(Real(m.skinGlossVariation), Real(m.skinGlossFreq), std::uint32_t(m.skinGlossSeed));
             if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {

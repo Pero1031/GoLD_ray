@@ -4,8 +4,36 @@
 #include "Cli/CheckSupport.hpp"
 #include "Cli/EngineHeaders.hpp"
 #include "Materials/SkinRelief.hpp"
+#include "Materials/SkinFilm.hpp"
 
 namespace rayt::cli {
+
+namespace {
+
+#if defined(RAYT_SPECTRAL_MODE)
+constexpr int kN = kSpectralSamples;
+#else
+constexpr int kN = 3;
+#endif
+
+Real average(const Spectrum& s) {
+    Real m = 0;
+    for (int i = 0; i < kN; ++i) m += s[i];
+    return m / Real(kN);
+}
+
+struct Estimate {
+    double mean = 0, se = 0;
+    void add(double v) { ++n; sum += v; sum2 += v * v; }
+    void finish() {
+        mean = sum / double(n);
+        se = std::sqrt(std::max(sum2 / double(n) - mean * mean, 0.0) / double(n));
+    }
+    long n = 0;
+    double sum = 0, sum2 = 0;
+};
+
+} // namespace
 
 int RunReliefTests(const CliOptions& opt) {
     bool allPassed = true;
@@ -259,6 +287,150 @@ int RunReliefTests(const CliOptions& opt) {
             double mean = 0; for (double t : tilts) mean += t;
             std::cout << "[Relief] 9. (information) " << (k == 0 ? "Worley furrows and pores" : "wrinkle graph") << ": normal tilt mean " << mean / n << " deg, median "
                 << tilts[tilts.size() / 2] << ", 90th percentile " << tilts[tilts.size() * 9 / 10] << ", share above 10 deg " << 100.0 * double(tilts.end() - std::upper_bound(tilts.begin(), tilts.end(), 10.0)) / n << " %\n";
+        }
+    }
+
+    // ---- 10. A liquid film that pools in the furrows (Materials/SkinFilm.hpp, docs/SKIN_MOISTURE.md) -----------------------------------------
+    {
+        auto reliefP = std::make_shared<SkinRelief>(rp);
+
+        // (a) The level that fills the furrows gives the mean thickness that was asked for.
+        for (double um : { 1.0, 5.0, 20.0 }) {
+            SkinFilm::Params fp; fp.thickness = Real(um * 1e-6);
+            const SkinFilm film(fp, reliefP);
+            const double mean = double(film.meanThickness(300000, 99u)) * 1e6;
+            const bool ok = std::abs(mean - um) <= 0.03 * um;
+            std::cout << "[Relief] 10a. film of " << um << " um on the Worley relief: mean thickness " << mean << " um (level " << double(film.level()) * 1e6 << " um)"
+                << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (b) The top of the film is flatter the more liquid there is: thin = the skin's normal, thick = almost flat.
+        {
+            const Vector3 nrm(0, 0, 1), wo(0, 0, 1);
+            const int m = std::min(n, 20000);
+            bool unit = true;
+            auto meanTilt = [&](const std::function<Vector3(const Point3&)>& f) {
+                double t = 0;
+                for (int i = 0; i < m; ++i) {
+                    const Vector3 b = f(Point3(sampling::Random() * 0.01, sampling::Random() * 0.01, 0.0));
+                    unit = unit && std::abs(glm::length(b) - 1.0) < 1e-9;
+                    t += std::acos(std::clamp<double>(b.z, -1, 1)) * 180.0 / constants::PI;
+                }
+                return t / m;
+            };
+            const double skinTilt = meanTilt([&](const Point3& p) { return reliefP->perturb(p, nrm, wo); });
+            double prev = 1e9, first = 0, last = 0;
+            bool ordered = true;
+            std::cout << "[Relief] 10b. mean tilt of the normal: skin " << skinTilt << " deg; film";
+            for (double um : { 0.5, 5.0, 40.0, 200.0 }) {
+                SkinFilm::Params fp; fp.thickness = Real(um * 1e-6);
+                const SkinFilm film(fp, reliefP);
+                const double t = meanTilt([&](const Point3& p) { return film.at(p, nrm, wo).normal; });
+                ordered = ordered && t <= prev * 1.05;
+                prev = t;
+                if (um == 0.5) first = t;
+                last = t;
+                std::cout << " " << um << " um: " << t << " deg,";
+            }
+            const bool ok = unit && ordered && first > 0.5 * skinTilt && last < 0.15 * skinTilt;
+            std::cout << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (c) The reflectance of the film on skin: water 0.0257 at normal incidence, the skin's own 0.0467 when the liquid has the skin's index, rising to 1 at grazing.
+        {
+            SkinFilm::Params w; w.thickness = Real(5e-6);
+            const SkinFilm water(w, reliefP);
+            SkinFilm::Params s = w; s.ior = Real(1.55);
+            const SkinFilm same(s, reliefP);
+            const double fw = water.fresnelReflectance(Real(1)), fs = same.fresnelReflectance(Real(1)), fg = water.fresnelReflectance(Real(0.01));
+            bool rising = true;
+            double prev = water.fresnelReflectance(Real(1));
+            for (int i = 1; i <= 50; ++i) { const double c = 1.0 - 0.0198 * i; const double f = water.fresnelReflectance(Real(c)); rising = rising && f >= prev - 1e-9; prev = f; }
+            const bool ok = std::abs(fw - 0.0257) < 0.0005 && std::abs(fs - 0.0467) < 0.0005 && fg > 0.8 && rising;
+            std::cout << "[Relief] 10c. film reflectance at normal incidence: water " << fw << ", index 1.55 " << fs << ", water at 89.4 deg " << fg << ", rising with angle " << (rising ? "yes" : "NO")
+                << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (d) eval() and sample() are two estimators of the same albedo (a film over the relief: the lobe about the film's normal, the diffuse one about the skin's).
+        for (bool sss : { false, true }) {
+            SkinFilm::Params fp; fp.thickness = Real(15e-6); fp.roughness = Real(0.3);
+            auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.3), Real(0.6), Real(0));
+            skin->setRelief(reliefP);
+            skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP));
+            if (sss) skin->setSubsurface(std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4)));
+#if defined(RAYT_SPECTRAL_MODE)
+            const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+#else
+            const SampledWavelengths lambda;
+#endif
+            const double deg = 40.0 * constants::PI / 180.0;
+            const Vector3 wo(std::sin(deg), 0, std::cos(deg));
+            double sumS = 0, sumE = 0, varS = 0, varE = 0, cover = 0;
+            const int points = 24, per = 6000;
+            for (int k = 0; k < points; ++k) {
+                SurfaceInteraction rec;
+                rec.p = Point3(sampling::Random() * 0.005, sampling::Random() * 0.005, 0.0);
+                rec.n = Vector3(0, 0, 1); rec.gn = Vector3(0, 0, 1); rec.wo = wo; rec.matPtr = skin.get();
+                skin->perturbShading(rec, wo);
+                cover += rec.filmCover;
+                Estimate bySample, byEval;
+                for (int i = 0; i < per; ++i) {
+                    const auto bs = skin->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+                    // the subsurface event is not a reflection: only the local lobes count here
+                    bySample.add((bs && !bs->isSubsurface()) ? double(average(bs->f)) * std::abs(glm::dot(rec.n, bs->wi)) / bs->pdf : 0.0);
+                    const Real r = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+                    const Vector3 wi(r * std::cos(phi), r * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - r * r)));
+                    byEval.add(wi.z > Real(1e-3) ? double(average(skin->eval(rec, wo, wi, lambda, TransportMode::Radiance))) * std::abs(glm::dot(rec.n, wi)) * constants::PI / wi.z : 0.0);
+                }
+                bySample.finish(); byEval.finish();
+                sumS += bySample.mean; sumE += byEval.mean; varS += bySample.se * bySample.se; varE += byEval.se * byEval.se;
+            }
+            const double mS = sumS / points, mE = sumE / points, se = std::sqrt(varS + varE) / points;
+            const bool ok = std::abs(mS - mE) <= 4 * se + 0.02 * mE && mE < 1.0;
+            std::cout << "[Relief] 10d. film over the relief" << (sss ? " with subsurface scattering" : "") << ": albedo from sample() " << mS << ", from eval() " << mE << " +- " << se
+                << " (mean film cover " << cover / points << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (e) A skin sphere with a film in a white furnace returns about what the dry one does (the film only changes the reflectance a little) and never more than 1.
+        {
+            auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+            auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4));
+            for (bool sss : { false, true }) {
+                auto build = [&](bool withFilm) {
+                    auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
+                    skin->setRelief(reliefP);
+                    if (sss) skin->setSubsurface(profile);
+                    if (withFilm) { SkinFilm::Params fp; fp.thickness = Real(10e-6); skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP)); }
+                    auto world = std::make_shared<Aggregate>();
+                    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
+                    auto scene = std::make_shared<Scene>(world);
+                    scene->setEnvLight(whiteSky);
+                    scene->finalize("spatial");
+                    return scene;
+                };
+                const auto dry = build(false), wet = build(true);
+                const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+                Vector3 sumD(0.0), sumW(0.0);
+                int bad = 0;
+                for (int i = 0; i < rays; ++i) {
+                    const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
+                    const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
+                    Vector3 mD, sD, mW, sW; int bD = 0, bW = 0;
+                    EstimateRadiance(*dry, ray, perRay, 8, mD, sD, bD);
+                    EstimateRadiance(*wet, ray, perRay, 8, mW, sW, bW);
+                    sumD += mD; sumW += mW; bad += bD + bW;
+                }
+                const Vector3 md = sumD / Real(rays), mw = sumW / Real(rays);
+                bool ok = bad == 0;
+                for (int c = 0; c < 3; ++c) ok = ok && mw[c] <= 1.0 && std::abs(mw[c] - md[c]) <= 0.08 * md[c];
+                std::cout << "[Relief] 10e. furnace" << (sss ? " with subsurface scattering" : "") << ": dry (" << md.x << ", " << md.y << ", " << md.z << "), with a 10 um film ("
+                    << mw.x << ", " << mw.y << ", " << mw.z << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+                allPassed = ok && allPassed;
+            }
         }
     }
 

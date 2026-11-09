@@ -114,7 +114,9 @@ struct MaterialSpec {
     double reliefPoreSizeVariation = 0.5, reliefPoreDensityVariation = 0.6, reliefPoreDensityFreq = 60, reliefPoreDarkness = 0;
     double skinGlossVariation = 0, skinGlossFreq = 60;   //   oily and dry patches (CoatedDiffuse::setGlossVariation)
     int skinGlossSeed = 1;
-    bool skinPigment = false;                      //   uneven color (Materials/SkinPigment.hpp)
+    bool skinFilmOn = false;                       //   a liquid film that pools in the furrows (Materials/SkinFilm.hpp, docs/SKIN_MOISTURE.md); needs the relief
+    double skinFilmThicknessUm = 5, skinFilmIor = 1.33, skinFilmRoughness = 0.02, skinFilmSoftnessUm = 1.5;
+    bool skinPigment = false;                    //   uneven color (Materials/SkinPigment.hpp)
     double pigFreckleCellMm = 2.5, pigFreckleFraction = 0.5, pigFreckleRadiusMm = 0.8, pigFreckleStrength = 0.8, pigClusterFreq = 40;
     double pigBlotchFreq = 150, pigBlotchStrength = 0.15, pigRednessFreq = 35, pigRednessStrength = 0.5;
     int pigSeed = 1;

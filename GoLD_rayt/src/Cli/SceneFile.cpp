@@ -374,7 +374,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -467,6 +467,20 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Optional<double>(gl, "frequency", glw, s.skinGlossFreq, ReadNumber);
             double gs = s.skinGlossSeed; Optional<double>(gl, "seed", glw, gs, ReadNumber); s.skinGlossSeed = int(gs);
             if (s.skinGlossVariation < 0 || s.skinGlossVariation > 0.95 || !(s.skinGlossFreq > 0)) Fail(glw, "variation must be between 0 and 0.95 and frequency above 0");
+        }
+        if (m.contains("film")) {   // "film": { "thicknessUm": mean thickness, "ior", "roughness", "softnessUm" }: a liquid pooling in the furrows (needs "relief")
+            const json& fm = m.at("film");
+            const std::string fw = where + ".film";
+            if (!fm.is_object()) Fail(fw, "must be an object (thicknessUm, ior, roughness, softnessUm)");
+            CheckKeys(fm, { "thicknessUm", "ior", "roughness", "softnessUm" }, fw);
+            if (!s.skinRelief) Fail(fw, "needs a \"relief\" (the film fills its furrows)");
+            Optional<double>(fm, "thicknessUm", fw, s.skinFilmThicknessUm, ReadNumber);
+            Optional<double>(fm, "ior", fw, s.skinFilmIor, ReadNumber);
+            Optional<double>(fm, "roughness", fw, s.skinFilmRoughness, ReadNumber);
+            Optional<double>(fm, "softnessUm", fw, s.skinFilmSoftnessUm, ReadNumber);
+            if (!(s.skinFilmThicknessUm >= 0) || !(s.skinFilmIor >= 1 && s.skinFilmIor <= 2.5) || !(s.skinFilmRoughness >= 0 && s.skinFilmRoughness <= 1) || !(s.skinFilmSoftnessUm > 0))
+                Fail(fw, "needs thicknessUm >= 0, ior between 1 and 2.5, roughness between 0 and 1 and softnessUm above 0");
+            s.skinFilmOn = s.skinFilmThicknessUm > 0;   // 0 = no film
         }
         if (m.contains("pigment")) {   // "pigment": { "freckleCellMm", "freckleFraction", "freckleRadiusMm", "freckleStrength", "clusterFreq", "blotchFreq", "blotchStrength", "rednessFreq", "rednessStrength", "seed" } (all optional)
             const json& g = m.at("pigment");
