@@ -281,6 +281,18 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 sp.hydration = Real(m.scatHydration); sp.kappaH = Real(m.scatKappaH); sp.gap = Real(m.scatGapUm * 1e-6); sp.seed = std::uint32_t(m.scatSeed);
                 skin->setScatter(std::make_shared<SkinScatter>(sp));
             }
+            if (m.skinFoundationOn) {
+                CosmeticLayer::Params cp;
+                cp.thickness = Real(m.fndThickness); cp.diffuserFraction = Real(m.fndDiffuserFraction); cp.g1 = Real(m.fndG1); cp.g2 = Real(m.fndG2);
+                cp.lobeWeight = Real(m.fndLobeWeight); cp.plateletRoughness = Real(m.fndPlateletRoughness); cp.plateletTiltDeg = Real(m.fndPlateletTiltDeg);
+                cp.diffuserAlbedo = m.fndDiffuserAlbedo; cp.plateletAlbedo = m.fndPlateletAlbedo;
+                const auto coat = std::make_shared<CosmeticCoat>(cp);
+                skin->setCosmetic(coat);
+                const Vector3 r = coat->reflected(Real(1)), t = coat->through(Real(1));
+                std::cout << "[Foundation] a layer of thickness " << cp.thickness << ", " << 100 * cp.diffuserFraction << " % diffusers, platelet roughness " << cp.plateletRoughness
+                    << ": seen from the normal it reflects (" << r.x << ", " << r.y << ", " << r.z << "), lets through (" << t.x << ", " << t.y << ", " << t.z
+                    << "), without a collision " << coat->straight(Real(1)) << "\n";
+            }
             if (m.skinGlossVariation > 0) skin->setGlossVariation(Real(m.skinGlossVariation), Real(m.skinGlossFreq), std::uint32_t(m.skinGlossSeed));
             if (m.skinPigment || (m.skinRelief && m.reliefPoreDarkness > 0)) {
                 std::shared_ptr<const SkinPigment> pigment;

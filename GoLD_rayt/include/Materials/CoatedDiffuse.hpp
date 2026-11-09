@@ -38,6 +38,7 @@
 #include "Materials/SkinPigment.hpp"
 #include "Materials/SkinFilm.hpp"
 #include "Materials/SkinScatter.hpp"
+#include "Materials/CosmeticLayer.hpp"
 #include "Materials/DensityField.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Color/SpectralConversion.hpp"
@@ -91,6 +92,18 @@ namespace rayt {
         /// absorption); it is combined with the flakes below it into one white scatter (rec.surfScatter). Set before rendering.
         void setEmulsion(Real tauMean) { m_emulTau = std::max(tauMean, Real(0)); }
 
+        /// A layer of foundation make-up on top of everything (Materials/CosmeticLayer.hpp, docs/COSMETICS.md). The reflection of the layer itself is
+        /// computed by its random walk at every evaluation; the skin is seen through the layer's tables: the mirror-like lobe through the light that
+        /// crosses the layer without a collision, the diffuse lobes and the subsurface light through all the light that crosses it, with the light
+        /// that bounces between skin and layer summed (1 / (1 - Rback A)). The layer follows the shading normal. Set before rendering.
+        void setCosmetic(std::shared_ptr<const CosmeticCoat> coat) {
+            m_cosmetic = std::move(coat);
+            if (m_cosmetic) {
+                m_cosmeticDiffuser = RgbColor(m_cosmetic->layer().params().diffuserAlbedo);
+                m_cosmeticPlatelet = RgbColor(m_cosmetic->layer().params().plateletAlbedo);
+            }
+        }
+
         /// An uneven skin color (freckles, uneven pigment, redness: Materials/SkinPigment.hpp), and how much the pores of the relief darken the skin
         /// (0..1; needs the relief). With subsurface scattering the factor is applied where the light goes in and where it comes out (square root each).
         void setPigment(std::shared_ptr<const SkinPigment> pigment, Real poreDarkness = Real(0)) {
@@ -109,6 +122,14 @@ namespace rayt {
                     for (int i = 0; i < kSssChannels; ++i) f[i] = (Real(1) - rho) / std::max(Real(1) - rho * std::clamp(A[i], Real(0), Real(1)), Real(0.05));
                     tint = tint * f;
                 }
+            }
+            if (m_cosmetic) {   // the light that comes out crosses the foundation (its diffuse transmittance); what the layer sends back down is scattered by the skin once more
+                const Spectrum T = RgbColor(m_cosmetic->throughDiffuse()).reflectance(lambda);
+                const Spectrum Rb = RgbColor(m_cosmetic->backDiffuse()).reflectance(lambda);
+                const Spectrum A = m_albedo.reflectance(lambda);
+                Spectrum f(1.0);
+                for (int i = 0; i < kSssChannels; ++i) f[i] = T[i] / std::max(Real(1) - std::clamp(Rb[i] * A[i], Real(0), Real(1)), Real(0.05));
+                tint = tint * f;
             }
             return tint;
         }
@@ -180,6 +201,15 @@ namespace rayt {
         std::shared_ptr<const SkinFilm> m_film;
         std::shared_ptr<const SkinScatter> m_scatter;
         Real m_emulTau = Real(0);
+        std::shared_ptr<const CosmeticCoat> m_cosmetic;
+        RgbColor m_cosmeticDiffuser{ Vector3(1.0) }, m_cosmeticPlatelet{ Vector3(1.0) };   // the albedos of the layer's two particles
+
+        /// One sample of the reflection of the foundation layer alone (a BSDF value; noisy, its mean is the layer's BSDF).
+        Spectrum cosmeticReflection(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths& lambda) const;
+        /// The density with which sample() draws wi from the layer's lobe: the mirror reflection off the platelets a first collision would meet, and a cosine lobe.
+        Real cosmeticPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const;
+        /// The pdf of the lobes of the skin itself (what pdf() returned before there was a layer).
+        Real skinPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const;
 
         /// The white scatter at p: the emulsion layer (on top) and the flakes (below) as two non-absorbing layers, R = Re + (1 - Re)^2 Rf / (1 - Re Rf).
         /// `localThickness` < 0: not known (the exit of a subsurface path): look it up.

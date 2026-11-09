@@ -11,6 +11,29 @@ namespace rayt::cli {
 
 namespace {
 
+#if defined(RAYT_SPECTRAL_MODE)
+constexpr int kN = kSpectralSamples;
+#else
+constexpr int kN = 3;
+#endif
+
+Real average(const Spectrum& s) {
+    Real m = 0;
+    for (int i = 0; i < kN; ++i) m += s[i];
+    return m / Real(kN);
+}
+
+struct Estimate {
+    double mean = 0, se = 0;
+    void add(double v) { ++n; sum += v; sum2 += v * v; }
+    void finish() {
+        mean = sum / double(n);
+        se = std::sqrt(std::max(sum2 / double(n) - mean * mean, 0.0) / double(n));
+    }
+    long n = 0;
+    double sum = 0, sum2 = 0;
+};
+
 // Integral of f over the unit sphere (midpoint rule in theta and phi).
 template <class F>
 Real IntegrateSphere(F f, int nTheta = 720, int nPhi = 1440) {
@@ -297,6 +320,104 @@ int RunCosmeticTests(const CliOptions& opt) {
             }
             std::cout << "\n";
         }
+    }
+
+    // (7) The layer on skin (CoatedDiffuse::setCosmetic).
+    std::cout << "[Cosmetic] 7. the layer on skin\n";
+#if defined(RAYT_SPECTRAL_MODE)
+    const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+#else
+    const SampledWavelengths lambda;
+#endif
+    {   // (a) the tables of a layer that absorbs nothing: what is reflected and what crosses add up to 1 for every direction
+        CosmeticLayer::Params p;
+        p.thickness = 1.0; p.diffuserFraction = 0.7; p.diffuserAlbedo = Vector3(1.0); p.plateletAlbedo = Vector3(1.0);
+        const CosmeticCoat coat(p);
+        Real worst = 0;
+        for (Real mu : { 0.15, 0.5, 0.95 }) worst = std::max(worst, std::abs(coat.reflected(mu).y + coat.through(mu).y - 1));
+        report("tables of a layer without absorption: reflected + through = 1", worst < 1e-9, "largest difference " + Fixed(worst, 12)
+            + "; diffuse light from below sent back " + Fixed(coat.backDiffuse().y, 3) + ", let through " + Fixed(coat.throughDiffuse().y, 3));
+    }
+    auto makeSkin = [&](bool sss) {
+        auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
+        if (sss) skin->setSubsurface(std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4)));
+        return skin;
+    };
+    auto flatHit = [](const Material* m, const Vector3& wo) {
+        SurfaceInteraction rec;
+        rec.p = Point3(0.0); rec.n = Vector3(0, 0, 1); rec.gn = Vector3(0, 0, 1); rec.wo = wo; rec.matPtr = m;
+        return rec;
+    };
+    {   // (b) a layer of almost no thickness changes nothing
+        CosmeticLayer::Params p;
+        p.thickness = Real(1e-6);
+        auto bare = makeSkin(false), thin = makeSkin(false);
+        thin->setCosmetic(std::make_shared<CosmeticCoat>(p, 2000));
+        Real worst = 0;
+        for (const auto& [o, i] : { std::pair<Vector3, Vector3>{ Dir(30, 0, false), Dir(30, 180, false) }, { Dir(10, 50, false), Dir(60, 200, false) }, { Dir(70, 90, false), Dir(20, 10, false) } }) {
+            const SurfaceInteraction rec = flatHit(bare.get(), o);
+            const Real a = average(bare->eval(rec, o, i, lambda, TransportMode::Radiance)), b = average(thin->eval(rec, o, i, lambda, TransportMode::Radiance));
+            worst = std::max(worst, std::abs(b / a - 1));
+            worst = std::max(worst, std::abs(thin->pdf(rec, o, i, lambda) / bare->pdf(rec, o, i, lambda) - 1));
+        }
+        report("skin under a layer of thickness 1e-6: eval() and pdf() as without a layer", worst < 1e-3, "largest difference " + Fixed(100 * worst, 4) + " %");
+    }
+    for (int variant = 0; variant < 4; ++variant) {   // (c) sample() and eval() describe the same reflection: dewy / matte, without / with subsurface scattering
+        const bool sss = (variant & 1) != 0;
+        CosmeticLayer::Params p;
+        CosmeticLayer::preset((variant & 2) ? "matte2" : "dewy1", p);
+        p.thickness = 1.0;
+        auto skin = makeSkin(sss);
+        skin->setCosmetic(std::make_shared<CosmeticCoat>(p));
+        const Vector3 wo = Dir(40, 0, false);
+        const SurfaceInteraction rec = flatHit(skin.get(), wo);
+        Estimate bySample, byEval;
+        const int n = 60000 * scale;
+        for (int i = 0; i < n; ++i) {
+            const auto bs = skin->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+            bySample.add((bs && !bs->isSubsurface()) ? double(average(bs->f)) * std::abs(glm::dot(rec.n, bs->wi)) / bs->pdf : 0.0);   // the local lobes only
+            const Real r = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+            const Vector3 wi(r * std::cos(phi), r * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - r * r)));
+            byEval.add(wi.z > Real(1e-3) ? double(average(skin->eval(rec, wo, wi, lambda, TransportMode::Radiance))) * constants::PI : 0.0);
+        }
+        bySample.finish(); byEval.finish();
+        const double se = std::sqrt(bySample.se * bySample.se + byEval.se * byEval.se);
+        report(std::string((variant & 2) ? "matte 2" : "dewy 1") + " at thickness 1 on skin" + (sss ? " with subsurface scattering" : "") + ": albedo from sample() and from eval()",
+            std::abs(bySample.mean - byEval.mean) <= 4 * se + 0.02 * byEval.mean && byEval.mean < 1.0,
+            Fixed(bySample.mean) + " and " + Fixed(byEval.mean) + " +- " + Fixed(se));
+    }
+    {   // (d) white furnace: a white ball under a layer that absorbs nothing stays white (the skin's mirror-like lobe is only seen through the light that
+        //     crosses the layer without a collision, so a few percent may be missing), and a skin ball under a foundation is never brighter than 1
+        auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));
+        auto furnace = [&](const std::shared_ptr<CoatedDiffuse>& m, Vector3& mean, Vector3& se) {
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Sphere>(Point3(0, 0, 0), 1.0, m));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(std::make_shared<EnvLight>(sky, 1.0));
+            scene->finalize("spatial");
+            int bad = 0;
+            EstimateRadiance(*scene, Ray(Point3(0.3, 0.2, 4), glm::normalize(Vector3(-0.07, -0.05, -1))), 40000 * scale, 16, mean, se, bad);
+            return bad;
+        };
+        CosmeticLayer::Params white;
+        white.thickness = 1.0; white.diffuserFraction = 0.7; white.diffuserAlbedo = Vector3(1.0); white.plateletAlbedo = Vector3(1.0);
+        auto ball = std::make_shared<CoatedDiffuse>(RgbColor(1.0, 1.0, 1.0), Real(0.5), Real(0.4), Real(0));
+        Vector3 m0, s0, m1, s1, m2, s2;
+        int bad = furnace(ball, m0, s0);
+        ball->setCosmetic(std::make_shared<CosmeticCoat>(white));
+        bad += furnace(ball, m1, s1);
+        report("white furnace: a white ball under a layer without absorption", bad == 0 && m1.y <= m0.y + 4 * (s0.y + s1.y) + 0.01 && m1.y >= 0.93 * m0.y,
+            "bare " + Fixed(m0.y) + ", with the layer " + Fixed(m1.y) + " +- " + Fixed(s1.y));
+        CosmeticLayer::Params dewy;
+        CosmeticLayer::preset("dewy1", dewy);
+        dewy.thickness = 1.0;
+        auto skin = makeSkin(true);
+        Vector3 mb, sb;
+        bad = furnace(skin, mb, sb);
+        skin->setCosmetic(std::make_shared<CosmeticCoat>(dewy));
+        bad += furnace(skin, m2, s2);
+        report("white furnace: a skin ball with subsurface scattering under dewy 1 (thickness 1) is not brighter than 1", bad == 0 && std::max({ m2.x, m2.y, m2.z }) <= 1.0 + 4 * s2.x,
+            "bare (" + Fixed(mb.x, 3) + ", " + Fixed(mb.y, 3) + ", " + Fixed(mb.z, 3) + "), with the layer (" + Fixed(m2.x, 3) + ", " + Fixed(m2.y, 3) + ", " + Fixed(m2.z, 3) + ")");
     }
 
     std::cout << "[Cosmetic] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

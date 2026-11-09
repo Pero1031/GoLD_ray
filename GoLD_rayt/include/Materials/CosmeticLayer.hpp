@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include "Core/Constants.hpp"
 #include "Core/Sampling.hpp"
@@ -232,6 +233,61 @@ public:
         return sum;
     }
 
+    /// reflectionSample() with the two albedos given in any weight type (a spectrum per wavelength, or RGB): the albedos of
+    /// the collisions multiply wavelength by wavelength.
+    template <class W>
+    W reflectionSampleT(const Vector3& w, const Vector3& wo, const W& albedoD, const W& albedoP) const {
+        W sum(0.0);
+        if (!(wo.z > 0) || !(w.z < 0)) return sum;
+        Vector3 dir = w;
+        Real z = m_p.thickness;
+        W weight(1.0);
+        const Real sigmaOut = sigmaT(wo);
+        for (int bounce = 0; bounce < m_p.maxBounces; ++bounce) {
+            const Real s = -std::log(std::max(Real(1e-300), Real(1) - sampling::Random())) / sigmaT(dir);
+            z += s * dir.z;
+            if (z >= m_p.thickness || z <= 0) break;
+            const Real cd = m_p.diffuserFraction, cp = (Real(1) - cd) * plateletArea(dir);
+            const Real out = std::exp(-sigmaOut * (m_p.thickness - z) / wo.z) / (cd + cp);
+            if (cd > 0) sum = sum + weight * albedoD * (cd * diffuserPhase(dir, wo) * out);
+            if (cp > 0) sum = sum + weight * albedoP * (cp * plateletPhase(dir, wo) * out);
+            if (sampling::Random() * (cd + cp) < cd) {
+                weight = weight * albedoD;
+                dir = sampleDiffuser(dir, sampling::Random(), sampling::Random(), sampling::Random());
+            }
+            else {
+                weight = weight * albedoP;
+                dir = samplePlatelet(dir, sampling::Random(), sampling::Random());
+            }
+        }
+        return sum;
+    }
+
+    /// Share of the platelets in the first collision of light travelling along w (0 without platelets).
+    Real plateletShare(const Vector3& w) const {
+        const Real cp = (Real(1) - m_p.diffuserFraction) * plateletArea(w);
+        return cp / std::max(Real(1e-12), m_p.diffuserFraction + cp);
+    }
+
+    /// The four foundations the paper fitted to its measurements (its table 2): "dewy1", "dewy2", "matte1", "matte2".
+    /// Sets everything but the thickness; false for another name.
+    static bool preset(const std::string& name, Params& p) {
+        struct Row { const char* name; Real alpha, tilt; Vector3 lp; Real cd; Vector3 ld; Real g1, g2, wg; };
+        static const Row rows[] = {
+            { "dewy1", Real(0.13), Real(1.47), Vector3(0.75, 0.85, 0.99), Real(0.90), Vector3(0.99, 0.98, 0.95), Real(0.55), Real(0.09), Real(1.0) },
+            { "dewy2", Real(0.002), Real(5.5), Vector3(0.8), Real(0.99), Vector3(0.97, 0.93, 0.87), Real(0.77), Real(-0.23), Real(0.79) },
+            { "matte1", Real(0.15), Real(2.01), Vector3(0.91, 0.89, 0.85), Real(0.89), Vector3(0.95, 0.94, 0.91), Real(0.37), Real(-0.25), Real(0.62) },
+            { "matte2", Real(0.49), Real(52.2), Vector3(0.93, 0.83, 0.71), Real(0.29), Vector3(0.9, 0.9, 0.84), Real(0.24), Real(-0.22), Real(0.51) },
+        };
+        for (const Row& r : rows)
+            if (name == r.name) {
+                p.plateletRoughness = r.alpha; p.plateletTiltDeg = r.tilt; p.plateletAlbedo = r.lp; p.diffuserFraction = r.cd;
+                p.diffuserAlbedo = r.ld; p.g1 = r.g1; p.g2 = r.g2; p.lobeWeight = r.wg;
+                return true;
+            }
+        return false;
+    }
+
     /// The part of the light travelling along w that crosses the whole layer without a collision.
     Real unscattered(const Vector3& w) const { return std::exp(-sigmaT(w) * m_p.thickness / std::max(Real(1e-9), std::abs(w.z))); }
 
@@ -239,6 +295,82 @@ private:
     Params m_p;
     Vector3 m_mean{ 0, 0, 1 };
     Real m_a2 = Real(1);
+};
+
+/// A foundation layer ready to sit on a surface: the layer, and what it lets through as tables over the cosine of the
+/// direction (averaged over the azimuth). The reflection of the layer itself is computed by its random walk; the surface
+/// below is seen through these tables (docs/COSMETICS.md):
+///   straight(mu)       light that crosses without a collision: what a mirror-like reflection below is seen through;
+///   through(mu)        all the light that reaches the other side (RGB): what diffuse light below is lit by and seen through.
+///                      By reciprocity the same table serves light going down at mu and diffuse light leaving upward at mu;
+///   reflected(mu)      what the layer alone sends back (RGB);
+///   backDiffuse()      what it sends back down of diffuse light from below (RGB): the light that bounces between skin and layer;
+///   throughDiffuse()   through() averaged over a cosine-weighted hemisphere.
+class CosmeticCoat {
+public:
+    explicit CosmeticCoat(const CosmeticLayer::Params& p, int walksPerBin = 20000) : m_layer(p) {
+        for (int b = 0; b < kBins; ++b) {
+            const Real mu = (b + Real(0.5)) / kBins;
+            Vector3 refl(0), thru(0);
+            Real straight = 0;
+            for (int i = 0; i < walksPerBin; ++i) {
+                const Real phi = constants::TWO_PI * sampling::Random(), sn = std::sqrt(std::max(Real(0), Real(1) - mu * mu));
+                const CosmeticLayer::Walk k = m_layer.walk(Vector3(sn * std::cos(phi), sn * std::sin(phi), -mu));
+                if (k.lost) continue;
+                if (k.up) refl += k.weight;
+                else { thru += k.weight; if (k.bounces == 0) straight += 1; }
+            }
+            m_reflected[b] = refl / Real(walksPerBin);
+            m_through[b] = thru / Real(walksPerBin);
+            m_straight[b] = straight / walksPerBin;
+        }
+        // diffuse light from below: directions cosine-distributed about +z
+        Vector3 back(0);
+        const int n = walksPerBin * 4;
+        for (int i = 0; i < n; ++i) {
+            const Vector3 d = sampling::CosineSampleHemisphere(sampling::Random2D());
+            const CosmeticLayer::Walk k = m_layer.walk(d, /*fromTop=*/false);
+            if (!k.lost && !k.up) back += k.weight;
+        }
+        m_backDiffuse = back / Real(n);
+        Vector3 sum(0);
+        Real wsum = 0;
+        for (int b = 0; b < kBins; ++b) { const Real mu = (b + Real(0.5)) / kBins; sum += m_through[b] * mu; wsum += mu; }
+        m_throughDiffuse = sum / wsum;
+    }
+
+    const CosmeticLayer& layer() const { return m_layer; }
+    Real straight(Real mu) const { return lookup(m_straight, mu); }
+    Vector3 through(Real mu) const { return lookup(m_through, mu); }
+    Vector3 reflected(Real mu) const { return lookup(m_reflected, mu); }
+    const Vector3& backDiffuse() const { return m_backDiffuse; }
+    const Vector3& throughDiffuse() const { return m_throughDiffuse; }
+
+    /// Probability of sampling the layer's own reflection for a view direction at cosine mu (the same in sample() and pdf()).
+    Real lobeProbability(Real mu) const {
+        const Vector3 r = reflected(mu), t = through(mu);
+        const Real R = (r.x + r.y + r.z) / 3, T = (t.x + t.y + t.z) / 3;
+        if (R <= Real(1e-6)) return Real(0);
+        return std::clamp(R / std::max(R + Real(0.5) * T, Real(1e-6)), Real(0.1), Real(0.9));
+    }
+
+private:
+    static constexpr int kBins = 24;
+
+    template <class T>
+    static T lookup(const T* table, Real mu) {
+        const Real x = std::clamp(mu, Real(0), Real(1)) * kBins - Real(0.5);
+        const int i = std::clamp(static_cast<int>(std::floor(x)), 0, kBins - 2);
+        const Real f = std::clamp(x - i, Real(0), Real(1));
+        return table[i] * (Real(1) - f) + table[i + 1] * f;
+    }
+
+    CosmeticLayer m_layer;
+    Real m_straight[kBins] = {};
+    Vector3 m_through[kBins] = {};
+    Vector3 m_reflected[kBins] = {};
+    Vector3 m_backDiffuse{ 0 };
+    Vector3 m_throughDiffuse{ 0 };
 };
 
 } // namespace rayt

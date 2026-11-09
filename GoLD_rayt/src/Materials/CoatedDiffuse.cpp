@@ -19,22 +19,56 @@ namespace rayt {
         const Real cosOs = split ? glm::dot(ns, wo) : cosO, cosIs = split ? glm::dot(ns, wi) : cosI;
 
         const Spectrum R = albedoAt(rec).reflectance(lambda);
+
+        // A layer of foundation on top: the mirror-like lobe is seen through the light that crosses the layer without a collision (both ways),
+        // the diffuse lobes through all the light that crosses it, with the bounces between skin and layer summed.
+        const bool layered = m_cosmetic && cosO > 0 && cosI > 0;
+        Real straight = Real(1);
+        Spectrum through(1.0);
+        if (layered) {
+            straight = m_cosmetic->straight(cosO) * m_cosmetic->straight(cosI);
+            through = RgbColor(m_cosmetic->through(cosO)).reflectance(lambda) * RgbColor(m_cosmetic->through(cosI)).reflectance(lambda);
+            const Spectrum back = RgbColor(m_cosmetic->backDiffuse()).reflectance(lambda);
+            for (int i = 0; i < kSssChannels; ++i) through[i] /= std::max(Real(1) - std::clamp(back[i] * R[i], Real(0), Real(1)), Real(0.05));
+        }
+
         Spectrum f(0.0);
         if (cosOs > 0 && cosIs > 0) {
             f = specular(rec, wo, wi, R, cosOs, cosIs);
             // The integrator weighs by |cos(rec.n, wi)|; a lobe about the film's normal wants cos(ns, wi), so change one for the other.
             if (split) f = f * (cosIs / std::max(std::abs(cosI), Real(1e-3)));
+            if (m_cosmetic) f = f * (layered ? straight : Real(0));
         }
         if (cosO > 0 && cosI > 0) {
+            Spectrum below(0.0);
             if (!m_profile)   // with subsurface scattering the diffuse lobe is the subsurface event
-                f = f + diffuse(R, std::max(cosOs, Real(0)), std::max(cosIs, Real(0)), rec);
+                below = diffuse(R, std::max(cosOs, Real(0)), std::max(cosIs, Real(0)), rec);
             if (rec.surfScatter > Real(0))   // the white scatter of flaking skin: local and diffuse, in both cases
-                f = f + Spectrum(scatterLobe(rec, std::max(cosOs, Real(0)), std::max(cosIs, Real(0))));
+                below = below + Spectrum(scatterLobe(rec, std::max(cosOs, Real(0)), std::max(cosIs, Real(0))));
+            f = f + below * through;
+            if (m_cosmetic) f = f + cosmeticReflection(rec, wo, wi, lambda);
         }
         return f;
     }
 
-    std::optional<BSDFSample> CoatedDiffuse::sample(const SurfaceInteraction& rec, const Vector3& wo, const Point2& u,
+    Spectrum CoatedDiffuse::cosmeticReflection(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths& lambda) const {
+        const frame::Frame skin(rec.n);
+        const Vector3 o = skin.worldToLocal(wo), i = skin.worldToLocal(wi);
+        if (o.z <= Real(1e-4) || i.z <= Real(1e-4)) return Spectrum(0.0);
+        // The walk follows the light: it arrives travelling along -wi and is seen leaving along wo; its samples average to f cos(theta_o).
+        return m_cosmetic->layer().reflectionSampleT<Spectrum>(-i, o, m_cosmeticDiffuser.reflectance(lambda), m_cosmeticPlatelet.reflectance(lambda)) * (Real(1) / o.z);
+    }
+
+    Real CoatedDiffuse::cosmeticPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const {
+        const frame::Frame skin(rec.n);
+        const Vector3 o = skin.worldToLocal(wo), i = skin.worldToLocal(wi);
+        if (o.z <= 0 || i.z <= 0) return Real(0);
+        const CosmeticLayer& layer = m_cosmetic->layer();
+        const Real q = std::min(layer.plateletShare(-o), Real(0.9));
+        return q * layer.plateletPhase(-o, i) + (Real(1) - q) * i.z / constants::PI;
+    }
+
+    std::optional<BSDFSample> CoatedDiffuse::sample(const SurfaceInteraction& rec, const Vector3& wo, const Point2& uIn,
         const SampledWavelengths& lambda, TransportMode mode) const
     {
         if (glm::dot(rec.gn, wo) <= 0) return std::nullopt;
@@ -44,8 +78,39 @@ namespace rayt {
         const Vector3 wo_local = frame.worldToLocal(wo);
         if (wo_local.z <= 0) return std::nullopt;
 
-        const Real pS = lobeProbability(rec, wo_local.z);
         BSDFSample s;
+
+        // A layer of foundation: its own reflection is one more lobe, chosen with a probability that follows how much the layer reflects.
+        Point2 u = uIn;
+        Real pL = Real(0);
+        const Real cosOn = glm::dot(rec.n, wo);
+        if (m_cosmetic && cosOn > 0) {
+            pL = m_cosmetic->lobeProbability(cosOn);
+            if (pL > 0 && u.x < pL) {
+                const Real ux = u.x / pL;
+                const frame::Frame skin(rec.n);
+                const Vector3 o = skin.worldToLocal(wo);
+                const CosmeticLayer& layer = m_cosmetic->layer();
+                const Real q = std::min(layer.plateletShare(-o), Real(0.9));
+                Vector3 il;
+                if (ux < q) il = layer.samplePlatelet(-o, ux / q, u.y);   // the mirror reflection off a platelet, seen from the viewer's side
+                else {
+                    const Real v = (ux - q) / (Real(1) - q), r = math::safe_sqrt(v), phi = Real(2) * constants::PI * u.y;
+                    il = Vector3(r * std::cos(phi), r * std::sin(phi), math::safe_sqrt(Real(1) - v));
+                }
+                if (il.z <= 0) return std::nullopt;
+                s.wi = skin.localToWorld(il);
+                if (glm::dot(rec.gn, s.wi) <= 0) return std::nullopt;
+                s.pdf = pdf(rec, wo, s.wi, lambda);
+                s.f = eval(rec, wo, s.wi, lambda, mode);
+                if (s.pdf <= Real(1e-6) || math::hasNonFinite(s.f)) return std::nullopt;
+                s.flags = BxDFFlags::Reflection | BxDFFlags::Glossy;
+                return s;
+            }
+            if (pL > 0) u.x = (u.x - pL) / (Real(1) - pL);
+        }
+
+        const Real pS = lobeProbability(rec, wo_local.z);
         bool specularLobe = false;
         if (u.x < pS) {
             const GGXDistribution dist(alphaAt(rec), alphaAt(rec));
@@ -61,6 +126,8 @@ namespace rayt {
             const Real ux = (u.x - pS) / (Real(1) - pS);
             if (ux >= rho) {
                 s.f = Spectrum((Real(1) - coatF(rec, wo_local.z)) / (Real(1) - pS));
+                // under a layer of foundation: the light that comes out here crosses the layer towards the viewer (and this event was chosen with 1 - pL)
+                if (m_cosmetic && cosOn > 0) s.f = s.f * RgbColor(m_cosmetic->through(cosOn)).reflectance(lambda) * (Real(1) / (Real(1) - pL));
                 s.pdf = Real(1);
                 s.wi = rec.n;
                 s.flags = BxDFFlags::Subsurface;
@@ -89,6 +156,13 @@ namespace rayt {
         const SampledWavelengths& /*lambda*/) const
     {
         if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return Real(0);
+        if (!m_cosmetic) return skinPdf(rec, wo, wi);
+        const Real cosOn = glm::dot(rec.n, wo);
+        const Real pL = cosOn > 0 ? m_cosmetic->lobeProbability(cosOn) : Real(0);
+        return pL * (pL > 0 ? cosmeticPdf(rec, wo, wi) : Real(0)) + (Real(1) - pL) * skinPdf(rec, wo, wi);
+    }
+
+    Real CoatedDiffuse::skinPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const {
         const Vector3& ns = specNormal(rec);
         const Real cosO = glm::dot(rec.n, wo), cosI = glm::dot(rec.n, wi);
         const Real cosOs = glm::dot(ns, wo), cosIs = glm::dot(ns, wi);

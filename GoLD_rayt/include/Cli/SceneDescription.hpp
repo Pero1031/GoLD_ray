@@ -116,6 +116,10 @@ struct MaterialSpec {
     int skinGlossSeed = 1;
     bool skinFilmOn = false;                       //   a liquid film that pools in the furrows (Materials/SkinFilm.hpp, docs/SKIN_MOISTURE.md); needs the relief
     double skinFilmThicknessUm = 5, skinFilmIor = 1.33, skinFilmRoughness = 0.02, skinFilmSoftnessUm = 1.5;
+    bool skinFoundationOn = false;                 //   a layer of foundation make-up on top (Materials/CosmeticLayer.hpp): "foundation"
+    double fndThickness = 0.5, fndDiffuserFraction = 0.9, fndG1 = 0.5, fndG2 = -0.2, fndLobeWeight = 0.7;   //   its optical thickness, share of diffusers, their two lobes
+    double fndPlateletRoughness = 0.15, fndPlateletTiltDeg = 0;                                               //   the platelets
+    Vector3 fndDiffuserAlbedo = Vector3(0.97, 0.94, 0.90), fndPlateletAlbedo = Vector3(0.85);                 //   the colours of the two particles
     bool skinScatterOn = false;                    //   the white scatter of flaking skin (Materials/SkinScatter.hpp)
     double scatRho0 = 0.08, scatFrequency = 300, scatThreshold = 0.52, scatSoftness = 0.08, scatHydration = 0, scatKappaH = 0.3, scatGapUm = 1.0;
     int scatSeed = 1;

@@ -3,6 +3,7 @@
 #include "Cli/SceneFileReaders.hpp"
 
 #include "Color/Sellmeier.hpp"
+#include "Materials/CosmeticLayer.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/SkinLotion.hpp"
 
@@ -317,7 +318,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter", "lotion" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter", "lotion", "foundation" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -441,6 +442,32 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (!(s.scatRho0 >= 0 && s.scatRho0 <= 0.9) || !(s.scatFrequency > 0) || !(s.scatSoftness > 0) || !(s.scatHydration >= 0 && s.scatHydration <= 1) || !(s.scatKappaH >= 0 && s.scatKappaH <= 1) || !(s.scatGapUm > 0))
                 Fail(sw, "needs rho0 between 0 and 0.9, frequency, softness and gapUm above 0, hydration and kappaH between 0 and 1");
             s.skinScatterOn = s.scatRho0 > 0;
+        }
+        if (m.contains("foundation")) {   // "foundation": { "preset", "thickness", "diffuserFraction", "diffuserAlbedo", "plateletAlbedo", "g1", "g2", "lobeWeight", "plateletRoughness", "plateletTiltDeg" }: a layer of foundation make-up on top
+            const json& fd = m.at("foundation");
+            const std::string fw = where + ".foundation";
+            if (!fd.is_object()) Fail(fw, "must be an object (preset, thickness, diffuserFraction, diffuserAlbedo, plateletAlbedo, g1, g2, lobeWeight, plateletRoughness, plateletTiltDeg)");
+            CheckKeys(fd, { "preset", "thickness", "diffuserFraction", "diffuserAlbedo", "plateletAlbedo", "g1", "g2", "lobeWeight", "plateletRoughness", "plateletTiltDeg" }, fw);
+            CosmeticLayer::Params cp;
+            if (fd.contains("preset")) {   // one of the four foundations fitted in the paper; the keys after it change single values
+                const std::string preset = ReadString(fd.at("preset"), fw + ".preset");
+                if (!CosmeticLayer::preset(preset, cp)) Fail(fw + ".preset", "is \"" + preset + "\", must be dewy1, dewy2, matte1 or matte2");
+            }
+            auto number = [&](const char* key, Real& target) { double v = double(target); Optional<double>(fd, key, fw, v, ReadNumber); target = Real(v); };
+            number("thickness", cp.thickness);
+            number("diffuserFraction", cp.diffuserFraction);
+            number("g1", cp.g1);
+            number("g2", cp.g2);
+            number("lobeWeight", cp.lobeWeight);
+            number("plateletRoughness", cp.plateletRoughness);
+            number("plateletTiltDeg", cp.plateletTiltDeg);
+            if (fd.contains("diffuserAlbedo")) cp.diffuserAlbedo = ReadColor(fd.at("diffuserAlbedo"), fw + ".diffuserAlbedo");
+            if (fd.contains("plateletAlbedo")) cp.plateletAlbedo = ReadColor(fd.at("plateletAlbedo"), fw + ".plateletAlbedo");
+            if (const char* problem = CosmeticLayer::validate(cp)) Fail(fw, std::string("is not usable: ") + problem);
+            s.fndThickness = cp.thickness; s.fndDiffuserFraction = cp.diffuserFraction; s.fndG1 = cp.g1; s.fndG2 = cp.g2; s.fndLobeWeight = cp.lobeWeight;
+            s.fndPlateletRoughness = cp.plateletRoughness; s.fndPlateletTiltDeg = cp.plateletTiltDeg;
+            s.fndDiffuserAlbedo = cp.diffuserAlbedo; s.fndPlateletAlbedo = cp.plateletAlbedo;
+            s.skinFoundationOn = cp.thickness > 0;   // 0 = no layer
         }
         if (m.contains("lotion")) {   // "lotion": { "doseUm", "glycerin", "timeS", "waterTauS", ... }: the film and the hydration `timeS` seconds after a lotion was applied (replaces "film")
             const json& lo = m.at("lotion");
