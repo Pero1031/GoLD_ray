@@ -102,13 +102,12 @@ python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/me
 1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
 2. [Quick start](#2-quick-start)
 3. [The renderer in general](#3-the-renderer-in-general)
-4. [Character rendering (hobby)](#4-character-rendering-hobby)
-5. [How it works](#5-how-it-works)
-6. [Verification](#6-verification)
-7. [What could come next](#7-what-could-come-next)
-8. [Gallery](#8-gallery)
-9. [Third-party code and data](#9-third-party-code-and-data)
-10. [References](#10-references)
+4. [How it works](#4-how-it-works)
+5. [Verification](#5-verification)
+6. [What could come next](#6-what-could-come-next)
+7. [Gallery](#7-gallery)
+8. [Third-party code and data](#8-third-party-code-and-data)
+9. [References](#9-references)
 
 ---
 
@@ -175,7 +174,7 @@ RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering com
 ## 2. Quick start
 
 Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a CPU with **AVX2**. The third-party
-libraries are not part of this repository; one script downloads them ([section 9](#9-third-party-code-and-data)).
+libraries are not part of this repository; one script downloads them ([section 8](#8-third-party-code-and-data)).
 
 1. `powershell -ExecutionPolicy Bypass -File tools\fetch_deps.ps1` downloads Embree, Open Image Denoise, GLM, nlohmann/json,
    stb, GLFW and Dear ImGui into the folders the project expects (about 0.7 GB; it skips what is already there).
@@ -243,38 +242,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 
 ---
 
-## 4. Character rendering (hobby)
-
-Loading MMD characters is a side project that exercises the renderer on a hard asset. **No model is included**: put your
-own `.pmx` models, `.vpd` poses and textures in `MMD_model/` (ignored by Git) and respect each model's terms of use.
-
-- **PMX 2.0 / 2.1 loader**: vertices, faces, textures, materials, bones, morphs.
-- **Posing**: bone hierarchy, grant bones, linear blend skinning, `.vpd` poses (IK is not solved; the FK values in a VPD
-  already contain the result).
-- **Expressions**: vertex, UV, material, bone and group morphs (`--expr name`).
-- **Materials**: MMD's toon / sphere-map recipe is replaced by physically based shading chosen from the material names
-  (hair, eyes, ornaments, skin). `--pmx-matte` turns this off.
-- **Studio lighting** (`--pmx-studio`), looks `--studio-look default|warm|cool|dramatic|soft`.
-- **Subsurface scattering** (`--sss`, `--sss-scale S`): a BSSRDF with Burley's normalized diffusion profile (3.7 / 1.4 /
-  0.7 mm for R / G / B, times `S`). It shows in close-ups and costs about 1.7-2.4x the time of a face portrait; at
-  full-body size it is nearly invisible.
-
-```bat
-GoLD_rayt.exe --scene pmx --pmx-index 4 --pose-index 0 --expr shy --pmx-yaw -25 --pmx-studio ^
-              --pmx-zoom 4.0 --pmx-focus 0.79 --width 420 --spp 128 --sss --denoise --out face.png
-```
-
-Details: [docs/SSS.md](docs/SSS.md) (Japanese). A sphere and a torus with the same skin material (`--scene skindemo`): no
-SSS, real distances, tripled distances.
-
-![Subsurface scattering of skin: off, real distances, three times the distances](docs/img/skin_sss.png)
-
-Not done: IK, physics (hair, skirt), VMD motion, toon / outline, thin parts such as ears, a random-walk reference for the
-SSS approximation.
-
----
-
-## 5. How it works
+## 4. How it works
 
 ```
                       +-----------------------------+
@@ -315,7 +283,7 @@ SSS approximation.
 
 ---
 
-## 6. Verification
+## 5. Verification
 
 The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 on failure. They run in RGB and spectral mode
 (`--spp` scales the samples; use Release).
@@ -345,7 +313,7 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 ---
 
-## 7. What could come next
+## 6. What could come next
 
 - **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
   alpha cut-outs).
@@ -356,10 +324,9 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 ---
 
-## 8. Gallery
+## 7. Gallery
 
-More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb), the
-skin under [Character rendering](#4-character-rendering-hobby).
+More renders from the same engine (CPU, OIDN-denoised). The color of light is under [Spectral vs RGB](#spectral-vs-rgb).
 
 **Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
 with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
@@ -417,7 +384,7 @@ which is checked against path tracing and the photon map (`--scene lvc`, [detail
 
 ---
 
-## 9. Third-party code and data
+## 8. Third-party code and data
 
 These are **not included in the repository**: `tools/fetch_deps.ps1` downloads them, and each keeps its own license.
 
@@ -440,7 +407,7 @@ Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). M
 
 ---
 
-## 10. References
+## 9. References
 
 The works that the code implements or follows, and the ones that the studies in `docs/` reproduce or test. Each entry says what it is used for.
 Entries marked *(studied)* were implemented as a reference or evaluated, and are not part of the renderer; *(next)* marks work that the documents name as the next step.
