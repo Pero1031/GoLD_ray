@@ -274,7 +274,9 @@ public:
     static bool preset(const std::string& name, Params& p) {
         struct Row { const char* name; Real alpha, tilt; Vector3 lp; Real cd; Vector3 ld; Real g1, g2, wg; };
         static const Row rows[] = {
-            { "dewy1", Real(0.13), Real(1.47), Vector3(0.75, 0.85, 0.99), Real(0.90), Vector3(0.99, 0.98, 0.95), Real(0.55), Real(0.09), Real(1.0) },
+            // dewy1: the paper prints the platelet albedo as (0.75, 0.85, 0.99), a bluish grey that contradicts its own measured
+            // (peach) patch; the channels look reversed (b, g, r), so it is used as (0.99, 0.85, 0.75) (docs/COSMETICS.md).
+            { "dewy1", Real(0.13), Real(1.47), Vector3(0.99, 0.85, 0.75), Real(0.90), Vector3(0.99, 0.98, 0.95), Real(0.55), Real(0.09), Real(1.0) },
             { "dewy2", Real(0.002), Real(5.5), Vector3(0.8), Real(0.99), Vector3(0.97, 0.93, 0.87), Real(0.77), Real(-0.23), Real(0.79) },
             { "matte1", Real(0.15), Real(2.01), Vector3(0.91, 0.89, 0.85), Real(0.89), Vector3(0.95, 0.94, 0.91), Real(0.37), Real(-0.25), Real(0.62) },
             { "matte2", Real(0.49), Real(52.2), Vector3(0.93, 0.83, 0.71), Real(0.29), Vector3(0.9, 0.9, 0.84), Real(0.24), Real(-0.22), Real(0.51) },
