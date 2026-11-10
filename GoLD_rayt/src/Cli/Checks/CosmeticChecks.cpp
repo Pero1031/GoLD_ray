@@ -427,14 +427,14 @@ int RunCosmeticTests(const CliOptions& opt) {
     {   // (d) white furnace: a white ball under a layer that absorbs nothing stays white (the skin's mirror-like lobe is only seen through the light that
         //     crosses the layer without a collision, so a few percent may be missing), and a skin ball under a foundation is never brighter than 1
         auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));
-        auto furnace = [&](const std::shared_ptr<CoatedDiffuse>& m, Vector3& mean, Vector3& se) {
+        auto furnace = [&](const std::shared_ptr<CoatedDiffuse>& m, Vector3& mean, Vector3& se, int samples = 40000) {
             auto world = std::make_shared<Aggregate>();
             world->add(std::make_shared<Sphere>(Point3(0, 0, 0), 1.0, m));
             auto scene = std::make_shared<Scene>(world);
             scene->setEnvLight(std::make_shared<EnvLight>(sky, 1.0));
             scene->finalize("spatial");
             int bad = 0;
-            EstimateRadiance(*scene, Ray(Point3(0.3, 0.2, 4), glm::normalize(Vector3(-0.07, -0.05, -1))), 40000 * scale, 16, mean, se, bad);
+            EstimateRadiance(*scene, Ray(Point3(0.3, 0.2, 4), glm::normalize(Vector3(-0.07, -0.05, -1))), samples * scale, 16, mean, se, bad);
             return bad;
         };
         CosmeticLayer::Params white;
@@ -456,6 +456,37 @@ int RunCosmeticTests(const CliOptions& opt) {
         bad += furnace(skin, m2, s2);
         report("white furnace: a skin ball with subsurface scattering under dewy 1 (thickness 1) is not brighter than 1", bad == 0 && std::max({ m2.x, m2.y, m2.z }) <= 1.0 + 4 * s2.x,
             "bare (" + Fixed(mb.x, 3) + ", " + Fixed(mb.y, 3) + ", " + Fixed(mb.z, 3) + "), with the layer (" + Fixed(m2.x, 3) + ", " + Fixed(m2.y, 3) + ", " + Fixed(m2.z, 3) + ")");
+
+        // (e) Information: in a uniform white sky only the albedo of the ball counts, so a layer that absorbs nothing should add the same light
+        //     to a skin with subsurface scattering as to one without (both balls have the same albedo). The share of the gain that is missing
+        //     on the scattering skin is the energy the assembly of layer and skin loses. Both skins share one layer table, so its error cancels.
+        std::cout << "[Cosmetic] 8. information: white furnace, a layer without absorption on a skin ball (0.80, 0.52, 0.42) without and with subsurface scattering\n";
+        std::cout << "[Cosmetic]   (diffuser share, thickness) | bare r,g,b without / with | gain r,g,b without | gain r,g,b with | share of the gain missing r,g,b (+- 1 se)\n";
+        auto triple = [](const Vector3& v, int digits = 3) { return Fixed(v.x, digits) + "," + Fixed(v.y, digits) + "," + Fixed(v.z, digits); };
+        const int many = 200000;
+        auto plainSkin = makeSkin(false), scatteringSkin = makeSkin(true);
+        Vector3 bareP, bareS, seBareP, seBareS;
+        int badE = furnace(plainSkin, bareP, seBareP, many) + furnace(scatteringSkin, bareS, seBareS, many);
+        for (Real cd : { Real(1.0), Real(0.7) })
+            for (Real t : { Real(0.25), Real(1.0), Real(4.0) }) {
+                CosmeticLayer::Params w;
+                w.thickness = t; w.diffuserFraction = cd; w.diffuserAlbedo = Vector3(1.0); w.plateletAlbedo = Vector3(1.0);
+                const auto coat = std::make_shared<CosmeticCoat>(w);
+                auto a = makeSkin(false), b = makeSkin(true);
+                a->setCosmetic(coat); b->setCosmetic(coat);
+                Vector3 ma, sa, mbb, sbb;
+                badE += furnace(a, ma, sa, many) + furnace(b, mbb, sbb, many);
+                const Vector3 gainP = ma - bareP, gainS = mbb - bareS;
+                Vector3 missing(0), missingSe(0);
+                for (int c = 0; c < 3; ++c) {
+                    missing[c] = 1 - gainS[c] / gainP[c];
+                    const Real seP = std::hypot(sa[c], seBareP[c]), seS = std::hypot(sbb[c], seBareS[c]);
+                    missingSe[c] = (gainS[c] / gainP[c]) * std::hypot(seP / gainP[c], seS / gainS[c]);
+                }
+                std::cout << "[Cosmetic]   (" << Fixed(cd, 1) << ", " << Fixed(t, 2) << ") | " << triple(bareP) << " / " << triple(bareS) << " | " << triple(gainP) << " | " << triple(gainS)
+                    << " | " << triple(missing * Real(100), 1) << " % (+- " << triple(missingSe * Real(100), 1) << ")\n";
+            }
+        if (badE > 0) std::cout << "[Cosmetic]   (" << badE << " samples with a bad value were dropped)\n";
     }
 
     std::cout << "[Cosmetic] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

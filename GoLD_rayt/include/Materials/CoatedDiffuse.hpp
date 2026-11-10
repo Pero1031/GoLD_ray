@@ -334,11 +334,17 @@ namespace rayt {
         Real scatterAt(const SurfaceInteraction& rec) const { return std::clamp(rec.surfScatter, Real(0), Real(0.95)); }
 
         /// cosO, cosI: cosines with the normal of the specular lobe (the Fresnel reflectance of the top is a function of them).
-        /// The base takes what the white scatter leaves: (1 - rho).
+        /// The base takes what the white scatter leaves on the way in, (1 - rho), and again on the way out, and what the scatter sends back down
+        /// bounces between it and the base: (1 - rho) / (1 - rho R). Together with the scatter's own reflection rho this is the albedo
+        /// rho + (1 - rho)^2 R / (1 - rho R) of a layer that absorbs nothing over the base, the same as the subsurface path's (subsurfaceExitTint).
         Spectrum diffuse(const Spectrum& R, Real cosO, Real cosI, const SurfaceInteraction& rec) const {
-            const Real k = (Real(1) - m_m) * (Real(1) - scatterAt(rec)) * (Real(1) - coatF(rec, cosO)) * (Real(1) - coatF(rec, cosI))
+            const Real rho = scatterAt(rec);
+            const Real k = (Real(1) - m_m) * (Real(1) - rho) * (Real(1) - coatF(rec, cosO)) * (Real(1) - coatF(rec, cosI))
                 / (Real(1) - fAvgAt(rec)) / constants::PI;
-            return R * k;
+            Spectrum f = R * k;
+            if (rho > Real(0))
+                for (int i = 0; i < kSssChannels; ++i) f[i] *= (Real(1) - rho) / std::max(Real(1) - rho * std::clamp(R[i], Real(0), Real(1)), Real(0.05));
+            return f;
         }
 
         /// The white scatter: a Lambertian reflection of reflectance rho under the coat, normalised like the diffuse lobe.
