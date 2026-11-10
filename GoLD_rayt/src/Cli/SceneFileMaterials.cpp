@@ -40,11 +40,13 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
-        CheckKeys(m, { "type", "albedo", "reflectance" }, where);
+        CheckKeys(m, { "type", "albedo", "reflectance", "reflectanceTexture" }, where);
         s.type = MaterialSpec::Type::Diffuse;
         if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
         Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
-        if (m.contains("albedo") && !s.reflectance.empty()) Fail(where, "takes either \"albedo\" (RGB) or \"reflectance\" (a CSV of R(wavelength)), not both");
+        Optional<std::string>(m, "reflectanceTexture", where, s.reflectanceTexture, ReadString);
+        if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) > 1)
+            Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)) or \"reflectanceTexture\" (a .sptex spectral image), not several");
     }
     else if (type == "conductor") {
         CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, where);

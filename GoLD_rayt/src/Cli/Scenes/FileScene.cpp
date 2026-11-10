@@ -79,6 +79,18 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
     for (const auto& [name, m] : d.materials) {
         switch (m.type) {
         case MaterialSpec::Type::Diffuse:
+            if (!m.reflectanceTexture.empty()) {   // a measured spectral image R(u, v, lambda): the spectral build uses it as is, the RGB build each texel's D65 color
+                std::string err;
+                auto tex = SpectralTexture::load(m.reflectanceTexture, &err);
+                if (!tex) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": " << m.reflectanceTexture << ": " << err << "\n";
+                    return 1;
+                }
+                std::cout << "[SceneFile] material \"" << name << "\": reflectance texture " << m.reflectanceTexture << " (" << tex->width() << " x "
+                    << tex->height() << " texels, " << tex->basisCount() << " basis spectra, " << tex->firstNm() << "-" << tex->lastNm() << " nm)\n";
+                materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const SpectralTexture>(tex));
+                break;
+            }
             if (m.reflectance.empty()) {
                 materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
                 break;

@@ -61,7 +61,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | type | キー |
 |---|---|
-| `diffuse` | `albedo`（RGB）、または `reflectance`（測定した反射率 R(λ) の CSV。**どちらか 1 つ**） |
+| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ** |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`anisotropy`（−1〜1。> 0: 接線の向きに粗い、< 0: 接線に沿った溝のヘアライン仕上げ）、`rotation`（度。接線を法線の周りに回す）、`multipleScattering` |
 | `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`distanceRoughness`（`{ "roughness", "start", "end" }`: y 軸からの距離が start から end の間に、粗さがこの値まで増える。メッシュで解像できない遠くの小さな波の傾きを、粗さとして返す。海に使う）、`medium`（内側を散乱媒質で満たす。下） |
 | `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
@@ -132,8 +132,10 @@ python tools\data\sr5100.py info 測定.csv                                     
 python tools\data\sr5100.py spots 測定.csv --out 出力フォルダ                     :: スポットを 1 点ずつ「波長_nm, radiance」の CSV に
 python tools\data\sr5100.py roi 画像.csv --peak 2 --out 光源.csv                  :: 画像の最も明るい画素の周り（5×5）の平均スペクトル
 python tools\data\sr5100.py reflectance 試料.csv 白.csv --out 反射率.csv          :: 試料 ÷ 白色（白色が弱い波長は出力しない）
+python tools\data\hsm_texture.py 試料.hsm --white 白.hsm --out 布.sptex --preview 布.png   :: .hsm（分光画像）を、画素ごとの反射率スペクトルのテクスチャに（主成分 6 本に圧縮、420〜700 nm）
 ```
 
 - LED のスペクトルは、`"spectrum": { "file": "光源.csv" }` で指定する（値の単位は何でもよい。明るさは 1 にそろえて使う）。
 - 測定した反射率は、`"type": "conductor", "reflectance": "反射率.csv"` で金属として、`"type": "diffuse", "reflectance": "反射率.csv"` で拡散面（布など）として使える。拡散面では、スペクトル版は曲線をそのまま使い、RGB 版は D65 の下の色に直して使う（測定範囲の外は、端の値で延ばす。1 を超える値は警告）。
+- 分光画像（`.hsm`）は、`"type": "diffuse", "reflectanceTexture": "布.sptex"` で、画素ごとの反射率スペクトルのテクスチャになる（`quad` に貼る。スペクトル版は画素のスペクトルを、RGB 版は画素ごとの D65 の色を使う。測定した布を測定と同じ光で描くと、測定画像と色度 0.001、画素の相対差の中央値 3% で一致した）。
 - 測定データは実験データなので、リポジトリには入れない（`assets/Metal_measured/` は Git の対象外）。

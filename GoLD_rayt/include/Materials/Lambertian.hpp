@@ -16,6 +16,7 @@
 #include "Geometry/Frame.hpp"
 #include "Color/SpectralConversion.hpp"
 #include "Core/Texture.hpp"
+#include "Core/SpectralTexture.hpp"
 
 namespace rayt {
 
@@ -30,16 +31,24 @@ namespace rayt {
         bool m_translucent = false;
 
         std::shared_ptr<const color::SpectralCurve> m_curve;   // optional: a measured reflectance R(lambda)
+        std::shared_ptr<const SpectralTexture> m_stex;         // optional: a measured reflectance per texel R(u, v, lambda)
 
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
+            if (m_stex) return RgbColor(albedo.rgb() * m_stex->rgb(rec.uv.x, rec.uv.y));
             if (!m_tex) return albedo;
             return RgbColor(albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));
         }
 
-        /// The reflectance at the path's wavelengths: the measured curve if there is one (spectral
-        /// build), else the RGB albedo. In the RGB build a curve is already stored as its D65 RGB.
+        /// The reflectance at the path's wavelengths: the measured curve or spectral texture if there is
+        /// one (spectral build), else the RGB albedo. In the RGB build a curve is already stored as its D65 RGB.
         Spectrum reflectanceAt(const SurfaceInteraction& rec, const SampledWavelengths& lambda) const {
 #if defined(RAYT_SPECTRAL_MODE)
+            if (m_stex) {
+                Spectrum s;
+                for (int i = 0; i < kSpectralSamples; ++i)
+                    s[i] = m_stex->reflectance(rec.uv.x, rec.uv.y, lambda[i]);
+                return s;
+            }
             if (m_curve) {
                 Spectrum s;
                 for (int i = 0; i < kSpectralSamples; ++i)
@@ -68,6 +77,10 @@ namespace rayt {
         /// A measured reflectance R(lambda), used as is by the spectral build; the RGB build uses its color under D65.
         Lambertian(std::shared_ptr<const color::SpectralCurve> curve)
             : albedo(RgbColor(color::reflectanceCurveToRgb(*curve))), m_curve(std::move(curve)) {}
+
+        /// A measured reflectance per texel R(u, v, lambda) (Core/SpectralTexture.hpp); the RGB build uses each texel's color under D65.
+        explicit Lambertian(std::shared_ptr<const SpectralTexture> tex)
+            : albedo(RgbColor(1.0)), m_stex(std::move(tex)) {}
 
         /// Makes the surface a translucent layer: stopped with probability opacity x texture alpha.
         void setTranslucent(Real opacity) { m_translucent = true; m_opacity = opacity; }

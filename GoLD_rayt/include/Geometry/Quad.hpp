@@ -66,6 +66,7 @@ namespace rayt {
             rec.p = p;
             rec.setFaceNormal(r.d, m_n);
             rec.dpdu = m_lx > Real(0) ? m_x : Vector3(0.0);   // tangent for anisotropic materials: along the first edge
+            rec.uv = UV(a, b);                                 // texture coordinates: a along edge1, b along edge2
             rec.matPtr = m_material.get();
             return true;
         }

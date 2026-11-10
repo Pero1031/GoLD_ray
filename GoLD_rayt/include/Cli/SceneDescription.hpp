@@ -42,6 +42,7 @@ struct MaterialSpec {
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
     std::string table;                             // ... or a complex IOR table (RefractiveIndex.info CSV)
     std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
+    std::string reflectanceTexture;                // diffuse: a measured reflectance per texel R(u, v, lambda) (.sptex, Core/SpectralTexture.hpp)
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)
