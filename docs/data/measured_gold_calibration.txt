@@ -1,0 +1,32 @@
+[Calib] Spectralon near normal (theta_i, theta_o < 20 deg): median [0.2025, 0.2079, 0.203, 0.204, 0.2064] 1/sr, expected 0.3151; scale [0.643, 0.66, 0.644, 0.647, 0.655]; relative to 650 nm [0.981, 1.007, 0.984, 0.988, 1.0]
+[Calib] Spectralon median (550 nm) by theta_i, theta_o in 20-40 deg; a Lambertian gives 0.315 at every angle:
+     theta_i  0-10: 0.202  (x0.64; cos theta_i 1.00)
+     theta_i 10-20: 0.192  (x0.61; cos theta_i 0.97)
+     theta_i 20-30: 0.178  (x0.56; cos theta_i 0.91)
+     theta_i 30-40: 0.159  (x0.50; cos theta_i 0.82)
+     theta_i 40-50: 0.139  (x0.44; cos theta_i 0.71)
+     theta_i 50-60: 0.121  (x0.38; cos theta_i 0.57)
+     theta_i 60-70: 0.105  (x0.33; cos theta_i 0.42)
+     theta_i 70-80: 0.094  (x0.30; cos theta_i 0.26)
+     theta_i 80-90: 0.087  (x0.28; cos theta_i 0.09)
+[Calib] Spectralon excess at theta_h < 0.5 deg relative to theta_h 5-8 deg (median over theta_d): [1.19, 1.23, 1.21, 1.16, 1.2]
+[Calib] gold hemispherical reflectance per wavelength (450 500 550 600 650 nm):
+     theta_i   as measured                 corrected A (Spectralon as is)   corrected B (ridge removed)      Fresnel(theta_i), Johnson Au
+      15 deg   [0.154, 0.195, 0.346, 0.408, 0.443]   [0.255, 0.317, 0.567, 0.666, 0.717]   [0.261, 0.324, 0.578, 0.68, 0.736]   [0.408, 0.475, 0.792, 0.91, 0.957]
+      30 deg   [0.139, 0.176, 0.308, 0.365, 0.403]   [0.253, 0.316, 0.55, 0.65, 0.729]   [0.261, 0.329, 0.57, 0.676, 0.757]   [0.409, 0.476, 0.791, 0.909, 0.956]
+      45 deg   [0.15, 0.185, 0.3, 0.351, 0.379]   [0.266, 0.332, 0.53, 0.626, 0.686]   [0.292, 0.366, 0.581, 0.689, 0.757]   [0.415, 0.484, 0.79, 0.907, 0.955]
+      60 deg   [0.18, 0.206, 0.302, 0.338, 0.361]   [0.228, 0.275, 0.387, 0.436, 0.476]   [0.284, 0.344, 0.494, 0.559, 0.609]   [0.44, 0.513, 0.792, 0.903, 0.952]
+      75 deg   [0.207, 0.227, 0.277, 0.286, 0.303]   [0.066, 0.08, 0.097, 0.106, 0.116]   [0.092, 0.109, 0.135, 0.146, 0.157]   [0.54, 0.619, 0.828, 0.91, 0.951]
+[Calib] corrected / Fresnel(Johnson): A, then B
+      15 deg   [0.63, 0.67, 0.72, 0.73, 0.75]   [0.64, 0.68, 0.73, 0.75, 0.77]
+      30 deg   [0.62, 0.66, 0.69, 0.72, 0.76]   [0.64, 0.69, 0.72, 0.74, 0.79]
+      45 deg   [0.64, 0.69, 0.67, 0.69, 0.72]   [0.7, 0.76, 0.74, 0.76, 0.79]
+      60 deg   [0.52, 0.54, 0.49, 0.48, 0.5]   [0.65, 0.67, 0.62, 0.62, 0.64]
+      75 deg   [0.12, 0.13, 0.12, 0.12, 0.12]   [0.17, 0.18, 0.16, 0.16, 0.17]
+[Calib] Fresnel F0 Johnson, relative to 650 nm: [0.427, 0.496, 0.828, 0.951, 1.0]
+[Calib] spike as measured : measured / Fresnel relative to 650 nm [0.662, 0.731, 0.863, 0.898, 1.0]; absolute at 650 nm 67.768
+[Calib] spike corrected A : measured / Fresnel relative to 650 nm [0.666, 0.725, 0.868, 0.905, 1.0]; absolute at 650 nm 106.634
+[Calib] spike corrected B : measured / Fresnel relative to 650 nm [0.667, 0.726, 0.86, 0.895, 1.0]; absolute at 650 nm 117.278
+[Calib] haze as measured : measured / Fresnel relative to 650 nm [1.145, 1.187, 1.095, 1.028, 1.0]; absolute at 650 nm 0.013
+[Calib] haze corrected A : measured / Fresnel relative to 650 nm [1.14, 1.185, 1.081, 1.017, 1.0]; absolute at 650 nm 0.025
+[Calib] haze corrected B : measured / Fresnel relative to 650 nm [1.14, 1.185, 1.081, 1.017, 1.0]; absolute at 650 nm 0.025

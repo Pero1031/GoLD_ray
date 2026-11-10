@@ -1,0 +1,26 @@
+[Measured:gold] table (91, 91, 361, 5) (theta_h, theta_d, phi_d, wavelength), 5 wavelengths 450-650 nm; shown: [450, 500, 550, 600, 650]
+[Measured:gold] metal table Johnson_Au.csv: eta [450:1.383 500:0.971 550:0.424 600:0.249 650:0.156], k [450:1.915 500:1.874 550:2.472 600:3.074 650:3.602], F0 [450:0.408 500:0.475 550:0.792 600:0.910 650:0.957]
+[Measured:gold] cells with both directions above the surface: 74.5 %; of those measured (finite): 87.5 %
+[Measured:gold] reciprocity (phi_d vs phi_d + pi), cells above 0.001 1/sr at 550 nm: median |log ratio| 0.292, 90 % 0.934  (1878345 pairs)
+[Measured:gold] reciprocity (phi_d vs phi_d + pi), cells above 0.5 1/sr at 550 nm: median |log ratio| 0.225, 90 % 1.187  (695636 pairs)
+[Measured:gold] far tail (theta_h > 50 deg) median: [450:0.0012 500:0.0018 550:0.0021 600:0.0026 650:0.0033] 1/sr = Lambertian albedo [450:0.004 500:0.006 550:0.007 600:0.008 650:0.010]
+[Measured:gold] fit region: theta_h < 35 deg, value > 20 x floor: 969794 cells
+[Measured:gold] GGX: fitted alpha 0.0486 (roughness 0.220), residual std of log(measured/model) 0.645 (x1.91), scale measured/model at 550 nm 0.248
+[Measured:gold] Beckmann: fitted alpha 0.1457 (roughness 0.382), residual std of log(measured/model) 1.151 (x3.16), scale measured/model at 550 nm 0.086
+[Measured:gold] GGX alpha 0.0486: E_avg 0.9843 (single scattering loses 1.57 %)
+[Measured:gold] scale measured / model over the fitted cells: [450:0.273 500:0.259 550:0.245 600:0.234 650:0.230]; relative to 650 nm: [450:1.184 500:1.127 550:1.065 600:1.018 650:1.000]
+[Measured:gold] two GGX lobes on the theta_d = 5 deg cut (550 nm): spike alpha 0.0220 (roughness 0.148) weight 0.388, haze alpha 0.2387 (roughness 0.489) weight 0.083; residual std 0.210 (x1.23); weights are multiples of the Fresnel term
+[Measured:gold] lobe at theta_h   0.0 deg, theta_d 5 deg, 550 nm: measured   51.2575, GGX   26.8679 (x1.91), two lobes   50.9383 (x1.01)
+[Measured:gold] lobe at theta_h   4.9 deg, theta_d 5 deg, 550 nm: measured    0.3594, GGX    1.6251 (x0.22), two lobes    0.2729 (x1.32)
+[Measured:gold] lobe at theta_h  10.0 deg, theta_d 5 deg, 550 nm: measured    0.0592, GGX    0.1470 (x0.40), two lobes    0.0553 (x1.07)
+[Measured:gold] lobe at theta_h  19.6 deg, theta_d 5 deg, 550 nm: measured    0.0110, GGX    0.0130 (x0.85), two lobes    0.0137 (x0.81)
+[Measured:gold] lobe at theta_h  40.0 deg, theta_d 5 deg, 550 nm: measured    0.0030, GGX    0.0017 (x1.79), two lobes    0.0026 (x1.13)
+[Measured:gold] lobe at theta_h  59.2 deg, theta_d 5 deg, 550 nm: measured    0.0023, GGX    0.0017 (x1.36), two lobes    0.0020 (x1.15)
+[Measured:gold] spike (theta_h < 0.5 deg): measured / Fresnel per wavelength, relative to 650 nm: [450:0.662 500:0.731 550:0.863 600:0.898 650:1.000]  (90972 cells)
+[Measured:gold] haze (theta_h 10-35 deg): measured / Fresnel per wavelength, relative to 650 nm: [450:1.130 500:1.175 550:1.127 600:1.048 650:1.000]  (158925 cells)
+[Measured:gold] directional albedo; model = GGX alpha 0.0486 of the single-lobe fit:
+      15 deg   measured [450:0.154 500:0.195 550:0.346 600:0.408 650:0.443]   single+ms [450:0.408 500:0.474 550:0.791 600:0.909 650:0.956]   measured/(single+ms) [450:0.38 500:0.41 550:0.44 600:0.45 650:0.46]
+      30 deg   measured [450:0.139 500:0.176 550:0.308 600:0.365 650:0.403]   single+ms [450:0.408 500:0.475 550:0.790 600:0.908 650:0.955]   measured/(single+ms) [450:0.34 500:0.37 550:0.39 600:0.40 650:0.42]
+      45 deg   measured [450:0.150 500:0.185 550:0.300 600:0.351 650:0.379]   single+ms [450:0.416 500:0.485 550:0.792 600:0.910 650:0.958]   measured/(single+ms) [450:0.36 500:0.38 550:0.38 600:0.39 650:0.40]
+      60 deg   measured [450:0.180 500:0.206 550:0.302 600:0.338 650:0.361]   single+ms [450:0.439 500:0.512 550:0.793 600:0.904 650:0.953]   measured/(single+ms) [450:0.41 500:0.40 550:0.38 600:0.37 650:0.38]
+      75 deg   measured [450:0.207 500:0.227 550:0.277 600:0.286 650:0.303]   single+ms [450:0.525 500:0.603 550:0.824 600:0.913 650:0.955]   measured/(single+ms) [450:0.39 500:0.38 550:0.34 600:0.31 650:0.32]

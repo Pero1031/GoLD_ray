@@ -1,0 +1,26 @@
+[Measured:aluminum] table (91, 91, 361, 68) (theta_h, theta_d, phi_d, wavelength), 68 wavelengths 414-950 nm; shown: [446, 502, 550, 598, 646, 702, 798, 902]
+[Measured:aluminum] metal table McPeak_Al.csv: eta [446:0.480 502:0.632 550:0.789 598:0.984 646:1.224 702:1.574 798:2.364 902:1.629], k [446:4.735 502:5.342 550:5.852 598:6.348 646:6.816 702:7.289 798:7.533 902:7.411], F0 [446:0.922 502:0.919 550:0.916 598:0.911 646:0.905 702:0.895 798:0.861 902:0.895]
+[Measured:aluminum] cells with both directions above the surface: 74.5 %; of those measured (finite): 100.0 %
+[Measured:aluminum] reciprocity (phi_d vs phi_d + pi), cells above 0.001 1/sr at 550 nm: median |log ratio| 0.226, 90 % 0.788  (2221672 pairs)
+[Measured:aluminum] reciprocity (phi_d vs phi_d + pi), cells above 0.5 1/sr at 550 nm: median |log ratio| 0.102, 90 % 0.366  (738184 pairs)
+[Measured:aluminum] far tail (theta_h > 50 deg) median: [446:0.0276 502:0.0171 550:0.0140 598:0.0120 646:0.0099 702:0.0098 798:0.0111 902:0.0152] 1/sr = Lambertian albedo [446:0.087 502:0.054 550:0.044 598:0.038 646:0.031 702:0.031 798:0.035 902:0.048]
+[Measured:aluminum] fit region: theta_h < 35 deg, value > 20 x floor: 775227 cells
+[Measured:aluminum] GGX: fitted alpha 0.0702 (roughness 0.265), residual std of log(measured/model) 0.839 (x2.31), scale measured/model at 550 nm 0.130
+[Measured:aluminum] Beckmann: fitted alpha 0.0993 (roughness 0.315), residual std of log(measured/model) 0.988 (x2.68), scale measured/model at 550 nm 0.099
+[Measured:aluminum] GGX alpha 0.0702: E_avg 0.9822 (single scattering loses 1.78 %)
+[Measured:aluminum] scale measured / model over the fitted cells: [446:0.130 502:0.118 550:0.130 598:0.136 646:0.140 702:0.137 798:0.146 902:0.140]; relative to 646 nm: [446:0.927 502:0.840 550:0.925 598:0.975 646:1.000 702:0.977 798:1.042 902:1.002]
+[Measured:aluminum] two GGX lobes on the theta_d = 5 deg cut (550 nm): spike alpha 0.0476 (roughness 0.218) weight 0.307, haze alpha 0.4841 (roughness 0.696) weight 0.150; residual std 0.128 (x1.14); weights are multiples of the Fresnel term
+[Measured:aluminum] lobe at theta_h   0.0 deg, theta_d 5 deg, 550 nm: measured    9.9156, GGX   14.9067 (x0.67), two lobes   10.0034 (x0.99)
+[Measured:aluminum] lobe at theta_h   4.9 deg, theta_d 5 deg, 550 nm: measured    0.5290, GGX    2.4540 (x0.22), two lobes    0.6107 (x0.87)
+[Measured:aluminum] lobe at theta_h  10.0 deg, theta_d 5 deg, 550 nm: measured    0.1102, GGX    0.3061 (x0.36), two lobes    0.0904 (x1.22)
+[Measured:aluminum] lobe at theta_h  19.6 deg, theta_d 5 deg, 550 nm: measured    0.0312, GGX    0.0304 (x1.03), two lobes    0.0323 (x0.97)
+[Measured:aluminum] lobe at theta_h  40.0 deg, theta_d 5 deg, 550 nm: measured    0.0133, GGX    0.0045 (x2.98), two lobes    0.0140 (x0.95)
+[Measured:aluminum] lobe at theta_h  59.2 deg, theta_d 5 deg, 550 nm: measured    0.0146, GGX    0.0057 (x2.55), two lobes    0.0124 (x1.18)
+[Measured:aluminum] spike (theta_h < 0.5 deg): measured / Fresnel per wavelength, relative to 646 nm: [446:1.060 502:1.254 550:1.063 598:1.166 646:1.000 702:1.079 798:0.960 902:0.859]  (90972 cells)
+[Measured:aluminum] haze (theta_h 10-35 deg): measured / Fresnel per wavelength, relative to 646 nm: [446:1.272 502:1.184 550:1.145 598:1.064 646:1.000 702:0.935 798:0.866 902:0.838]  (64680 cells)
+[Measured:aluminum] directional albedo; model = GGX alpha 0.0702 of the single-lobe fit:
+      15 deg   measured [446:0.356 502:0.350 550:0.345 598:0.352 646:0.291 702:0.304 798:0.336 902:0.343]   single+ms [446:0.921 502:0.918 550:0.915 598:0.910 646:0.904 702:0.894 798:0.860 902:0.894]   measured/(single+ms) [446:0.39 502:0.38 550:0.38 598:0.39 646:0.32 702:0.34 798:0.39 902:0.38]
+      30 deg   measured [446:0.403 502:0.410 550:0.437 598:0.373 646:0.329 702:0.384 798:0.374 902:0.336]   single+ms [446:0.920 502:0.917 550:0.913 598:0.909 646:0.902 702:0.892 798:0.858 902:0.892]   measured/(single+ms) [446:0.44 502:0.45 550:0.48 598:0.41 646:0.36 702:0.43 798:0.44 902:0.38]
+      45 deg   measured [446:0.288 502:0.264 550:0.281 598:0.240 646:0.242 702:0.254 798:0.248 902:0.233]   single+ms [446:0.920 502:0.917 550:0.913 598:0.908 646:0.901 702:0.891 798:0.855 902:0.891]   measured/(single+ms) [446:0.31 502:0.29 550:0.31 598:0.26 646:0.27 702:0.28 798:0.29 902:0.26]
+      60 deg   measured [446:0.205 502:0.169 550:0.161 598:0.153 646:0.151 702:0.155 798:0.141 902:0.166]   single+ms [446:0.911 502:0.906 550:0.901 598:0.895 646:0.888 702:0.875 798:0.837 902:0.875]   measured/(single+ms) [446:0.23 502:0.19 550:0.18 598:0.17 646:0.17 702:0.18 798:0.17 902:0.19]
+      75 deg   measured [446:0.159 502:0.114 550:0.106 598:0.111 646:0.108 702:0.097 798:0.104 902:0.112]   single+ms [446:0.895 502:0.885 550:0.877 598:0.867 646:0.855 702:0.838 798:0.790 902:0.838]   measured/(single+ms) [446:0.18 502:0.13 550:0.12 598:0.13 646:0.13 702:0.12 798:0.13 902:0.13]
