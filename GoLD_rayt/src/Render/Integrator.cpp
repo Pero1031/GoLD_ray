@@ -574,7 +574,11 @@ namespace rayt {
                 const Real dist = glm::length(toLight);
                 if (dist > Real(0)) { dirS = toLight / dist; tMaxS = dist * (Real(1) - Real(1e-4)); }
             }
-            transmittance = shadowTransmittance(scene, origin, rec.medium, dirS, tMaxS, lambda, rec.time);
+            // A boundary between two media: the shadow ray starts in the medium on the side it leaves to (as nextRay() decides for a path).
+            const Medium* startMedium = rec.medium;
+            if (rec.matPtr->isMediumBoundary())
+                startMedium = ((glm::dot(wi, rec.gn) > 0) == rec.frontFace) ? rec.matPtr->mediumOutside() : rec.matPtr->mediumInside();
+            transmittance = shadowTransmittance(scene, origin, startMedium, dirS, tMaxS, lambda, rec.time);
             if (isBlack(transmittance)) return Ld;
         }
         else if (!visible(scene, rec, wi, ls->tMax, ls->pLight)) {

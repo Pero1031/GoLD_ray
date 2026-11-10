@@ -306,6 +306,14 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 }
                 skin->setPigment(pigment, Real(m.reliefPoreDarkness));
             }
+            if (m.skinWalk) {   // after setSubsurface(): the medium is made from the albedo and the profile's scatter distance
+                skin->setSubsurfaceWalk(Real(m.skinWalkG));
+                if (const SubsurfaceWalkMedium* w = skin->subsurfaceWalk()) {
+                    const Vector3 sT = w->sigmaTRgb(), sS = w->sigmaSRgb();
+                    std::cout << "[Skin] material \"" << name << "\": random walk inside the object, extinction (" << sT.x << ", " << sT.y << ", " << sT.z
+                        << ") 1/m, single-scattering albedo (" << sS.x / sT.x << ", " << sS.y / sT.y << ", " << sS.z / sT.z << "), g " << w->anisotropy() << "\n";
+                }
+            }
             materials[name] = skin;
             break;
         }

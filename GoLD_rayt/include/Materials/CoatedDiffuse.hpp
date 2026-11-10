@@ -34,6 +34,7 @@
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Subsurface.hpp"
+#include "Materials/SubsurfaceWalk.hpp"
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinPigment.hpp"
 #include "Materials/SkinFilm.hpp"
@@ -74,7 +75,25 @@ namespace rayt {
             m_profile = std::move(profile);
             if (m_profile) m_exit = std::make_unique<SubsurfaceExit>(m_w, m_profile->eta());
             else m_exit.reset();
+            m_walk.reset();
         }
+
+        /**
+         * @brief Follows the subsurface light by a random walk through the inside of the object instead of the BSSRDF's jump along
+         *        the surface (Materials/SubsurfaceWalk.hpp). Call after setSubsurface(); needs a closed surface with outward normals.
+         *
+         * The material becomes the boundary of a medium made from its albedo and the profile's scatter distance. The light that passes
+         * the coat enters with a cosine distribution; a walk that reaches the surface from inside leaves through the BSSRDF's exit lobe.
+         * The layers on the skin (pigment, flakes, emulsion, foundation) act as they do with the BSSRDF: factors where the light goes
+         * in and where it comes out. A thick part looks as with the BSSRDF; a thin part lets through what its thickness allows.
+         * @param g mean cosine of the phase function (0 = isotropic; skin is about 0.8). It does not change the color or the spread
+         *          of a thick part.
+         */
+        void setSubsurfaceWalk(Real g = Real(0)) {
+            if (m_profile && !m_profile->layered()) m_walk = std::make_shared<SubsurfaceWalkMedium>(m_albedo, m_profile, g);
+        }
+        const SubsurfaceWalkMedium* subsurfaceWalk() const { return m_walk.get(); }
+        const Medium* mediumInside() const override { return m_walk.get(); }
 
         /// A micro-relief that bends the shading normal (skin furrows and pores, Materials/SkinRelief.hpp). Set before rendering.
         void setRelief(std::shared_ptr<const SkinRelief> relief) { m_relief = std::move(relief); }
@@ -145,6 +164,15 @@ namespace rayt {
         }
 
         void perturbShading(SurfaceInteraction& rec, const Vector3& wo) const override {
+            if (m_walk && rec.medium == m_walk.get()) {
+                // A random walk reached the surface from inside: turn the record into the outside view of the exit point (normals pointing out,
+                // as the BSSRDF's exit vertex has them), so that the lights are chosen and the shadow rays start on the outer side.
+                // eval / sample / pdf recognise it by wo lying below gn. The exit lobe follows the smooth normal, as the BSSRDF's does.
+                rec.gn = -rec.gn;
+                rec.n = -rec.n;
+                rec.frontFace = true;
+                return;
+            }
             if (m_gloss) {
                 const Real g = Real(2) * (*m_gloss)(rec.p) - Real(1);   // -1 (dry) .. 1 (oily)
                 rec.glossScale = Real(1) + m_glossAmount * g;
@@ -230,6 +258,12 @@ namespace rayt {
         Real cosmeticPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const;
         /// The pdf of the lobes of the skin itself (what pdf() returned before there was a layer).
         Real skinPdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi) const;
+
+        /// Random-walk mode, seen from outside along wo: the share of the light that enters the medium (`through`: past the foundation, the coat
+        /// and the white scatter) and the probability with which sample() picks that event. False where nothing enters.
+        bool walkEntry(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda, Spectrum& through, Real& probability) const;
+        /// True if this hit is the end of a random walk inside the object (perturbShading turned the normals outward, so wo is below gn).
+        bool walkExit(const SurfaceInteraction& rec, const Vector3& wo) const { return m_walk && glm::dot(rec.gn, wo) < Real(0); }
 
         /// The white scatter at p: the emulsion layer (on top) and the flakes (below) as two non-absorbing layers, R = Re + (1 - Re)^2 Rf / (1 - Re Rf).
         /// `localThickness` < 0: not known (the exit of a subsurface path): look it up.
@@ -346,6 +380,7 @@ namespace rayt {
         Real m_fAvg = 0;
         std::shared_ptr<const SubsurfaceProfile> m_profile;   // null = plain coated diffuse
         std::unique_ptr<SubsurfaceExit> m_exit;                // exit vertex material (owns the coat weight / IOR)
+        std::shared_ptr<const SubsurfaceWalkMedium> m_walk;   // set: the subsurface light walks through this medium (setSubsurfaceWalk)
     };
 
 } // namespace rayt

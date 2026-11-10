@@ -318,7 +318,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "relief", "pigment", "gloss", "film", "scatter", "lotion", "foundation" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "randomWalk", "relief", "pigment", "gloss", "film", "scatter", "lotion", "foundation" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -331,6 +331,19 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.skinSpecular < 0 || s.skinSpecular > 1) Fail(where + ".specular", "must be between 0 and 1");
         if (s.skinSssScale <= 0) Fail(where + ".sssScale", "must be above 0");
         for (int i = 0; i < 3; ++i) if (s.skinSss && !(s.skinScatterMm[i] > 0)) Fail(where + ".scatterDistanceMm", "must be above 0 in every channel");
+        if (m.contains("randomWalk")) {   // "randomWalk": true, or { "g": 0.8 }: the subsurface light is followed through the inside of the (closed) object
+            const json& rw = m.at("randomWalk");
+            const std::string rww = where + ".randomWalk";
+            if (rw.is_boolean()) s.skinWalk = rw.get<bool>();
+            else if (rw.is_object()) {
+                CheckKeys(rw, { "g" }, rww);
+                s.skinWalk = true;
+                Optional<double>(rw, "g", rww, s.skinWalkG, ReadNumber);
+                if (!(s.skinWalkG > -0.95 && s.skinWalkG < 0.95)) Fail(rww + ".g", "must be between -0.95 and 0.95");
+            }
+            else Fail(rww, "must be true, false or an object { \"g\" }");
+            if (s.skinWalk && !s.skinSss) Fail(rww, "needs \"scatterDistanceMm\" (the walk takes its coefficients from the albedo and the scatter distance)");
+        }
         if (m.contains("relief")) {   // "relief": { "cellMm", "furrowDepthMm", "furrowWidth", "poreDepthMm", "poreRadiusMm", "poreFraction", "seed" } (all optional)
             const json& r = m.at("relief");
             const std::string rw = where + ".relief";

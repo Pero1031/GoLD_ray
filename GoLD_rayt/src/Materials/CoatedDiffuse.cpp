@@ -12,6 +12,20 @@ namespace rayt {
     Spectrum CoatedDiffuse::eval(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
         const SampledWavelengths& lambda, TransportMode /*mode*/) const
     {
+        if (m_walk) {   // subsurface light by a random walk: the surface also lets light in and out
+            const Real go = glm::dot(rec.gn, wo), gi = glm::dot(rec.gn, wi);
+            if (go < 0) {   // the end of a walk: the BSSRDF's exit lobe, and the layers the light crosses on its way out
+                if (gi <= 0) return Spectrum(0.0);
+                return m_exit->eval(rec, wo, wi, lambda, TransportMode::Radiance) * subsurfaceExitTint(rec, lambda);
+            }
+            if (go > 0 && gi < 0) {   // into the medium: a cosine lobe about the inward geometric normal
+                Spectrum through(0.0);
+                Real probability = 0;
+                if (!walkEntry(rec, wo, lambda, through, probability)) return Spectrum(0.0);
+                // The integrator weighs by |cos(rec.n, wi)|; this lobe wants the cosine with the geometric normal, so change one for the other.
+                return through * (-gi / (constants::PI * std::max(std::abs(glm::dot(rec.n, wi)), Real(1e-3))));
+            }
+        }
         if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return Spectrum(0.0);
         const Vector3& ns = specNormal(rec);
         const bool split = glm::dot(rec.ns, rec.ns) > Real(0);
@@ -73,9 +87,41 @@ namespace rayt {
         return q * layer.plateletPhase(-o, i) + (Real(1) - q) * i.z / constants::PI;
     }
 
+    bool CoatedDiffuse::walkEntry(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda, Spectrum& through, Real& probability) const {
+        // The same chain of choices as sample(): the foundation's lobe (pL), the specular lobe (pS), the white scatter (rho); what is left enters.
+        const Real cosOs = glm::dot(specNormal(rec), wo);
+        if (cosOs <= 0) return false;
+        through = Spectrum(1.0);
+        Real pL = 0;
+        if (m_cosmetic) {
+            const Real cosOn = glm::dot(layerNormal(rec), wo);
+            if (cosOn > 0) {
+                pL = m_cosmetic->lobeProbability(cosOn);
+                through = RgbColor(m_cosmetic->through(cosOn)).reflectance(lambda);
+            }
+        }
+        const Real pS = lobeProbability(rec, cosOs), rho = scatterAt(rec);
+        probability = (Real(1) - pL) * (Real(1) - pS) * (Real(1) - rho);
+        through = through * ((Real(1) - coatF(rec, cosOs)) * (Real(1) - rho));
+        // The BSSRDF takes the color at the entry point (texture, pigment) into its profile; the medium is uniform, so it is a factor here.
+        if (m_tex || rec.albedoTint != Vector3(1.0)) {
+            Vector3 c = rec.albedoTint;
+            if (m_tex) c *= m_tex->rgb(rec.uv.x, rec.uv.y);
+            through = through * RgbColor(c).reflectance(lambda);
+        }
+        return probability > Real(0);
+    }
+
     std::optional<BSDFSample> CoatedDiffuse::sample(const SurfaceInteraction& rec, const Vector3& wo, const Point2& uIn,
         const SampledWavelengths& lambda, TransportMode mode) const
     {
+        if (walkExit(rec, wo)) {   // a random walk arrives from inside and leaves
+            std::optional<BSDFSample> out = m_exit->sample(rec, wo, uIn, lambda, mode);
+            if (!out) return std::nullopt;
+            out->f = out->f * subsurfaceExitTint(rec, lambda);
+            out->flags = BxDFFlags::Diffuse | BxDFFlags::Transmission;
+            return out;
+        }
         if (glm::dot(rec.gn, wo) <= 0) return std::nullopt;
 
         const Vector3& ns = specNormal(rec);
@@ -129,6 +175,15 @@ namespace rayt {
             // Choosing the subsurface event with probability (1 - pS)(1 - rho) gives the weight (1 - F)(1 - rho) / ((1 - pS)(1 - rho)) = (1 - F) / (1 - pS).
             const Real rho = scatterAt(rec);
             const Real ux = (u.x - pS) / (Real(1) - pS);
+            if (ux >= rho && m_walk) {   // into the medium (the integrator then walks through the inside): a cosine lobe about the inward geometric normal
+                const frame::Frame inward(-rec.gn);
+                s.wi = inward.localToWorld(sampling::CosineSampleHemisphere(Point2((ux - rho) / std::max(Real(1) - rho, Real(1e-6)), u.y)));
+                s.pdf = pdf(rec, wo, s.wi, lambda);
+                s.f = eval(rec, wo, s.wi, lambda, mode);
+                if (s.pdf <= Real(1e-6) || math::hasNonFinite(s.f)) return std::nullopt;
+                s.flags = BxDFFlags::Diffuse | BxDFFlags::Transmission;
+                return s;
+            }
             if (ux >= rho) {
                 s.f = Spectrum((Real(1) - coatF(rec, wo_local.z)) / (Real(1) - pS));
                 // under a layer of foundation: the light that comes out here crosses the layer towards the viewer (and this event was chosen with 1 - pL)
@@ -158,8 +213,17 @@ namespace rayt {
     }
 
     Real CoatedDiffuse::pdf(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
-        const SampledWavelengths& /*lambda*/) const
+        const SampledWavelengths& lambda) const
     {
+        if (m_walk) {
+            const Real go = glm::dot(rec.gn, wo), gi = glm::dot(rec.gn, wi);
+            if (go < 0) return gi > 0 ? m_exit->pdf(rec, wo, wi, lambda) : Real(0);
+            if (go > 0 && gi < 0) {
+                Spectrum through(0.0);
+                Real probability = 0;
+                return walkEntry(rec, wo, lambda, through, probability) ? probability * (-gi) / constants::PI : Real(0);
+            }
+        }
         if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return Real(0);
         if (!m_cosmetic) return skinPdf(rec, wo, wi);
         const Real cosOn = glm::dot(layerNormal(rec), wo);

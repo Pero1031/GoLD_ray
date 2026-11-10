@@ -108,6 +108,8 @@ struct MaterialSpec {
     bool skinSss = false;                          //   subsurface scattering on
     Vector3 skinScatterMm = Vector3(3.67, 1.37, 0.68);   //   scatter distance per channel (mm), x skinSssScale
     double skinSssScale = 1;
+    bool skinWalk = false;                         //   the subsurface light walks through the inside of the object ("randomWalk") instead of the BSSRDF
+    double skinWalkG = 0;                          //   mean cosine of its phase function
     bool skinRelief = false;                       //   furrows and pores (Materials/SkinRelief.hpp)
     double reliefCellMm = 0.6, reliefFurrowDepthMm = 0.04, reliefFurrowWidth = 0.12, reliefPoreDepthMm = 0.08, reliefPoreRadiusMm = 0.07, reliefPoreFraction = 0.35;
     double reliefStretch = 1, reliefCoarseScale = 3, reliefCoarseWeight = 0.8;
