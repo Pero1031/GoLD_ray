@@ -368,6 +368,63 @@ int RunMetalTests(const CliOptions& opt) {
         report("fading series: the first round (0 h)", worstAgainst(0, 1, 0, 0, false), 1e-9);
         report("fading series: before the first round (-5 h) is held, and flagged", worstAgainst(-5, 1, 0, 0, true), 1e-9);
         report("fading series: after the last round (400 h) is held, and flagged", worstAgainst(400, 0, 0, 1, true), 1e-9);
+
+        // ---- 5b. the exposure over a surface: every factor of the field, and the hours and the colors they give ----
+        {
+            auto uvAt = [](Real u, Real v, const Point3& p = Point3(0.0)) { SurfaceInteraction r; r.uv = UV(u, v); r.p = p; return r; };
+            auto expect = [&](const char* what, Real got, Real want) { report(std::string("exposure field: ") + what, std::abs(got - want), 1e-9); };
+            ExposureField mat;
+            mat.hasMat = true; mat.matLeft = 0.1; mat.matRight = 0.2; mat.matBottom = 0.05; mat.matTop = 0.3; mat.matSoft = 0.01;
+            expect("mat, in the middle (1)", mat.at(uvAt(0.5, 0.5)), 1);
+            expect("mat, in the covered left border (0)", mat.at(uvAt(0.03, 0.5)), 0);
+            expect("mat, in the covered top border (0)", mat.at(uvAt(0.5, 0.9)), 0);
+            expect("mat, on the left edge (a soft step: 1/2)", mat.at(uvAt(0.1, 0.5)), 0.5);
+            ExposureField grad;
+            grad.hasGradient = true; grad.bright = Point3(0, 0, 0); grad.dark = Point3(0, 2, 0);
+            expect("gradient, at the bright point (1)", grad.at(uvAt(0, 0, Point3(5, 0, 7))), 1);
+            expect("gradient, halfway (1/2), whatever the position across the axis", grad.at(uvAt(0, 0, Point3(5, 1, 7))), 0.5);
+            expect("gradient, beyond the dark point (0)", grad.at(uvAt(0, 0, Point3(0, 3, 0))), 0);
+            grad.gradientExponent = 2;
+            expect("gradient, exponent 2 halfway (1/4)", grad.at(uvAt(0, 0, Point3(0, 1, 0))), 0.25);
+            ExposureField map;   // two texels, black and white (sRGB 0 and 255): the painted value is the fraction
+            map.map = Texture2D::fromRgba8(2, 1, { 0, 0, 0, 255, 255, 255, 255, 255 });
+            expect("map, over the black texel (0)", map.at(uvAt(0.25, 0.5)), 0);
+            expect("map, over the white texel (1)", map.at(uvAt(0.75, 0.5)), 1);
+            ExposureField all = mat; all.hasGradient = true; all.bright = grad.bright; all.dark = grad.dark; all.gradientExponent = 1;
+            expect("factors multiply (mat 1 x gradient 1/2)", all.at(uvAt(0.5, 0.5, Point3(0, 1, 0))), 0.5);
+            ExposureField noisy;
+            noisy.noise = std::make_shared<NoiseDensity>(Real(10), 3, Real(0.35), Real(0.65), 1u); noisy.noiseAmount = 0.4;
+            Real lo = 1, hi = 0;
+            for (int i = 0; i < 400; ++i) { const Real f = noisy.at(uvAt(0, 0, Point3(0.037 * i, 0.011 * i, 0.023 * i))); lo = std::min(lo, f); hi = std::max(hi, f); }
+            const bool noiseOk = lo >= 0.6 - 1e-12 && hi <= 1 + 1e-12 && hi - lo > 0.05;
+            std::cout << "[Metals]   exposure field: noise (amount 0.4) stays within 0.6..1 and varies: " << lo << " .. " << hi << "   " << (noiseOk ? "OK" : "FAIL") << "\n";
+            allPassed = allPassed && noiseOk;
+
+            // the reflectance and the color at a point: hours = unexposed + f x (exposed - unexposed)
+            io::FadingSeries series; std::string e;
+            if (!io::loadFadingSeries(seriesDir.string(), "red", series, &e)) { std::cout << "[Metals]   fading series load failed: " << e << "   FAIL\n"; allPassed = false; }
+            else {
+                const FadingReflectance fr(series, mat, 150, 30);   // the covered border stays at round 2 (30 h), the middle is round 3 (150 h)
+                const SurfaceInteraction covered = uvAt(0.03, 0.5), open = uvAt(0.5, 0.5);
+                auto worstOf = [&](const SurfaceInteraction& r, int round) {
+                    Real w = 0;
+                    for (int nm = 440; nm <= 680; nm += 10) w = std::max(w, std::abs(fr.reflectance(fr.hoursAt(r), Real(nm)) - truth(round, Real(nm))));
+                    return w;
+                };
+                report("fading material, covered border: the reflectance of round 2 (30 h)", worstOf(covered, 2), 1e-9);
+                report("fading material, uncovered middle: the reflectance of round 3 (150 h)", worstOf(open, 3), 1e-9);
+                // the D65 color of a blend is the blend of the colors (reflectance is linear): the RGB build's shortcut
+                color::SpectralCurve a, b;
+                io::loadReflectanceCsv((seriesDir / "r2" / "red.csv").string(), a, &e); io::loadReflectanceCsv((seriesDir / "r3" / "red.csv").string(), b, &e);
+                const Vector3 viaCurve = color::reflectanceCurveToRgb(io::blendCurves(a, b, Real(0.25)));
+                const Vector3 viaColors = fr.rgb(60);   // 60 h = a quarter of the way from round 2 (30 h) to round 3 (150 h)
+                report("fading material, RGB build: color of the blended curve = blend of the colors", glm::length(viaCurve - viaColors), 1e-9);
+                // the material: the same color at a covered point
+                const auto lam = std::make_shared<Lambertian>(std::make_shared<const FadingReflectance>(series, mat, 150, 30));
+                report("fading material in a Lambertian: its albedo at a covered point is the color of 30 h",
+                    glm::length(lam->aovAlbedo(covered) - glm::clamp(fr.rgb(30), Vector3(0.0), Vector3(1.0))), 1e-9);
+            }
+        }
         std::filesystem::remove_all(seriesDir, ec);
     }
 

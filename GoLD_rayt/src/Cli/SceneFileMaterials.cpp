@@ -67,12 +67,58 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& f = m.at("fading");
             const std::string fw = where + ".fading";
             if (!f.is_object()) Fail(fw, "must be { \"series\": the folder of a measured series, \"color\": a patch of it, \"hours\": the hours of exposure }");
-            CheckKeys(f, { "series", "color", "hours" }, fw);
+            CheckKeys(f, { "series", "color", "hours", "unexposedHours", "map", "mat", "gradient", "noise" }, fw);
             if (!f.contains("series") || !f.contains("color")) Fail(fw, "needs a \"series\" (the folder with hours.csv and r1, r2, ...) and a \"color\" (the patch)");
             s.fadingSeries = ReadString(f.at("series"), fw + ".series");
             s.fadingColor = ReadString(f.at("color"), fw + ".color");
             Optional<double>(f, "hours", fw, s.fadingHours, ReadNumber);
+            Optional<double>(f, "unexposedHours", fw, s.fadingUnexposedHours, ReadNumber);
             if (s.fadingHours < 0) Fail(fw + ".hours", "must not be negative");
+            if (s.fadingUnexposedHours < 0) Fail(fw + ".unexposedHours", "must not be negative");
+            // the exposure over the surface: "map" (a gray image over uv), "mat" (a covered border in uv), "gradient" and "noise" (world space)
+            Optional<std::string>(f, "map", fw, s.fadingMap, ReadString);
+            if (f.contains("mat")) {   // { "inset": 0.08 | [left, right, bottom, top], "soft": 0.003 }
+                const json& mt = f.at("mat");
+                const std::string mw = fw + ".mat";
+                if (!mt.is_object() || !mt.contains("inset")) Fail(mw, "must be { \"inset\": the width of the covered border (uv, a number or [left, right, bottom, top]), \"soft\": the width of its soft edge }");
+                CheckKeys(mt, { "inset", "soft" }, mw);
+                s.fadingMat = true;
+                const json& in = mt.at("inset");
+                if (in.is_number()) { for (double& x : s.fadingMatInset) x = in.get<double>(); }
+                else if (in.is_array() && in.size() == 4) { for (size_t i = 0; i < 4; ++i) s.fadingMatInset[i] = ReadNumber(in[i], mw + ".inset"); }
+                else Fail(mw + ".inset", "must be a number or four numbers [left, right, bottom, top]");
+                for (double x : s.fadingMatInset) if (x < 0 || x >= 0.5) Fail(mw + ".inset", "the widths must be between 0 and 0.5 (the uv square has side 1)");
+                Optional<double>(mt, "soft", mw, s.fadingMatSoft, ReadNumber);
+                if (!(s.fadingMatSoft > 0)) Fail(mw + ".soft", "must be above 0");
+            }
+            if (f.contains("gradient")) {   // { "bright": [x, y, z], "dark": [x, y, z], "exponent": 1 }: exposure 1 at bright, 0 at dark
+                const json& g = f.at("gradient");
+                const std::string gw = fw + ".gradient";
+                if (!g.is_object() || !g.contains("bright") || !g.contains("dark")) Fail(gw, "needs \"bright\" (a point with full exposure) and \"dark\" (a point with none)");
+                CheckKeys(g, { "bright", "dark", "exponent" }, gw);
+                s.fadingGradient = true;
+                s.fadingBright = ReadVec3(g.at("bright"), gw + ".bright");
+                s.fadingDark = ReadVec3(g.at("dark"), gw + ".dark");
+                Optional<double>(g, "exponent", gw, s.fadingGradientExponent, ReadNumber);
+                if (s.fadingBright == s.fadingDark) Fail(gw, "\"bright\" and \"dark\" must be different points");
+                if (!(s.fadingGradientExponent > 0)) Fail(gw + ".exponent", "must be above 0");
+            }
+            if (f.contains("noise")) {   // { "amount": 0.3, "frequency": 10, "octaves": 3, "seed": 1 }
+                const json& nz = f.at("noise");
+                const std::string nw = fw + ".noise";
+                if (!nz.is_object()) Fail(nw, "must be { \"amount\": 0..1, \"frequency\": features per metre, \"octaves\", \"seed\" }");
+                CheckKeys(nz, { "amount", "frequency", "octaves", "seed" }, nw);
+                Optional<double>(nz, "amount", nw, s.fadingNoiseAmount, ReadNumber);
+                Optional<double>(nz, "frequency", nw, s.fadingNoiseFrequency, ReadNumber);
+                double octaves = s.fadingNoiseOctaves, seed = s.fadingNoiseSeed;
+                Optional<double>(nz, "octaves", nw, octaves, ReadNumber);
+                Optional<double>(nz, "seed", nw, seed, ReadNumber);
+                s.fadingNoiseOctaves = int(octaves); s.fadingNoiseSeed = int(seed);
+                if (s.fadingNoiseAmount < 0 || s.fadingNoiseAmount > 1) Fail(nw + ".amount", "must be between 0 and 1");
+                if (!(s.fadingNoiseFrequency > 0)) Fail(nw + ".frequency", "must be above 0");
+            }
+            if (s.hasExposureField() && s.fadingUnexposedHours > s.fadingHours)
+                Fail(fw, "\"unexposedHours\" must not exceed \"hours\" (the hours where the surface got all the exposure)");
         }
         if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) + int(!s.fadingSeries.empty()) > 1)
             Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)), \"reflectanceTexture\" (a .sptex spectral image) or \"fading\" (a measured series over time), not several");

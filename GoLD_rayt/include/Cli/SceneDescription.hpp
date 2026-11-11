@@ -47,6 +47,16 @@ struct MaterialSpec {
     std::string reflectanceTexture;                // diffuse: a measured reflectance per texel R(u, v, lambda) (.sptex, Core/SpectralTexture.hpp)
     std::string fadingSeries, fadingColor;         // diffuse: a measured reflectance that changes with the time of exposure (IO/FadingSeries.hpp):
     double fadingHours = 0;                        //   the series folder, the patch in it, and the hours of exposure ("fading")
+    double fadingUnexposedHours = 0;               //   with an exposure field: the hours where nothing reached the surface (hours = where everything did)
+    std::string fadingMap;                         //   exposure field: a gray image over the surface's uv (white = exposed)
+    bool fadingMat = false;                        //   ... a covered border in uv (a mat board): left, right, bottom, top, and the softness of its edge
+    double fadingMatInset[4] = { 0, 0, 0, 0 }, fadingMatSoft = 0.002;
+    bool fadingGradient = false;                   //   ... exposure 1 at fadingBright and 0 at fadingDark, linear between (world space)
+    Vector3 fadingBright = Vector3(0.0), fadingDark = Vector3(0, 1, 0);
+    double fadingGradientExponent = 1;
+    double fadingNoiseAmount = 0, fadingNoiseFrequency = 10;   //   ... uneven fading: 1 - amount * noise (world space)
+    int fadingNoiseOctaves = 3, fadingNoiseSeed = 1;
+    bool hasExposureField() const { return !fadingMap.empty() || fadingMat || fadingGradient || fadingNoiseAmount > 0; }
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)

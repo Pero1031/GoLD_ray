@@ -104,6 +104,42 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const SpectralTexture>(tex));
                 break;
             }
+            if (!m.fadingSeries.empty() && m.hasExposureField()) {   // the exposure varies over the surface: the curve is chosen at every hit
+                io::FadingSeries series;
+                std::string err;
+                if (!io::loadFadingSeries(m.fadingSeries, m.fadingColor, series, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": fading " << m.fadingSeries << " / " << m.fadingColor << ": " << err << "\n";
+                    return 1;
+                }
+                ExposureField field;
+                if (!m.fadingMap.empty()) {
+                    field.map = Texture2D::load(m.fadingMap);
+                    if (!field.map) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the exposure map " << m.fadingMap << "\n"; return 1; }
+                }
+                if (m.fadingMat) {
+                    field.hasMat = true;
+                    field.matLeft = Real(m.fadingMatInset[0]); field.matRight = Real(m.fadingMatInset[1]);
+                    field.matBottom = Real(m.fadingMatInset[2]); field.matTop = Real(m.fadingMatInset[3]);
+                    field.matSoft = Real(m.fadingMatSoft);
+                }
+                if (m.fadingGradient) {
+                    field.hasGradient = true;
+                    field.bright = m.fadingBright; field.dark = m.fadingDark; field.gradientExponent = Real(m.fadingGradientExponent);
+                }
+                if (m.fadingNoiseAmount > 0) {
+                    field.noise = std::make_shared<NoiseDensity>(Real(m.fadingNoiseFrequency), m.fadingNoiseOctaves, Real(0.35), Real(0.65), std::uint32_t(m.fadingNoiseSeed));
+                    field.noiseAmount = Real(m.fadingNoiseAmount);
+                }
+                const Real exposed = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
+                const Real unexposed = std::min(Real(m.fadingUnexposedHours), exposed);
+                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.fadingSeries << "/" << m.fadingColor << ", exposure varies over the surface: "
+                    << unexposed << " h where nothing arrives to " << exposed << " h where everything does (measured " << series.firstHours() << " to " << series.lastHours() << " h)"
+                    << (m.fadingMap.empty() ? "" : ", map") << (m.fadingMat ? ", mat" : "") << (m.fadingGradient ? ", gradient" : "") << (m.fadingNoiseAmount > 0 ? ", noise" : "") << "\n";
+                if (exposed > series.lastHours())
+                    std::cout << "[SceneFile]   warning: " << exposed << " h is beyond the last measured round; the fully exposed places are held at it, not extrapolated\n";
+                materials[name] = std::make_shared<Lambertian>(std::make_shared<const FadingReflectance>(std::move(series), std::move(field), exposed, unexposed));
+                break;
+            }
             if (m.reflectance.empty() && m.fadingSeries.empty()) {
                 materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
                 break;

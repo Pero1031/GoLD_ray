@@ -17,6 +17,7 @@
 #include "Color/SpectralConversion.hpp"
 #include "Core/Texture.hpp"
 #include "Core/SpectralTexture.hpp"
+#include "Materials/FadingReflectance.hpp"
 
 namespace rayt {
 
@@ -33,7 +34,10 @@ namespace rayt {
         std::shared_ptr<const color::SpectralCurve> m_curve;   // optional: a measured reflectance R(lambda)
         std::shared_ptr<const SpectralTexture> m_stex;         // optional: a measured reflectance per texel R(u, v, lambda)
 
+        std::shared_ptr<const FadingReflectance> m_fading;    // optional: a measured reflectance that depends on the exposure at the hit point
+
         RgbColor albedoAt(const SurfaceInteraction& rec) const {
+            if (m_fading) return RgbColor(m_fading->rgb(m_fading->hoursAt(rec)));
             if (m_stex) return RgbColor(albedo.rgb() * m_stex->rgb(rec.uv.x, rec.uv.y));
             if (!m_tex) return albedo;
             return RgbColor(albedo.rgb() * m_tex->rgb(rec.uv.x, rec.uv.y));
@@ -43,6 +47,12 @@ namespace rayt {
         /// one (spectral build), else the RGB albedo. In the RGB build a curve is already stored as its D65 RGB.
         Spectrum reflectanceAt(const SurfaceInteraction& rec, const SampledWavelengths& lambda) const {
 #if defined(RAYT_SPECTRAL_MODE)
+            if (m_fading) {
+                const Real hours = m_fading->hoursAt(rec);
+                Spectrum s;
+                for (int i = 0; i < kSpectralSamples; ++i) s[i] = m_fading->reflectance(hours, lambda[i]);
+                return s;
+            }
             if (m_stex) {
                 Spectrum s;
                 for (int i = 0; i < kSpectralSamples; ++i)
@@ -81,6 +91,10 @@ namespace rayt {
         /// A measured reflectance per texel R(u, v, lambda) (Core/SpectralTexture.hpp); the RGB build uses each texel's color under D65.
         explicit Lambertian(std::shared_ptr<const SpectralTexture> tex)
             : albedo(RgbColor(1.0)), m_stex(std::move(tex)) {}
+
+        /// A measured reflectance that fades with the exposure, which varies over the surface (Materials/FadingReflectance.hpp).
+        explicit Lambertian(std::shared_ptr<const FadingReflectance> fading)
+            : albedo(RgbColor(1.0)), m_fading(std::move(fading)) {}
 
         /// Makes the surface a translucent layer: stopped with probability opacity x texture alpha.
         void setTranslucent(Real opacity) { m_translucent = true; m_opacity = opacity; }
