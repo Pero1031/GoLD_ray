@@ -428,6 +428,49 @@ int RunMetalTests(const CliOptions& opt) {
         std::filesystem::remove_all(seriesDir, ec);
     }
 
+    // ---- 6. dyed paper fading from a color alone: K/S = K/S_paper + c(t) max(0, K/S_color - K/S_paper) ----
+    {
+        const DyeFading model({ { 0, 1.0 }, { 50, 0.6 }, { 150, 0.2 } }, 0.9);
+        const Real ksPaper = DyeFading::ks(0.9);
+        auto worst = [&](std::initializer_list<Real> colors, std::initializer_list<Real> times, const std::function<Real(Real, Real)>& want) {
+            Real w = 0;
+            for (Real r : colors) for (Real h : times) w = std::max(w, std::abs(model.fade(r, h) - want(r, h)));
+            return w;
+        };
+        report("dye fading: no change at 0 h", worst({ 0.05, 0.3, 0.7 }, { 0 }, [](Real r, Real) { return r; }), 1e-12);
+        report("dye fading: white and colors brighter than the bare paper never change", worst({ 1.0, 0.95, 0.91 }, { 0, 20, 50, 100, 150, 400 }, [](Real r, Real) { return r; }), 1e-12);
+        report("dye fading: at 50 h (c = 0.6) the K/S of the dye is 0.6 of its value (formula)",
+            worst({ 0.1, 0.3, 0.6, 0.85 }, { 50 }, [&](Real r, Real) { return DyeFading::reflectance(ksPaper + Real(0.6) * (DyeFading::ks(r) - ksPaper)); }), 1e-12);
+        report("dye fading: between the rows c is linear (100 h: c = 0.4)", std::abs(model.concentration(100) - Real(0.4)), 1e-12);
+        report("dye fading: held after the last row, not extrapolated", worst({ 0.1, 0.5 }, { 400 }, [&](Real r, Real) { return model.fade(r, 150); }), 1e-12);
+        Real below = 0, rising = 0;   // the dye only gets lighter, and never lighter than the bare paper
+        for (Real r : { 0.05, 0.2, 0.5, 0.8 }) {
+            Real prev = r;
+            for (Real h : { 10, 50, 100, 150 }) {
+                const Real f = model.fade(r, h);
+                rising = std::max(rising, prev - f);
+                below = std::max(below, f - Real(0.9));
+                prev = f;
+            }
+        }
+        report("dye fading: a dye only gets lighter with time", rising, 1e-12);
+        report("dye fading: and never lighter than the bare paper", below, 1e-12);
+
+        // the surface: the exposure sets the hours, the fastness multiplies them; the covered border keeps the color
+        ExposureField covered;
+        covered.hasMat = true; covered.matLeft = covered.matRight = covered.matBottom = covered.matTop = 0.1; covered.matSoft = 0.01;
+        auto shared = std::make_shared<const DyeFading>(model);
+        const Vector3 rgb(0.8, 0.2, 0.15);
+        const DyeFadingSurface surface(shared, rgb, nullptr, covered, 150, 0, 1);
+        const DyeFadingSurface fast(shared, rgb, nullptr, covered, 75, 0, 2);   // twice as fugitive for half the time
+        auto at = [](Real u, Real v) { SurfaceInteraction r; r.uv = UV(u, v); return r; };
+        report("dye fading, surface: the covered border keeps its color", glm::length(surface.rgbAt(at(0.03, 0.5)) - rgb), 1e-12);
+        const Vector3 open = surface.rgbAt(at(0.5, 0.5));
+        report("dye fading, surface: the open middle is every channel faded 150 h", glm::length(open - Vector3(model.fade(rgb.x, 150), model.fade(rgb.y, 150), model.fade(rgb.z, 150))), 1e-12);
+        report("dye fading, surface: fastness 2 for half the hours is the same", glm::length(fast.rgbAt(at(0.5, 0.5)) - open), 1e-12);
+        report("dye fading in a Lambertian: its albedo is the surface's color", glm::length(Lambertian(std::make_shared<const DyeFadingSurface>(surface)).aovAlbedo(at(0.5, 0.5)) - glm::clamp(open, Vector3(0.0), Vector3(1.0))), 1e-12);
+    }
+
     std::cout << "[Metals] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

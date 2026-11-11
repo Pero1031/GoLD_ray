@@ -71,6 +71,29 @@ bool MakeSpectrum(const SpectrumSpec& s, EmissionSpectrum& out) {
     return false;
 }
 
+// The exposure over a surface (the "map", "mat", "gradient" and "noise" of a "fading" material).
+bool MakeExposureField(const MaterialSpec& m, const std::string& name, ExposureField& field) {
+    if (!m.fadingMap.empty()) {
+        field.map = Texture2D::load(m.fadingMap);
+        if (!field.map) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the exposure map " << m.fadingMap << "\n"; return false; }
+    }
+    if (m.fadingMat) {
+        field.hasMat = true;
+        field.matLeft = Real(m.fadingMatInset[0]); field.matRight = Real(m.fadingMatInset[1]);
+        field.matBottom = Real(m.fadingMatInset[2]); field.matTop = Real(m.fadingMatInset[3]);
+        field.matSoft = Real(m.fadingMatSoft);
+    }
+    if (m.fadingGradient) {
+        field.hasGradient = true;
+        field.bright = m.fadingBright; field.dark = m.fadingDark; field.gradientExponent = Real(m.fadingGradientExponent);
+    }
+    if (m.fadingNoiseAmount > 0) {
+        field.noise = std::make_shared<NoiseDensity>(Real(m.fadingNoiseFrequency), m.fadingNoiseOctaves, Real(0.35), Real(0.65), std::uint32_t(m.fadingNoiseSeed));
+        field.noiseAmount = Real(m.fadingNoiseAmount);
+    }
+    return true;
+}
+
 } // namespace
 
 std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
@@ -104,6 +127,31 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const SpectralTexture>(tex));
                 break;
             }
+            if (m.fadingDye) {   // a color alone (RGB or an image) of dyed paper: the dye concentration table fades its smooth spectrum
+                std::shared_ptr<const DyeFading> model;
+                std::string err;
+                if (!DyeFading::load(m.fadingModel, Real(m.fadingPaper), model, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": fading model " << m.fadingModel << ": " << err << "\n";
+                    return 1;
+                }
+                std::shared_ptr<const Texture2D> image;
+                if (!m.fadingImage.empty()) {
+                    image = Texture2D::load(m.fadingImage);
+                    if (!image) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the image " << m.fadingImage << "\n"; return 1; }
+                }
+                ExposureField field;
+                if (!MakeExposureField(m, name, field)) return 1;
+                const Real exposed = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
+                const Real unexposed = std::min(Real(m.fadingUnexposedHours), exposed);
+                std::cout << "[SceneFile] material \"" << name << "\": dyed paper " << (image ? m.fadingImage : "of the given color") << " faded " << unexposed << " to " << exposed
+                    << " h" << (field.any() ? " (the exposure varies over the surface)" : "") << ", fastness " << m.fadingFastness << ", dye left " << model->concentration(unexposed * Real(m.fadingFastness))
+                    << " to " << model->concentration(exposed * Real(m.fadingFastness)) << " (the table covers " << model->firstHours() << " to " << model->lastHours() << " h)\n";
+                if (exposed * Real(m.fadingFastness) > model->lastHours())
+                    std::cout << "[SceneFile]   warning: beyond the last measured time; the dye is held at its last concentration, not extrapolated\n";
+                std::cout << "[SceneFile]   dyed paper only: the model was checked on dyed paper (about 5 CIEDE2000 off), not on pigments; saturated colors are off by 2 to 4 more (the RGB to spectrum conversion)\n";
+                materials[name] = std::make_shared<Lambertian>(std::make_shared<const DyeFadingSurface>(model, m.fadingRgb, image, std::move(field), exposed, unexposed, Real(m.fadingFastness)));
+                break;
+            }
             if (!m.fadingSeries.empty() && m.hasExposureField()) {   // the exposure varies over the surface: the curve is chosen at every hit
                 io::FadingSeries series;
                 std::string err;
@@ -112,24 +160,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     return 1;
                 }
                 ExposureField field;
-                if (!m.fadingMap.empty()) {
-                    field.map = Texture2D::load(m.fadingMap);
-                    if (!field.map) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the exposure map " << m.fadingMap << "\n"; return 1; }
-                }
-                if (m.fadingMat) {
-                    field.hasMat = true;
-                    field.matLeft = Real(m.fadingMatInset[0]); field.matRight = Real(m.fadingMatInset[1]);
-                    field.matBottom = Real(m.fadingMatInset[2]); field.matTop = Real(m.fadingMatInset[3]);
-                    field.matSoft = Real(m.fadingMatSoft);
-                }
-                if (m.fadingGradient) {
-                    field.hasGradient = true;
-                    field.bright = m.fadingBright; field.dark = m.fadingDark; field.gradientExponent = Real(m.fadingGradientExponent);
-                }
-                if (m.fadingNoiseAmount > 0) {
-                    field.noise = std::make_shared<NoiseDensity>(Real(m.fadingNoiseFrequency), m.fadingNoiseOctaves, Real(0.35), Real(0.65), std::uint32_t(m.fadingNoiseSeed));
-                    field.noiseAmount = Real(m.fadingNoiseAmount);
-                }
+                if (!MakeExposureField(m, name, field)) return 1;
                 const Real exposed = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
                 const Real unexposed = std::min(Real(m.fadingUnexposedHours), exposed);
                 std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.fadingSeries << "/" << m.fadingColor << ", exposure varies over the surface: "

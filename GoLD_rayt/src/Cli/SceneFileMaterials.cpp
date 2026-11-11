@@ -67,10 +67,28 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& f = m.at("fading");
             const std::string fw = where + ".fading";
             if (!f.is_object()) Fail(fw, "must be { \"series\": the folder of a measured series, \"color\": a patch of it, \"hours\": the hours of exposure }");
-            CheckKeys(f, { "series", "color", "hours", "unexposedHours", "map", "mat", "gradient", "noise" }, fw);
-            if (!f.contains("series") || !f.contains("color")) Fail(fw, "needs a \"series\" (the folder with hours.csv and r1, r2, ...) and a \"color\" (the patch)");
-            s.fadingSeries = ReadString(f.at("series"), fw + ".series");
-            s.fadingColor = ReadString(f.at("color"), fw + ".color");
+            CheckKeys(f, { "series", "color", "rgb", "image", "model", "fastness", "paper", "hours", "unexposedHours", "map", "mat", "gradient", "noise" }, fw);
+            // the source: a measured series ("series" + "color"), or a color alone ("rgb" or "image" + the table "model"): a dyed paper
+            const int sources = int(f.contains("series")) + int(f.contains("rgb")) + int(f.contains("image"));
+            if (sources != 1 || (f.contains("series") != f.contains("color")) || (!f.contains("series") && f.contains("color")))
+                Fail(fw, "needs a measured series (\"series\": the folder with hours.csv and r1, r2, ... and \"color\": the patch) or a color of dyed paper (\"rgb\" or \"image\", and \"model\": the table of the dye concentration), not both");
+            if (f.contains("series")) {
+                s.fadingSeries = ReadString(f.at("series"), fw + ".series");
+                s.fadingColor = ReadString(f.at("color"), fw + ".color");
+                for (const char* key : { "model", "fastness", "paper" })
+                    if (f.contains(key)) Fail(fw + "." + key, "belongs to a color of dyed paper (\"rgb\" or \"image\"), not to a measured series");
+            }
+            else {
+                s.fadingDye = true;
+                if (f.contains("rgb")) s.fadingRgb = ReadColor(f.at("rgb"), fw + ".rgb");
+                Optional<std::string>(f, "image", fw, s.fadingImage, ReadString);
+                if (!f.contains("model")) Fail(fw, "a color of dyed paper needs a \"model\": the CSV table (hours, c) of the dye concentration, from tools/data/fading_dye_model.py");
+                s.fadingModel = ReadString(f.at("model"), fw + ".model");
+                Optional<double>(f, "fastness", fw, s.fadingFastness, ReadNumber);
+                Optional<double>(f, "paper", fw, s.fadingPaper, ReadNumber);
+                if (!(s.fadingFastness > 0)) Fail(fw + ".fastness", "must be above 0 (1 = as the measured dyes; 2 = a dye that fades twice as fast)");
+                if (!(s.fadingPaper > 0.1 && s.fadingPaper < 1)) Fail(fw + ".paper", "must be between 0.1 and 1 (the reflectance of the bare paper)");
+            }
             Optional<double>(f, "hours", fw, s.fadingHours, ReadNumber);
             Optional<double>(f, "unexposedHours", fw, s.fadingUnexposedHours, ReadNumber);
             if (s.fadingHours < 0) Fail(fw + ".hours", "must not be negative");
@@ -120,7 +138,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             if (s.hasExposureField() && s.fadingUnexposedHours > s.fadingHours)
                 Fail(fw, "\"unexposedHours\" must not exceed \"hours\" (the hours where the surface got all the exposure)");
         }
-        if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) + int(!s.fadingSeries.empty()) > 1)
+        if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) + int(!s.fadingSeries.empty() || s.fadingDye) > 1)
             Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)), \"reflectanceTexture\" (a .sptex spectral image) or \"fading\" (a measured series over time), not several");
     }
     else if (type == "conductor") {
@@ -395,7 +413,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         }
     }
     else if (type == "skin") {   // "albedo", "roughness", "specular", "scatterDistanceMm": [r, g, b] (turns subsurface scattering on), "sssScale", "relief": { ... }
-        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "randomWalk", "relief", "pigment", "gloss", "film", "scatter", "lotion", "foundation" }, where);
+        CheckKeys(m, { "type", "albedo", "roughness", "specular", "scatterDistanceMm", "sssScale", "randomWalk", "relief", "pigment", "gloss", "film", "primer", "scatter", "lotion", "foundation" }, where);
         s.type = MaterialSpec::Type::Skin;
         s.albedo = Vector3(0.80, 0.52, 0.42);
         s.roughness = 0.5;
@@ -516,6 +534,21 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
                 Fail(fw, "needs thicknessUm >= 0, ior between 1 and 2.5, roughness between 0 and 1 and softnessUm above 0");
             s.skinFilmOn = s.skinFilmThicknessUm > 0;   // 0 = no film
         }
+        if (m.contains("primer")) {   // "primer": { "thicknessUm": mean thickness, "ior", "roughness", "softnessUm" }: a layer under the foundation that fills the furrows and pores (needs "relief")
+            const json& pm = m.at("primer");
+            const std::string pw = where + ".primer";
+            if (!pm.is_object()) Fail(pw, "must be an object (thicknessUm, ior, roughness, softnessUm)");
+            CheckKeys(pm, { "thicknessUm", "ior", "roughness", "softnessUm" }, pw);
+            if (!s.skinRelief) Fail(pw, "needs a \"relief\" (the primer fills its furrows and pores)");
+            if (m.contains("film") || m.contains("lotion")) Fail(pw, "is a film of its own: write either \"primer\" or \"film\" / \"lotion\"");
+            Optional<double>(pm, "thicknessUm", pw, s.skinPrimerThicknessUm, ReadNumber);
+            Optional<double>(pm, "ior", pw, s.skinPrimerIor, ReadNumber);
+            Optional<double>(pm, "roughness", pw, s.skinPrimerRoughness, ReadNumber);
+            Optional<double>(pm, "softnessUm", pw, s.skinPrimerSoftnessUm, ReadNumber);
+            if (!(s.skinPrimerThicknessUm >= 0) || !(s.skinPrimerIor >= 1 && s.skinPrimerIor <= 2.5) || !(s.skinPrimerRoughness >= 0 && s.skinPrimerRoughness <= 1) || !(s.skinPrimerSoftnessUm > 0))
+                Fail(pw, "needs thicknessUm >= 0, ior between 1 and 2.5, roughness between 0 and 1 and softnessUm above 0");
+            s.skinPrimerOn = s.skinPrimerThicknessUm > 0;   // 0 = no primer
+        }
         if (m.contains("scatter")) {   // "scatter": { "rho0", "frequency", "threshold", "softness", "hydration", "kappaH", "gapUm", "seed" }: the white scatter of flaking (dry) skin
             const json& sc = m.at("scatter");
             const std::string sw = where + ".scatter";
@@ -538,6 +571,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const std::string fw = where + ".foundation";
             if (!fd.is_object()) Fail(fw, "must be an object (preset, thickness, diffuserFraction, diffuserAlbedo, plateletAlbedo, g1, g2, lobeWeight, plateletRoughness, plateletTiltDeg)");
             CheckKeys(fd, { "preset", "thickness", "diffuserFraction", "diffuserAlbedo", "plateletAlbedo", "g1", "g2", "lobeWeight", "plateletRoughness", "plateletTiltDeg", "leveling" }, fw);
+            if (m.contains("primer")) s.fndLeveling = 0;   // the primer sets the shape of the layer's surface; "leveling" then only flattens it further
             Optional<double>(fd, "leveling", fw, s.fndLeveling, ReadNumber);
             if (!(s.fndLeveling >= 0 && s.fndLeveling <= 1)) Fail(fw + ".leveling", "must be between 0 (the layer follows the skin relief) and 1 (it levels it)");
             CosmeticLayer::Params cp;

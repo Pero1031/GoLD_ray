@@ -47,6 +47,10 @@ struct MaterialSpec {
     std::string reflectanceTexture;                // diffuse: a measured reflectance per texel R(u, v, lambda) (.sptex, Core/SpectralTexture.hpp)
     std::string fadingSeries, fadingColor;         // diffuse: a measured reflectance that changes with the time of exposure (IO/FadingSeries.hpp):
     double fadingHours = 0;                        //   the series folder, the patch in it, and the hours of exposure ("fading")
+    bool fadingDye = false;                        //   "fading" from a color alone (a dyed paper; Materials/FadingDye.hpp): fadingRgb or fadingImage, with the table fadingModel
+    Vector3 fadingRgb = Vector3(0.5);
+    std::string fadingImage, fadingModel;
+    double fadingFastness = 1, fadingPaper = 0.9;  //   a multiplier of the time (a more or less fugitive dye); the reflectance of the bare paper the table was made with
     double fadingUnexposedHours = 0;               //   with an exposure field: the hours where nothing reached the surface (hours = where everything did)
     std::string fadingMap;                         //   exposure field: a gray image over the surface's uv (white = exposed)
     bool fadingMat = false;                        //   ... a covered border in uv (a mat board): left, right, bottom, top, and the softness of its edge
@@ -133,7 +137,9 @@ struct MaterialSpec {
     int skinGlossSeed = 1;
     bool skinFilmOn = false;                       //   a liquid film that pools in the furrows (Materials/SkinFilm.hpp, docs/SKIN_MOISTURE.md); needs the relief
     double skinFilmThicknessUm = 5, skinFilmIor = 1.33, skinFilmRoughness = 0.02, skinFilmSoftnessUm = 1.5;
-    bool skinFoundationOn = false;                 //   a layer of foundation make-up on top (Materials/CosmeticLayer.hpp): "foundation"
+    bool skinPrimerOn = false;                     //   a primer that fills the furrows and pores, and that the foundation lies on (Materials/SkinFilm.hpp, docs/COSMETICS.md): "primer"; needs the relief
+    double skinPrimerThicknessUm = 10, skinPrimerIor = 1.40, skinPrimerRoughness = 0.15, skinPrimerSoftnessUm = 3;
+    bool skinFoundationOn = false;                //   a layer of foundation make-up on top (Materials/CosmeticLayer.hpp): "foundation"
     double fndThickness = 0.5, fndDiffuserFraction = 0.9, fndG1 = 0.5, fndG2 = -0.2, fndLobeWeight = 0.7;   //   its optical thickness, share of diffusers, their two lobes
     double fndPlateletRoughness = 0.15, fndPlateletTiltDeg = 0;                                               //   the platelets
     double fndLeveling = 1.0;                                                                                 //   how far the layer levels the skin relief (0: follows it, 1: smooth)
