@@ -37,6 +37,20 @@ const std::vector<Command>& Commands() {
         { { "manifoldcup", "tumbler caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, true); } },
         { { "metals", "metal data checks (file layouts, reflectance input, edge tint)" }, [](const CliOptions& o) { return RunMetalTests(o); } },
         { { "bench", "BVH benchmark: recursive reference vs SAH BVH" }, [](const CliOptions& o) { return RunBvhBenchmark(o); } },
+        { { "rgbspec", "writes the smooth reflectance spectra the engine builds from an RGB color (the basis P_r, P_g, P_b; --out basis.csv)" },
+          [](const CliOptions& o) {
+              const std::string path = o.out.size() > 4 && o.out.substr(o.out.size() - 4) == ".csv" ? o.out : "rgb_basis.csv";
+              std::ofstream f(path);
+              if (!f) { std::cerr << "[RgbSpec] cannot write " << path << "\n"; return 1; }
+              f.precision(10);
+              f << "# R(lambda) = max(0, r P_r + g P_g + b P_b): the spectrum of a linear sRGB reflectance (r, g, b), as the engine upsamples it\n";
+              f << "wavelength_nm,P_r,P_g,P_b\n";
+              for (int l = 380; l <= 780; ++l)
+                  f << l << "," << color::rgbToReflectance(Vector3(1, 0, 0), Real(l)) << "," << color::rgbToReflectance(Vector3(0, 1, 0), Real(l)) << ","
+                    << color::rgbToReflectance(Vector3(0, 0, 1), Real(l)) << "\n";
+              std::cout << "[RgbSpec] wrote " << path << " (R = max(0, r P_r + g P_g + b P_b); white (1,1,1) gives 1 at every wavelength)\n";
+              return 0;
+          } },
     };
     return commands;
 }
