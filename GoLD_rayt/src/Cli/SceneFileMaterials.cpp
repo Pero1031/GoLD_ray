@@ -538,8 +538,15 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& pm = m.at("primer");
             const std::string pw = where + ".primer";
             if (!pm.is_object()) Fail(pw, "must be an object (thicknessUm, ior, roughness, softnessUm)");
-            CheckKeys(pm, { "thicknessUm", "ior", "roughness", "softnessUm" }, pw);
+            CheckKeys(pm, { "thicknessUm", "ior", "roughness", "softnessUm", "color", "opacity" }, pw);
             if (!s.skinRelief) Fail(pw, "needs a \"relief\" (the primer fills its furrows and pores)");
+            if (pm.contains("color")) {   // "color": the colour of an opaque film of the primer; "opacity": how opaque this layer is (the scattering coefficient times its thickness)
+                s.skinPrimerColor = ReadColor(pm.at("color"), pw + ".color");
+                s.skinPrimerTinted = true;
+            }
+            Optional<double>(pm, "opacity", pw, s.skinPrimerOpacity, ReadNumber);
+            if (!(s.skinPrimerOpacity >= 0)) Fail(pw + ".opacity", "must not be negative");
+            if (pm.contains("opacity") && !pm.contains("color")) Fail(pw, "has an \"opacity\" but no \"color\"");
             if (m.contains("film") || m.contains("lotion")) Fail(pw, "is a film of its own: write either \"primer\" or \"film\" / \"lotion\"");
             Optional<double>(pm, "thicknessUm", pw, s.skinPrimerThicknessUm, ReadNumber);
             Optional<double>(pm, "ior", pw, s.skinPrimerIor, ReadNumber);

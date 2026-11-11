@@ -387,6 +387,15 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     const auto primer = std::make_shared<SkinFilm>(pp, relief);
                     skin->setFilm(primer);
                     skin->setPrimerFill(true);
+                    if (m.skinPrimerTinted) {
+                        const KubelkaMunkLayer km(m.skinPrimerColor, Real(m.skinPrimerOpacity));
+                        skin->setPrimerColor(km);
+                        const Vector3 a0 = glm::max(m.albedo, Vector3(1e-3));
+                        const Vector3 seen = km.over(a0);
+                        std::cout << "[Primer] colour layer, opacity " << m.skinPrimerOpacity << ": reflects (" << km.R.x << ", " << km.R.y << ", " << km.R.z << "), lets through ("
+                            << km.T.x << ", " << km.T.y << ", " << km.T.z << "); the diffuse colour of the skin (" << a0.x << ", " << a0.y << ", " << a0.z << ") becomes ("
+                            << seen.x << ", " << seen.y << ", " << seen.z << ")\n";
+                    }
                     std::cout << "[Primer] mean thickness " << m.skinPrimerThicknessUm << " um: the furrows are filled up to the height " << double(primer->level()) * 1e6
                         << " um of the relief, index " << m.skinPrimerIor << ", roughness " << m.skinPrimerRoughness << "\n";
                 }

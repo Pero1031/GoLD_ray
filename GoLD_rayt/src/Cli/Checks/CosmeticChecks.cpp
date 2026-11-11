@@ -472,6 +472,38 @@ int RunCosmeticTests(const CliOptions& opt) {
         report("primer: the layer's normal is flatter the thicker the primer", decreasing && thickest < 0.6 * bare,
             "mean tilt " + Fixed(bare, 2) + " deg with no primer, " + Fixed(thickest, 2) + " deg with 60 um");
     }
+    {   // (c4) a coloured primer: the Kubelka-Munk layer (limits, energy, the layers add up), and the colour it gives the skin
+        const Vector3 color(0.50, 0.70, 0.45);
+        const KubelkaMunkLayer none(color, 0), thick(color, 60), white(Vector3(1.0), 0.5), tinted(color, 0.5);
+        const bool limits = glm::length(none.R) < 1e-6 && glm::length(none.T - Vector3(1.0)) < 1e-6 && glm::length(thick.R - color) < 1e-3 && glm::length(thick.T) < 1e-3;
+        report("primer colour: no layer lets everything through, an opaque one has its own colour", limits,
+            "R " + Fixed(none.R.x, 3) + " at X = 0, R " + Fixed(thick.R.x, 3) + ", " + Fixed(thick.R.y, 3) + ", " + Fixed(thick.R.z, 3) + " at X = 60 (colour 0.50, 0.70, 0.45)");
+        report("primer colour: energy (without absorption R + T = 1, with it less)", std::abs(white.R.x + white.T.x - 1) < 1e-5 && tinted.R.x + tinted.T.x < 1 && tinted.R.y + tinted.T.y < 1,
+            "white " + Fixed(white.R.x + white.T.x, 5) + ", coloured " + Fixed(tinted.R.x + tinted.T.x, 3) + ", " + Fixed(tinted.R.y + tinted.T.y, 3));
+        const KubelkaMunkLayer a(color, 0.3), b(color, 0.7), ab(color, 1.0);
+        double worst = 0;
+        for (int c = 0; c < 3; ++c) {   // two layers of the same material on each other are one layer of the sum of the thicknesses
+            const double r = a.R[c] + a.T[c] * a.T[c] * b.R[c] / (1 - a.R[c] * b.R[c]), t = a.T[c] * b.T[c] / (1 - a.R[c] * b.R[c]);
+            worst = std::max({ worst, std::abs(r - ab.R[c]), std::abs(t - ab.T[c]) });
+        }
+        report("primer colour: a layer of 0.3 on a layer of 0.7 is a layer of 1.0", worst < 1e-5, "largest difference " + Fixed(worst, 7));
+        auto skin = makeSkin(false);
+        const auto relief = std::make_shared<SkinRelief>(SkinRelief::Params{});
+        skin->setRelief(relief);
+        const Vector3 wo = Dir(40, 0, false);
+        SurfaceInteraction before = flatHit(skin.get(), wo);
+        before.p = Point3(0.001, 0.002, 0.0);
+        skin->perturbShading(before, wo);
+        skin->setPrimerColor(tinted);
+        SurfaceInteraction after = flatHit(skin.get(), wo);
+        after.p = before.p;
+        skin->perturbShading(after, wo);
+        const Vector3 a0 = Vector3(0.80, 0.52, 0.42), expect = tinted.over(a0) / a0;
+        const double ratioBefore = a0.x / a0.y, ratioAfter = double(a0.x * after.albedoTint.x) / double(a0.y * after.albedoTint.y);
+        report("primer colour: the skin's colour under a green layer (factor on the albedo)",
+            glm::length(before.albedoTint - Vector3(1.0)) < 1e-6 && glm::length(after.albedoTint - expect) < 1e-4 && ratioAfter < ratioBefore,
+            "factor (" + Fixed(after.albedoTint.x, 3) + ", " + Fixed(after.albedoTint.y, 3) + ", " + Fixed(after.albedoTint.z, 3) + "); red / green of the skin " + Fixed(ratioBefore, 3) + " -> " + Fixed(ratioAfter, 3));
+    }
     {   // (d) white furnace: a white ball under a layer that absorbs nothing stays white (the skin's mirror-like lobe is only seen through the light that
         //     crosses the layer without a collision, so a few percent may be missing), and a skin ball under a foundation is never brighter than 1
         auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));

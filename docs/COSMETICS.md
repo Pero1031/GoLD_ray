@@ -183,6 +183,39 @@ D. Lanza, J. Padrón-Griffe, A. Pranovich, A. Muñoz, J. R. Frisvad, A. Jarabo, 
 - **ソフトフォーカス（光が横に広がって、肌の細部がぼける効果）は入っていない。** 層が薄く、光は入った点から出るという仮定のため。別の設計が要る。
 - 色の補正（緑の下地など）は未実装（粒子の色で近い絵は作れる見込み）。化粧水・乳液の上に重ねること（`film`・`lotion` との併用）も未対応。
 
+### 4.2 色つきの下地（簡易版。2026-11-12）
+
+**使い方:** `primer` に `color` と `opacity` を足す。
+
+```jsonc
+"primer": { "thicknessUm": 10, "color": [0.55, 0.72, 0.48], "opacity": 0.6 }   // 緑の下地
+```
+
+**モデル:** 下地を、Kubelka-Munk の層（二流束）にする（`Materials/KubelkaMunkLayer.hpp`）。`color` = 無限に厚い膜の色 R∞（Ikkai 2023 の「固有色」）、`opacity` = X = S·D（散乱係数 × 厚さ）。チャンネルごとに a = (R∞ + 1/R∞)/2、b = √(a² − 1) として、層だけの反射 R = sinh(bX)/(a sinh bX + b cosh bX)、透過 T = b/(a sinh bX + b cosh bX)。肌の拡散色 A は、層の下で **R + T²A/(1 − RA)** になる（Kubelka 1954。Doi ら 2005、Yoshida・Okiyama 2021 の 2 層の式と同じ）。
+
+**肌への入れ方:** 色素（`pigment`）と同じ道を使う: 肌の拡散色にかける係数 `albedoTint` にする（表面下散乱があれば、入るときと出るときに平方根ずつ）。その上のファンデは、新しい色を肌として見る。**変わるのは拡散色だけ**: 肌の艶（皮脂）は下地の上面の法線に従うまま（4.1 節）、表面下散乱の広がりは肌のまま。
+
+**検査**（`--scene cosmetic` の c4。RGB で PASS）: 層なし（X = 0）で R = 0・T = 1、X = 60 で R = R∞、T = 0、吸収がなければ R + T = 1、**厚さ 0.3 の層の上に 0.7 の層 = 厚さ 1.0 の層**（Kubelka の加法性。差 10⁻⁷ 以下）、肌の色の係数が式どおり。
+
+**描いてみた結果**（`skin_lamp_dry.json` の接写、赤みを強く（`rednessStrength` 1.0）、下地 10 µm、色 (0.55, 0.72, 0.48)、480 px・64 spp。数値は、ハイライトを除いた 16 × 16 ブロックの log(R/G)）:
+
+| | 平均 | ばらつき（標準偏差） |
+|---|---|---|
+| 下地なし | 0.386 | 0.0200 |
+| 無色の下地 | 0.402 | 0.0203 |
+| 緑、opacity 0.3 | 0.234 | 0.0110 |
+| 緑、opacity 0.6 | 0.121 | 0.0084 |
+| 緑、opacity 1.2 | −0.015 | 0.0066 |
+
+- 厚くするほど、赤みが減り、赤みのむら（そばかすの暗さも）が隠れる。opacity 0.6 で、赤みは約 3 分の 1、むらは約 4 割。
+- **opacity 1.2 では、肌が灰緑色になる**（R ≈ G）。美容記事の「赤みのない肌に緑は不健康に見える」という注意と同じ向き。
+- 無色の下地は、色もむらも変えない（皮溝が埋まって、艶が丸くなるだけ）。
+
+**根拠と限界:**
+- 補色の効果が出る、という確認は、**この計算の中だけ**（実際の下地の色や K、S の実測はない）。`color` と `opacity` は目で決めた値。実測には、黒と白の板の上に塗って、厚い層と薄い層の反射率を測る（Huang 2013、Ikkai 2023 の方法）。
+- 二流束は拡散光の理論で、角度依存と層内の横の広がりを持たない。層の色は RGB から分光への変換（上げ底）で、**分光の違い（メタメリズム）は出ない**（Ikkai の、650 nm 以上の赤の反射の差は表せない）。
+- 艶は、色つきの層を通らない（鏡面は膜の上面で反射する扱い）。拡散色の係数としての近似なので、層の反射が方向を持つ（鏡面的な）下地は表せない。
+
 ## 5. 論文との違い・限界
 
 - **検証は、層の計算の内部の整合と、論文の図 4・6 との目での比較まで。** 4 製品のうち 3 つは合い、マット 1 は合わない（3 節）。論文の測定データ（数値）とは、照合していない。
@@ -208,4 +241,8 @@ D. Lanza, J. Padrón-Griffe, A. Pranovich, A. Muñoz, J. R. Frisvad, A. Jarabo, 
 - D. Lanza ほか, "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024.（本文を読んだ）
 - Y. Guo, M. Hašan, S. Zhao, "Position-free Monte Carlo simulation for arbitrary layered BSDFs", *ACM Trans. Graph.* 37(6), 2018.（上の論文からの孫引き。未読）
 - E. Heitz, J. Dupuy, C. Crassin, C. Dachsbacher, "The SGGX microflake distribution", *ACM Trans. Graph.* 34(4), 2015.（板の法線の分布と、その標本抽出。記憶から実装し、数値積分で確かめた）
-- K. Yoshida, N. Okiyama, "Estimation of reflectance, transmittance, and absorbance of cosmetic foundation layer on skin using translucency of skin", *Optics Express* 29(24), 2021.（層の実測値の出典の候補。要旨のみ）
+- K. Yoshida, N. Okiyama, "Estimation of reflectance, transmittance, and absorbance of cosmetic foundation layer on skin using translucency of skin", *Optics Express* 29(24), 40038–40050, 2021, doi:10.1364/OE.442219.（全文を読んだ: 層の r_F、t_F、a_F を肌の上で測る。式 R = r_F + t_F² r_S/(1 − r_F r_S)）
+- M. Doi, R. Ohtsuki, S. Tominaga, "Spectral Estimation of Skin Color with Foundation Makeup", *SCIA 2005*, LNCS 3540, 95–104.（全文を読んだ: Kubelka-Munk の 2 層、K・S は厚い層と薄い層を黒い背景の上で測る）
+- C.-G. Huang, T.-S. Huang, W.-C. Lin, J.-H. Chuang, "Physically based cosmetic rendering", *Computer Animation and Virtual Worlds* 24(3–4), 275–283, 2013, doi:10.1002/cav.1523.（全文を読んだ）
+- F. Ikkai, C. Blaksley, R. Hayashi, A. Jaspers, "Cosmetic effects of red-light reflection by ultramarine blue pigment", *Int. J. Cosmet. Sci.*, 2023, doi:10.1111/ics.12849.（全文を読んだ: 固有色の測り方、黒と白の人工皮膚、隠す力の定義）
+- P. Kubelka, "New Contributions to the Optics of Intensely Light-Scattering Materials. Part II: Nonhomogeneous Layers", *J. Opt. Soc. Am.* 44(4), 330–335, 1954.（上の論文からの孫引き。未読）

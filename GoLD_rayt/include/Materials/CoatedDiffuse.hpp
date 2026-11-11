@@ -38,6 +38,7 @@
 #include "Materials/SkinRelief.hpp"
 #include "Materials/SkinPigment.hpp"
 #include "Materials/SkinFilm.hpp"
+#include "Materials/KubelkaMunkLayer.hpp"
 #include "Materials/SkinScatter.hpp"
 #include "Materials/CosmeticLayer.hpp"
 #include "Materials/DensityField.hpp"
@@ -105,6 +106,11 @@ namespace rayt {
         /// The film (setFilm) is a primer: the surface of the foundation layer (setCosmetic) is the top of the film, not the bent skin normal. Where the primer fills a
         /// furrow, the layer's normal is almost flat; on a bare ridge it follows the skin. `leveling` of setCosmetic then flattens it further (0 = the primer decides alone).
         void setPrimerFill(bool on) { m_primerFill = on; }
+
+        /// The primer is coloured: a Kubelka-Munk layer (Materials/KubelkaMunkLayer.hpp) between the skin and everything above it. The diffuse colour of the skin
+        /// becomes R + T^2 A / (1 - R A). It enters like a pigment (rec.albedoTint, half going in and half coming out with subsurface scattering), so the layers above
+        /// see the new colour. Only the diffuse colour changes: the gloss and the subsurface spread are the skin's own. Set before rendering.
+        void setPrimerColor(const KubelkaMunkLayer& layer) { m_primerColor = layer; m_hasPrimerColor = true; }
 
         /// A white local scatter of flaking skin (Materials/SkinScatter.hpp): a third lobe, a Lambertian reflection under the coat that takes its share of the light
         /// that enters (what is left goes to the diffuse lobe or the subsurface event). A liquid film (setFilm) cuts it by index matching. Set before rendering.
@@ -247,6 +253,8 @@ namespace rayt {
         std::shared_ptr<const CosmeticCoat> m_cosmetic;
         Real m_cosmeticLeveling = Real(1);
         bool m_primerFill = false;
+        KubelkaMunkLayer m_primerColor;
+        bool m_hasPrimerColor = false;
         /// The normal of the make-up layer at this hit: the levelled one where perturbShading set it, else the shading normal.
         const Vector3& layerNormal(const SurfaceInteraction& rec) const { return glm::dot(rec.nl, rec.nl) > Real(0) ? rec.nl : rec.n; }
         /// The frame of the make-up layer: its normal, and the tangent of the shape where it gives one. With an arbitrary tangent the direction a
@@ -290,13 +298,17 @@ namespace rayt {
         Real m_glossAmount = Real(0);
         Real m_poreDark = Real(0);
 
-        bool hasPigment() const { return m_pigment || (m_poreDark > Real(0) && m_relief); }
+        bool hasPigment() const { return m_pigment || (m_poreDark > Real(0) && m_relief) || m_hasPrimerColor; }
 
-        /// The reflectance multiplier of the pigment and of the pores at p.
+        /// The reflectance multiplier of the pigment and of the pores at p, and of the coloured primer over them.
         Vector3 pigmentFactor(const Point3& p, const Vector3& n) const {
             Vector3 f(1.0);
             if (m_pigment) f *= m_pigment->factor(p);
             if (m_poreDark > Real(0) && m_relief) f *= Vector3(1.0) - m_poreDark * m_relief->poreMask(p, n) * Vector3(0.30, 0.42, 0.45);
+            if (m_hasPrimerColor) {   // the skin colour (with its pigment) under the coloured primer: R + T^2 A / (1 - R A)
+                const Vector3 a0 = glm::max(m_albedo.rgb(), Vector3(1e-3));
+                f = m_primerColor.over(glm::clamp(a0 * f, Vector3(0.0), Vector3(0.999))) / a0;
+            }
             return f;
         }
 

@@ -139,6 +139,9 @@ struct MaterialSpec {
     double skinFilmThicknessUm = 5, skinFilmIor = 1.33, skinFilmRoughness = 0.02, skinFilmSoftnessUm = 1.5;
     bool skinPrimerOn = false;                     //   a primer that fills the furrows and pores, and that the foundation lies on (Materials/SkinFilm.hpp, docs/COSMETICS.md): "primer"; needs the relief
     double skinPrimerThicknessUm = 10, skinPrimerIor = 1.40, skinPrimerRoughness = 0.15, skinPrimerSoftnessUm = 3;
+    bool skinPrimerTinted = false;                 //   the primer is coloured: a Kubelka-Munk layer of intrinsic colour skinPrimerColor and opacity skinPrimerOpacity (Materials/KubelkaMunkLayer.hpp)
+    Vector3 skinPrimerColor = Vector3(1.0);
+    double skinPrimerOpacity = 0.5;
     bool skinFoundationOn = false;                //   a layer of foundation make-up on top (Materials/CosmeticLayer.hpp): "foundation"
     double fndThickness = 0.5, fndDiffuserFraction = 0.9, fndG1 = 0.5, fndG2 = -0.2, fndLobeWeight = 0.7;   //   its optical thickness, share of diffusers, their two lobes
     double fndPlateletRoughness = 0.15, fndPlateletTiltDeg = 0;                                               //   the platelets
