@@ -382,6 +382,15 @@ The emulsion is milky at first and leaves a film of oil, which keeps the patches
 
 <img src="docs/img/skin_lotion_series.png" alt="Close-ups of skin over an hour: a lotion alone, and a lotion followed by an emulsion" width="820">
 
+**Faded paper under an LED mix**: the material is a measurement. Dye papers were measured again and again while they faded under simulated
+sunlight (0 to 150 hours; a lab measurement, not part of this repository), and the reflectance at any hour is the blend of the two nearest
+measured rounds. The exposure varies over the surface (`fading` in a scene file: a covered border, a gradient, noise): a mat board kept the rim of each
+sheet at its original color, and the cup of rolled paper by the window faded on the window side. The light is a sum of LED spectra (weights fitted to
+3500 K), rendered spectrally. Where the exposure fell is an assumption of the picture; the measurements give reflectance against time only.
+1200 x 675, 256 spp, OIDN-denoised, under 2 minutes.
+
+<img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
+
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
 which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
