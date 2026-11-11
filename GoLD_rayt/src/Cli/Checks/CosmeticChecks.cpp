@@ -424,6 +424,54 @@ int RunCosmeticTests(const CliOptions& opt) {
                 "largest tilt of the layer's normal " + Fixed(worstTilt, 2) + " deg (skin normal: " + Fixed(meanBent, 2) + " deg on average); " + Fixed(mS) + " and " + Fixed(mE) + " +- " + Fixed(se));
         }
     }
+    {   // (c3) a primer under the layer: the more of it, the flatter the layer's surface (it fills the deep furrows first), and sample() and eval() still agree
+        const auto relief = std::make_shared<SkinRelief>(SkinRelief::Params{});
+        CosmeticLayer::Params p;
+        CosmeticLayer::preset("dewy1", p);
+        p.thickness = 1.0; p.diffuserFraction = 0.6;
+        const auto coat = std::make_shared<CosmeticCoat>(p);
+        const Vector3 wo = Dir(40, 0, false);
+        double previous = 1e9, bare = 0, thickest = 0;
+        bool decreasing = true;
+        for (double um : { 0.0, 5.0, 20.0, 60.0 }) {
+            auto skin = makeSkin(false);
+            skin->setRelief(relief);
+            skin->setCosmetic(coat, Real(0));
+            if (um > 0) {
+                SkinFilm::Params fp;
+                fp.thickness = Real(um * 1e-6); fp.ior = Real(1.40); fp.roughness = Real(0.15); fp.softness = Real(3e-6);
+                skin->setFilm(std::make_shared<SkinFilm>(fp, relief));
+                skin->setPrimerFill(true);
+            }
+            double tilt = 0, sumS = 0, sumE = 0, var = 0;
+            const int tiltPoints = 400, points = 8, per = 20000 * scale;
+            for (int k = 0; k < tiltPoints; ++k) {
+                SurfaceInteraction rec = flatHit(skin.get(), wo);
+                rec.p = Point3(sampling::Random() * 0.005, sampling::Random() * 0.005, 0.0);
+                skin->perturbShading(rec, wo);
+                const Vector3 nl = glm::dot(rec.nl, rec.nl) > 0 ? rec.nl : rec.n;
+                tilt += double(std::acos(std::clamp(nl.z, Real(-1), Real(1)))) * 180 / constants::PI / tiltPoints;
+                if (k >= points) continue;
+                Estimate bySample, byEval;
+                for (int i = 0; i < per; ++i) {
+                    const auto bs = skin->sample(rec, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+                    bySample.add(bs ? double(average(bs->f)) * std::abs(glm::dot(rec.n, bs->wi)) / bs->pdf : 0.0);
+                    const Real r = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+                    const Vector3 wi(r * std::cos(phi), r * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - r * r)));
+                    byEval.add(wi.z > Real(1e-3) ? double(average(skin->eval(rec, wo, wi, lambda, TransportMode::Radiance))) * std::abs(glm::dot(rec.n, wi)) * constants::PI / wi.z : 0.0);
+                }
+                bySample.finish(); byEval.finish();
+                sumS += bySample.mean; sumE += byEval.mean; var += bySample.se * bySample.se + byEval.se * byEval.se;
+            }
+            if (um == 0) bare = tilt; else if (tilt >= previous) decreasing = false;
+            thickest = tilt; previous = tilt;
+            const double mS = sumS / points, mE = sumE / points, se = std::sqrt(var) / points;
+            report("primer " + Fixed(um, 0) + " um: the albedo from sample() and from eval()", std::abs(mS - mE) <= 4 * se + 0.02 * mE && mE < 1.0,
+                "mean tilt of the layer's normal " + Fixed(tilt, 2) + " deg; " + Fixed(mS) + " and " + Fixed(mE) + " +- " + Fixed(se));
+        }
+        report("primer: the layer's normal is flatter the thicker the primer", decreasing && thickest < 0.6 * bare,
+            "mean tilt " + Fixed(bare, 2) + " deg with no primer, " + Fixed(thickest, 2) + " deg with 60 um");
+    }
     {   // (d) white furnace: a white ball under a layer that absorbs nothing stays white (the skin's mirror-like lobe is only seen through the light that
         //     crosses the layer without a collision, so a few percent may be missing), and a skin ball under a foundation is never brighter than 1
         auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));

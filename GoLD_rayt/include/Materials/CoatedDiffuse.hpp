@@ -102,6 +102,10 @@ namespace rayt {
         /// follows the smooth top of the film, with the film's Fresnel reflectance and roughness, where the film covers the skin. Set before rendering.
         void setFilm(std::shared_ptr<const SkinFilm> film) { m_film = std::move(film); }
 
+        /// The film (setFilm) is a primer: the surface of the foundation layer (setCosmetic) is the top of the film, not the bent skin normal. Where the primer fills a
+        /// furrow, the layer's normal is almost flat; on a bare ridge it follows the skin. `leveling` of setCosmetic then flattens it further (0 = the primer decides alone).
+        void setPrimerFill(bool on) { m_primerFill = on; }
+
         /// A white local scatter of flaking skin (Materials/SkinScatter.hpp): a third lobe, a Lambertian reflection under the coat that takes its share of the light
         /// that enters (what is left goes to the diffuse lobe or the subsurface event). A liquid film (setFilm) cuts it by index matching. Set before rendering.
         void setScatter(std::shared_ptr<const SkinScatter> scatter) { m_scatter = std::move(scatter); }
@@ -181,9 +185,11 @@ namespace rayt {
             const Vector3 smoothN = rec.n;
             if (m_relief) rec.n = m_relief->perturb(rec.p, smoothN, wo);
             Real filmThickness = 0;
+            Vector3 layerBase = rec.n;   // what the foundation layer's normal starts from: the bent skin normal, or the top of the primer
             if (m_film && m_relief) {   // the specular lobe follows the top of the film where there is one, the bent skin normal elsewhere
                 const SkinFilm::Hit f = m_film->at(rec.p, smoothN, wo);
                 filmThickness = f.thickness;
+                if (m_primerFill) layerBase = f.normal;
                 rec.filmCover = f.cover;
                 Vector3 ns = glm::normalize(rec.n * (Real(1) - f.cover) + f.normal * f.cover);
                 const Real c = glm::dot(ns, wo);
@@ -191,8 +197,8 @@ namespace rayt {
                 rec.ns = ns;
             }
             if (m_scatter || m_emulTau > Real(0)) rec.surfScatter = scatterTotal(rec.p, smoothN, filmThickness);
-            if (m_cosmetic && m_relief && m_cosmeticLeveling > Real(0)) {   // the make-up levels the relief: its normal goes from the bent one towards the smooth one
-                Vector3 nl = glm::normalize(rec.n * (Real(1) - m_cosmeticLeveling) + smoothN * m_cosmeticLeveling);
+            if (m_cosmetic && m_relief && (m_cosmeticLeveling > Real(0) || (m_primerFill && m_film))) {   // the make-up levels the relief: its normal goes from the bent one (or the primer's top) towards the smooth one
+                Vector3 nl = glm::normalize(layerBase * (Real(1) - m_cosmeticLeveling) + smoothN * m_cosmeticLeveling);
                 const Real c = glm::dot(nl, wo);
                 if (c < Real(0.05)) nl = glm::normalize(nl + wo * (Real(0.05) - c));
                 rec.nl = nl;
@@ -240,6 +246,7 @@ namespace rayt {
         Real m_emulTau = Real(0);
         std::shared_ptr<const CosmeticCoat> m_cosmetic;
         Real m_cosmeticLeveling = Real(1);
+        bool m_primerFill = false;
         /// The normal of the make-up layer at this hit: the levelled one where perturbShading set it, else the shading normal.
         const Vector3& layerNormal(const SurfaceInteraction& rec) const { return glm::dot(rec.nl, rec.nl) > Real(0) ? rec.nl : rec.n; }
         /// The frame of the make-up layer: its normal, and the tangent of the shape where it gives one. With an arbitrary tangent the direction a

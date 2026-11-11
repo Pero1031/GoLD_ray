@@ -380,6 +380,16 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                     skin->setFilm(std::make_shared<SkinFilm>(fp, relief));
                     if (m.skinEmulsionTau > 0) skin->setEmulsion(Real(m.skinEmulsionTau));
                 }
+                if (m.skinPrimerOn) {   // a film with the shape of the liquid film (it pools in the furrows and pores), that the foundation lies on
+                    SkinFilm::Params pp;
+                    pp.thickness = Real(m.skinPrimerThicknessUm * 1e-6); pp.ior = Real(m.skinPrimerIor); pp.roughness = Real(m.skinPrimerRoughness);
+                    pp.softness = Real(m.skinPrimerSoftnessUm * 1e-6);
+                    const auto primer = std::make_shared<SkinFilm>(pp, relief);
+                    skin->setFilm(primer);
+                    skin->setPrimerFill(true);
+                    std::cout << "[Primer] mean thickness " << m.skinPrimerThicknessUm << " um: the furrows are filled up to the height " << double(primer->level()) * 1e6
+                        << " um of the relief, index " << m.skinPrimerIor << ", roughness " << m.skinPrimerRoughness << "\n";
+                }
             }
             if (m.skinScatterOn) {
                 SkinScatter::Params sp;
