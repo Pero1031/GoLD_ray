@@ -54,6 +54,19 @@ bool MakeSpectrum(const SpectrumSpec& s, EmissionSpectrum& out) {
         out = EmissionSpectrum::FromCurve(curve);
         return true;
     }
+    case SpectrumSpec::Kind::Mix: {
+        std::vector<color::SpectralCurve> curves(s.mix.size());
+        std::vector<const color::SpectralCurve*> pointers;
+        std::vector<Real> weights;
+        for (size_t i = 0; i < s.mix.size(); ++i) {
+            std::string err;
+            if (!io::loadSpectralCurveCsv(s.mix[i].first, curves[i], &err)) { std::cerr << "[SceneFile] spectrum " << s.mix[i].first << ": " << err << "\n"; return false; }
+            pointers.push_back(&curves[i]);
+            weights.push_back(Real(s.mix[i].second));
+        }
+        out = EmissionSpectrum::FromCurves(pointers, weights);
+        return true;
+    }
     }
     return false;
 }
@@ -91,20 +104,34 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const SpectralTexture>(tex));
                 break;
             }
-            if (m.reflectance.empty()) {
+            if (m.reflectance.empty() && m.fadingSeries.empty()) {
                 materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
                 break;
             }
-            else {   // a measured reflectance R(lambda): used as is by the spectral build, as its D65 color by the RGB build
+            else {   // a measured reflectance R(lambda), or R(lambda, t) of a fading series: used as is by the spectral build, as its D65 color by the RGB build
                 auto curve = std::make_shared<color::SpectralCurve>();
-                std::string err;
-                if (!io::loadReflectanceCsv(m.reflectance, *curve, &err)) {
+                std::string err, label = m.reflectance;
+                if (!m.fadingSeries.empty()) {
+                    const Real hours = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
+                    io::FadingCurve faded;
+                    if (!io::loadFadingCurve(m.fadingSeries, m.fadingColor, hours, faded, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": fading " << m.fadingSeries << " / " << m.fadingColor << ": " << err << "\n";
+                        return 1;
+                    }
+                    *curve = faded.curve;
+                    label = m.fadingSeries + "/" + m.fadingColor + " after " + std::to_string(int(std::lround(hours))) + " h = round " + std::to_string(faded.roundLo)
+                        + (faded.roundHi != faded.roundLo ? " + " + std::to_string(int(std::lround(faded.blend * 100))) + " % of round " + std::to_string(faded.roundHi) : std::string());
+                    if (faded.clamped)
+                        std::cout << "[SceneFile]   warning: " << hours << " h is outside the measured " << faded.firstHours << " to " << faded.lastHours
+                            << " h; the curve is held at the end of the series, not extrapolated\n";
+                }
+                else if (!io::loadReflectanceCsv(m.reflectance, *curve, &err)) {
                     std::cerr << "[SceneFile] material \"" << name << "\": " << m.reflectance << ": " << err << "\n";
                     return 1;
                 }
                 Real lo = Real(1e9), hi = Real(0);
                 for (const auto& s : curve->samples()) { lo = std::min(lo, s.value); hi = std::max(hi, s.value); }
-                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.reflectance << " (" << curve->firstNm() << "-"
+                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << label << " (" << curve->firstNm() << "-"
                     << curve->lastNm() << " nm, " << lo << " to " << hi << ")\n";
                 if (hi > Real(1)) std::cout << "[SceneFile]   warning: R above 1 (a diffuse surface cannot reflect more than it receives)\n";
                 materials[name] = std::make_shared<Lambertian>(std::shared_ptr<const color::SpectralCurve>(curve));
@@ -342,6 +369,24 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             break;
         }
         }
+    }
+
+    // ---- white balance: --wb adapts the film to the light of the first emission object ----
+    if (opt.whiteBalance) {
+        bool found = false;
+        for (const ObjectSpec& o : d.objects) {
+            const MaterialSpec& spec = d.materials.at(o.material);
+            if (spec.type != MaterialSpec::Type::Emission) continue;
+            EmissionSpectrum spectrum;
+            if (!MakeSpectrum(spec.spectrum, spectrum)) return 1;
+            found = true;
+            const bool done = color::setWhiteBalance(spectrum);
+            std::cout << "[SceneFile] --wb: " << (done ? "the film is white-balanced to the light of material \"" + o.material + "\" (sensor RGB "
+                + std::to_string(spectrum.rgb().x) + ", " + std::to_string(spectrum.rgb().y) + ", " + std::to_string(spectrum.rgb().z) + ")"
+                : "the light of material \"" + o.material + "\" has no usable white; the film is left as it is") << "\n";
+            break;
+        }
+        if (!found) std::cout << "[SceneFile] --wb: no emission object to adapt to (point lights and the environment are not used); the film is left as it is\n";
     }
 
     // ---- objects ----

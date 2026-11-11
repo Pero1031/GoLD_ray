@@ -71,5 +71,6 @@
 #include "IO/PmxMorph.hpp"
 #include "IO/PmxPose.hpp"
 #include "IO/SpectralCurveLoader.hpp"
+#include "IO/FadingSeries.hpp"
 
 #include "DebugTools/FrameDebug.hpp"

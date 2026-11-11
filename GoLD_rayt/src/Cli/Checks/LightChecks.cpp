@@ -176,6 +176,36 @@ int RunLightTests(const CliOptions& opt) {
         allPassed = wbCandle && allPassed;
         run("point light, candle with white balance (neutral)", pointScene(candle), Vector3(pointY));
         color::resetWhiteBalance();
+
+        // (g) a mix of sources (LEDs lit together): the sensor color of the weighted sum, scaled to Y = 1. The reference sums the curves by hand.
+        {
+            auto gauss = [](Real center, Real width) {
+                color::SpectralCurve c;
+                for (int l = 380; l <= 780; l += 5) c.add(Real(l), std::exp(Real(-0.5) * std::pow((Real(l) - center) / width, 2)));
+                c.finalize();
+                return c;
+            };
+            const color::SpectralCurve blue = gauss(450, 12), red = gauss(620, 15);
+            const Real wBlue = 0.3, wRed = 1.7;
+            Vector3 sum(0.0);
+            for (int l = 380; l <= 780; ++l) {
+                const Real w = (l == 380 || l == 780) ? Real(0.5) : Real(1);
+                sum += color::rgbSensorWeights(Real(l)) * ((wBlue * blue.evaluate(Real(l)) + wRed * red.evaluate(Real(l))) * w);
+            }
+            const Vector3 expected = sum / (Real(0.2126) * sum.x + Real(0.7152) * sum.y + Real(0.0722) * sum.z);
+            const EmissionSpectrum mix = EmissionSpectrum::FromCurves({ &blue, &red }, { wBlue, wRed });
+            const EmissionSpectrum twice = EmissionSpectrum::FromCurves({ &blue, &red }, { 2 * wBlue, 2 * wRed });
+            const EmissionSpectrum onlyBlue = EmissionSpectrum::FromCurves({ &blue, &red }, { Real(1), Real(0) });
+            auto maxDiff = [](const Vector3& a, const Vector3& b) { const Vector3 d = glm::abs(a - b); return std::max({ d.x, d.y, d.z }); };
+            const Real dSum = maxDiff(mix.rgb(), expected);
+            const Real dScale = maxDiff(mix.rgb(), twice.rgb());
+            const Real dOne = maxDiff(onlyBlue.rgb(), EmissionSpectrum::FromCurve(blue).rgb());
+            const bool okG = dSum < 1e-9 && dScale < 1e-9 && dOne < 1e-9;
+            std::cout << "[Lights]   mix of two sources: |sensor RGB - weighted sum| " << dSum << ", doubling both weights " << dScale
+                << ", weight 0 = the other source alone " << dOne << "   " << (okG ? "OK" : "FAIL") << "\n";
+            allPassed = okG && allPassed;
+            run("point light, mix of two sources", pointScene(mix), mix.rgb() * pointY);
+        }
     }
 
     // Environment maps: reference = dense grid integration of EnvMap::eval.

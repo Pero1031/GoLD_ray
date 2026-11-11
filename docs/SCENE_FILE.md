@@ -61,7 +61,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | type | キー |
 |---|---|
-| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ** |
+| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、`fading`（露光時間で変わる測定反射率。下の「分光放射計のデータを使う」）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ** |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`anisotropy`（−1〜1。> 0: 接線の向きに粗い、< 0: 接線に沿った溝のヘアライン仕上げ）、`rotation`（度。接線を法線の周りに回す）、`multipleScattering` |
 | `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`distanceRoughness`（`{ "roughness", "start", "end" }`: y 軸からの距離が start から end の間に、粗さがこの値まで増える。メッシュで解像できない遠くの小さな波の傾きを、粗さとして返す。海に使う）、`medium`（内側を散乱媒質で満たす。下） |
 | `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
@@ -96,7 +96,9 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 分光放射計の測定データは、`tools/data/sr5100.py` で、2 列の CSV（`波長_nm, 値`）に変換できる（下）。
 
-`spectrum`: プリセット名 `"d65"`・`"tungsten"`・`"candle"`・`"led"`、または `{ "blackbody": 2856 }`、`{ "rgb": [1, 1, 1] }`、`{ "file": "x.csv" }`（波長と値の表）。
+`spectrum`: プリセット名 `"d65"`・`"tungsten"`・`"candle"`・`"led"`、または `{ "blackbody": 2856 }`、`{ "rgb": [1, 1, 1] }`、`{ "file": "x.csv" }`（波長と値の表）、`{ "mix": [ { "file": "led1.csv", "weight": 0.4 }, { "file": "led2.csv", "weight": 1 } ] }`（複数の光源を一緒に点けた和。LED キューブの混色など。重みは 0 以上で、比だけが効く。明るさは `radiance` で決まる）。
+
+`--wb`（オプションでも `"options": { "wb": true }` でも）は、フィルムを**最初の `emission` の物体の光**に順応させる（CAT16。光の色かぶりを取る）。点光源と環境マップは、順応の対象にならない。
 
 **物体（`shape`）**
 
@@ -137,5 +139,7 @@ python tools\data\hsm_texture.py 試料.hsm --white 白.hsm --out 布.sptex --pr
 
 - LED のスペクトルは、`"spectrum": { "file": "光源.csv" }` で指定する（値の単位は何でもよい。明るさは 1 にそろえて使う）。
 - 測定した反射率は、`"type": "conductor", "reflectance": "反射率.csv"` で金属として、`"type": "diffuse", "reflectance": "反射率.csv"` で拡散面（布など）として使える。拡散面では、スペクトル版は曲線をそのまま使い、RGB 版は D65 の下の色に直して使う（測定範囲の外は、端の値で延ばす。1 を超える値は警告）。
+- **露光時間で変わる反射率（退色）**は、`"type": "diffuse", "fading": { "series": "系列のフォルダ", "color": "色", "hours": 45 }` で使う。系列のフォルダは、`hours.csv`（`round,hours`: 各回の露光時間。増える順）と `r1/色.csv`、`r2/色.csv`、…（2 列の反射率 CSV）を持つ。時間が 2 つの回の間なら、2 本の測定曲線を波長ごとに線形に混ぜる（外挿はしない: 最初の回より前、最後の回より後は端の回のまま、警告を出す）。`--fade-hours H` は、ファイルの `hours` を、すべての `fading` 材質について上書きする（時間だけを変えた絵の連続を作るのに使う）。`tools/data/fading_refangle.py` が研究室の退色実験の表を、この形に変換する。検査は `--scene metals` の 5。
+- LED キューブの 1 つずつのスペクトルは `tools/data/ledcube_export.py` で、このレンダラの CSV にできる（最大出力の分光放射輝度。重み = 出力設定）。`mix` に重みつきで並べると、キューブの混色になる。
 - 分光画像（`.hsm`）は、`"type": "diffuse", "reflectanceTexture": "布.sptex"` で、画素ごとの反射率スペクトルのテクスチャになる（`quad` に貼る。スペクトル版は画素のスペクトルを、RGB 版は画素ごとの D65 の色を使う。測定した布を測定と同じ光で描くと、測定画像と色度 0.001、画素の相対差の中央値 3% で一致した）。
 - 測定データは実験データなので、リポジトリには入れない（`assets/Metal_measured/` は Git の対象外）。

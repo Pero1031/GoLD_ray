@@ -249,7 +249,8 @@ struct CliOptions {
     Real camElev = -1;                 // water --water-sky: camera elevation above the table in degrees (< 0: 38)
     Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
-    bool whiteBalance = false;         // spd scene: white-balance the film to the light
+    bool whiteBalance = false;         // --wb: white-balance the film to the light (spd scene; scene files: the first emission material)
+    std::optional<Real> fadeHours;     // --fade-hours H: the hours of exposure of every "fading" material of a scene file (overrides the file)
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
 };
 

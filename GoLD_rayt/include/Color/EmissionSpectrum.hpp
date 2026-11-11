@@ -6,6 +6,7 @@
  *  - EmissionSpectrum(RgbColor)          : the old behavior, RGB x D65 (white = D65).
  *  - EmissionSpectrum::Blackbody(K)      : Planck radiator (candle 1850 K, tungsten A 2856 K, ...).
  *  - EmissionSpectrum::FromCurve(curve)  : any measured / generated SPD (see IO/SpectralCurveLoader.hpp).
+ *  - EmissionSpectrum::FromCurves(...)   : a weighted sum of SPDs (several LEDs lit together).
  *
  * Brightness convention: curve-based lights are scaled so that their luminance Y equals the
  * `luminance` argument. Y = 1 is exactly as bright as RgbColor(1) (= D65, RGB (1,1,1)), so
@@ -43,11 +44,20 @@ namespace rayt {
          * @param luminance Y of the resulting light (1 = as bright as RgbColor(1)).
          */
         static EmissionSpectrum FromCurve(const color::SpectralCurve& curve, Real luminance = Real(1)) {
+            return FromCurves({ &curve }, { Real(1) }, luminance);
+        }
+
+        /**
+         * @brief Emission of several sources lit together: the sum of the curves, each times its weight (a mix of LEDs).
+         *        Only the proportions of the weights matter (the result is scaled to `luminance`); the weights are >= 0.
+         */
+        static EmissionSpectrum FromCurves(const std::vector<const color::SpectralCurve*>& curves, const std::vector<Real>& weights,
+                                           Real luminance = Real(1)) {
             EmissionSpectrum e;
-            std::vector<Real> lut(static_cast<size_t>(kLutLastNm - kLutFirstNm + 1));
-            for (int l = kLutFirstNm; l <= kLutLastNm; ++l) {
-                lut[static_cast<size_t>(l - kLutFirstNm)] = std::max(curve.evaluate(Real(l), color::Extrapolate::Zero), Real(0));
-            }
+            std::vector<Real> lut(static_cast<size_t>(kLutLastNm - kLutFirstNm + 1), Real(0));
+            for (size_t k = 0; k < curves.size() && k < weights.size(); ++k)
+                for (int l = kLutFirstNm; l <= kLutLastNm; ++l)
+                    lut[static_cast<size_t>(l - kLutFirstNm)] += weights[k] * std::max(curves[k]->evaluate(Real(l), color::Extrapolate::Zero), Real(0));
 
             // Sensor RGB of the unscaled SPD (1 nm trapezoid over 380..780, as the sensor's white point).
             Vector3 rgb(0.0);

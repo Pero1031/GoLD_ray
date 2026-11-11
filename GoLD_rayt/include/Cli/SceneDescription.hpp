@@ -18,14 +18,16 @@ struct CameraSpec {
     Real fovDeg = 35.0;
 };
 
-// A light spectrum: a preset (d65 | tungsten | candle | led), a blackbody temperature, an RGB color (x D65) or a table from a CSV file.
+// A light spectrum: a preset (d65 | tungsten | candle | led), a blackbody temperature, an RGB color (x D65), a table from a CSV file,
+// or a weighted sum of tables (a mix of LEDs).
 struct SpectrumSpec {
-    enum class Kind { Preset, Blackbody, Rgb, Curve };
+    enum class Kind { Preset, Blackbody, Rgb, Curve, Mix };
     Kind kind = Kind::Rgb;
     std::string preset;
     double kelvin = 0;
     Vector3 rgb = Vector3(1.0);
     std::string file;
+    std::vector<std::pair<std::string, double>> mix;   // Mix: (CSV file, weight)
 };
 
 // One level of the wrinkle simulation (Materials/WrinkleField.hpp); the fields are those of WrinkleField::Level.
@@ -43,6 +45,8 @@ struct MaterialSpec {
     std::string table;                             // ... or a complex IOR table (RefractiveIndex.info CSV)
     std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
     std::string reflectanceTexture;                // diffuse: a measured reflectance per texel R(u, v, lambda) (.sptex, Core/SpectralTexture.hpp)
+    std::string fadingSeries, fadingColor;         // diffuse: a measured reflectance that changes with the time of exposure (IO/FadingSeries.hpp):
+    double fadingHours = 0;                        //   the series folder, the patch in it, and the hours of exposure ("fading")
     double roughness = 0;                          // conductor, dielectric
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)

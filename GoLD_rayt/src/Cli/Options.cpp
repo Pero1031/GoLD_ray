@@ -145,6 +145,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
             else if (a == "--wb")    o.whiteBalance = true;
+            else if (a == "--fade-hours") o.fadeHours = std::stod(value("--fade-hours"));
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
                 const size_t comma = xy.find(',');

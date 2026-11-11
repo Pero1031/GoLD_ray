@@ -332,6 +332,45 @@ int RunMetalTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 5. a fading series R(lambda, t): three rounds at 0, 30 and 150 h, curves that are linear in wavelength, so the exact answer is known ----
+    {
+        const std::filesystem::path seriesDir = dir / "rayt_fading_series";
+        std::error_code ec;
+        std::filesystem::remove_all(seriesDir, ec);
+        const double hours[3] = { 0, 30, 150 };
+        auto truth = [](int round, Real nm) { return Real(0.9) - Real(0.2) * Real(round - 1) + Real(0.05) * Real(round) * (nm - Real(560)) / Real(120); };
+        std::filesystem::create_directories(seriesDir);
+        {
+            std::ofstream f((seriesDir / "hours.csv").string());
+            f << "round,hours\n";
+            for (int r = 0; r < 3; ++r) f << r + 1 << "," << hours[r] << "\n";
+        }
+        for (int r = 1; r <= 3; ++r) {
+            std::filesystem::create_directories(seriesDir / ("r" + std::to_string(r)));
+            std::ofstream f((seriesDir / ("r" + std::to_string(r)) / "red.csv").string());
+            f.precision(12);
+            f << "# test\nwavelength_nm,reflectance\n";
+            for (int nm = 440; nm <= 680; nm += 20) f << nm << "," << truth(r, Real(nm)) << "\n";
+        }
+        // expected curve: weights (w1, w2, w3) of the three rounds
+        auto worstAgainst = [&](Real h, Real w1, Real w2, Real w3, bool wantClamped) {
+            io::FadingCurve fc; std::string e;
+            if (!io::loadFadingCurve(seriesDir.string(), "red", h, fc, &e)) { std::cout << "[Metals]   fading series load failed: " << e << "   FAIL\n"; allPassed = false; return Real(1); }
+            if (fc.clamped != wantClamped) { std::cout << "[Metals]   fading series: clamped flag wrong at " << h << " h   FAIL\n"; allPassed = false; }
+            Real worst = 0;
+            for (int nm = 440; nm <= 680; nm += 10)   // between the stored wavelengths too
+                worst = std::max(worst, std::abs(fc.curve.evaluate(Real(nm)) - (w1 * truth(1, Real(nm)) + w2 * truth(2, Real(nm)) + w3 * truth(3, Real(nm)))));
+            return worst;
+        };
+        report("fading series: exactly at the second round (30 h)", worstAgainst(30, 0, 1, 0, false), 1e-9);
+        report("fading series: halfway between round 1 and 2 (15 h)", worstAgainst(15, 0.5, 0.5, 0, false), 1e-9);
+        report("fading series: a quarter of the way from round 2 to 3 (60 h; the spacing is not even)", worstAgainst(60, 0, 0.75, 0.25, false), 1e-9);
+        report("fading series: the first round (0 h)", worstAgainst(0, 1, 0, 0, false), 1e-9);
+        report("fading series: before the first round (-5 h) is held, and flagged", worstAgainst(-5, 1, 0, 0, true), 1e-9);
+        report("fading series: after the last round (400 h) is held, and flagged", worstAgainst(400, 0, 0, 1, true), 1e-9);
+        std::filesystem::remove_all(seriesDir, ec);
+    }
+
     std::cout << "[Metals] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }

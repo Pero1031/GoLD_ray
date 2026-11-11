@@ -18,14 +18,32 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
         s.preset = v.get<std::string>();
     }
     else if (v.is_object() && v.size() == 1) {
-        CheckKeys(v, { "preset", "blackbody", "rgb", "file" }, where);
+        CheckKeys(v, { "preset", "blackbody", "rgb", "file", "mix" }, where);
         if (v.contains("preset")) { s.kind = SpectrumSpec::Kind::Preset; s.preset = ReadString(v.at("preset"), where + ".preset"); }
         else if (v.contains("blackbody")) { s.kind = SpectrumSpec::Kind::Blackbody; s.kelvin = ReadNumber(v.at("blackbody"), where + ".blackbody"); }
         else if (v.contains("rgb")) { s.kind = SpectrumSpec::Kind::Rgb; s.rgb = ReadColor(v.at("rgb"), where + ".rgb"); }
+        else if (v.contains("mix")) {   // [ { "file": "led1.csv", "weight": 0.4 }, ... ]: the sources lit together
+            s.kind = SpectrumSpec::Kind::Mix;
+            const json& parts = v.at("mix");
+            if (!parts.is_array() || parts.empty()) Fail(where + ".mix", "must be a list of { \"file\": a CSV of the spectrum, \"weight\": >= 0 }");
+            double total = 0;
+            for (size_t i = 0; i < parts.size(); ++i) {
+                const std::string pw = where + ".mix[" + std::to_string(i) + "]";
+                if (!parts[i].is_object()) Fail(pw, "must be { \"file\": a CSV of the spectrum, \"weight\": >= 0 }");
+                CheckKeys(parts[i], { "file", "weight" }, pw);
+                if (!parts[i].contains("file")) Fail(pw, "needs a \"file\"");
+                double weight = 1;
+                Optional<double>(parts[i], "weight", pw, weight, ReadNumber);
+                if (weight < 0) Fail(pw + ".weight", "must not be negative");
+                total += weight;
+                s.mix.emplace_back(ReadString(parts[i].at("file"), pw + ".file"), weight);
+            }
+            if (!(total > 0)) Fail(where + ".mix", "needs at least one weight above 0");
+        }
         else { s.kind = SpectrumSpec::Kind::Curve; s.file = ReadString(v.at("file"), where + ".file"); }
     }
     else {
-        Fail(where, "must be a preset name (d65, tungsten, candle, led) or an object with one of: preset, blackbody (kelvin), rgb, file (csv)");
+        Fail(where, "must be a preset name (d65, tungsten, candle, led) or an object with one of: preset, blackbody (kelvin), rgb, file (csv), mix (a list of files with weights)");
     }
     if (s.kind == SpectrumSpec::Kind::Preset && s.preset != "d65" && s.preset != "tungsten" && s.preset != "candle" && s.preset != "led")
         Fail(where, "has the unknown preset \"" + s.preset + "\" (d65, tungsten, candle or led)");
@@ -40,13 +58,24 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
-        CheckKeys(m, { "type", "albedo", "reflectance", "reflectanceTexture" }, where);
+        CheckKeys(m, { "type", "albedo", "reflectance", "reflectanceTexture", "fading" }, where);
         s.type = MaterialSpec::Type::Diffuse;
         if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
         Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
         Optional<std::string>(m, "reflectanceTexture", where, s.reflectanceTexture, ReadString);
-        if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) > 1)
-            Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)) or \"reflectanceTexture\" (a .sptex spectral image), not several");
+        if (m.contains("fading")) {   // { "series": folder of a measured series, "color": a patch in it, "hours": the time of exposure }
+            const json& f = m.at("fading");
+            const std::string fw = where + ".fading";
+            if (!f.is_object()) Fail(fw, "must be { \"series\": the folder of a measured series, \"color\": a patch of it, \"hours\": the hours of exposure }");
+            CheckKeys(f, { "series", "color", "hours" }, fw);
+            if (!f.contains("series") || !f.contains("color")) Fail(fw, "needs a \"series\" (the folder with hours.csv and r1, r2, ...) and a \"color\" (the patch)");
+            s.fadingSeries = ReadString(f.at("series"), fw + ".series");
+            s.fadingColor = ReadString(f.at("color"), fw + ".color");
+            Optional<double>(f, "hours", fw, s.fadingHours, ReadNumber);
+            if (s.fadingHours < 0) Fail(fw + ".hours", "must not be negative");
+        }
+        if (int(m.contains("albedo")) + int(!s.reflectance.empty()) + int(!s.reflectanceTexture.empty()) + int(!s.fadingSeries.empty()) > 1)
+            Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)), \"reflectanceTexture\" (a .sptex spectral image) or \"fading\" (a measured series over time), not several");
     }
     else if (type == "conductor") {
         CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, where);

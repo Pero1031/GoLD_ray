@@ -32,6 +32,31 @@ SERIES = {  # --all: sub-folder of the lab's "sample" folder -> output name
 }
 
 
+HOURS_STEP = {"pigment": 150.0, "dye_paper": 30.0}  # hours of pseudo-sunlight between two rounds (Kataoka's thesis, chapter 2); round 1 = before exposure
+
+
+def round_hours(name, rounds):
+    """{round: exposure hours}: a fixed step per series, or the "(h=30)" in the folder names (the first round is then 0 h)."""
+    if name in HOURS_STEP:
+        return {rnd: (rnd - 1) * HOURS_STEP[name] for rnd, _, _, _ in rounds}
+    named = {rnd: h for rnd, _, _, h in rounds if h is not None}
+    if not named:
+        return {}
+    return {rnd: float(named.get(rnd, 0 if rnd == rounds[0][0] else float("nan"))) for rnd, _, _, _ in rounds}
+
+
+def write_hours(out_dir, name, rounds):
+    hours = round_hours(name, rounds)
+    if not hours or any(h != h for h in hours.values()):
+        print(f"{name}: exposure hours unknown, no hours.csv", file=sys.stderr)
+        return
+    with open(os.path.join(out_dir, name, "hours.csv"), "w", encoding="utf-8", newline="\n") as f:
+        f.write("# exposure hours of each round (the time axis of \"fading\" in a scene file)\n")
+        f.write("round,hours\n")
+        for rnd in sorted(hours):
+            f.write(f"{rnd},{hours[rnd]:g}\n")
+
+
 def read_refangle(path):
     with open(path, encoding="utf-8", errors="ignore", newline="") as f:
         rows = [r for r in csv.reader(f) if r]
@@ -127,6 +152,7 @@ def convert_series(series_dir, out_dir, name, index_rows, wl_range=(440.0, 680.0
                 "above_1": above, "file": os.path.relpath(dest, out_dir).replace(os.sep, "/"), "source_folder": folder,
             })
             n += 1
+    write_hours(out_dir, name, rounds)
     return n
 
 
