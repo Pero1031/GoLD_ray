@@ -254,6 +254,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         }
         case MaterialSpec::Type::Dielectric: {
             auto glass = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
+            if (m.exteriorIor != 1) glass->setExteriorIor(Real(m.exteriorIor));   // nested dielectrics: the index on the normal side
             if (!m.sellmeierPreset.empty() || m.hasSellmeier) {
                 Sellmeier sm;
                 if (!m.sellmeierPreset.empty()) sellmeierPreset(m.sellmeierPreset, sm);

@@ -48,18 +48,21 @@ namespace rayt {
         const Medium* m_inside = nullptr;
         const Medium* m_outside = nullptr;
 
-        // IOR to use for this path: the hero wavelength's IOR in spectral mode.
+        Real m_exteriorIor = Real(1);             // index of the medium on the outside (normal side) of the surface: 1 = air, 1.333 = water
+
+        // The RELATIVE index of refraction (inside / outside) to use for this path: the hero wavelength's IOR in spectral mode, divided by the
+        // exterior index. Every formula of the BSDF (Snell, Fresnel, the radiance scaling of refraction) depends on the ratio only.
         Real iorAt(const SampledWavelengths& lambda) const {
 #if defined(RAYT_SPECTRAL_MODE)
-            if (m_hasSellmeier) return m_sell.n(lambda[0] * Real(1e-3));
+            if (m_hasSellmeier) return m_sell.n(lambda[0] * Real(1e-3)) / m_exteriorIor;
             if (cauchyB != Real(0)) {
                 const Real um = lambda[0] * Real(1e-3);   // nm -> um
-                return cauchyA + cauchyB / (um * um);
+                return (cauchyA + cauchyB / (um * um)) / m_exteriorIor;
             }
 #else
             (void)lambda;
 #endif
-            return iorRef;
+            return iorRef / m_exteriorIor;
         }
 
     public:
@@ -73,6 +76,18 @@ namespace rayt {
         /// Dispersion from Sellmeier coefficients (instead of an Abbe number). The IOR of the RGB build, and of non-dispersive uses, becomes n(587.6 nm).
         void setSellmeier(const Sellmeier& s) { m_sell = s; m_hasSellmeier = true; iorRef = s.n(Real(0.5876)); }
         const Sellmeier* sellmeier() const { return m_hasSellmeier ? &m_sell : nullptr; }
+
+        /**
+         * @brief The index of refraction on the OUTSIDE (the side the normal points to), default 1 (air).
+         *
+         * Nested dielectrics the Mitsuba way: a surface between two media carries both indices, and the mesh is split where the
+         * outside changes. A drop of water on glass is two surfaces: the cap (water 1.333 inside, air outside) and the contact disc
+         * (water inside, glass 1.5 outside; the glass has no surface of its own under the drop). The BSDF uses the ratio inside /
+         * outside; dispersion applies to the inside only. The medium pointers (setMedium / setBoundaryMedia) are independent of this.
+         * The specular manifold NEE (Render/SpecularNee.hpp) still assumes air outside its bodies.
+         */
+        void setExteriorIor(Real n) { m_exteriorIor = std::max(n, Real(1e-3)); }
+        Real exteriorIor() const { return m_exteriorIor; }
 
         /// Fills the inside of this closed surface with a participating medium (volumetric random walk).
         /// The mesh must be closed with outward normals; the outside is vacuum.
@@ -157,7 +172,8 @@ namespace rayt {
             const SampledWavelengths& lambda) const override;
 
         bool isSpecular() const override { return isSmooth() && !m_hasFar; }
-        bool isNullInterface() const override { return iorRef == Real(1) && isSmooth() && !m_hasFar && !isDispersive(); }
+        /// A smooth surface with the same index on both sides (1 against air, or 1.333 against water) bends and reflects nothing.
+        bool isNullInterface() const override { return iorRef == m_exteriorIor && isSmooth() && !m_hasFar && !isDispersive(); }
 
         /// The roughness grows with the distance from the y axis, from this material's own roughness up to `farRoughness` (perceptual, as in the
         /// constructor) between the radii `start` and `end` (metres, in the x-z plane). For a sea: the mesh cannot resolve the small waves far away,

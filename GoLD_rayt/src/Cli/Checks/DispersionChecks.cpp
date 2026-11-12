@@ -2,7 +2,11 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
+#include "Cli/SceneParts.hpp"
+#include "Geometry/Quad.hpp"
 #include "Geometry/Sphere.hpp"
+#include "IO/EnvMap.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Integrator.hpp"
@@ -62,6 +66,80 @@ int RunDispersionTests() {
         int bad = 0;
         EstimateRadiance(*scene, Ray(Point3(0.3, 0.2, 4), glm::normalize(Vector3(-0.07, -0.05, -1))), 120000, 64, mean, se, bad);
         allPassed = ReportLightCase("a diamond ball (Sellmeier dispersion), white furnace", Vector3(1.0), mean, se, bad) && allPassed;
+    }
+
+    // (4) Nested dielectrics: a surface carries the index of its outside too (Dielectric::setExteriorIor). A glass slab (n = 1.5) in air and in water (1.333).
+    std::cout << "[Dispersion] nested dielectrics: the exterior index of a glass surface\n";
+    {
+#if defined(RAYT_SPECTRAL_MODE)
+        const SampledWavelengths lambda = SampledWavelengths::sampleVisible(0.5);
+#else
+        const SampledWavelengths lambda;
+#endif
+        // a. Snell's law with the relative index: the transmitted direction of a smooth surface, sampled directly from the BSDF.
+        auto refractedDeg = [&](Real exterior, bool fromInside, Real incidenceDeg, bool& transmitted) {
+            Dielectric d(1.5, 0.0);
+            d.setExteriorIor(exterior);
+            SurfaceInteraction rec;
+            rec.p = Point3(0.0); rec.n = Vector3(0, 0, 1); rec.gn = rec.n; rec.frontFace = !fromInside; rec.matPtr = &d;   // rec.n faces the incoming ray
+            const Real th = glm::radians(incidenceDeg);
+            const Vector3 wo(std::sin(th), 0, std::cos(th));
+            transmitted = false;
+            Real angle = 0;
+            for (int k = 0; k < 64 && !transmitted; ++k) {   // the sample picks reflection or transmission by u: scan u until the transmission shows
+                const auto s = d.sample(rec, wo, Point2((k + Real(0.5)) / 64, Real(0.5)), lambda, TransportMode::Radiance);
+                if (s && s->isTransmission()) { transmitted = true; angle = glm::degrees(std::acos(std::clamp(-s->wi.z, Real(-1), Real(1)))); }
+            }
+            return angle;
+        };
+        bool tAir = false, tWater = false, tirAir = false, tirWater = false;
+        const Real aAir = refractedDeg(1.0, false, 45.0, tAir), aWater = refractedDeg(1.333, false, 45.0, tWater);
+        const Real wantAir = glm::degrees(std::asin(std::sin(glm::radians(45.0)) / 1.5)), wantWater = glm::degrees(std::asin(std::sin(glm::radians(45.0)) * 1.333 / 1.5));
+        report("entering at 45 deg: refracted angle in air " + std::to_string(aAir).substr(0, 5) + " deg (Snell " + std::to_string(wantAir).substr(0, 5)
+            + "), with water outside " + std::to_string(aWater).substr(0, 5) + " (" + std::to_string(wantWater).substr(0, 5) + ")",
+            tAir && tWater && std::abs(aAir - wantAir) < 0.01 && std::abs(aWater - wantWater) < 0.01);
+        // leaving at 50 deg from inside the glass: total internal reflection against air (critical 41.8 deg), transmission against water (critical 62.7 deg)
+        const Real lAir = refractedDeg(1.0, true, 50.0, tirAir), lWater = refractedDeg(1.333, true, 50.0, tirWater);
+        const Real wantLeave = glm::degrees(std::asin(std::sin(glm::radians(50.0)) * 1.5 / 1.333));
+        (void)lAir;
+        report("leaving at 50 deg: total internal reflection against air, transmission against water at " + std::to_string(lWater).substr(0, 5) + " deg (" + std::to_string(wantLeave).substr(0, 5) + ")",
+            !tirAir && tirWater && std::abs(lWater - wantLeave) < 0.01);
+
+        // b. A slab seen at normal incidence in front of an emitter of radiance 1 (black elsewhere): the transmittance with every internal
+        //    bounce is (1 - R) / (1 + R), R the Fresnel reflectance of one interface: 0.9231 against air (R = 0.04), 0.9931 against water.
+        for (const Real exterior : { Real(1.0), Real(1.333) }) {
+            auto glass = std::make_shared<Dielectric>(1.5, 0.0);
+            glass->setExteriorIor(exterior);
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Quad>(Point3(-0.5, -0.5, 0.005), Vector3(1, 0, 0), Vector3(0, 1, 0), glass));    // top, faces +z
+            world->add(std::make_shared<Quad>(Point3(-0.5, -0.5, -0.005), Vector3(0, 1, 0), Vector3(1, 0, 0), glass));   // bottom, faces -z
+            auto scene = std::make_shared<Scene>(world);
+            AddQuadLight(*world, scene.get(), Point3(-2, -2, -1), Vector3(4, 0, 0), Vector3(0, 4, 0), EmissionSpectrum(RgbColor(1.0)), 1.0, true);
+            scene->finalize("spatial");
+            Vector3 mean, se;
+            int bad = 0;
+            EstimateRadiance(*scene, Ray(Point3(0, 0, 1), Vector3(0, 0, -1)), 120000, 64, mean, se, bad);
+            const Real R = math::sqr((1.5 - exterior) / (1.5 + exterior));
+            const Real T = (1 - R) / (1 + R);
+            allPassed = ReportLightCase("glass slab at normal incidence, emitter behind, outside index " + std::to_string(exterior).substr(0, 5) + ": transmittance", Vector3(T), mean, se, bad) && allPassed;
+        }
+
+        // c. The same slab with water outside in a white furnace: a lossless interface pair keeps the energy whatever the ratio of the indices.
+        {
+            auto sky = std::make_shared<EnvMap>(Image(32, 16, std::vector<Vector3>(32 * 16, Vector3(1.0))));
+            auto glass = std::make_shared<Dielectric>(1.5, 0.0);
+            glass->setExteriorIor(1.333);
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Quad>(Point3(-0.5, -0.5, 0.005), Vector3(1, 0, 0), Vector3(0, 1, 0), glass));
+            world->add(std::make_shared<Quad>(Point3(-0.5, -0.5, -0.005), Vector3(0, 1, 0), Vector3(1, 0, 0), glass));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(std::make_shared<EnvLight>(sky, 1.0));
+            scene->finalize("spatial");
+            Vector3 mean, se;
+            int bad = 0;
+            EstimateRadiance(*scene, Ray(Point3(0.1, 0.1, 1), glm::normalize(Vector3(-0.3, 0.1, -1))), 60000, 64, mean, se, bad);
+            allPassed = ReportLightCase("glass slab with water outside, white furnace", Vector3(1.0), mean, se, bad) && allPassed;
+        }
     }
 
     std::cout << "[Dispersion] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

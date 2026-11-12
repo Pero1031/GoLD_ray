@@ -75,6 +75,7 @@ struct MaterialSpec {
     double farRoughness = -1;                      // dielectric: >= 0: the roughness grows to this (perceptual) between farStart and farEnd (m from the y axis)
     double farStart = 50, farEnd = 500;
     double ior = 1.5;                              // dielectric
+    double exteriorIor = 1;                        // dielectric: the index on the normal side (nested dielectrics: a water drop's contact disc has glass, 1.5, outside)
     double abbe = 0;                               // dielectric: Abbe number (0 = no dispersion)
     std::string sellmeierPreset;                   // dielectric: Sellmeier dispersion of a named glass (diamond, sapphire, bk7, silica) ...
     bool hasSellmeier = false;                     //   ... or its coefficients (b[3] and c[3] in um^2)

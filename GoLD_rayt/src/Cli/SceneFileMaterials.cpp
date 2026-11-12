@@ -200,8 +200,10 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(bw + ".anisotropy", "must be between -1 and 1");
     }
     else if (type == "dielectric") {
-        CheckKeys(m, { "type", "ior", "roughness", "distanceRoughness", "abbe", "sellmeier", "medium" }, where);
+        CheckKeys(m, { "type", "ior", "exteriorIor", "roughness", "distanceRoughness", "abbe", "sellmeier", "medium" }, where);
         s.type = MaterialSpec::Type::Dielectric;
+        Optional<double>(m, "exteriorIor", where, s.exteriorIor, ReadNumber);   // the index on the outside (1 = air; 1.333 under a drop of water, 1.5 under glass)
+        if (s.exteriorIor <= 0) Fail(where + ".exteriorIor", "must be positive (1 = air)");
         if (m.contains("medium")) {
             const json& md = m.at("medium");
             const std::string mw = where + ".medium";
