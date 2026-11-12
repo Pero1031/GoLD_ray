@@ -25,7 +25,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | **`data/`** | |
 | `sr5100.py` | reads and converts CSV exports of the Topcon SR-5100 (spectral radiance) into the two-column CSV the renderer reads |
 | `make_ring.py` | writes the meshes of the diamond ring scene: a round brilliant-cut diamond (flat facets, planar by construction) and a ring band with four prongs |
-| `mesh_clean.py` | cleans an OBJ for the renderer: welds vertices, recomputes smooth normals, optionally closes the open boundaries |
+| `mesh_clean.py` | prepares an OBJ or PLY for the renderer: welds vertices, recomputes smooth normals, keeps the uv on request, turns the up axis, scales to a height in metres, drops floating fragments, closes the open boundaries (a scan or a mesh from 3D Gaussian Splatting: `docs/CAPTURE.md`) |
 | **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display), `scielab.py` (S-CIELAB spatial filtering) |
 
 Scripts that make a figure from renders expect the renders from `GoLD_rayt.exe ... --out x.pfm --denoise` (see the docstring at the top of each script). The denoiser clips negative values, so for colors outside sRGB (a candle-lit gold) use the raw `.pfm`, not `_denoised`.

@@ -171,6 +171,13 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 materials[name] = std::make_shared<Lambertian>(std::make_shared<const FadingReflectance>(std::move(series), std::move(field), exposed, unexposed));
                 break;
             }
+            if (!m.texture.empty()) {   // an image over the surface's uv (the photographed texture of a scan, docs/CAPTURE.md): albedo x texture
+                auto tex = Texture2D::load(m.texture);
+                if (!tex) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the image " << m.texture << "\n"; return 1; }
+                std::cout << "[SceneFile] material \"" << name << "\": texture " << m.texture << " (" << tex->width() << " x " << tex->height() << ")\n";
+                materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo), std::shared_ptr<const Texture2D>(tex));
+                break;
+            }
             if (m.reflectance.empty() && m.fadingSeries.empty()) {
                 materials[name] = std::make_shared<Lambertian>(RgbColor(m.albedo));
                 break;
@@ -505,7 +512,9 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         case ObjectSpec::Shape::Mesh: {
             TriangleMesh mesh;
             std::string err;
-            if (!io::loadObj(o.file, mesh, &err)) { std::cerr << "[SceneFile] mesh " << o.file << ": " << err << "\n"; return 1; }
+            if (!io::loadMesh(o.file, mesh, &err)) { std::cerr << "[SceneFile] mesh " << o.file << ": " << err << "\n"; return 1; }   // OBJ or PLY
+            std::cout << "[SceneFile] mesh " << o.file << ": " << mesh.numTriangles() << " triangles, " << mesh.p.size() << " vertices"
+                << (mesh.hasNormals() ? ", smooth normals" : ", flat") << (mesh.uv.size() == mesh.p.size() ? ", uv" : "") << "\n";
             const glm::dmat3 rotation(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
             mesh.transform(rotation * Real(o.scale), Vector3(o.translate));
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), mat, opt.accel));

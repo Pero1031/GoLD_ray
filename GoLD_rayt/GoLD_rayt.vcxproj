@@ -412,6 +412,7 @@
     <ClInclude Include="include\Geometry\Quad.hpp" />
     <ClInclude Include="include\Geometry\TriangleMesh.hpp" />
     <ClInclude Include="include\IO\ObjLoader.hpp" />
+    <ClInclude Include="include\IO\PlyLoader.hpp" />
     <ClInclude Include="include\IO\PmxLoader.hpp" />
     <ClInclude Include="include\IO\PmxMorph.hpp" />
     <ClInclude Include="include\IO\PmxPose.hpp" />

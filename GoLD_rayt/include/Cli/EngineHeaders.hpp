@@ -67,6 +67,7 @@
 #include "IO/EnvMap.hpp"
 #include "IO/ImageLoader.hpp"
 #include "IO/ObjLoader.hpp"
+#include "IO/PlyLoader.hpp"
 #include "IO/PmxLoader.hpp"
 #include "IO/PmxMorph.hpp"
 #include "IO/PmxPose.hpp"

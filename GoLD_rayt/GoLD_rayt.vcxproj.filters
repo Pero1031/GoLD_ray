@@ -422,6 +422,9 @@
     <ClInclude Include="include\IO\ObjLoader.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\IO\PlyLoader.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\IO\PmxLoader.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

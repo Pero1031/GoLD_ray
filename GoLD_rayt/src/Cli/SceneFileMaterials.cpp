@@ -58,11 +58,14 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
-        CheckKeys(m, { "type", "albedo", "reflectance", "reflectanceTexture", "fading" }, where);
+        CheckKeys(m, { "type", "albedo", "reflectance", "reflectanceTexture", "texture", "fading" }, where);
         s.type = MaterialSpec::Type::Diffuse;
         if (m.contains("albedo")) s.albedo = ReadColor(m.at("albedo"), where + ".albedo");
         Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
         Optional<std::string>(m, "reflectanceTexture", where, s.reflectanceTexture, ReadString);
+        Optional<std::string>(m, "texture", where, s.texture, ReadString);   // an image: albedo x texture at the hit's uv
+        if (!s.texture.empty() && (!s.reflectance.empty() || !s.reflectanceTexture.empty() || m.contains("fading")))
+            Fail(where + ".texture", "goes with \"albedo\" only, not with \"reflectance\", \"reflectanceTexture\" or \"fading\"");
         if (m.contains("fading")) {   // { "series": folder of a measured series, "color": a patch in it, "hours": the time of exposure }
             const json& f = m.at("fading");
             const std::string fw = where + ".fading";

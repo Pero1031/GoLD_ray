@@ -58,6 +58,69 @@ bool RunMeshChecks(const CliOptions& opt) {
         std::filesystem::remove(path, ec);
     }
 
+    // c2. PLY round trip: ascii with per-vertex uv, and binary little endian with MeshLab's per-face "texcoord" list.
+    //     Both must give the sphere back (triangles, normals, volume) with the uv's v flipped to the renderer's convention.
+    {
+        const std::string base = (std::filesystem::temp_directory_path() / "rayt_test_mesh").string();
+        std::vector<Point2> uvs;   // a uv per vertex: longitude, latitude
+        for (const auto& p : sphere->p) uvs.emplace_back(0.5 + std::atan2(p.z, p.x) / (2 * constants::PI), 0.5 + std::asin(std::clamp(p.y, -1.0, 1.0)) / constants::PI);
+        const size_t nt = sphere->numTriangles();
+        {   // ascii
+            std::ofstream f(base + "_a.ply");
+            f.precision(12);
+            f << "ply\nformat ascii 1.0\ncomment TextureFile sphere.png\nelement vertex " << sphere->p.size()
+              << "\nproperty float x\nproperty float y\nproperty float z\nproperty float nx\nproperty float ny\nproperty float nz\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nproperty float s\nproperty float t\n"
+              << "element face " << nt << "\nproperty list uchar int vertex_indices\nproperty int flags\nend_header\n";
+            for (size_t i = 0; i < sphere->p.size(); ++i)
+                f << sphere->p[i].x << " " << sphere->p[i].y << " " << sphere->p[i].z << " " << sphere->n[i].x << " " << sphere->n[i].y << " " << sphere->n[i].z
+                  << " 200 100 50 " << uvs[i].x << " " << uvs[i].y << "\n";
+            for (size_t i = 0; i < nt; ++i) f << "3 " << sphere->indices[3 * i] << " " << sphere->indices[3 * i + 1] << " " << sphere->indices[3 * i + 2] << " 0\n";
+        }
+        {   // binary little endian, uv per face corner (the vertices are not split here: each vertex has one uv)
+            std::ofstream f(base + "_b.ply", std::ios::binary);
+            f << "ply\nformat binary_little_endian 1.0\nelement vertex " << sphere->p.size()
+              << "\nproperty double x\nproperty double y\nproperty double z\nproperty float nx\nproperty float ny\nproperty float nz\n"
+              << "element face " << nt << "\nproperty list uchar int vertex_indices\nproperty list uchar float texcoord\nend_header\n";
+            auto put = [&](const void* p, size_t n) { f.write(static_cast<const char*>(p), static_cast<std::streamsize>(n)); };
+            for (size_t i = 0; i < sphere->p.size(); ++i) {
+                const double xyz[3] = { sphere->p[i].x, sphere->p[i].y, sphere->p[i].z };
+                const float n3[3] = { float(sphere->n[i].x), float(sphere->n[i].y), float(sphere->n[i].z) };
+                put(xyz, 24); put(n3, 12);
+            }
+            for (size_t i = 0; i < nt; ++i) {
+                const unsigned char three = 3, six = 6;
+                const std::int32_t idx[3] = { sphere->indices[3 * i], sphere->indices[3 * i + 1], sphere->indices[3 * i + 2] };
+                float uv6[6];
+                for (int k = 0; k < 3; ++k) { uv6[2 * k] = float(uvs[static_cast<size_t>(idx[k])].x); uv6[2 * k + 1] = float(uvs[static_cast<size_t>(idx[k])].y); }
+                put(&three, 1); put(idx, 12); put(&six, 1); put(uv6, 24);
+            }
+        }
+        for (const char* suffix : { "_a.ply", "_b.ply" }) {
+            TriangleMesh back;
+            std::string err, texture;
+            const bool loaded = io::loadPly(base + suffix, back, &err, &texture);
+            bool uvOk = loaded && back.uv.size() == back.p.size();
+            double maxN = 0;
+            if (uvOk) {   // every loaded vertex must carry the uv of the original vertex at its position, with v flipped
+                std::map<std::tuple<float, float, float>, size_t> byPos;
+                for (size_t i = 0; i < sphere->p.size(); ++i) byPos[std::make_tuple(float(sphere->p[i].x), float(sphere->p[i].y), float(sphere->p[i].z))] = i;
+                for (size_t i = 0; i < back.p.size() && uvOk; ++i) {
+                    const auto it = byPos.find(std::make_tuple(float(back.p[i].x), float(back.p[i].y), float(back.p[i].z)));
+                    if (it == byPos.end()) { uvOk = false; break; }
+                    const Point2 want(uvs[it->second].x, 1.0 - uvs[it->second].y);
+                    if (std::abs(back.uv[i].x - want.x) > 1e-5 || std::abs(back.uv[i].y - want.y) > 1e-5) uvOk = false;
+                    maxN = std::max(maxN, 1.0 - glm::dot(back.n[i], sphere->n[it->second]));
+                }
+            }
+            const bool ok = loaded && back.numTriangles() == nt && back.hasNormals() && maxN < 1e-6
+                && std::abs(back.signedVolume() - sphere->signedVolume()) < 1e-6 && uvOk && (suffix[1] != 'a' || texture == "sphere.png");
+            check(std::string("PLY write + load, ") + (suffix[1] == 'a' ? "ascii (vertex uv, skipped colors, TextureFile comment)" : "binary (per-face texcoord list)")
+                + ": triangles, normals, volume, uv flipped", ok, loaded ? std::to_string(back.numTriangles()) + " triangles, " + std::to_string(back.p.size()) + " vertices" : err);
+            std::error_code ec;
+            std::filesystem::remove(base + suffix, ec);
+        }
+    }
+
     // d. BVH vs brute force on the torus file (2304 triangles): same hit / miss / distance for random rays
     {
         TriangleMesh torus;

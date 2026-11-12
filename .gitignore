@@ -391,6 +391,7 @@ docs/HANDOFF.md
 /GoLD_rayt/assets/Meshes/erato/erato.obj
 /GoLD_rayt/assets/Meshes/erato/erato-101.jpg
 /GoLD_rayt/assets/Meshes/erato/erato_*.obj
+/GoLD_rayt/assets/Meshes/erato/erato_*.ply
 
 # Demo renders kept on this PC only (not part of the repository)
 /GoLD_rayt/demo_images/

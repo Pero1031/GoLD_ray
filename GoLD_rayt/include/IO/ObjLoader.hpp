@@ -6,6 +6,7 @@
  *   negative (relative) indices are supported. Groups, materials and smoothing groups are ignored.
  * - Vertices are merged by their (position, uv, normal) index triple.
  * - If any face vertex has no normal, the whole mesh is flat-shaded (normals dropped).
+ * - Texture coordinates are flipped (v -> 1 - v): OBJ's v grows upward, the renderer's textures (Core/Texture.hpp) downward.
  */
 
 #pragma once
@@ -77,7 +78,7 @@ namespace rayt::io {
                         it = remap.emplace(key, static_cast<int>(out.p.size())).first;
                         out.p.push_back(pos[static_cast<size_t>(rv)]);
                         outN.push_back((rn >= 0 && rn < static_cast<int>(nor.size())) ? glm::normalize(nor[static_cast<size_t>(rn)]) : Vector3(0, 0, 0));
-                        outUV.push_back((rt >= 0 && rt < static_cast<int>(tex.size())) ? tex[static_cast<size_t>(rt)] : Point2(0, 0));
+                        outUV.push_back((rt >= 0 && rt < static_cast<int>(tex.size())) ? Point2(tex[static_cast<size_t>(rt)].x, Real(1) - tex[static_cast<size_t>(rt)].y) : Point2(0, 0));
                     }
                     face.push_back(it->second);
                 }

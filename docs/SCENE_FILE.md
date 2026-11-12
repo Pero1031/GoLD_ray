@@ -61,7 +61,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | type | キー |
 |---|---|
-| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、`fading`（露光時間で変わる測定反射率。下の「分光放射計のデータを使う」）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ** |
+| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、`fading`（露光時間で変わる測定反射率。下の「分光放射計のデータを使う」）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ**。`texture`（PNG / JPG。メッシュの uv に貼り、`albedo` に掛ける。スキャンや 3DGS のメッシュの撮影テクスチャ用: `docs/CAPTURE.md`。`albedo` とだけ組み合わせる） |
 | `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`anisotropy`（−1〜1。> 0: 接線の向きに粗い、< 0: 接線に沿った溝のヘアライン仕上げ）、`rotation`（度。接線を法線の周りに回す）、`multipleScattering` |
 | `dielectric` | `ior`、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`distanceRoughness`（`{ "roughness", "start", "end" }`: y 軸からの距離が start から end の間に、粗さがこの値まで増える。メッシュで解像できない遠くの小さな波の傾きを、粗さとして返す。海に使う）、`medium`（内側を散乱媒質で満たす。下） |
 | `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
@@ -106,7 +106,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 |---|---|
 | `sphere` | `center`、`radius` |
 | `quad` | `corner`、`edge1`、`edge2`（`cross(edge1, edge2)` の向きに面する） |
-| `mesh` | `file`（OBJ）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動 |
+| `mesh` | `file`（OBJ、または PLY。拡張子で決まる。PLY は ascii・バイナリとも読め、頂点の法線と uv、MeshLab の面ごとの `texcoord` を使う。頂点の色は読まない）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動。スキャンや 3DGS のメッシュの整え方は `docs/CAPTURE.md` |
 | `lathe` | `profile`（`[半径, 高さ]` の配列、または `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: 椀の壁）、`segments`、`translate` |
 | `ocean` | 海面（波のスペクトルから作る。`docs/WATER.md`）。原点の周りの円形のメッシュ。`windSpeed`（m/s、1〜40、既定 8）、`windDirection`（度、波が進む向き `atan2(z, x)`）、`spread`（向きの広がり s）、`peakEnhance`（JONSWAP の γ、1 = Pierson–Moskowitz）、`chop`（0〜1、波頭のとがり）、`time`（秒）、`minWavelength`（m）、`seed`、`rInner`・`rOuter`（m）、`rings`・`sectors`（メッシュの細かさ） |
 | `hair` | 手続き的に作った毛（`docs/HAIR.md`）。`style`: `"lock"`（上から垂れる毛束）または `"head"`（球の頭に流れる髪）。共通: `strands`、`segments`、`length`（m）、`rootRadius`・`tipRadius`（毛の半径、m。実物は約 0.00005）、`clumps`（房の数）、`seed`。`lock`: `root`（根元の位置）、`width`、`tipWidth`（先端の幅 / 根元の幅）、`waveAmp`・`waveLength`、`twist`、`frizz`、`flyaway`（束から外れる毛の割合）。`head`: `center`、`radius`（頭の球）、`droop`、`outward`、`sway`・`swayFreq`、`headFrizz`、`clumpStrength`、`maxPolar`（度）、`hairline`。材質は `hair` |

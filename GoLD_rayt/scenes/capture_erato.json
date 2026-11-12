@@ -1,0 +1,30 @@
+{
+  // A captured object, twice: left as the capture shows it (the photographed texture on a diffuse surface, the way a scan or a
+  // 3DGS mesh looks), right with its appearance replaced by a physical material (gold) under the same lights. docs/CAPTURE.md.
+  // Erato (a 3D scan, CC BY 4.0, see assets/Meshes/erato/CREDITS.md; the mesh and texture are not in the repository).
+  // The mesh is the scan converted with its uv kept:
+  //   python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_textured.ply --keep-uv
+  // Swap "gold" for "wax", "marble" (closed mesh, see erato_translucent.json) or a skin material to try other appearances.
+  "options": { "width": 900, "height": 600, "spp": 128, "denoise": true },
+  "camera": { "from": [0.0, 0.36, 1.45], "at": [0.0, 0.25, 0.0], "fov": 30 },
+  "materials": {
+    "captured": { "type": "diffuse", "albedo": 1.0, "texture": "assets/Meshes/erato/erato-101.jpg" },
+    "gold":     { "type": "conductor", "metal": "Au", "roughness": 0.2 },
+    "floor":    { "type": "diffuse", "albedo": 0.3 },
+    "key":      { "type": "emission", "spectrum": "tungsten", "radiance": 20 },
+    "fill":     { "type": "emission", "spectrum": "tungsten", "radiance": 8 },
+    "rim":      { "type": "emission", "spectrum": "tungsten", "radiance": 12 }
+  },
+  "objects": [
+    // the scan is 37.6 units tall: scaled to 0.5 m, turned to show the lyre, its base on the floor
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_textured.ply", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [-0.281, 0.0169, 0.001], "material": "captured" },
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_textured.ply", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [0.219, 0.0169, 0.001], "material": "gold" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    // three spherical lamps: key at the left and in front, fill at the right, rim behind
+    { "shape": "sphere", "center": [-0.6, 0.55, 0.7], "radius": 0.25, "material": "key" },
+    { "shape": "sphere", "center": [0.7, 0.30, 0.6], "radius": 0.20, "material": "fill" },
+    { "shape": "sphere", "center": [1.3, 0.80, -0.9], "radius": 0.25, "material": "rim" }
+  ]
+}

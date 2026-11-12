@@ -45,6 +45,7 @@ struct MaterialSpec {
     std::string table;                             // ... or a complex IOR table (RefractiveIndex.info CSV)
     std::string reflectance;                       // ... or a measured normal-incidence reflectance R(lambda) (CSV; Gulbrandsen's method)
     std::string reflectanceTexture;                // diffuse: a measured reflectance per texel R(u, v, lambda) (.sptex, Core/SpectralTexture.hpp)
+    std::string texture;                           // diffuse: an image (PNG / JPG) that multiplies the albedo at the hit's uv (the photographed texture of a scan)
     std::string fadingSeries, fadingColor;         // diffuse: a measured reflectance that changes with the time of exposure (IO/FadingSeries.hpp):
     double fadingHours = 0;                        //   the series folder, the patch in it, and the hours of exposure ("fading")
     bool fadingDye = false;                        //   "fading" from a color alone (a dyed paper; Materials/FadingDye.hpp): fadingRgb or fadingImage, with the table fadingModel
@@ -191,7 +192,7 @@ struct ObjectSpec {
     Real radius = 1;
     Point3 corner = Point3(0.0);                   // quad (corner and two edges; faces toward cross(edge1, edge2))
     Vector3 edge1 = Vector3(1, 0, 0), edge2 = Vector3(0, 1, 0);
-    std::string file;                              // mesh: an OBJ file
+    std::string file;                              // mesh: an OBJ or a PLY file (by the extension)
     double scale = 1;                              // mesh: uniform scale, then rotation, then translation
     Vector3 rotateAxis = Vector3(1, 0, 0);
     double rotateDegrees = 0;

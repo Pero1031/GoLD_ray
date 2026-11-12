@@ -228,7 +228,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   [details](docs/SKIN_MOISTURE.md), Japanese), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
   `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PMX), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md), Japanese), and
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, PMX; a captured object from a scan or from 3D Gaussian Splatting can be brought in and given a physical material: [details](docs/CAPTURE.md), Japanese), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md), Japanese), and
   hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions

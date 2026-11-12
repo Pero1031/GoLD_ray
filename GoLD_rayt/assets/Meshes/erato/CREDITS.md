@@ -15,6 +15,7 @@ shades metal black in places). Make it, from the repository folder:
 ```
 python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_clean.obj
 python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_closed.obj --cap   # closed, for a volume
+python tools/data/mesh_clean.py GoLD_rayt/assets/Meshes/erato/erato.obj GoLD_rayt/assets/Meshes/erato/erato_textured.ply --keep-uv   # with the uv, for the photographed texture (scenes/capture_erato.json)
 ```
 
 Changes made in this project's renderings: the model is scaled and placed by the scene file, its two open boundaries (the cut

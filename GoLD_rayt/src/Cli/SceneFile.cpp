@@ -81,7 +81,7 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
     else if (shape == "mesh") {
         CheckKeys(o, { "shape", "material", "light", "file", "scale", "rotate", "translate" }, where);
         s.shape = ObjectSpec::Shape::Mesh;
-        if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ)");
+        if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ or a PLY)");
         s.file = ReadString(o.at("file"), where + ".file");
         Optional<double>(o, "scale", where, s.scale, ReadNumber);
         if (o.contains("translate")) s.translate = ReadVec3(o.at("translate"), where + ".translate");
