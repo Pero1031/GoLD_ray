@@ -1,0 +1,20 @@
+{
+  // The plate of drops against an overcast sky (an HDR environment map, not in the repository: any overcast map from Poly Haven does;
+  // the one used here was castel_st_angelo_roof_4k.hdr): the sky is a large, soft light, every drop images the bright sky and the dark
+  // horizon upside down, the upper rims mirror the sky, and the environment is out of focus behind the glass.
+  // Generate the drops as for water_drops.json. "scale" sets the exposure of the map.
+  "options": { "width": 900, "height": 600, "spp": 256, "denoise": true },
+  "camera": { "from": [0.0, 0.0, -0.30], "at": [0.0, 0.0, 0.0], "fov": 24, "aperture": 0.008, "focus": 0.30 },
+  "environment": { "type": "hdr", "file": "assets/env/castel_st_angelo_roof_4k.hdr", "scale": 1.0 },
+  "materials": {
+    "glass":        { "type": "dielectric", "ior": 1.5 },
+    "water":        { "type": "dielectric", "ior": 1.333 },
+    "waterOnGlass": { "type": "dielectric", "ior": 1.333, "exteriorIor": 1.5 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Drops/plate_top.ply", "cutout": "assets/Drops/plate_mask.png", "material": "glass" },
+    { "shape": "quad", "corner": [-0.1, -0.075, -0.004], "edge1": [0, 0.15, 0], "edge2": [0.2, 0, 0], "material": "glass" },
+    { "shape": "mesh", "file": "assets/Drops/caps.ply", "material": "water" },
+    { "shape": "mesh", "file": "assets/Drops/contacts.ply", "material": "waterOnGlass" }
+  ]
+}

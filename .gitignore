@@ -407,3 +407,4 @@ docs/HANDOFF.md
 
 # Generated water drops (tools/data/make_drops.py): a few MB of meshes and a mask, regenerated on demand
 /GoLD_rayt/assets/Drops/
+/GoLD_rayt/assets/env/castel_st_angelo_roof_4k.hdr
