@@ -184,9 +184,9 @@ struct HairSpec {
 };
 
 struct ObjectSpec {
-    enum class Shape { Sphere, Quad, Mesh, Lathe, Ocean, Hair };
+    enum class Shape { Sphere, Quad, Mesh, Lathe, Ocean, Hair, Splats };
     Shape shape = Shape::Sphere;
-    std::string material;
+    std::string material;                          // empty for splats (they have no material: the color is the capture's)
     int light = -1;                                // emission only: 1 = register as a light for next-event estimation, 0 = do not (-1: yes)
     Point3 center = Point3(0.0);                   // sphere
     Real radius = 1;
@@ -204,6 +204,13 @@ struct ObjectSpec {
     int oceanSeed = 1, rings = 400, sectors = 512;
     double rInner = 0.8, rOuter = 3000;
     HairSpec hair;                                 // hair
+    // splats: a 3D Gaussian Splatting point_cloud.ply (file, scale, rotate, translate as for a mesh; Geometry/GaussianSplats.hpp)
+    double splatAlphaMin = 1.0 / 255.0;            //   responses below this are ignored
+    double splatIntensity = 1;                     //   radiance multiplier
+    bool splatLinearize = true;                    //   decode the sRGB-encoded colors
+    int splatDegree = 3;                           //   spherical harmonics degree used (at most the file's)
+    bool splatKeep = false, splatRemove = false;   //   particles are kept only inside / dropped inside a world-space box (by their center)
+    Vector3 splatKeepMin = Vector3(0.0), splatKeepMax = Vector3(0.0), splatRemoveMin = Vector3(0.0), splatRemoveMax = Vector3(0.0);
 };
 
 struct PointLightSpec {

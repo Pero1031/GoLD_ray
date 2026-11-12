@@ -28,6 +28,7 @@
 #include "Render/SpecularNee.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
+#include "Geometry/GaussianSplats.hpp"
 #include "Cli/Options.hpp"
 #include "Cli/SceneDescription.hpp"
 
@@ -108,6 +109,7 @@ struct SceneSetup {
     std::function<void(const RenderResult&)> afterRender;        // right after the render, before saving
     std::function<bool(const RenderResult&)> afterSave;          // after saving; false = a check failed (exit code 2)
     bool checksPassed = true;                                    // self-checks that run while the scene is built (mesh)
+    std::shared_ptr<const GaussianSplats> splats;                // a captured cloud of Gaussians (Geometry/GaussianSplats.hpp), seen by paths as a backdrop
 };
 
 // A scene builder returns std::nullopt when the scene was built, or an exit code when the program should stop (an error, or an

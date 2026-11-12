@@ -40,6 +40,10 @@ int RenderScene(CliOptions& opt) {
     auto scene = std::make_shared<Scene>(worldBvh);
 
     if (setup.background) scene->setCameraBackground(*setup.background);
+    if (setup.splats) {
+        scene->setSplats(setup.splats);
+        std::cout << "[Scene] Gaussian splats: " << setup.splats->count() << " particles in a BVH of " << setup.splats->numNodes() << " nodes.\n";
+    }
 
     // the environment light, if there is one
     if (env.light) {

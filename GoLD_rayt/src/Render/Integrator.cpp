@@ -173,6 +173,23 @@ namespace rayt {
 
             const bool hit = scene.hit(r, rec);
 
+            // ========== A captured cloud of Gaussians (docs/CAPTURE.md) ==========
+            // Emits what the capture saw and absorbs; a backdrop that paths fly through (outside any medium).
+            if (scene.splats() && !r.medium) {
+                Vector3 rgb;
+                Real T;
+                scene.splats()->gather(r, hit ? rec.t : constants::INFINITY_VAL, rgb, T);
+                if (T < Real(1)) {
+                    st.L += st.beta * RgbToIlluminantSpectrum(rgb, lambda);
+                    if (aov && !aov->valid && T < Real(0.5)) {   // mostly the cloud: its color is the denoiser's albedo
+                        aov->albedo = glm::clamp(rgb / std::max(Real(1) - T, Real(1e-3)), Vector3(0.0), Vector3(1.0));
+                        aov->valid = true;
+                    }
+                    st.beta *= Spectrum(T);
+                    if (isBlack(st.beta)) break;
+                }
+            }
+
             // ========== Participating medium ==========
             if (r.medium) {
                 const MediumStep step = advanceInMedium(r, scene, hit, hit ? rec.t : constants::INFINITY_VAL, st, lambda);
@@ -565,7 +582,7 @@ namespace rayt {
 
         // ========== Visibility Test ==========
         Spectrum transmittance(1.0);
-        if (m_mediaNee) {   // null interfaces are crossed, media attenuate
+        if (m_mediaNee || scene.splats()) {   // null interfaces are crossed, media (and a captured cloud) attenuate
             const Point3 origin = rec.OffsetRayOrigin(wi);
             Vector3 dirS = wi;
             Real tMaxS = constants::INFINITY_VAL;

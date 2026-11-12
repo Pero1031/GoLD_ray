@@ -23,6 +23,7 @@ std::optional<int> BuildSea(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildPool(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildStudio(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildMesh(SceneContext& ctx, SceneSetup& out);
+std::optional<int> BuildSplats(SceneContext& ctx, SceneSetup& out);   // a synthetic cloud of Gaussians around a gold sphere; runs the splat checks first
 std::optional<int> BuildSkinDemo(SceneContext& ctx, SceneSetup& out);
 std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out);
 

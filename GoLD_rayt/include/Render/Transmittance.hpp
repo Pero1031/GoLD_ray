@@ -20,6 +20,7 @@
 #include "Core/SpectrumUtils.hpp"
 #include "Core/SampledWavelengths.hpp"
 #include "Scene/Scene.hpp"
+#include "Geometry/GaussianSplats.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Medium.hpp"
 
@@ -75,6 +76,9 @@ namespace rayt {
             if (medium) {
                 if (!hit && !std::isfinite(remaining)) return Spectrum(0.0);   // a ray that never leaves the medium: a leaky boundary
                 T *= mediumTransmittance(*medium, origin, dir, hit ? h.t : remaining, lambda);
+            }
+            else if (scene.splats()) {   // the captured cloud absorbs (gray) what passes through it
+                T *= Spectrum(scene.splats()->transmittance(ray, hit ? h.t : remaining));
             }
             if (!hit) return T;
             if (!h.matPtr->isNullInterface()) return Spectrum(0.0);

@@ -59,6 +59,38 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
     if (!o.is_object() || !o.contains("shape")) Fail(where, "must be an object with a \"shape\" (sphere, quad, mesh or lathe)");
     const std::string shape = ReadString(o.at("shape"), where + ".shape");
     ObjectSpec s;
+    if (shape == "splats") {   // a captured cloud of Gaussians (3DGS point_cloud.ply): no material, its color is the capture's (docs/CAPTURE.md)
+        CheckKeys(o, { "shape", "file", "scale", "rotate", "translate", "alphaMin", "intensity", "linearize", "degree", "keep", "remove" }, where);
+        s.shape = ObjectSpec::Shape::Splats;
+        if (!o.contains("file")) Fail(where, "splats need a \"file\" (point_cloud.ply of 3D Gaussian Splatting)");
+        s.file = ReadString(o.at("file"), where + ".file");
+        Optional<double>(o, "scale", where, s.scale, ReadNumber);
+        if (o.contains("translate")) s.translate = ReadVec3(o.at("translate"), where + ".translate");
+        if (o.contains("rotate")) {
+            const json& r = o.at("rotate");
+            CheckKeys(r, { "axis", "degrees" }, where + ".rotate");
+            if (r.contains("axis")) s.rotateAxis = ReadVec3(r.at("axis"), where + ".rotate.axis");
+            if (r.contains("degrees")) s.rotateDegrees = ReadNumber(r.at("degrees"), where + ".rotate.degrees");
+            if (glm::length(s.rotateAxis) < 1e-12) Fail(where + ".rotate.axis", "must not be zero");
+        }
+        Optional<double>(o, "alphaMin", where, s.splatAlphaMin, ReadNumber);
+        Optional<double>(o, "intensity", where, s.splatIntensity, ReadNumber);
+        if (o.contains("linearize")) s.splatLinearize = ReadBool(o.at("linearize"), where + ".linearize");
+        if (o.contains("degree")) s.splatDegree = static_cast<int>(ReadNumber(o.at("degree"), where + ".degree"));
+        if (s.splatAlphaMin <= 0 || s.splatAlphaMin >= 1) Fail(where + ".alphaMin", "must be between 0 and 1 (default 1/255)");
+        if (s.splatDegree < 0 || s.splatDegree > 3) Fail(where + ".degree", "must be 0 to 3");
+        for (const char* key : { "keep", "remove" }) {
+            if (!o.contains(key)) continue;
+            const json& b = o.at(key);
+            const std::string bw = where + "." + key;
+            CheckKeys(b, { "min", "max" }, bw);
+            if (!b.contains("min") || !b.contains("max")) Fail(bw, "needs \"min\" and \"max\" (a box in world space)");
+            const Vector3 lo = ReadVec3(b.at("min"), bw + ".min"), hi = ReadVec3(b.at("max"), bw + ".max");
+            if (std::string(key) == "keep") { s.splatKeep = true; s.splatKeepMin = lo; s.splatKeepMax = hi; }
+            else { s.splatRemove = true; s.splatRemoveMin = lo; s.splatRemoveMax = hi; }
+        }
+        return s;
+    }
     if (!o.contains("material")) Fail(where, "needs a \"material\" (the name of one of the materials)");
     s.material = ReadString(o.at("material"), where + ".material");
     if (o.contains("light")) s.light = ReadBool(o.at("light"), where + ".light") ? 1 : 0;
@@ -230,6 +262,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
     for (size_t i = 0; i < os.size(); ++i) {
         const std::string where = "objects[" + std::to_string(i) + "]";
         ObjectSpec o = ParseObject(os[i], where);
+        if (o.shape == ObjectSpec::Shape::Splats) { d->objects.push_back(o); continue; }   // no material
         const auto it = d->materials.find(o.material);
         if (it == d->materials.end()) {
             std::string names;

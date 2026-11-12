@@ -19,6 +19,8 @@
 
 namespace rayt {
 
+    class GaussianSplats;   // Geometry/GaussianSplats.hpp: a captured cloud of Gaussians, traced as emissive, absorbing particles
+
     /**
      * @brief The Scene class holds all information about the virtual environment.
      *
@@ -137,6 +139,11 @@ namespace rayt {
             return m_envLight.get();
         }
 
+        /// A captured cloud of Gaussians (3D Gaussian Splatting) that paths see as a backdrop and that shadows by its transmittance
+        /// (path tracing only: the photon map, the manifold NEE and the LVC-BPT do not see it). Null: none.
+        void setSplats(std::shared_ptr<const GaussianSplats> splats) { m_splats = std::move(splats); }
+        const GaussianSplats* splats() const { return m_splats.get(); }
+
         /**
          * @brief Access the light sampler directly.
          */
@@ -175,6 +182,8 @@ namespace rayt {
 
         // Optional environment/infinite light
         std::shared_ptr<EnvLight> m_envLight;
+
+        std::shared_ptr<const GaussianSplats> m_splats;
 
         // Light sampling strategy
         std::unique_ptr<LightSampler> m_lightSampler;

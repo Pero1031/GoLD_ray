@@ -68,6 +68,7 @@
 #include "IO/ImageLoader.hpp"
 #include "IO/ObjLoader.hpp"
 #include "IO/PlyLoader.hpp"
+#include "Geometry/GaussianSplats.hpp"
 #include "IO/PmxLoader.hpp"
 #include "IO/PmxMorph.hpp"
 #include "IO/PmxPose.hpp"

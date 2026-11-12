@@ -20,6 +20,8 @@ const SceneDef kScenes[] = {
       [](const CliOptions&) { return EnvKind::None; }, BuildStudio },
     { "mesh", "triangle meshes (a gold torus, flat and smooth spheres); runs the mesh checks first", kDefaultHeightPerWidth, 0,
       [](const CliOptions&) { return EnvKind::None; }, BuildMesh },
+    { "splats", "a synthetic cloud of Gaussian splats (3DGS) around a gold sphere; runs the splat checks first", kDefaultHeightPerWidth, 0,
+      [](const CliOptions&) { return EnvKind::None; }, BuildSplats },
     { "spd", "colored spheres and gold under one light spectrum (--light, --wb)", kDefaultHeightPerWidth, 0,
       [](const CliOptions&) { return EnvKind::None; }, BuildLightSpectra },
     { "goldbowl", "a gold bowl with a gold ball: where RGB and spectral rendering differ (--light)", kDefaultHeightPerWidth, 0,

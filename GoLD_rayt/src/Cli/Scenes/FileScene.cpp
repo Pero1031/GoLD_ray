@@ -468,6 +468,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
     if (opt.whiteBalance) {
         bool found = false;
         for (const ObjectSpec& o : d.objects) {
+            if (o.material.empty()) continue;   // splats have no material
             const MaterialSpec& spec = d.materials.at(o.material);
             if (spec.type != MaterialSpec::Type::Emission) continue;
             EmissionSpectrum spectrum;
@@ -484,6 +485,28 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
 
     // ---- objects ----
     for (const ObjectSpec& o : d.objects) {
+        if (o.shape == ObjectSpec::Shape::Splats) {   // a captured cloud of Gaussians (docs/CAPTURE.md): one per scene, no material
+            if (out.splats) { std::cerr << "[SceneFile] splats " << o.file << ": a scene can hold one cloud of splats\n"; return 1; }
+            std::vector<SplatSource> sources;
+            int degreeInFile = 0;
+            std::string err;
+            if (!GaussianSplats::loadPly(o.file, sources, degreeInFile, &err)) { std::cerr << "[SceneFile] splats " << o.file << ": " << err << "\n"; return 1; }
+            SplatParams sp;
+            sp.alphaMin = Real(o.splatAlphaMin); sp.intensity = Real(o.splatIntensity); sp.linearize = o.splatLinearize; sp.degree = o.splatDegree;
+            sp.scale = Real(o.scale);
+            sp.rotation = glm::dmat3(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
+            sp.translate = Vector3(o.translate);
+            sp.hasKeep = o.splatKeep; sp.keep = AABB(o.splatKeepMin, o.splatKeepMax);
+            sp.hasRemove = o.splatRemove; sp.remove = AABB(o.splatRemoveMin, o.splatRemoveMax);
+            auto cloud = std::make_shared<const GaussianSplats>(sources, degreeInFile, sp);
+            const AABB& b = cloud->bounds();
+            std::cout << "[SceneFile] splats " << o.file << ": " << sources.size() << " particles in the file (harmonics degree " << degreeInFile << "), "
+                << cloud->count() << " kept (degree " << cloud->degree() << ", alphaMin " << o.splatAlphaMin << ", intensity " << o.splatIntensity
+                << (o.splatLinearize ? ", sRGB decoded" : "") << "); bounds x " << b.min.x << ".." << b.max.x << "  y " << b.min.y << ".." << b.max.y
+                << "  z " << b.min.z << ".." << b.max.z << "\n";
+            out.splats = cloud;
+            continue;
+        }
         const MaterialSpec& spec = d.materials.at(o.material);
         const std::shared_ptr<Material>& mat = materials.at(o.material);
         const bool emission = spec.type == MaterialSpec::Type::Emission;

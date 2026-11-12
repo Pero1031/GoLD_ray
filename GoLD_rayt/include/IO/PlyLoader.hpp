@@ -104,6 +104,76 @@ namespace rayt::io {
             bool m_ascii, m_big;
         };
 
+        /// Parses the header of an open (binary-mode) stream, leaving it at the first byte of the data. False with `err` set on failure.
+        inline bool parseHeader(std::istream& f, bool& ascii, bool& big, std::vector<Element>& elements, std::string* outTexture, std::string& err) {
+            std::string line;
+            if (!std::getline(f, line)) { err = "empty file"; return false; }
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line != "ply") { err = "not a PLY file (the first line is not \"ply\")"; return false; }
+
+            ascii = false; big = false;
+            bool haveFormat = false, ended = false;
+            elements.clear();
+            while (std::getline(f, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "format") {
+                    std::string fmt;
+                    ss >> fmt;
+                    if (fmt == "ascii") ascii = true;
+                    else if (fmt == "binary_little_endian") { ascii = false; big = false; }
+                    else if (fmt == "binary_big_endian") { ascii = false; big = true; }
+                    else { err = "unknown format \"" + fmt + "\""; return false; }
+                    haveFormat = true;
+                }
+                else if (tag == "comment" || tag == "obj_info") {
+                    std::string key;
+                    ss >> key;
+                    if (tag == "comment" && key == "TextureFile" && outTexture) {
+                        std::string rest;
+                        std::getline(ss, rest);
+                        const size_t start = rest.find_first_not_of(" \t");
+                        if (start != std::string::npos) *outTexture = rest.substr(start);
+                    }
+                }
+                else if (tag == "element") {
+                    Element e;
+                    ss >> e.name >> e.count;
+                    if (!ss) { err = "bad element line \"" + line + "\""; return false; }
+                    elements.push_back(e);
+                }
+                else if (tag == "property") {
+                    if (elements.empty()) { err = "a property before any element"; return false; }
+                    Property p;
+                    std::string t;
+                    ss >> t;
+                    if (t == "list") {
+                        std::string ct, it;
+                        ss >> ct >> it >> p.name;
+                        p.list = true;
+                        p.countType = typeOf(ct);
+                        p.type = typeOf(it);
+                        if (p.countType == Type::None || p.type == Type::None) { err = "unknown list types in \"" + line + "\""; return false; }
+                    }
+                    else {
+                        ss >> p.name;
+                        p.type = typeOf(t);
+                        if (p.type == Type::None) { err = "unknown property type \"" + t + "\""; return false; }
+                    }
+                    if (!ss && p.name.empty()) { err = "bad property line \"" + line + "\""; return false; }
+                    elements.back().props.push_back(p);
+                }
+                else if (tag == "end_header") { ended = true; break; }
+                else if (tag.empty()) continue;
+                else { err = "unexpected header line \"" + line + "\""; return false; }
+            }
+            if (!ended) { err = "no end_header"; return false; }
+            if (!haveFormat) { err = "no format line"; return false; }
+            return true;
+        }
+
     } // namespace plydetail
 
     /**
@@ -121,70 +191,10 @@ namespace rayt::io {
         if (!f) return fail("cannot open");
 
         // --- header ---
-        std::string line;
-        if (!std::getline(f, line)) return fail("empty file");
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line != "ply") return fail("not a PLY file (the first line is not \"ply\")");
-
-        bool ascii = false, big = false, haveFormat = false, ended = false;
+        bool ascii = false, big = false;
         std::vector<Element> elements;
-        while (std::getline(f, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "format") {
-                std::string fmt;
-                ss >> fmt;
-                if (fmt == "ascii") ascii = true;
-                else if (fmt == "binary_little_endian") { ascii = false; big = false; }
-                else if (fmt == "binary_big_endian") { ascii = false; big = true; }
-                else return fail("unknown format \"" + fmt + "\"");
-                haveFormat = true;
-            }
-            else if (tag == "comment" || tag == "obj_info") {
-                std::string key;
-                ss >> key;
-                if (tag == "comment" && key == "TextureFile" && outTexture) {
-                    std::string rest;
-                    std::getline(ss, rest);
-                    const size_t start = rest.find_first_not_of(" \t");
-                    if (start != std::string::npos) *outTexture = rest.substr(start);
-                }
-            }
-            else if (tag == "element") {
-                Element e;
-                ss >> e.name >> e.count;
-                if (!ss) return fail("bad element line \"" + line + "\"");
-                elements.push_back(e);
-            }
-            else if (tag == "property") {
-                if (elements.empty()) return fail("a property before any element");
-                Property p;
-                std::string t;
-                ss >> t;
-                if (t == "list") {
-                    std::string ct, it;
-                    ss >> ct >> it >> p.name;
-                    p.list = true;
-                    p.countType = typeOf(ct);
-                    p.type = typeOf(it);
-                    if (p.countType == Type::None || p.type == Type::None) return fail("unknown list types in \"" + line + "\"");
-                }
-                else {
-                    ss >> p.name;
-                    p.type = typeOf(t);
-                    if (p.type == Type::None) return fail("unknown property type \"" + t + "\"");
-                }
-                if (!ss && p.name.empty()) return fail("bad property line \"" + line + "\"");
-                elements.back().props.push_back(p);
-            }
-            else if (tag == "end_header") { ended = true; break; }
-            else if (tag.empty()) continue;
-            else return fail("unexpected header line \"" + line + "\"");
-        }
-        if (!ended) return fail("no end_header");
-        if (!haveFormat) return fail("no format line");
+        std::string err;
+        if (!parseHeader(f, ascii, big, elements, outTexture, err)) return fail(err);
 
         // --- body ---
         Reader reader(f, ascii, big);

@@ -90,6 +90,10 @@ int RunMetalTests(const CliOptions& opt);
 
 bool RunMeshChecks(const CliOptions& opt);
 
+/// --scene splats: the ray-Gaussian response against a numerical maximum, compositing order, BVH vs brute force, the 3DGS PLY round
+/// trip with the channel-major harmonics, the scene transform, and the integrator (a half-opaque slab halves the light on the ground).
+bool RunSplatChecks(const CliOptions& opt);
+
 /// Skeleton summary and self-tests of the posing code (--pmx-check).
 bool RunPmxChecks(const io::PmxModel& model);
 } // namespace rayt::cli

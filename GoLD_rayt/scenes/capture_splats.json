@@ -1,0 +1,26 @@
+{
+  // Template for stage 2 of docs/CAPTURE.md: a captured room (3D Gaussian Splatting, point_cloud.ply from the training) as the backdrop
+  // and the light that paths see, with a physically rendered object placed in it. Fill in the paths; everything is in metres.
+  //   - The 3DGS cloud is in COLMAP's frame (y down, z forward): the rotation below turns it y up. Find the scale from a known length
+  //     in the capture (a 0.3 m object spanning 1.2 COLMAP units -> "scale": 0.25) and the translation from where the floor is.
+  //   - "remove" cuts the particles out of the box where the object stood, so the mesh replaces them; "keep" drops the far floaters.
+  //   - "intensity" scales the captured radiance; 1 means the training images' pixel values (sRGB-decoded) are the radiance in the film's
+  //     units. Raise it until the room looks as bright as it was.
+  // Only the path tracer sees the splats; diffuse surfaces receive their light through BSDF-sampled rays only (noisy: use more spp or
+  // the denoiser), and mirrors and glass reflect and refract them like any backdrop.
+  "options": { "width": 900, "height": 600, "spp": 256, "denoise": true },
+  "camera": { "from": [0.0, 0.5, 2.0], "at": [0.0, 0.3, 0.0], "fov": 40 },
+  "materials": {
+    "gold":  { "type": "conductor", "metal": "Au", "roughness": 0.2 },
+    "floor": { "type": "diffuse", "albedo": 0.4 }
+  },
+  "objects": [
+    { "shape": "splats", "file": "assets/Capture/point_cloud.ply",
+      "scale": 0.25, "rotate": { "axis": [1, 0, 0], "degrees": 180 }, "translate": [0, 0, 0],
+      "intensity": 1.0, "alphaMin": 0.004,
+      "keep":   { "min": [-4, -0.5, -4], "max": [4, 4, 4] },
+      "remove": { "min": [-0.4, -0.05, -0.4], "max": [0.4, 0.8, 0.4] } },
+    { "shape": "mesh", "file": "assets/Capture/object.ply", "material": "gold" },
+    { "shape": "quad", "corner": [-3, 0, -3], "edge1": [6, 0, 0], "edge2": [0, 0, 6], "material": "floor" }
+  ]
+}

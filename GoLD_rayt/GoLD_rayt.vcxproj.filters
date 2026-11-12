@@ -108,6 +108,12 @@
     <ClCompile Include="src\Cli\Checks\MeshChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Cli\Checks\SplatChecks.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Cli\Scenes\SplatScene.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Cli\Checks\MetalChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -423,6 +429,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\IO\PlyLoader.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Geometry\GaussianSplats.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\IO\PmxLoader.hpp">
