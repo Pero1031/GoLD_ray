@@ -7,7 +7,7 @@
   // is what makes the drops wet the glass instead of sitting on it like beads; "cutout" removes the glass face under every drop.
   // For the background in focus and the drops blurred, set "focus" to 3.0 (the distance of the lights).
   "options": { "width": 900, "height": 600, "spp": 256, "denoise": true },
-  "camera": { "from": [0.0, 0.0, -0.30], "at": [0.0, 0.0, 0.0], "fov": 32, "aperture": 0.008, "focus": 0.30 },
+  "camera": { "from": [0.0, 0.0, -0.30], "at": [0.0, 0.0, 0.0], "fov": 24, "aperture": 0.008, "focus": 0.30 },
   "environment": { "type": "uniform", "scale": 0.01 },
   "materials": {
     "glass":        { "type": "dielectric", "ior": 1.5 },
