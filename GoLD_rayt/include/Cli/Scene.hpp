@@ -15,22 +15,28 @@
 #include <string>
 #include <vector>
 
-#include "Core/Sampling.hpp"
-#include "Color/ComplexIorTable.hpp"
-#include "IO/EnvMap.hpp"
-#include "Lights/Light.hpp"
+#include "Core/Types.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Materials/RoughConductor.hpp"
-#include "Render/Camera.hpp"
-#include "Render/Film.hpp"
-#include "Render/Integrator.hpp"
-#include "Render/SpecularNee.hpp"
+#include "Render/SpecularBody.hpp"
 #include "Scene/Aggregate.hpp"
-#include "Scene/Scene.hpp"
-#include "Geometry/GaussianSplats.hpp"
 #include "Cli/Options.hpp"
 #include "Cli/SceneDescription.hpp"
+
+namespace rayt {
+    class Scene;
+    class Camera;
+    class Film;
+    class PathIntegrator;
+    class Light;
+    class EnvMap;
+    class EnvLight;
+    class Medium;
+    class PointLight;
+    class GaussianSplats;
+    namespace color { class ComplexIorTable; }
+}
 
 namespace rayt::cli {
 
@@ -104,7 +110,7 @@ struct SceneSetup {
     const PointLight* bptLight = nullptr;                        // fogspot: the lamp and the fog, for --lvc (VolumeBPT)
     const Medium* bptMedium = nullptr;
     Real bptAlbedo = Real(0.5);                                  // albedo of the diffuse surfaces (all the same)
-    std::vector<SpecularNee::Body> manifoldBodies;               // flat-faced glass bodies the specular manifold NEE can solve
+    std::vector<SpecularBody> manifoldBodies;                    // flat-faced glass bodies the specular manifold NEE can solve
     std::vector<std::shared_ptr<void>> keepAlive;                // owners of things the scene only points to
     std::function<void(const RenderResult&)> afterRender;        // right after the render, before saving
     std::function<bool(const RenderResult&)> afterSave;          // after saving; false = a check failed (exit code 2)

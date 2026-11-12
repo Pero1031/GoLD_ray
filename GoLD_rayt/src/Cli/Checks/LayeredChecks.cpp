@@ -2,7 +2,14 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Quad.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Geometry/TriangleMesh.hpp"
+#include "IO/ComplexIorLoader.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Materials/LayeredCoat.hpp"
+#include "Materials/RoughConductor.hpp"
+#include "Render/CausticPhotonMap.hpp"
 
 namespace rayt::cli {
 

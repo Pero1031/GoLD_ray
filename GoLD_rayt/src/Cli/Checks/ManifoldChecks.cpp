@@ -4,7 +4,10 @@
 #include "Cli/CheckSupport.hpp"
 #include "Cli/SceneParts.hpp"
 #include "Geometry/ProceduralMesh.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
+#include "Render/SpecularNee.hpp"
 
 namespace rayt::cli {
 

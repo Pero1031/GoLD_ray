@@ -7,7 +7,13 @@
 #include "Cli/SceneParts.hpp"
 #include "Cli/Tools.hpp"
 #include "Geometry/ProceduralMesh.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Accelerators/EmbreeMesh.hpp"
+#include "Geometry/Quad.hpp"
+#include "Geometry/Sphere.hpp"
+#include "IO/PmxMorph.hpp"
+#include "IO/PmxPose.hpp"
+#include "Materials/CoatedDiffuse.hpp"
+#include "Render/CausticPhotonMap.hpp"
 
 namespace rayt::cli {
 

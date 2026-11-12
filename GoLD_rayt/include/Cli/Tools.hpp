@@ -4,11 +4,14 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "Materials/Material.hpp"
-#include "Render/Camera.hpp"
-#include "Render/Film.hpp"
-#include "Scene/Scene.hpp"
 #include "Cli/Options.hpp"
+
+namespace rayt {
+    class Scene;
+    class Camera;
+    class Film;
+    class Material;
+}
 
 namespace rayt::cli {
 

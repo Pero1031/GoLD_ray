@@ -2,7 +2,10 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Materials/ThinFilm.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
 #include "Core/Fresnel.hpp"
 #include "Core/Sampling.hpp"
 

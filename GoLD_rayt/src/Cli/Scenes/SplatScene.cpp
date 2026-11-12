@@ -3,7 +3,8 @@
 #include "Cli/Scenes.hpp"
 #include "Cli/Checks.hpp"
 #include "Cli/SceneParts.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/GaussianSplats.hpp"
+#include "Geometry/Sphere.hpp"
 
 namespace rayt::cli {
 

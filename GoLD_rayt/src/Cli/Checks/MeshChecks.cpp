@@ -2,7 +2,14 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/TriangleMesh.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Accelerators/EmbreeMesh.hpp"
+#include "IO/ObjLoader.hpp"
+#include "IO/PlyLoader.hpp"
+#include "Lights/AreaLight.hpp"
+#include "Materials/DiffuseLight.hpp"
+#include "Scene/Primitive.hpp"
 
 namespace rayt::cli {
 

@@ -63,8 +63,9 @@
 
 **済み（2026-11-13、分割）:** 本体が長く、よく直し、インターフェイスが安定している物を .hpp と .cpp に分けた: `WrinkleField`（構築は .cpp、レイごとの参照だけヘッダ）、`Hair`（ローブの数式 `hairmath` はヘッダ、材質は .cpp）、`CausticPhotonMap`、`PmxLoader`、`PlyLoader`、`GaussianSplats`。分けなかった物: `VolumeBPT`・`SpecularNee`（試作で、触らない）、`CosmeticLayer`・`SkinRelief` など（レイごとに呼ぶ小さな関数が多く、開発用ビルド（LTCG なし）で遅くなり得る）、テンプレート（`Spectrum`）。回帰は `tools/test/regress.py`（小さな描画の平均色 + 自己検査 15 本）で確かめた。**ビルド時間（開発用ビルド）:** 分割した物の中身（.cpp）を直したときの再ビルドが、全体（約 80 秒）から約 4 秒になった。ヘッダを触ったときは、分割の前後とも全体の再ビルド（`Cli/EngineHeaders.hpp` が全ヘッダを全 CLI ファイルに配るため。次の候補の 1 つ目）。
 
+**済み（2026-11-13、include の整理）:** `Cli/EngineHeaders.hpp`（63 個のヘッダの束。CLI の 41 ファイル全部が読んでいた）を廃止し、各 CLI ファイルが使うヘッダだけを include する形にした（ヘッダの宣言名からファイルごとの一覧を機械的に作り、ビルドで残りを直した）。あわせて、ポインタや参照でしか使わない型は前方宣言に: `Render/Integrator.hpp`（光子マップ、多様体 NEE、媒質、カメラ、フィルムを前方宣言。`setCausticMap` と `mediaTraced` は .cpp へ）、`Cli/Scene.hpp`・`CheckSupport.hpp`・`Checks.hpp`・`Tools.hpp`、`Materials/Material.hpp`（`SubsurfaceTable.hpp` を外した）。`SpecularNee::Body` は `Render/SpecularBody.hpp`（メッシュとガラスの shared_ptr だけ）に出し、シーン側は試作のヘッダを読まない。**効果（CLI 44 ファイルのうち、そのヘッダが届く数）:** 肌の層 `CoatedDiffuse`・`WrinkleField`・`SkinRelief` 41 → 11、`Lambertian` 41 → 24、`Dielectric` 41 → 22、`Integrator` 41 → 21、`RoughConductor` 41 → 15、`PmxLoader` 41 → 8、`GaussianSplats` 41 → 5、`Hair` 41 → 3、`SpecularNee` 41 → 3、`VolumeBPT` 41 → 2。`Core/*`、`Color/*`、`Material.hpp`、`Scene.hpp` は土台なので今もほぼ全部に届く（触れば全体の再ビルド）。
+
 **候補:**
-- **`Cli/EngineHeaders.hpp` が 63 個のヘッダを束ね、CLI の 41 ファイル全部が読む。** エンジンのヘッダを 1 つ触ると CLI 全体が再コンパイルされる。各ファイルが使う物だけ include する形に。
 - **`Materials` に性質の違う物が同居**している: BSDF（`RoughConductor` など）、肌の「場」（`SkinRelief`、`SkinPigment`、`WrinkleField`、`DensityField`）、時間のモデル（`SkinLotion`、`Fading*`）。
 - **`SurfaceInteraction` が肌の機能で太っている**（`ns`、`filmCover`、`surfScatter`、`nl`、`albedoTint`、`glossScale`、`roughScale` など）。すべての交差が運ぶ構造体なので、結合が強い。
 - **`Integrator.cpp` に機能のフックが集まっている**（媒質、粒子、光子マップ、多様体 NEE、不透明度、無効境界）。

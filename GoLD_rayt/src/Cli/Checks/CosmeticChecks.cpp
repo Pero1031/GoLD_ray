@@ -4,7 +4,10 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Materials/CoatedDiffuse.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
 #include "Materials/CosmeticLayer.hpp"
 
 namespace rayt::cli {

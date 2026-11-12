@@ -1,7 +1,9 @@
 // MMD (PMX) helpers of the CLI.
 #include "pch.h"
 #include "Cli/PmxSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Materials/CoatedDiffuse.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Render/CausticPhotonMap.hpp"
 
 namespace rayt::cli {
 

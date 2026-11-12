@@ -8,7 +8,7 @@
 #include "Color/SpectralCurve.hpp"
 #include "Geometry/TriangleMesh.hpp"
 #include "Materials/Material.hpp"
-#include "Render/SpecularNee.hpp"
+#include "Materials/Dielectric.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Hittable.hpp"
 #include "Scene/Scene.hpp"

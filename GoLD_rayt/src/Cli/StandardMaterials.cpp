@@ -1,7 +1,7 @@
 // The materials shared by the scenes: floor, Johnson & Christy gold at three roughnesses, glass, a white reference.
 #include "pch.h"
 #include "Cli/Scenes.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "IO/ComplexIorLoader.hpp"
 
 namespace rayt::cli {
 

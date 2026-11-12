@@ -1,7 +1,8 @@
 // PMX skeleton and pose checks.
 #include "pch.h"
 #include "Cli/Checks.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "IO/PmxPose.hpp"
+#include "Core/Constants.hpp"
 
 namespace rayt::cli {
 

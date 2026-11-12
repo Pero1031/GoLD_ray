@@ -1,7 +1,8 @@
 // Monte Carlo radial profile of a layered skin (--scene skinlayers).
 #include "pch.h"
 #include "Cli/Tools.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Materials/LayeredSkin.hpp"
+#include "Materials/Subsurface.hpp"
 
 namespace rayt::cli {
 

@@ -15,7 +15,38 @@
 
 #include "Render/Integrator.hpp"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+#include <algorithm>
+#include <iostream>
+
+#include "Core/Math.hpp"
+#include "Core/Sampling.hpp"
+#include "Core/Constants.hpp"
+#include "Core/SpectrumUtils.hpp"
+#include "Scene/Scene.hpp"
+#include "Render/Film.hpp"
+#include "Render/Camera.hpp"
+#include "Render/SubsurfaceProbe.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Transmittance.hpp"
+#include "Render/SpecularNee.hpp"
+#include "Lights/EnvLight.hpp"
+#include "Lights/PointLight.hpp"
+#include "Lights/LightSampler.hpp"
+#include "Materials/Medium.hpp"
+#include "Color/SpectralConversion.hpp"
+#include "IO/EnvMap.hpp"
+
 namespace rayt {
+
+    void PathIntegrator::setCausticMap(const CausticPhotonMap* map) {
+        m_caustics = (map && (!map->empty() || map->tracesMedia())) ? map : nullptr;   // a map that only traces media stores no photons
+    }
+
+    bool PathIntegrator::mediaTraced() const { return m_caustics && m_caustics->tracesMedia(); }
 
     namespace {
 

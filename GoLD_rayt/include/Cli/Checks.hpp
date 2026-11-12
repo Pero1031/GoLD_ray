@@ -3,11 +3,15 @@
 // Each prints OK / FAIL per case; the Run* functions return the exit code (2 = a check failed).
 
 #include <vector>
-#include "IO/PmxLoader.hpp"
-#include "Render/Camera.hpp"
-#include "Render/Film.hpp"
-#include "Scene/Scene.hpp"
 #include "Cli/Options.hpp"
+
+namespace rayt {
+    class Scene;
+    class Camera;
+    class Film;
+    class Material;
+    namespace io { struct PmxModel; }
+}
 
 namespace rayt::cli {
 

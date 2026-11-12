@@ -9,43 +9,26 @@
 
 #pragma once
 
-#include "Materials/Medium.hpp"
-
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
-#include <memory>
-#include <iostream>
-#include <algorithm>
 #include <atomic>
+#include <memory>
 #include <optional>
 
 #include "Core/Forward.hpp"
 #include "Core/Types.hpp"
-#include "Core/Math.hpp"
 #include "Core/Ray.hpp"
-#include "Core/Sampling.hpp"
-#include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
-#include "Core/SpectrumUtils.hpp"
 #include "Core/SampledWavelengths.hpp"
-#include "Scene/Scene.hpp"
-#include "Render/Film.hpp"
-#include "Render/Camera.hpp"
-#include "Render/SubsurfaceProbe.hpp"
-#include "Render/CausticPhotonMap.hpp"
-#include "Render/Transmittance.hpp"
-#include "Render/SpecularNee.hpp"
 #include "Lights/Light.hpp"
-#include "Lights/EnvLight.hpp"
-#include "Lights/PointLight.hpp"
-#include "Lights/LightSampler.hpp"
 #include "Materials/Material.hpp"
-#include "Color/SpectralConversion.hpp"
-#include "IO/EnvMap.hpp"
 
 namespace rayt {
+
+    class Scene;
+    class Camera;
+    class Film;
+    class Medium;
+    class CausticPhotonMap;
+    class SpecularNee;
 
     /**
      * @brief Denoiser auxiliary features of one camera path (see Film::enableAOVs).
@@ -95,7 +78,7 @@ namespace rayt {
          * BSDF-sampled ray finds through a chain of specular bounces that started at such a vertex (L S+ D paths), so
          * nothing is counted twice. Every specular object must lie inside the map's target sphere. An empty map is ignored.
          */
-        void setCausticMap(const CausticPhotonMap* map) { m_caustics = (map && (!map->empty() || map->tracesMedia())) ? map : nullptr; }   // a map that only traces media stores no photons
+        void setCausticMap(const CausticPhotonMap* map);   // an empty map is ignored (a map that only traces media stores no photons)
 
         /// Light tracing took over the caustics on surfaces the camera sees directly (no bounce before): no photon gather there. The paths of the
         /// other receivers (seen through glass, after a diffuse bounce) still use the photons.
@@ -145,7 +128,7 @@ namespace rayt {
         bool m_mediaNee = false;
 
         /// The photon map traces scattering media: a path's gather and its drop rule treat them like air.
-        bool mediaTraced() const { return m_caustics && m_caustics->tracesMedia(); }
+        bool mediaTraced() const;
 
         /// Everything that one path carries from vertex to vertex.
         struct PathState {

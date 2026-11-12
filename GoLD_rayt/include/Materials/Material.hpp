@@ -11,7 +11,6 @@
 #pragma once
 
 #include <array>
-#include "Materials/SubsurfaceTable.hpp"
 
 #include <optional>
 
@@ -146,6 +145,7 @@ namespace rayt {
     };
 
     class SubsurfaceProfile;
+    namespace sss { class ChannelTable; }   // Materials/SubsurfaceTable.hpp
 
     /// Radial profile parameters of a subsurface material at one hit, per RGB channel / wavelength.
     struct SubsurfaceParams {

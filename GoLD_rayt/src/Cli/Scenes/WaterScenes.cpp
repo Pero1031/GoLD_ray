@@ -7,7 +7,12 @@
 #include "Cli/SceneParts.hpp"
 #include "Cli/Tools.hpp"
 #include "Geometry/ProceduralMesh.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Quad.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Lights/AreaLight.hpp"
+#include "Lights/PointLight.hpp"
+#include "Materials/DiffuseLight.hpp"
+#include "Scene/Primitive.hpp"
 
 namespace rayt::cli {
 

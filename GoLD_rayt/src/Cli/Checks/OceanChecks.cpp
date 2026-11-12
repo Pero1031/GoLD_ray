@@ -2,7 +2,6 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
 #include "Geometry/ProceduralMesh.hpp"
 
 namespace rayt::cli {

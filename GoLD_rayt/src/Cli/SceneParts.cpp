@@ -2,7 +2,16 @@
 #include "pch.h"
 #include "Cli/SceneParts.hpp"
 #include "Geometry/ProceduralMesh.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Accelerators/EmbreeMesh.hpp"
+#include "Geometry/Quad.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Lights/AreaLight.hpp"
+#include "Materials/Dielectric.hpp"
+#include "Materials/DiffuseLight.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
+#include "Scene/Primitive.hpp"
 
 namespace rayt::cli {
 

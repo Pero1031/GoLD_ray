@@ -9,7 +9,15 @@
 // tool, which uses the similarity relation). A point light with a narrow cone lights the object; both versions are path traced.
 #include "pch.h"
 #include "Cli/Tools.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Lights/PointLight.hpp"
+#include "Materials/CoatedDiffuse.hpp"
+#include "Materials/Dielectric.hpp"
+#include "Materials/LayeredSkin.hpp"
+#include "Render/Camera.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Film.hpp"
+#include "Render/Integrator.hpp"
 #include "Cli/SceneParts.hpp"
 #include "Geometry/ProceduralMesh.hpp"
 #include <chrono>

@@ -3,7 +3,11 @@
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
 #include "Cli/SceneParts.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "IO/ImageLoader.hpp"
+#include "IO/SpectralCurveLoader.hpp"
+#include "Lights/PointLight.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
 
 namespace rayt::cli {
 

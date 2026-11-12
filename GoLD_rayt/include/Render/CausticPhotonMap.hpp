@@ -47,7 +47,6 @@
 #include "Core/Types.hpp"
 #include "Core/Interaction.hpp"
 #include "Core/SampledWavelengths.hpp"
-#include "Materials/Medium.hpp"
 
 namespace rayt {
 
@@ -55,12 +54,11 @@ namespace rayt {
     class Camera;
     class LightSampler;
     class Material;
+    class Medium;
 
     /// Photons are traced and gathered in air and inside purely absorbing media (their transmittance is a weight). A scattering medium is
     /// traced only when the map traces media (CausticPhotonParams::traceMedia) and the medium is gray (the same for every wavelength).
-    inline bool photonsAllowedIn(const Medium* medium, bool mediaTraced = false) {
-        return !medium || medium->attenuatesContinuously() || (mediaTraced && medium->isSpectrallyConstant());
-    }
+    bool photonsAllowedIn(const Medium* medium, bool mediaTraced = false);
 
     struct CausticPhotonParams {
         long long numPhotons = 1000000;   ///< photons emitted (the number stored is smaller: misses and direct light are dropped)

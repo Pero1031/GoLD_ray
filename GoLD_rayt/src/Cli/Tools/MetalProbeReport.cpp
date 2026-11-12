@@ -1,7 +1,11 @@
 // Report of the metalprobe scene: mean film color per angle of incidence.
 #include "pch.h"
 #include "Cli/Tools.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Render/Camera.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Film.hpp"
+#include "Render/Integrator.hpp"
+#include "Scene/Scene.hpp"
 
 namespace rayt::cli {
 

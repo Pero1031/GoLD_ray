@@ -4,7 +4,11 @@
 #include "Cli/RenderPipeline.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/Tools.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Denoiser.hpp"
+#include "Render/Integrator.hpp"
+#include "Render/SpecularNee.hpp"
+#include "Render/VolumeBPT.hpp"
 
 namespace rayt::cli {
 

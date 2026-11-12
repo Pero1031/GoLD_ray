@@ -65,16 +65,14 @@
 #include "Lights/PointLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/Material.hpp"
+#include "Render/SpecularBody.hpp"
 
 namespace rayt {
 
     class SpecularNee {
     public:
-        /// A flat-faced body (the mesh, with outward counter-clockwise triangles) and its glass.
-        struct Body {
-            std::shared_ptr<const TriangleMesh> mesh;
-            std::shared_ptr<const Dielectric> glass;
-        };
+        /// A flat-faced body (the mesh, with outward counter-clockwise triangles) and its glass (Render/SpecularBody.hpp).
+        using Body = SpecularBody;
 
         SpecularNee(const std::vector<Body>& bodies, const Scene& scene) {
             for (const Body& b : bodies) {

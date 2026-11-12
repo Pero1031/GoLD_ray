@@ -6,7 +6,7 @@
 #include "Cli/Scene.hpp"
 #include "Cli/SceneDescription.hpp"
 #include "Cli/SceneFile.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Color/Gamut.hpp"
 
 namespace rayt::cli {
 

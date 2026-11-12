@@ -2,7 +2,12 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/SceneParts.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Materials/CoatedDiffuse.hpp"
+#include "Materials/Dielectric.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
 
 namespace rayt::cli {
 

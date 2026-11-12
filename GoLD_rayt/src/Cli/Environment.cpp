@@ -1,7 +1,8 @@
 // The environment (map and light) a scene wants: the --env map, a uniform white, a procedural sky, or nothing.
 #include "pch.h"
 #include "Cli/Scenes.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "IO/ImageLoader.hpp"
+#include "Lights/EnvLight.hpp"
 
 namespace rayt::cli {
 

@@ -1,7 +1,7 @@
 // The light spectra selectable with --light.
 #include "pch.h"
 #include "Cli/LightPresets.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "IO/SpectralCurveLoader.hpp"
 
 namespace rayt::cli {
 

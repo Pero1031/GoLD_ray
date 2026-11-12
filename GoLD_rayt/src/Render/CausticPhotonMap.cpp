@@ -27,6 +27,10 @@
 
 namespace rayt {
 
+    bool photonsAllowedIn(const Medium* medium, bool mediaTraced) {
+        return !medium || medium->attenuatesContinuously() || (mediaTraced && medium->isSpectrallyConstant());
+    }
+
     void CausticPhotonMap::build(const Scene& scene, const CausticPhotonParams& P) {
         const auto t0 = std::chrono::steady_clock::now();
         m_radius = P.radius;

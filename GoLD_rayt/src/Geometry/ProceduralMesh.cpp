@@ -1,7 +1,7 @@
 // Procedural triangle meshes (see Geometry/ProceduralMesh.hpp).
 #include "pch.h"
 #include "Geometry/ProceduralMesh.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Core/Constants.hpp"
 
 namespace rayt {
 

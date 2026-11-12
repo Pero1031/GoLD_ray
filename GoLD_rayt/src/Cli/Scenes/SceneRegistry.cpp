@@ -1,7 +1,6 @@
 // The scene table: name, description, picture format, default path depth, kind of environment and the builder of every scene.
 #include "pch.h"
 #include "Cli/Scenes.hpp"
-#include "Cli/EngineHeaders.hpp"
 
 namespace rayt::cli {
 

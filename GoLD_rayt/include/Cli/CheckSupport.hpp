@@ -4,12 +4,17 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include "Core/Types.hpp"
+#include "Core/Ray.hpp"
 #include "Color/EmissionSpectrum.hpp"
-#include "IO/EnvMap.hpp"
-#include "Render/CausticPhotonMap.hpp"
-#include "Render/SpecularNee.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
+
+namespace rayt {
+    class EnvMap;
+    class CausticPhotonMap;
+    class SpecularNee;
+}
 
 namespace rayt::cli {
 

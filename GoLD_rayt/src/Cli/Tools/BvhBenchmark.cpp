@@ -1,7 +1,8 @@
 // BVH benchmark (--scene bench).
 #include "pch.h"
 #include "Cli/Tools.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Accelerators/EmbreeMesh.hpp"
+#include "Materials/Lambertian.hpp"
 
 namespace rayt::cli {
 

@@ -500,9 +500,6 @@
     <ClInclude Include="include\Cli\Commands.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="include\Cli\EngineHeaders.hpp">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
     <ClInclude Include="include\Cli\LightPresets.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

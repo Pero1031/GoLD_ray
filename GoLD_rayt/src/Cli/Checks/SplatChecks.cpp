@@ -3,7 +3,14 @@
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
-#include "Cli/EngineHeaders.hpp"
+#include "Core/Sampling.hpp"
+#include "Geometry/GaussianSplats.hpp"
+#include "Geometry/TriangleMesh.hpp"
+#include "Lights/AreaLight.hpp"
+#include "Materials/DiffuseLight.hpp"
+#include "Render/CausticPhotonMap.hpp"
+#include "Render/Integrator.hpp"
+#include "Scene/Primitive.hpp"
 
 namespace rayt::cli {
 

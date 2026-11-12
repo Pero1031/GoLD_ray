@@ -463,7 +463,6 @@
     <ClInclude Include="include\Render\SubsurfaceProbe.hpp" />
     <ClInclude Include="include\Cli\CheckSupport.hpp" />
     <ClInclude Include="include\Cli\Checks.hpp" />
-    <ClInclude Include="include\Cli\EngineHeaders.hpp" />
     <ClInclude Include="include\Cli\LightPresets.hpp" />
     <ClInclude Include="include\Cli\Options.hpp" />
     <ClInclude Include="include\Cli\PmxSupport.hpp" />
