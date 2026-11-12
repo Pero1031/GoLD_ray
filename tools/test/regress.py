@@ -50,6 +50,16 @@ CHECKS = [
     ("chk_aov", ["--scene", "aov"]),
     ("chk_sss", ["--scene", "sss"]),
     ("chk_metals", ["--scene", "metals"]),
+    # the checks that come with a scene: a tiny picture, the OK / FAIL counts are what is compared
+    ("chk_splats", ["--scene", "splats", "--width", "64", "--spp", "2"]),
+    ("chk_thinfilm", ["--scene", "thinfilm", "--width", "64", "--spp", "2"]),
+    ("chk_layered", ["--scene", "layered", "--width", "64", "--spp", "2"]),
+    ("chk_hair", ["--scene", "hair", "--width", "64", "--spp", "2"]),
+    ("chk_ocean", ["--scene", "ocean", "--width", "64", "--spp", "2"]),
+    ("chk_dispersion", ["--scene", "dispersion", "--width", "64", "--spp", "2"]),
+    ("chk_relief", ["--scene", "relief", "--width", "64", "--spp", "2"]),
+    ("chk_cosmetic", ["--scene", "cosmetic", "--width", "64", "--spp", "2"]),
+    ("chk_caustic", ["--scene", "caustic"]),   # statistical: at a low spp its OK count varies from run to run (furnace too, which the picture case covers)
 ]
 
 

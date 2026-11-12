@@ -4,7 +4,9 @@
 
 ## 1. 二層構造と、1 枚描くときの流れ
 
-**エンジン**（`GoLD_rayt/include/` のヘッダが中心。本体が大きい物だけ `src/Materials`、`src/Render`、`src/Accelerators` に .cpp）と、その上に乗る**アプリ**（`include/Cli` と `src/Cli`。コマンドライン `main_cli.cpp`）の二層。GUI（`Application`、`UI`、`main_ui.cpp`）は別の薄い層で、同じエンジンを呼ぶ。
+**エンジン**（`GoLD_rayt/include/` のヘッダが中心。本体が大きい物は `src/` の同じ名前の .cpp: `Materials/`（CoatedDiffuse、Dielectric、LayeredCoat、RoughConductor、ThinFilm、Hair、WrinkleField）、`Render/`（Integrator、Film、CausticPhotonMap）、`Geometry/`（ProceduralMesh、GaussianSplats）、`IO/`（PmxLoader、PlyLoader、ImageIO）、`Accelerators/`（BVH））と、その上に乗る**アプリ**（`include/Cli` と `src/Cli`。コマンドライン `main_cli.cpp`）の二層。GUI（`Application`、`UI`、`main_ui.cpp`）は別の薄い層で、同じエンジンを呼ぶ。**GUI は凍結中**（CLI が本線。GPU 実装ができたらリアルタイム性が生きる。将来は「描くものを決める操作画面」に転用の可能性があるので、`Cli/SceneDescription`（エンジンに依存しないデータ）はその土台として保つ）。
+
+**新しい .cpp は `GoLD_rayt.vcxproj`（と `.filters`）に登録しないとリンクされない。** 先頭は `#include "pch.h"`。
 
 1 枚描くときの流れ:
 
@@ -57,9 +59,12 @@
 | MMD | `IO/Pmx*`、`Cli/PmxSupport`、`Scenes/PmxScene` | — |
 | シーンファイル | `Cli/SceneFile*`、`SceneDescription` | `SCENE_FILE.md` |
 
-## 5. 整理の候補（2026-11-13 時点の観察）
+## 5. 整理の記録と候補
 
-- **大きな実装がヘッダにある**（`VolumeBPT`、`SpecularNee`、`CausticPhotonMap`、`WrinkleField`、`Hair`、`GaussianSplats`、`PmxLoader` など 400〜600 行級）。ヘッダを触ると全体が再コンパイルになり、ビルド時間の主因。
+**済み（2026-11-13、分割）:** 本体が長く、よく直し、インターフェイスが安定している物を .hpp と .cpp に分けた: `WrinkleField`（構築は .cpp、レイごとの参照だけヘッダ）、`Hair`（ローブの数式 `hairmath` はヘッダ、材質は .cpp）、`CausticPhotonMap`、`PmxLoader`、`PlyLoader`、`GaussianSplats`。分けなかった物: `VolumeBPT`・`SpecularNee`（試作で、触らない）、`CosmeticLayer`・`SkinRelief` など（レイごとに呼ぶ小さな関数が多く、開発用ビルド（LTCG なし）で遅くなり得る）、テンプレート（`Spectrum`）。回帰は `tools/test/regress.py`（小さな描画の平均色 + 自己検査 15 本）で確かめた。**ビルド時間（開発用ビルド）:** 分割した物の中身（.cpp）を直したときの再ビルドが、全体（約 80 秒）から約 4 秒になった。ヘッダを触ったときは、分割の前後とも全体の再ビルド（`Cli/EngineHeaders.hpp` が全ヘッダを全 CLI ファイルに配るため。次の候補の 1 つ目）。
+
+**候補:**
+- **`Cli/EngineHeaders.hpp` が 63 個のヘッダを束ね、CLI の 41 ファイル全部が読む。** エンジンのヘッダを 1 つ触ると CLI 全体が再コンパイルされる。各ファイルが使う物だけ include する形に。
 - **`Materials` に性質の違う物が同居**している: BSDF（`RoughConductor` など）、肌の「場」（`SkinRelief`、`SkinPigment`、`WrinkleField`、`DensityField`）、時間のモデル（`SkinLotion`、`Fading*`）。
 - **`SurfaceInteraction` が肌の機能で太っている**（`ns`、`filmCover`、`surfScatter`、`nl`、`albedoTint`、`glossScale`、`roughScale` など）。すべての交差が運ぶ構造体なので、結合が強い。
 - **`Integrator.cpp` に機能のフックが集まっている**（媒質、粒子、光子マップ、多様体 NEE、不透明度、無効境界）。
