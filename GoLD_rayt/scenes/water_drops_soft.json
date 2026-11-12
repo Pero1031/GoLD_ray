@@ -1,0 +1,37 @@
+{
+  // The same plate of drops under soft light with no lamp in the picture: a grey wall 1.5 m behind the glass, lit from above by a
+  // panel outside the frame, so that every drop shows the wall's gradient upside down, and a second lamp on the camera's side,
+  // above the frame, that puts a highlight on each drop's rim. Generate the drops as for water_drops.json.
+  "options": { "width": 900, "height": 600, "spp": 256, "denoise": true },
+  "camera": { "from": [0.0, 0.0, -0.30], "at": [0.0, 0.0, 0.0], "fov": 24, "aperture": 0.004, "focus": 0.30 },
+  "environment": { "type": "uniform", "scale": 0.05 },
+  "materials": {
+    "glass":        { "type": "dielectric", "ior": 1.5 },
+    "water":        { "type": "dielectric", "ior": 1.333 },
+    "waterOnGlass": { "type": "dielectric", "ior": 1.333, "exteriorIor": 1.5 },
+    "wall":         { "type": "diffuse", "albedo": 0.35 },
+    "red":          { "type": "diffuse", "albedo": [0.7, 0.12, 0.08] },
+    "blue":         { "type": "diffuse", "albedo": [0.1, 0.25, 0.75] },
+    "yellow":       { "type": "diffuse", "albedo": [0.8, 0.65, 0.1] },
+    "floor":        { "type": "diffuse", "albedo": 0.2 },
+    "panel":        { "type": "emission", "spectrum": "d65", "radiance": 10 },
+    "lamp":         { "type": "emission", "spectrum": "tungsten", "radiance": 25 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Drops/plate_top.ply", "cutout": "assets/Drops/plate_mask.png", "material": "glass" },
+    { "shape": "quad", "corner": [-0.1, -0.075, -0.004], "edge1": [0, 0.15, 0], "edge2": [0.2, 0, 0], "material": "glass" },
+    { "shape": "mesh", "file": "assets/Drops/caps.ply", "material": "water" },
+    { "shape": "mesh", "file": "assets/Drops/contacts.ply", "material": "waterOnGlass" },
+    // the wall behind (faces the camera, -z) and a floor
+    { "shape": "quad", "corner": [-2, -1.5, 1.5], "edge1": [0, 3, 0], "edge2": [4, 0, 0], "material": "wall" },
+    { "shape": "quad", "corner": [-2, -1.5, -1], "edge1": [4, 0, 0], "edge2": [0, 0, 2.5], "material": "floor" },
+    // matte colored balls between the glass and the wall: every drop images them upside down
+    { "shape": "sphere", "center": [-0.45, 0.25, 1.0], "radius": 0.28, "material": "red" },
+    { "shape": "sphere", "center": [0.35, -0.15, 1.1], "radius": 0.3, "material": "blue" },
+    { "shape": "sphere", "center": [0.1, 0.45, 1.2], "radius": 0.22, "material": "yellow" },
+    // a soft panel above and to the left, outside the frame, facing down: a gradient over the wall and the balls
+    { "shape": "quad", "corner": [-1.6, 1.4, 0.2], "edge1": [1.6, 0, 0], "edge2": [0, 0, 1.2], "material": "panel" },
+    // a small lamp on the camera's side, above the frame: highlights on the rims of the drops
+    { "shape": "sphere", "center": [-0.05, 0.14, -0.2], "radius": 0.02, "material": "lamp" }
+  ]
+}
