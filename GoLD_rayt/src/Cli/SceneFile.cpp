@@ -111,10 +111,11 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         s.edge2 = ReadVec3(o.at("edge2"), where + ".edge2");
     }
     else if (shape == "mesh") {
-        CheckKeys(o, { "shape", "material", "light", "file", "scale", "rotate", "translate" }, where);
+        CheckKeys(o, { "shape", "material", "light", "file", "cutout", "scale", "rotate", "translate" }, where);
         s.shape = ObjectSpec::Shape::Mesh;
         if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ or a PLY)");
         s.file = ReadString(o.at("file"), where + ".file");
+        Optional<std::string>(o, "cutout", where, s.cutout, ReadString);   // an RGBA image over the uv: alpha < 1/2 = a hole (the glass under a water drop)
         Optional<double>(o, "scale", where, s.scale, ReadNumber);
         if (o.contains("translate")) s.translate = ReadVec3(o.at("translate"), where + ".translate");
         if (o.contains("rotate")) {
@@ -211,12 +212,16 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
         if (c.contains("fov")) d->camera.fovDeg = ReadNumber(c.at("fov"), "camera.fov");
         if (!(d->camera.fovDeg > 0 && d->camera.fovDeg < 180)) Fail("camera.fov", "must be between 0 and 180 degrees");
+        if (c.contains("aperture")) d->camera.aperture = ReadNumber(c.at("aperture"), "camera.aperture");   // lens diameter in metres (depth of field)
+        if (c.contains("focus")) d->camera.focus = ReadNumber(c.at("focus"), "camera.focus");             // focus distance in metres (default: to "at")
+        if (d->camera.aperture < 0) Fail("camera.aperture", "must be 0 (pinhole) or the lens diameter in metres");
+        if (d->camera.focus < 0) Fail("camera.focus", "must be 0 (the distance to \"at\") or a distance in metres");
     }
 
     if (doc.contains("environment")) {

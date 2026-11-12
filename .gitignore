@@ -404,3 +404,6 @@ docs/HANDOFF.md
 
 # Poly Haven studio HDRI (CC0, 25 MB): kept locally, not in the repository
 /GoLD_rayt/assets/env/ferndale_studio_12_4k.hdr
+
+# Generated water drops (tools/data/make_drops.py): a few MB of meshes and a mask, regenerated on demand
+/GoLD_rayt/assets/Drops/

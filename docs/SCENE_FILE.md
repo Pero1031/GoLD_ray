@@ -51,7 +51,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | キー | 中身 |
 |---|---|
-| `camera` | `from`、`at`、`up`、`fov`（度）。省略すると、`[0, 0.5, 2.5]` から `[0, 0, -1]` を 35° で見る |
+| `camera` | `from`、`at`、`up`、`fov`（度）、`aperture`（レンズの直径、m。0 = ピンホール）、`focus`（ピントの距離、m。省略で `at` まで）。省略すると、`[0, 0.5, 2.5]` から `[0, 0, -1]` を 35° で見る |
 | `environment` | `"none"`（既定）、`"hdr"`、`"uniform"`（白）、または `{ "type", "file", "scale" }`。`hdr` の既定のファイルは `--env` |
 | `materials` | 名前 → 材質（下） |
 | `lights` | 点光源の配列 `{ "type": "point", "position", "color", "intensity" }` |
@@ -106,7 +106,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 |---|---|
 | `sphere` | `center`、`radius` |
 | `quad` | `corner`、`edge1`、`edge2`（`cross(edge1, edge2)` の向きに面する） |
-| `mesh` | `file`（OBJ、または PLY。拡張子で決まる。PLY は ascii・バイナリとも読め、頂点の法線と uv、MeshLab の面ごとの `texcoord` を使う。頂点の色は読まない）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動。スキャンや 3DGS のメッシュの整え方は `docs/CAPTURE.md` |
+| `mesh` | `file`（OBJ、または PLY。拡張子で決まる。PLY は ascii・バイナリとも読め、頂点の法線と uv、MeshLab の面ごとの `texcoord` を使う。頂点の色は読まない）、`cutout`（uv に貼る RGBA 画像。アルファが 1/2 未満の所は、すべての光線が素通りする穴になる。水滴の下のガラス面を抜くのに使う: `docs/WATERDROPS.md`。自前の BVH を使う）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動。スキャンや 3DGS のメッシュの整え方は `docs/CAPTURE.md` |
 | `lathe` | `profile`（`[半径, 高さ]` の配列、または `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: 椀の壁）、`segments`、`translate` |
 | `ocean` | 海面（波のスペクトルから作る。`docs/WATER.md`）。原点の周りの円形のメッシュ。`windSpeed`（m/s、1〜40、既定 8）、`windDirection`（度、波が進む向き `atan2(z, x)`）、`spread`（向きの広がり s）、`peakEnhance`（JONSWAP の γ、1 = Pierson–Moskowitz）、`chop`（0〜1、波頭のとがり）、`time`（秒）、`minWavelength`（m）、`seed`、`rInner`・`rOuter`（m）、`rings`・`sectors`（メッシュの細かさ） |
 | `splats` | **3D Gaussian Splatting の点群**（`point_cloud.ply`）を、発光して遮る粒子として描く（`docs/CAPTURE.md` 段階 2）。`file`、`scale`・`rotate`・`translate`（メッシュと同じ。COLMAP の y 下向きは `"rotate": { "axis": [1, 0, 0], "degrees": 180 }`）、`alphaMin`（これ未満の応答は無視、既定 1/255）、`intensity`（放射輝度の倍率）、`linearize`（sRGB の値を線形に戻す、既定 true）、`degree`（使う球面調和の次数 0〜3）、`keep`・`remove`（`{ "min", "max" }` の箱。中心がこの中にある粒子だけ残す / 捨てる。物体を置く場所の粒子を抜くのに使う）。**`material` は書かない**（色は撮影のもの）。1 シーンに 1 つ。経路追跡だけ（光子マップ、多様体 NEE、LVC-BPT は見ない）。粒子は次点光源推定の対象にならない（拡散面は、粒子の光を BSDF の標本だけで受ける） |

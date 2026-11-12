@@ -1,0 +1,40 @@
+{
+  // Water drops on a windshield-like glass plate, seen from behind the glass at night: the drops are lenses that image the lights
+  // behind them upside down and small, the glass is in focus and the lights are bokeh discs (docs/WATERDROPS.md).
+  // Generate the drops first (the files are not in the repository):
+  //   python tools/data/make_drops.py GoLD_rayt/assets/Drops --plate 0.20 0.15 --coverage 0.25 --tilt 60 --seed 1
+  // The drops sit on the +z face of the plate; the camera looks along +z through the plate. "exteriorIor" 1.5 on the contact discs
+  // is what makes the drops wet the glass instead of sitting on it like beads; "cutout" removes the glass face under every drop.
+  // For the background in focus and the drops blurred, set "focus" to 3.0 (the distance of the lights).
+  "options": { "width": 900, "height": 600, "spp": 256, "denoise": true },
+  "camera": { "from": [0.0, 0.0, -0.30], "at": [0.0, 0.0, 0.0], "fov": 32, "aperture": 0.008, "focus": 0.30 },
+  "environment": { "type": "uniform", "scale": 0.01 },
+  "materials": {
+    "glass":        { "type": "dielectric", "ior": 1.5 },
+    "water":        { "type": "dielectric", "ior": 1.333 },
+    "waterOnGlass": { "type": "dielectric", "ior": 1.333, "exteriorIor": 1.5 },
+    "wall":         { "type": "diffuse", "albedo": 0.15 },
+    "warm":         { "type": "emission", "spectrum": "tungsten", "radiance": 60 },
+    "cool":         { "type": "emission", "spectrum": { "rgb": [0.5, 0.7, 1.0] }, "radiance": 50 },
+    "red":          { "type": "emission", "spectrum": { "rgb": [1.0, 0.15, 0.1] }, "radiance": 50 },
+    "green":        { "type": "emission", "spectrum": { "rgb": [0.2, 1.0, 0.3] }, "radiance": 40 }
+  },
+  "objects": [
+    // the glass plate: 200 x 150 mm, 4 mm thick; the top face (toward the lights) has holes under the drops
+    { "shape": "mesh", "file": "assets/Drops/plate_top.ply", "cutout": "assets/Drops/plate_mask.png", "material": "glass" },
+    { "shape": "quad", "corner": [-0.1, -0.075, -0.004], "edge1": [0, 0.15, 0], "edge2": [0.2, 0, 0], "material": "glass" },
+    { "shape": "mesh", "file": "assets/Drops/caps.ply", "material": "water" },
+    { "shape": "mesh", "file": "assets/Drops/contacts.ply", "material": "waterOnGlass" },
+    // the lights of a street at night, 3 to 6 m behind the glass
+    { "shape": "sphere", "center": [-0.9, 0.5, 3.0], "radius": 0.06, "material": "warm" },
+    { "shape": "sphere", "center": [0.4, 0.7, 3.5], "radius": 0.05, "material": "cool" },
+    { "shape": "sphere", "center": [1.2, -0.2, 4.0], "radius": 0.07, "material": "red" },
+    { "shape": "sphere", "center": [-0.3, -0.6, 4.5], "radius": 0.05, "material": "green" },
+    { "shape": "sphere", "center": [0.9, 0.3, 5.5], "radius": 0.08, "material": "warm" },
+    { "shape": "sphere", "center": [-1.4, -0.3, 6.0], "radius": 0.08, "material": "cool" },
+    { "shape": "sphere", "center": [0.1, 1.1, 6.0], "radius": 0.06, "material": "warm" },
+    { "shape": "sphere", "center": [-0.6, 0.0, 3.2], "radius": 0.04, "material": "red" },
+    // a dark wall far behind, so that the picture is not pure black between the lights
+    { "shape": "quad", "corner": [-6, -4, 8], "edge1": [12, 0, 0], "edge2": [0, 8, 0], "material": "wall" }
+  ]
+}

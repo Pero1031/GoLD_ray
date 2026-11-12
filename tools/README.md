@@ -25,6 +25,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | **`data/`** | |
 | `sr5100.py` | reads and converts CSV exports of the Topcon SR-5100 (spectral radiance) into the two-column CSV the renderer reads |
 | `make_ring.py` | writes the meshes of the diamond ring scene: a round brilliant-cut diamond (flat facets, planar by construction) and a ring band with four prongs |
+| `make_drops.py` | water drops on a glass plate: the caps, the contact discs, the plate's top face and the cut-out mask under the drops (`docs/WATERDROPS.md`) |
 | `mesh_clean.py` | prepares an OBJ or PLY for the renderer: welds vertices, recomputes smooth normals, keeps the uv on request, turns the up axis, scales to a height in metres, drops floating fragments, closes the open boundaries (a scan or a mesh from 3D Gaussian Splatting: `docs/CAPTURE.md`) |
 | **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display), `scielab.py` (S-CIELAB spatial filtering) |
 

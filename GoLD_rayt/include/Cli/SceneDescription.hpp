@@ -16,6 +16,8 @@ struct CameraSpec {
     Point3 at = Point3(0, 0, -1);
     Vector3 up = Vector3(0, 1, 0);
     Real fovDeg = 35.0;
+    Real aperture = 0;        // lens diameter (m); 0 = pinhole, no depth of field
+    Real focus = 0;           // focus distance (m); 0 = the distance from `from` to `at`
 };
 
 // A light spectrum: a preset (d65 | tungsten | candle | led), a blackbody temperature, an RGB color (x D65), a table from a CSV file,
@@ -194,6 +196,7 @@ struct ObjectSpec {
     Point3 corner = Point3(0.0);                   // quad (corner and two edges; faces toward cross(edge1, edge2))
     Vector3 edge1 = Vector3(1, 0, 0), edge2 = Vector3(0, 1, 0);
     std::string file;                              // mesh: an OBJ or a PLY file (by the extension)
+    std::string cutout;                            // mesh: an RGBA image over the mesh's uv; texels with alpha < 1/2 are holes for every ray (own BVH, not Embree)
     double scale = 1;                              // mesh: uniform scale, then rotation, then translation
     Vector3 rotateAxis = Vector3(1, 0, 0);
     double rotateDegrees = 0;

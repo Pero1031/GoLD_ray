@@ -556,6 +556,18 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 << (mesh.hasNormals() ? ", smooth normals" : ", flat") << (mesh.uv.size() == mesh.p.size() ? ", uv" : "") << "\n";
             const glm::dmat3 rotation(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
             mesh.transform(rotation * Real(o.scale), Vector3(o.translate));
+            if (!o.cutout.empty()) {   // holes from an alpha mask over the uv (every ray passes where alpha < 1/2); needs the own BVH
+                if (mesh.uv.size() != mesh.p.size()) { std::cerr << "[SceneFile] mesh " << o.file << ": a \"cutout\" needs texture coordinates\n"; return 1; }
+                auto tex = Texture2D::load(o.cutout);
+                if (!tex) { std::cerr << "[SceneFile] mesh " << o.file << ": cannot read the cutout image " << o.cutout << "\n"; return 1; }
+                if (!tex->hasAlpha()) { std::cerr << "[SceneFile] mesh " << o.file << ": the cutout image " << o.cutout << " has no transparent texel (an RGBA PNG is needed)\n"; return 1; }
+                std::vector<std::shared_ptr<Triangle>> tris;
+                auto bvh = BuildMeshBVH(std::make_shared<const TriangleMesh>(std::move(mesh)), mat, &tris);
+                for (auto& t : tris) t->setAlphaTexture(tex, Real(0.5));
+                std::cout << "[SceneFile]   cutout " << o.cutout << " (" << tex->width() << " x " << tex->height() << ")\n";
+                world->add(bvh);
+                break;
+            }
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(mesh)), mat, opt.accel));
             break;
         }

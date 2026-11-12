@@ -91,8 +91,9 @@ int RenderScene(CliOptions& opt) {
     const Vector3 vUp = setup.camera.up;
     const Real fovDeg = setup.camera.fovDeg;
 
-    Real distToFocus = glm::length(lookFrom - lookAt);
-    Real aperture = 0.0;   // pinhole camera (no depth of field)
+    const Real distToFocus = setup.camera.focus > 0 ? setup.camera.focus : glm::length(lookFrom - lookAt);
+    const Real aperture = setup.camera.aperture;   // 0 = pinhole camera (no depth of field); a scene file may set a lens diameter
+    if (aperture > 0) std::cout << "[Camera] depth of field: aperture " << aperture * 1000 << " mm, focus at " << distToFocus << " m\n";
 
     auto camera = std::make_shared<Camera>(
         lookFrom, lookAt, vUp,
