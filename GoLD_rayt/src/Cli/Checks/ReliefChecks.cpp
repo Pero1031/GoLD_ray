@@ -11,6 +11,9 @@
 #include "Materials/SkinScatter.hpp"
 #include "Materials/SkinLotion.hpp"
 
+#include <iomanip>
+#include <sstream>
+
 namespace rayt::cli {
 
 namespace {
@@ -37,6 +40,82 @@ struct Estimate {
     long n = 0;
     double sum = 0, sum2 = 0;
 };
+
+// A skin sphere (radius 3 cm) under a uniform white sky: the furnace of the checks 11 and 13.
+struct SkinSphere {
+    bool relief = true, sss = false, film = false;      // the Worley relief (bent normals), the subsurface profile, a 10 um water film (needs the relief)
+    RgbColor albedo = RgbColor(0.80, 0.52, 0.42);
+    std::shared_ptr<const SkinScatter> scatter;         // the flakes
+    Real emulsion = 0;                                  // transport optical depth of an emulsion in the film
+};
+struct SkinSphereParts {
+    std::shared_ptr<const SkinRelief> relief;
+    std::shared_ptr<const SubsurfaceProfile> profile;
+    std::shared_ptr<EnvLight> sky;
+};
+std::shared_ptr<Scene> MakeSkinSphere(const SkinSphere& s, const SkinSphereParts& parts) {
+    auto skin = std::make_shared<CoatedDiffuse>(s.albedo, Real(0.5), Real(0.4), Real(0));
+    if (s.relief) skin->setRelief(parts.relief);
+    if (s.sss) skin->setSubsurface(parts.profile);
+    if (s.film) { SkinFilm::Params fp; fp.thickness = Real(10e-6); skin->setFilm(std::make_shared<SkinFilm>(fp, parts.relief)); }
+    if (s.scatter) skin->setScatter(s.scatter);
+    if (s.emulsion > Real(0)) skin->setEmulsion(s.emulsion);
+    auto world = std::make_shared<Aggregate>();
+    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
+    auto scene = std::make_shared<Scene>(world);
+    scene->setEnvLight(parts.sky);
+    scene->finalize("spatial");
+    return scene;
+}
+
+// The same rays into every scene: a disc of radius 2 cm on the sphere, seen from straight above. Per scene, the estimate of every ray; and where the rays hit.
+struct DiscShots {
+    std::vector<Point3> hits;
+    std::vector<std::vector<Vector3>> perScene;
+    int bad = 0;
+};
+DiscShots ShootDisc(const std::vector<std::shared_ptr<Scene>>& scenes, int rays, int perRay) {
+    DiscShots out;
+    out.perScene.assign(scenes.size(), {});
+    for (int i = 0; i < rays; ++i) {
+        const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
+        const Point3 o(r * std::cos(a), r * std::sin(a), 0.2);
+        out.hits.emplace_back(o.x, o.y, std::sqrt(Real(0.03) * Real(0.03) - r * r));
+        const Ray ray(o, Vector3(0, 0, -1), Real(0), nullptr);
+        for (size_t s = 0; s < scenes.size(); ++s) {
+            Vector3 m, se; int b = 0;
+            EstimateRadiance(*scenes[s], ray, perRay, 8, m, se, b);
+            out.perScene[s].push_back(m);
+            out.bad += b;
+        }
+    }
+    return out;
+}
+
+// The mean over the rays of a[i], or of a[i] - b[i] (paired: both scenes saw the same rays), and its standard error from the spread over the rays
+// (the noise of each ray's estimate and the variation over the disc together).
+struct RayStats { Vector3 mean = Vector3(0.0), se = Vector3(0.0); };
+RayStats Over(const std::vector<Vector3>& a, const std::vector<Vector3>* b = nullptr) {
+    RayStats st;
+    Vector3 sum(0.0), sum2(0.0);
+    for (size_t i = 0; i < a.size(); ++i) {
+        const Vector3 v = b ? a[i] - (*b)[i] : a[i];
+        sum += v; sum2 += v * v;
+    }
+    const Real n = Real(a.size());
+    st.mean = sum / n;
+    st.se = glm::sqrt(glm::max(sum2 / n - st.mean * st.mean, Vector3(0.0)) / n);
+    return st;
+}
+
+// The gain of a white layer of reflectance rho over a base of albedo A, in the local model: rho + (1 - rho)^2 A / (1 - rho A) - A. Never negative.
+Real LayerGain(Real rho, Real A) { return rho * (Real(1) - A) * (Real(1) - A) / (Real(1) - rho * A); }
+
+std::string V3(const Vector3& v) {
+    std::ostringstream s;
+    s << std::fixed << std::setprecision(4) << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return s.str();
+}
 
 } // namespace
 
@@ -480,7 +559,17 @@ int RunReliefTests(const CliOptions& opt) {
             allPassed = ok && allPassed;
         }
 
-        // (c) A skin sphere in a white furnace: the white scatter makes it brighter and never above 1; a film cuts it back.
+        // (c) The flakes are a white layer that absorbs nothing. Three tests, each matched to what the estimator is (out/studies/flakes_sss, 2026-11-13):
+        //     1. bookkeeping, exact: on a smooth sphere with a white base (A = 1) the flakes change nothing, they only move light between the lobes. With
+        //        subsurface scattering the share rho of the light now skips the subsurface path, so that path's own loss (the red channel on a 3 cm sphere:
+        //        about 0.5 %, measured here as the smooth white sphere without / with the profile) is allowed as a systematic term.
+        //     2. the local model, exact without subsurface scattering: on the skin the gain is K x mean over the hit points of rho (1 - A)^2 / (1 - rho A),
+        //        with the coat factor K = (white - skin) / (1 - A) measured on a white base under the same relief.
+        //     3. with subsurface scattering the light enters on one patch and leaves on another, so the gain is below the local model (the red channel,
+        //        whose gain is under 1 %, lands near zero). It is above -rho_mean x delta, where delta is what the lobes about the bent normal lose below
+        //        the geometric horizon (about 1.2 % with the default relief; measured here as the white sphere smooth vs with relief): the flakes move the
+        //        share rho from the exit lobe, which follows the smooth normal and loses nothing, into the scatter lobe about the bent normal.
+        //     A water film cuts the scatter back, and nothing is above 1. Every bound is 4 standard errors wide; both sides of a difference saw the same rays.
         // (d) The direction of a wet surface: under a water film the skin is darker and more saturated (CIELAB of the furnace colour; Sawayama et al. 2017 saw this in photographs).
         {
             auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
@@ -492,42 +581,55 @@ int RunReliefTests(const CliOptions& opt) {
                 const double fx = f(X / 0.9505), fy = f(Y), fz = f(Z / 1.089);
                 return std::array<double, 2>{ 116.0 * fy - 16.0, std::hypot(500.0 * (fx - fy), 200.0 * (fy - fz)) };
             };
+            const SkinSphereParts parts{ reliefP, profile, whiteSky };
+            SkinScatter::Params sp; sp.rho0 = Real(0.3); sp.threshold = Real(0.5); sp.softness = Real(0.05);
+            const auto flakes = std::make_shared<const SkinScatter>(sp);
+            const Vector3 A(0.80, 0.52, 0.42);
+            const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+            Vector3 whiteSmoothOff(0.0), delta(0.0), sssLoss(0.0);   // from the pass without the profile: the smooth white sphere, and the horizon loss of the bent normal
             for (bool sss : { false, true }) {
-                auto build = [&](bool scatter, bool film) {
-                    auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
-                    skin->setRelief(reliefP);
-                    if (sss) skin->setSubsurface(profile);
-                    if (film) { SkinFilm::Params fp; fp.thickness = Real(10e-6); skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP)); }
-                    if (scatter) { SkinScatter::Params sp; sp.rho0 = Real(0.3); sp.threshold = Real(0.5); sp.softness = Real(0.05); skin->setScatter(std::make_shared<SkinScatter>(sp)); }
-                    auto world = std::make_shared<Aggregate>();
-                    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
-                    auto scene = std::make_shared<Scene>(world);
-                    scene->setEnvLight(whiteSky);
-                    scene->finalize("spatial");
-                    return scene;
-                };
-                const auto plain = build(false, false), flaky = build(true, false), wet = build(true, true), wetPlain = build(false, true);
-                const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
-                Vector3 sP(0.0), sF(0.0), sW(0.0), sWP(0.0);
-                int bad = 0;
-                for (int i = 0; i < rays; ++i) {
-                    const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
-                    const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
-                    Vector3 m1, s1, m2, s2, m3, s3, m4, s4; int b1 = 0, b2 = 0, b3 = 0, b4 = 0;
-                    EstimateRadiance(*plain, ray, perRay, 8, m1, s1, b1);
-                    EstimateRadiance(*flaky, ray, perRay, 8, m2, s2, b2);
-                    EstimateRadiance(*wet, ray, perRay, 8, m3, s3, b3);
-                    EstimateRadiance(*wetPlain, ray, perRay, 8, m4, s4, b4);
-                    sP += m1; sF += m2; sW += m3; sWP += m4; bad += b1 + b2 + b3 + b4;
+                SkinSphere white; white.relief = false; white.sss = sss; white.albedo = RgbColor(1.0, 1.0, 1.0);
+                SkinSphere whiteFlakes = white; whiteFlakes.scatter = flakes;
+                SkinSphere whiteRelief = white; whiteRelief.relief = true;
+                SkinSphere plain; plain.sss = sss;
+                SkinSphere flaky = plain; flaky.scatter = flakes;
+                SkinSphere wet = flaky; wet.film = true;
+                SkinSphere wetPlain = plain; wetPlain.film = true;
+                std::vector<std::shared_ptr<Scene>> scenes;
+                for (const SkinSphere& s : { white, whiteFlakes, whiteRelief, plain, flaky, wet, wetPlain }) scenes.push_back(MakeSkinSphere(s, parts));
+                const DiscShots shots = ShootDisc(scenes, rays, perRay);
+                const auto& W = shots.perScene[0]; const auto& WF = shots.perScene[1]; const auto& WR = shots.perScene[2];
+                const auto& P = shots.perScene[3]; const auto& F = shots.perScene[4]; const auto& Wet = shots.perScene[5]; const auto& WP = shots.perScene[6];
+                const RayStats mW = Over(W), dWF = Over(WF, &W), dWR = Over(W, &WR), dK = Over(WR, &P), dF = Over(F, &P), dWet = Over(Wet, &F),
+                    mF = Over(F), mWet = Over(Wet), mWP = Over(WP);
+                if (!sss) { whiteSmoothOff = mW.mean; delta = glm::max(dWR.mean / mW.mean, Vector3(0.0)); }
+                else sssLoss = glm::max(whiteSmoothOff - mW.mean, Vector3(0.0));
+                Real rhoMean = 0;
+                Vector3 gainLocal(0.0);
+                for (const Point3& p : shots.hits) {
+                    const Real rho = flakes->reflectance(p, Real(1), Real(0));
+                    rhoMean += rho;
+                    for (int c = 0; c < 3; ++c) gainLocal[c] += LayerGain(rho, A[c]);
                 }
-                const Vector3 mp = sP / Real(rays), mf = sF / Real(rays), mw = sW / Real(rays), mwp = sWP / Real(rays);
-                bool okC = bad == 0;
-                // With subsurface scattering a white layer takes about 1-2 % of the red channel away (not understood yet: docs/COSMETICS.md 5), so the bounds are wider there.
-                for (int c = 0; c < 3; ++c) okC = okC && mf[c] >= mp[c] * (sss ? 0.97 : 0.99) && mf[c] <= 1.0 && mw[c] <= mf[c] * (sss ? 1.03 : 1.01);
-                std::cout << "[Relief] 11c. furnace" << (sss ? " with subsurface scattering" : "") << ": no flakes (" << mp.x << ", " << mp.y << ", " << mp.z << "), flakes (" << mf.x << ", " << mf.y << ", " << mf.z
-                    << "), flakes under a 10 um water film (" << mw.x << ", " << mw.y << ", " << mw.z << ")" << (okC ? "   OK" : "   FAIL") << "\n";
-                allPassed = okC && allPassed;
-                const auto d = lab(mf), w = lab(mw), wp = lab(mwp);
+                rhoMean /= Real(shots.hits.size()); gainLocal /= Real(shots.hits.size());
+                const Vector3 K = dK.mean / (Vector3(1.0) - A), seK = dK.se / (Vector3(1.0) - A);
+                const Vector3 pred = K * gainLocal, sePred = glm::sqrt(dF.se * dF.se + seK * seK * gainLocal * gainLocal);
+                bool ok1 = shots.bad == 0, ok2 = true, ok3 = true;
+                for (int c = 0; c < 3; ++c) {
+                    ok1 = ok1 && std::abs(dWF.mean[c]) <= 4 * dWF.se[c] + rhoMean * sssLoss[c];
+                    if (!sss) ok2 = ok2 && std::abs(dF.mean[c] - pred[c]) <= 4 * sePred[c];
+                    else ok2 = ok2 && dF.mean[c] >= -rhoMean * delta[c] - 4 * dF.se[c] && dF.mean[c] <= pred[c] + 4 * sePred[c];
+                    ok3 = ok3 && dWet.mean[c] <= 4 * dWet.se[c] && mWet.mean[c] <= 1 + 4 * mWet.se[c] && mF.mean[c] <= 1 + 4 * mF.se[c];
+                }
+                const char* tag = sss ? " with subsurface scattering" : "";
+                std::cout << "[Relief] 11c. flakes (rho0 0.3, mean rho " << rhoMean << ") on a smooth white sphere" << tag << ": change " << V3(dWF.mean) << " +- " << V3(dWF.se)
+                    << (sss ? " (the subsurface path loses " + V3(sssLoss) + ": allowed x rho)" : " (nothing expected)") << (ok1 ? "   OK" : "   FAIL") << "\n";
+                std::cout << "[Relief] 11c. gain of the flakes on the skin" << tag << ": " << V3(dF.mean) << " +- " << V3(dF.se) << ", local model " << V3(pred) << " +- " << V3(sePred)
+                    << (sss ? " as the upper bound, lower bound -rho x horizon loss " + V3(delta) : " exact") << (ok2 ? "   OK" : "   FAIL") << "\n";
+                std::cout << "[Relief] 11c. a 10 um water film cuts the flakes back" << tag << ": wet - dry " << V3(dWet.mean) << " +- " << V3(dWet.se) << ", nothing above 1"
+                    << (ok3 ? "   OK" : "   FAIL") << "\n";
+                allPassed = ok1 && ok2 && ok3 && allPassed;
+                const auto d = lab(mF.mean), w = lab(mWet.mean), wp = lab(mWP.mean);
                 const bool okD = w[0] < d[0] && w[1] > d[1];
                 std::cout << "[Relief] 11d. wetting the flaking skin" << (sss ? " (with subsurface scattering)" : "") << ": L* " << d[0] << " -> " << w[0] << ", chroma C* " << d[1] << " -> " << w[1]
                     << " (a skin without flakes: L* " << wp[0] << ", C* " << wp[1] << " under the film)" << (okD ? "   OK (darker, more saturated)" : "   FAIL") << "\n";
@@ -603,44 +705,65 @@ int RunReliefTests(const CliOptions& opt) {
             allPassed = ok && allPassed;
         }
 
-        // (c) A skin sphere in a white furnace with a film: the emulsion adds a white layer, which brightens the dark channels and never gives more than 1.
+        // (c) The emulsion is a white layer in the film: rho = 0.75 tau / (1 + 0.75 tau), tau following the film's local thickness. The three tests of 11c:
+        //     bookkeeping on a white base (the film needs the relief, so this runs under it: without subsurface scattering every lobe loses the same share
+        //     below the horizon and the layer changes nothing; with it, the share rho of the light moves from the exit lobe into the scatter lobe, so the
+        //     change lies between -rho x horizon loss and +rho x the subsurface path's own loss), the local model on the skin without subsurface scattering,
+        //     and its bounds with it. The blue channel, the darkest, must brighten clearly; nothing is above 1.
         {
             auto whiteSky = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
             auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * Real(0.001), Real(1.4));
             auto reliefP = std::make_shared<SkinRelief>(rp);
+            const SkinSphereParts parts{ reliefP, profile, whiteSky };
+            SkinFilm::Params fp; fp.thickness = Real(10e-6);
+            const SkinFilm film(fp, reliefP);   // the same film as the material's: to read its local thickness at the hit points
+            const Real tauMean = Real(0.5);
+            const Vector3 A(0.80, 0.52, 0.42);
+            const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
+            Vector3 whiteSmoothOff(0.0), delta(0.0), sssLoss(0.0);
             for (bool sss : { false, true }) {
-                auto build = [&](bool emulsion) {
-                    auto skin = std::make_shared<CoatedDiffuse>(RgbColor(0.80, 0.52, 0.42), Real(0.5), Real(0.4), Real(0));
-                    skin->setRelief(reliefP);
-                    if (sss) skin->setSubsurface(profile);
-                    SkinFilm::Params fp; fp.thickness = Real(10e-6);
-                    skin->setFilm(std::make_shared<SkinFilm>(fp, reliefP));
-                    if (emulsion) skin->setEmulsion(Real(0.5));
-                    auto world = std::make_shared<Aggregate>();
-                    world->add(std::make_shared<Sphere>(Point3(0.0), Real(0.03), skin));
-                    auto scene = std::make_shared<Scene>(world);
-                    scene->setEnvLight(whiteSky);
-                    scene->finalize("spatial");
-                    return scene;
-                };
-                const auto clear = build(false), milky = build(true);
-                const int rays = 200, perRay = std::max(opt.spp, 64) * 2;
-                Vector3 sC(0.0), sM(0.0);
-                int bad = 0;
-                for (int i = 0; i < rays; ++i) {
-                    const Real r = Real(0.02) * std::sqrt(sampling::Random()), a = Real(2) * constants::PI * sampling::Random();
-                    const Ray ray(Point3(r * std::cos(a), r * std::sin(a), 0.2), Vector3(0, 0, -1), Real(0), nullptr);
-                    Vector3 mC, eC, mM, eM; int bC = 0, bM = 0;
-                    EstimateRadiance(*clear, ray, perRay, 8, mC, eC, bC);
-                    EstimateRadiance(*milky, ray, perRay, 8, mM, eM, bM);
-                    sC += mC; sM += mM; bad += bC + bM;
+                SkinSphere whiteSmooth; whiteSmooth.relief = false; whiteSmooth.sss = sss; whiteSmooth.albedo = RgbColor(1.0, 1.0, 1.0);
+                SkinSphere whiteRelief = whiteSmooth; whiteRelief.relief = true;
+                SkinSphere whiteClear = whiteRelief; whiteClear.film = true;
+                SkinSphere whiteMilky = whiteClear; whiteMilky.emulsion = tauMean;
+                SkinSphere clear; clear.sss = sss; clear.film = true;
+                SkinSphere milky = clear; milky.emulsion = tauMean;
+                std::vector<std::shared_ptr<Scene>> scenes;
+                for (const SkinSphere& s : { whiteSmooth, whiteRelief, whiteClear, whiteMilky, clear, milky }) scenes.push_back(MakeSkinSphere(s, parts));
+                const DiscShots shots = ShootDisc(scenes, rays, perRay);
+                const auto& WS = shots.perScene[0]; const auto& WR = shots.perScene[1]; const auto& WC = shots.perScene[2]; const auto& WM = shots.perScene[3];
+                const auto& C = shots.perScene[4]; const auto& M = shots.perScene[5];
+                const RayStats mWS = Over(WS), dWR = Over(WS, &WR), dWM = Over(WM, &WC), dK = Over(WC, &C), dG = Over(M, &C), mM = Over(M);
+                if (!sss) { whiteSmoothOff = mWS.mean; delta = glm::max(dWR.mean / mWS.mean, Vector3(0.0)); }
+                else sssLoss = glm::max(whiteSmoothOff - mWS.mean, Vector3(0.0));
+                Real rhoMean = 0;
+                Vector3 gainLocal(0.0);
+                for (const Point3& p : shots.hits) {
+                    const Vector3 n = glm::normalize(Vector3(p));
+                    const Real tau = tauMean * film.at(p, n, n).thickness / fp.thickness, rho = Real(0.75) * tau / (Real(1) + Real(0.75) * tau);
+                    rhoMean += rho;
+                    for (int c = 0; c < 3; ++c) gainLocal[c] += LayerGain(rho, A[c]);
                 }
-                const Vector3 mc = sC / Real(rays), mm = sM / Real(rays);
-                bool ok = bad == 0 && mm.z > mc.z * 1.02;
-                for (int c = 0; c < 3; ++c) ok = ok && mm[c] >= mc[c] * (sss ? 0.95 : 0.97) && mm[c] <= 1.0;   // wider with subsurface scattering (see 11c)   // the red channel (the brightest, 0.80) hardly changes: a white layer over it gives +1 % at most
-                std::cout << "[Relief] 13c. furnace" << (sss ? " with subsurface scattering" : "") << ", a 10 um film: clear (" << mc.x << ", " << mc.y << ", " << mc.z << "), with the emulsion layer (tau 0.5) ("
-                    << mm.x << ", " << mm.y << ", " << mm.z << ")" << (ok ? "   OK" : "   FAIL") << "\n";
-                allPassed = ok && allPassed;
+                rhoMean /= Real(shots.hits.size()); gainLocal /= Real(shots.hits.size());
+                const Vector3 K = dK.mean / (Vector3(1.0) - A), seK = dK.se / (Vector3(1.0) - A);
+                const Vector3 pred = K * gainLocal, sePred = glm::sqrt(dG.se * dG.se + seK * seK * gainLocal * gainLocal);
+                // The sign of the blue gain: a clear signal where the local model is exact; with subsurface scattering the light leaves on another patch
+                // and the gain is smaller (at the regression's low spp it is only 3-6 standard errors), so there it must only not be clearly negative.
+                bool ok1 = shots.bad == 0, ok2 = true, ok3 = sss ? dG.mean.z >= -4 * dG.se.z : dG.mean.z > 4 * dG.se.z;
+                for (int c = 0; c < 3; ++c) {
+                    ok1 = ok1 && dWM.mean[c] >= -(sss ? rhoMean * delta[c] : Real(0)) - 4 * dWM.se[c] && dWM.mean[c] <= rhoMean * sssLoss[c] + 4 * dWM.se[c];
+                    if (!sss) ok2 = ok2 && std::abs(dG.mean[c] - pred[c]) <= 4 * sePred[c];
+                    else ok2 = ok2 && dG.mean[c] >= -rhoMean * delta[c] - 4 * dG.se[c] && dG.mean[c] <= pred[c] + 4 * sePred[c];
+                    ok3 = ok3 && mM.mean[c] <= 1 + 4 * mM.se[c];
+                }
+                const char* tag = sss ? " with subsurface scattering" : "";
+                std::cout << "[Relief] 13c. emulsion (tau 0.5, mean rho " << rhoMean << ") in a 10 um film on a white sphere" << tag << ": change " << V3(dWM.mean) << " +- " << V3(dWM.se)
+                    << (sss ? " (between -rho x horizon loss " + V3(delta) + " and +rho x subsurface loss " + V3(sssLoss) + ")" : " (nothing expected)") << (ok1 ? "   OK" : "   FAIL") << "\n";
+                std::cout << "[Relief] 13c. gain of the emulsion on the skin" << tag << ": " << V3(dG.mean) << " +- " << V3(dG.se) << ", local model " << V3(pred) << " +- " << V3(sePred)
+                    << (sss ? " as the upper bound, lower bound -rho x horizon loss" : " exact") << (ok2 ? "   OK" : "   FAIL") << "\n";
+                std::cout << "[Relief] 13c. the blue channel " << (sss ? "does not darken" : "brightens clearly") << tag << " (" << dG.mean.z << " +- " << dG.se.z << "), nothing above 1"
+                    << (ok3 ? "   OK" : "   FAIL") << "\n";
+                allPassed = ok1 && ok2 && ok3 && allPassed;
             }
         }
     }
