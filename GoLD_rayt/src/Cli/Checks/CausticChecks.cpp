@@ -42,11 +42,14 @@ int RunCausticTests(const CliOptions& opt) {
         Vector3 meanA, seA, meanB, seB; int badA = 0, badB = 0;
         EstimateRadiance(*scene, ray, n, depth, meanA, seA, badA, nullptr);
         EstimateRadiance(*scene, ray, n, depth, meanB, seB, badB, &map);
+        // The map is built once: its own noise (2-3 % here) is the same offset in every camera sample and is not in seB. It is the sum of the squared
+        // contributions of the photons gathered at the primary hit (CausticPhotonMap::radiance). The 3 % is the bias of the gather (its radius).
+        const Vector3 seMap = glm::sqrt(PhotonVarianceAt(*scene, map, ray));
         bool ok = (badA == 0 && badB == 0);
-        for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanA[c] - meanB[c]) <= 4.0 * std::sqrt(seA[c] * seA[c] + seB[c] * seB[c]) + 0.03 * meanA[c];
+        for (int c = 0; c < 3; ++c) ok = ok && std::abs(meanA[c] - meanB[c]) <= 4.0 * std::sqrt(seA[c] * seA[c] + seB[c] * seB[c] + seMap[c] * seMap[c]) + 0.03 * meanA[c];
         allPassed = allPassed && ok;
         std::cout << "[Caustic]   floor point (" << T.x << ", " << T.z << "):  path tracing " << meanA.y << " +- " << seA.y
-            << "   with photons " << meanB.y << " +- " << seB.y << "   ratio R/G/B " << meanB.x / meanA.x << " / " << meanB.y / meanA.y
+            << "   with photons " << meanB.y << " +- " << seB.y << " (+- " << seMap.y << " from the photons)   ratio R/G/B " << meanB.x / meanA.x << " / " << meanB.y / meanA.y
             << " / " << meanB.z / meanA.z << (ok ? "   OK" : "   FAIL") << "\n";
     }
 

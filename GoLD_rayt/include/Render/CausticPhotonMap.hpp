@@ -111,8 +111,11 @@ namespace rayt {
          * @brief Reflected caustic radiance toward `wo` at a non-specular surface point (light-like Spectrum, same units as Li()).
          * @param rec  the hit (position, geometric normal, material)
          * @param lambda the camera path's wavelengths
+         * @param varianceRgb optional: the variance of this estimate from the photons' own randomness, per RGB channel (the sum of the squared
+         *        contributions of the gathered photons; in the spectral build the photons are taken as one colour). For the checks: the map is built
+         *        once, so this noise is the same offset in every camera sample and does not show in the camera-side standard error.
          */
-        Spectrum radiance(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda) const;
+        Spectrum radiance(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda, Vector3* varianceRgb = nullptr) const;
 
     private:
         std::vector<Photon> m_photons;   // sorted by grid bucket

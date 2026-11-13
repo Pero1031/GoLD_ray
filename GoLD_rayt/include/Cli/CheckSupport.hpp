@@ -27,6 +27,11 @@ void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth, V
 // Passes when every channel is within 4 standard errors (+0.5 % of the value) of the expectation.
 bool ReportLightCase(const std::string& name, const Vector3& expected, const Vector3& mean, const Vector3& se, int bad);
 
+// The variance (per RGB channel) of the photon map's radiance at the first hit of `ray`, from the photons' own randomness. A map is built once, so
+// this noise is the same offset in every camera sample and does not appear in the standard error that EstimateRadiance returns; a comparison
+// against the map adds it. Zero when the ray hits nothing.
+Vector3 PhotonVarianceAt(const Scene& scene, const CausticPhotonMap& map, const Ray& ray);
+
 // Lambertian ground (a huge sphere, locally flat) with whatever `addLights` puts above it.
 std::shared_ptr<Scene> MakeGroundScene(Real albedo, const std::function<void(Aggregate&, Scene&)>& addLights, const char* lightSampler = "spatial");
 

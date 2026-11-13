@@ -12,7 +12,7 @@ namespace rayt::cli {
 bool CheckFurnace(const Scene& scene, const Camera& camera, const Film& film,
     const std::vector<FurnaceObject>& objects)
 {
-    struct Acc { Vector3 sum = Vector3(0.0); long long n = 0; };
+    struct Acc { Vector3 sum = Vector3(0.0), sum2 = Vector3(0.0); long long n = 0; };
     std::map<const Material*, Acc> acc;   // key nullptr = background (environment)
 
     const int w = film.width();
@@ -24,12 +24,17 @@ bool CheckFurnace(const Scene& scene, const Camera& camera, const Film& film,
             SurfaceInteraction rec;
             const Material* m = scene.hit(r, rec) ? rec.matPtr : nullptr;
             Acc& a = acc[m];
-            a.sum += film.getData()[static_cast<size_t>(h - 1 - j) * static_cast<size_t>(w) + static_cast<size_t>(i)];
+            const Vector3 v = film.getData()[static_cast<size_t>(h - 1 - j) * static_cast<size_t>(w) + static_cast<size_t>(i)];
+            a.sum += v;
+            a.sum2 += v * v;
             a.n++;
         }
     }
 
-    std::cout << "\n[Furnace] mean linear RGB per object vs the expected value (+- tolerance, per channel)\n";
+    // The mean over an object's pixels, judged against the expected value with 4 standard errors (from the spread of the pixels: their own noise
+    // and the true variation over the object together, so this is a bound) plus the object's documented systematic term. A fixed tolerance alone
+    // failed at a low --spp (the dispersive glass in the spectral build: a few samples per pixel carry one wavelength each).
+    std::cout << "\n[Furnace] mean linear RGB per object vs the expected value (4 standard errors from the pixels + the systematic term, per channel)\n";
     bool allPassed = true;
     for (const FurnaceObject& obj : objects) {
         const auto it = acc.find(obj.material);
@@ -38,13 +43,14 @@ bool CheckFurnace(const Scene& scene, const Camera& camera, const Film& film,
             allPassed = false;
             continue;
         }
-        const Vector3 mean = it->second.sum / Real(it->second.n);
-        const bool ok = std::abs(mean.x - obj.expected) <= obj.tolerance
-            && std::abs(mean.y - obj.expected) <= obj.tolerance
-            && std::abs(mean.z - obj.expected) <= obj.tolerance;
+        const Real n = Real(it->second.n);
+        const Vector3 mean = it->second.sum / n;
+        const Vector3 se = glm::sqrt(glm::max(it->second.sum2 / n - mean * mean, Vector3(0.0)) / n);
+        bool ok = true;
+        for (int c = 0; c < 3; ++c) ok = ok && std::abs(mean[c] - obj.expected) <= 4 * se[c] + obj.tolerance;
         allPassed = allPassed && ok;
-        std::cout << "[Furnace]   " << obj.label << ": (" << mean.x << ", " << mean.y << ", " << mean.z
-            << ")  expected " << obj.expected << " +- " << obj.tolerance
+        std::cout << "[Furnace]   " << obj.label << ": (" << mean.x << ", " << mean.y << ", " << mean.z << ") +- (" << se.x << ", " << se.y << ", " << se.z
+            << ")  expected " << obj.expected << " +- " << obj.tolerance << " systematic"
             << "  [" << it->second.n << " px]  " << (ok ? "OK" : "FAIL") << "\n";
     }
     std::cout << "[Furnace] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

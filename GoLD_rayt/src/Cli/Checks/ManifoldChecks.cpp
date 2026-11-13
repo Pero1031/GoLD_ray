@@ -134,7 +134,8 @@ int RunManifoldTests(const CliOptions& opt, bool cup) {
             EstimateRadiance(*scene, ray, 512, 32, m0, s0, b0, nullptr, nullptr);
             EstimateRadiance(*scene, ray, 512, 32, mM, sM, bM, nullptr, &nee);
             EstimateRadiance(*scene, ray, 512, 32, mP, sP, bP, &map, nullptr);
-            Row r{ p, lum(mM) - lum(m0), lum(mP) - lum(m0), std::sqrt(lum(sM) * lum(sM) + lum(sP) * lum(sP)) };
+            const Real sMap = lum(glm::sqrt(PhotonVarianceAt(*scene, map, ray)));   // the map's own noise at this point (built once: not in sP)
+            Row r{ p, lum(mM) - lum(m0), lum(mP) - lum(m0), std::sqrt(lum(sM) * lum(sM) + lum(sP) * lum(sP) + sMap * sMap) };
             rows.push_back(r);
             sumM += r.dM; sumP += r.dP; maxP = std::max(maxP, r.dP);
         }
@@ -187,9 +188,13 @@ int RunManifoldTests(const CliOptions& opt, bool cup) {
         EstimateRadiance(*scene, ray, n, 32, mP, sP, bP, &map, nullptr);
         auto lum = [](const Vector3& c) { return Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z; };
         const Real dM = lum(mM) - lum(m0), dP = lum(mP) - lum(m0);
-        const Real se = std::sqrt(lum(sM) * lum(sM) + lum(sP) * lum(sP));
+        // The photon map is built once, so its own noise is the same offset in every camera sample and not in sP: it comes from the squared
+        // contributions of the photons gathered at this point (in the spectral build few photons serve each wavelength, so it is larger there).
+        const Real sMap = lum(glm::sqrt(PhotonVarianceAt(*scene, map, ray)));
+        const Real sePhoton = std::sqrt(lum(sP) * lum(sP) + sMap * sMap);
+        const Real se = std::sqrt(lum(sM) * lum(sM) + sePhoton * sePhoton);
         // a real comparison needs a caustic signal in the photon map (a pass between two zeros proves nothing) and a manifold solution
-        const bool signal = std::abs(dP) > 5 * lum(sP);
+        const bool signal = std::abs(dP) > 5 * sePhoton;
         const bool ok = (b0 + bM + bP == 0) && signal && std::abs(dM - dP) <= 4 * se + Real(0.10) * std::abs(dP);
         allPassed = allPassed && ok;
         std::cout << "[Manifold]   floor point (" << p.x << ", " << p.z << "):  direct only " << lum(m0) << "   caustic: manifold " << dM

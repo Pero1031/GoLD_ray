@@ -87,7 +87,8 @@ namespace rayt {
             << m_radius * 1000 << " mm, " << double(memoryBytes()) / (1024.0 * 1024.0) << " MB, " << sec << " s\n";
     }
 
-    Spectrum CausticPhotonMap::radiance(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda) const {
+    Spectrum CausticPhotonMap::radiance(const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda, Vector3* varianceRgb) const {
+        if (varianceRgb) *varianceRgb = Vector3(0.0);
         if (m_photons.empty()) return Spectrum(0.0);
         const Real r = m_radius, r2 = r * r;
         const Real slab = Real(0.25) * r;   // half thickness around the tangent plane
@@ -96,8 +97,10 @@ namespace rayt {
 #if defined(RAYT_SPECTRAL_MODE)
         Spectrum acc(0.0);          // sum of f * weight * luminance of the photon
         Vector3 colorSum(0.0);      // sum of weight * rgb: its chromaticity is the color of the caustic light
+        Real w2 = 0;                // sum of (weight * luminance)^2: the relative variance of the gather, the photons taken as one colour
 #else
         Spectrum acc(0.0);          // RGB mode: sum of f * weight * rgb, directly
+        Spectrum acc2(0.0);         // sum of the squared contributions: the variance of the gather (the photons are independent)
 #endif
         bool any = false;
         uint32_t seen[27];
@@ -121,10 +124,14 @@ namespace rayt {
                 const Real w = Real(1) - std::sqrt(dist2) / r;   // cone filter
                 const Vector3 rgb(ph.rgb[0], ph.rgb[1], ph.rgb[2]);
 #if defined(RAYT_SPECTRAL_MODE)
-                acc += f * (w * luminance(rgb));
+                const Real wl = w * luminance(rgb);
+                acc += f * wl;
                 colorSum += rgb * w;
+                w2 += wl * wl;
 #else
-                acc += f * Spectrum(rgb * w);
+                const Spectrum c = f * Spectrum(rgb * w);
+                acc += c;
+                acc2 += c * c;
 #endif
                 any = true;
             }
@@ -137,8 +144,14 @@ namespace rayt {
         // would be linear only without clamping: the saturated basis spectra are clamped and no longer add up to white.
         const Real Y = luminance(colorSum);
         if (Y <= Real(0)) return Spectrum(0.0);
-        return acc * RgbToIlluminantSpectrum(colorSum / Y, lambda) * norm;
+        const Spectrum L = acc * RgbToIlluminantSpectrum(colorSum / Y, lambda) * norm;
+        if (varianceRgb) {   // relative variance sum (w lum)^2 / (sum w lum)^2 of the gather, applied to the mean: the BSDF is taken as the same for every photon
+            const Vector3 m = SpectrumToRGB(L, lambda);
+            *varianceRgb = m * m * (w2 / (Y * Y));
+        }
+        return L;
 #else
+        if (varianceRgb) *varianceRgb = SpectrumToRGB(acc2, lambda) * (norm * norm);
         return acc * norm;
 #endif
     }

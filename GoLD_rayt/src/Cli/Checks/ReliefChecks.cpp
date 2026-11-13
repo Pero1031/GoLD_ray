@@ -272,12 +272,14 @@ int RunReliefTests(const CliOptions& opt) {
     }
 
     // ---- 7. Pores: the mask is in [0, 1], pores differ in size, and their density follows the noise ---------------------------------------
+    // The mask is a deterministic function, so it is read on a fixed grid (random points made the block counts fluctuate at a low --spp).
     {
         double top = 0, covered = 0;
         bool inRange = true;
         std::vector<double> block(8, 0.0);   // pore coverage in eight 2 cm blocks along x
-        for (int i = 0; i < n; ++i) {
-            const Point3 p(sampling::Random() * 0.16, sampling::Random() * 0.01, sampling::Random() * 0.01);
+        constexpr int nx = 1600, ny = 10, nz = 10;   // 0.1 mm along x (160 mm), 1 mm across (10 mm x 10 mm): 160 000 points, the same every run
+        for (int ix = 0; ix < nx; ++ix) for (int iy = 0; iy < ny; ++iy) for (int iz = 0; iz < nz; ++iz) {
+            const Point3 p((ix + 0.5) * 0.16 / nx, (iy + 0.5) * 0.01 / ny, (iz + 0.5) * 0.01 / nz);
             const Real m = relief.poreMask(p);
             inRange = inRange && m >= 0 && m <= 1.0 + 1e-12;
             top = std::max<double>(top, m);
@@ -285,7 +287,8 @@ int RunReliefTests(const CliOptions& opt) {
         }
         const double lo = *std::min_element(block.begin(), block.end()), hi = *std::max_element(block.begin(), block.end());
         const bool ok = inRange && top > 0.8 && covered > 0 && hi > 1.3 * std::max(lo, 1.0);
-        std::cout << "[Relief] 7. pores: mask in [0, 1], largest " << top << ", pore coverage per 2 cm block from " << lo << " to " << hi << " of " << n / 8 << " points" << (ok ? "   OK" : "   FAIL") << "\n";
+        std::cout << "[Relief] 7. pores: mask in [0, 1], largest " << top << ", pore coverage per 2 cm block from " << lo << " to " << hi << " of " << nx * ny * nz / 8 << " grid points"
+            << (ok ? "   OK" : "   FAIL") << "\n";
         allPassed = ok && allPassed;
     }
 

@@ -45,6 +45,19 @@ void EstimateRadiance(const Scene& scene, const Ray& ray, int n, int maxDepth,
     badSamples = bad;
 }
 
+Vector3 PhotonVarianceAt(const Scene& scene, const CausticPhotonMap& map, const Ray& ray) {
+    SurfaceInteraction rec;
+    if (!scene.hit(ray, rec)) return Vector3(0.0);
+#if defined(RAYT_SPECTRAL_MODE)
+    const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.5));
+#else
+    const SampledWavelengths lambda;
+#endif
+    Vector3 variance(0.0);
+    map.radiance(rec, -ray.d, lambda, &variance);
+    return variance;
+}
+
 bool ReportLightCase(const std::string& name, const Vector3& expected,
     const Vector3& mean, const Vector3& se, int bad)
 {
@@ -135,47 +148,53 @@ Vector3 GroundRadianceFromEnv(const EnvMap& env, Real albedo) {
 
 bool CheckEnvSampling(const EnvMap& env, const std::string& label, int n) {
     // Integral of pdf over the sphere on a deterministic (theta, phi) grid (a small bright sun
-    // would make a Monte Carlo estimate of this far too noisy).
+    // would make a Monte Carlo estimate of this far too noisy). The integral of Le by the same grid at two resolutions: the difference between
+    // them bounds the grid's own error (a small sun is not resolved exactly by either).
     double pdfIntegral = 0.0;
-    Vector3 gridLe(0.0);   // Integral Le dw by the same grid
-    {
-        const int nTheta = 1024, nPhi = 2048;
+    Vector3 gridLe(0.0), gridLeCoarse(0.0);
+    for (int level = 0; level < 2; ++level) {
+        const int nTheta = level == 0 ? 1024 : 512, nPhi = 2 * nTheta;
         const double dTheta = constants::PI / nTheta, dPhi = 2.0 * constants::PI / nPhi;
+        Vector3 acc(0.0);
         for (int i = 0; i < nTheta; ++i) {
             const Real theta = (Real(i) + 0.5) * dTheta;
             for (int j = 0; j < nPhi; ++j) {
                 const Real phi = (Real(j) + 0.5) * dPhi;
                 const Vector3 d(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
-                pdfIntegral += env.pdf(d) * std::sin(theta) * dTheta * dPhi;
-                gridLe += env.eval(d) * (std::sin(theta) * dTheta * dPhi);
+                if (level == 0) pdfIntegral += env.pdf(d) * std::sin(theta) * dTheta * dPhi;
+                acc += env.eval(d) * (std::sin(theta) * dTheta * dPhi);
             }
         }
+        (level == 0 ? gridLe : gridLeCoarse) = acc;
     }
+    const double gridErr = std::abs(gridLe.y - gridLeCoarse.y);
 
-    Vector3 isLe(0.0);
+    // The importance-sampled integral and its standard error (Le / pdf varies: the pdf is constant over a texel, Le is interpolated).
+    double sum = 0, sum2 = 0;
     int mismatches = 0;   // sample() and pdf() disagree (> 0.1 %)
     int isCount = 0;
-
     for (int i = 0; i < n; ++i) {
         Vector3 wi(0.0);
         Real pdf = 0;
         const Vector3 Le = env.sample(Point2f(float(sampling::Random()), float(sampling::Random())), wi, pdf);
         if (pdf > 0) {
-            isLe += Le / pdf;
+            const double v = Le.y / pdf;
+            sum += v; sum2 += v * v;
             if (std::abs(env.pdf(wi) - pdf) > 1e-3 * pdf) ++mismatches;   // only at texel borders (float round-off)
             ++isCount;
         }
     }
-    isLe /= double(n);
+    const double isLe = sum / double(n);
+    const double isSe = std::sqrt(std::max(sum2 / double(n) - isLe * isLe, 0.0) / double(n));
     const double mismatchRate = double(mismatches) / std::max(isCount, 1);
 
     const bool okPdf = std::abs(pdfIntegral - 1.0) < 0.01;
     const bool okMatch = mismatchRate < 1e-3;
-    const bool okLe = std::abs(isLe.y - gridLe.y) <= 0.03 * std::abs(gridLe.y);
+    const bool okLe = std::abs(isLe - gridLe.y) <= 4 * isSe + 2 * gridErr + 1e-9;   // a fixed 3 % failed a few per cent of the runs
     std::cout << "[Lights]   env sampling (" << label << "): Integral pdf dw = " << pdfIntegral
         << (okPdf ? " OK" : " FAIL") << ";  sample()/pdf() mismatch rate = " << mismatchRate
-        << (okMatch ? " OK" : " FAIL") << ";  Integral Le dw (G): grid " << gridLe.y
-        << " vs importance " << isLe.y << (okLe ? " OK" : " FAIL") << "\n";
+        << (okMatch ? " OK" : " FAIL") << ";  Integral Le dw (G): grid " << gridLe.y << " (grid error about " << gridErr
+        << ") vs importance " << isLe << " +- " << isSe << (okLe ? " OK" : " FAIL") << "\n";
     return okPdf && okMatch && okLe;
 }
 

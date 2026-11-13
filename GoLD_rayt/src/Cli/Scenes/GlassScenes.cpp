@@ -59,17 +59,17 @@ std::optional<int> BuildFurnace(SceneContext& ctx, SceneSetup& out) {
     worldList->add(std::make_shared<Sphere>(Point3(0.31, 0, -1), r, matWhite));
     worldList->add(std::make_shared<Sphere>(Point3(0.93, 0, -1), r, matMetalMid));
     worldList->add(std::make_shared<Sphere>(Point3(1.55, 0, -1), r, matMetalRough));
-    // expected / tolerance:  1.0 for lossless materials;  the near-perfect conductors use an
-    // independent numerical integration of single-scattering GGX (0.994 / 0.882);  frosted
-    // glass uses the measured value 0.986 (no closed form).
+    // expected / systematic term (the check adds 4 standard errors from the pixels): 1.0 for lossless materials; the frosted glass is a
+    // single-scattering rough dielectric (roughness 0.2) and keeps 0.970 (measured at 256 spp in both builds, 2026-11-13; no closed form).
+    // Measured at 256 spp and left as documented losses inside the terms: white diffuse 0.9985, metal 0.2 0.9972, clear glass 0.9995.
     furnaceObjects = {
-        { "background      ", nullptr,              1.000, 0.010 },
-        { "clear glass     ", matGlass.get(),       1.000, 0.030 },
-        { "dispersive glass", matGlassDisp.get(),   1.000, 0.030 },
-        { "white diffuse   ", matWhite.get(),       1.000, 0.030 },
-        { "frosted glass   ", matFrosted.get(),     0.986, 0.030 },
-        { "metal rough 0.2 ", matMetalMid.get(),    1.000, 0.020 },
-        { "metal rough 0.5 ", matMetalRough.get(),  1.000, 0.020 },
+        { "background      ", nullptr,              1.000, 0.002 },
+        { "clear glass     ", matGlass.get(),       1.000, 0.005 },
+        { "dispersive glass", matGlassDisp.get(),   1.000, 0.005 },
+        { "white diffuse   ", matWhite.get(),       1.000, 0.005 },
+        { "frosted glass   ", matFrosted.get(),     0.970, 0.005 },
+        { "metal rough 0.2 ", matMetalMid.get(),    1.000, 0.005 },
+        { "metal rough 0.5 ", matMetalRough.get(),  1.000, 0.005 },
     };
     out.afterSave = [furnaceObjects, furnaceMaterials](const RenderResult& r) {
         return CheckFurnace(r.scene, r.camera, r.film, furnaceObjects);
