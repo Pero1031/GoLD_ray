@@ -51,7 +51,7 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 
 | キー | 中身 |
 |---|---|
-| `camera` | `from`、`at`、`up`、`fov`（度）、`aperture`（レンズの直径、m。0 = ピンホール）、`focus`（ピントの距離、m。省略で `at` まで）。省略すると、`[0, 0.5, 2.5]` から `[0, 0, -1]` を 35° で見る |
+| `camera` | `from`、`at`、`up`、`fov`（度）。省略すると、`[0, 0.5, 2.5]` から `[0, 0, -1]` を 35° で見る。レンズ（どちらの書き方でもよい）: `aperture`（レンズの直径、m。0 = ピンホール）、`focus`（ピントの距離、m。省略で `at` まで）。または写真と同じ書き方で、`focalLength`（mm。`fov` の代わり。35 mm フィルムの換算で、画面の長辺がフィルムの 36 mm）、`fStop`（F 値。絞りの直径 = 焦点距離 / F）、`focusDistance`（ピントの面までの、視線方向の距離、m）または `focusAt`（ピントを合わせる点 `[x, y, z]`）、`blades`（絞り羽根の枚数 3〜32。省略か 0 は円形）、`bladeRotation`（度）。`fStop` と `focusDistance`・`focusAt` を書くと、`aperture` と `focus` より優先する。コマンドラインの `--focal-length`・`--fstop`・`--focus-dist`・`--focus-at`・`--blades`・`--blade-rotation` は、ファイルの値を上書きする（組み込みのシーンにも使える） |
 | `environment` | `"none"`（既定）、`"hdr"`、`"uniform"`（白）、または `{ "type", "file", "scale" }`。`hdr` の既定のファイルは `--env` |
 | `materials` | 名前 → 材質（下） |
 | `lights` | 点光源の配列 `{ "type": "point", "position", "color", "intensity" }` |

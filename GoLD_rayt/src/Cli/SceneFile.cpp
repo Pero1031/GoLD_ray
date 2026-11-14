@@ -212,7 +212,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -222,6 +222,29 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
         if (c.contains("focus")) d->camera.focus = ReadNumber(c.at("focus"), "camera.focus");             // focus distance in metres (default: to "at")
         if (d->camera.aperture < 0) Fail("camera.aperture", "must be 0 (pinhole) or the lens diameter in metres");
         if (d->camera.focus < 0) Fail("camera.focus", "must be 0 (the distance to \"at\") or a distance in metres");
+        // the lens (see Cli/Lens.hpp)
+        LensSpec& lens = d->camera.lens;
+        if (c.contains("focalLength")) {
+            if (c.contains("fov")) Fail("camera", "give either \"fov\" or \"focalLength\", not both");
+            lens.focalLengthMm = ReadNumber(c.at("focalLength"), "camera.focalLength");
+            if (!(*lens.focalLengthMm > 0)) Fail("camera.focalLength", "must be above 0 (millimetres)");
+        }
+        if (c.contains("fStop")) {
+            lens.fStop = ReadNumber(c.at("fStop"), "camera.fStop");
+            if (!(*lens.fStop >= 0)) Fail("camera.fStop", "must be 0 (a pinhole) or an f-number above 0");
+        }
+        if (c.contains("focusDistance") && c.contains("focusAt")) Fail("camera", "give either \"focusDistance\" or \"focusAt\", not both");
+        if (c.contains("focusDistance")) {
+            lens.focusDist = ReadNumber(c.at("focusDistance"), "camera.focusDistance");
+            if (!(*lens.focusDist > 0)) Fail("camera.focusDistance", "must be above 0 (metres)");
+        }
+        if (c.contains("focusAt")) lens.focusAt = ReadVec3(c.at("focusAt"), "camera.focusAt");
+        if (c.contains("blades")) {
+            const int n = static_cast<int>(ReadNumber(c.at("blades"), "camera.blades"));
+            if (n != 0 && (n < 3 || n > 32)) Fail("camera.blades", "must be 0 (a round aperture) or 3 to 32");
+            lens.blades = n;
+        }
+        if (c.contains("bladeRotation")) lens.bladeRotationDeg = ReadNumber(c.at("bladeRotation"), "camera.bladeRotation");
     }
 
     if (doc.contains("environment")) {

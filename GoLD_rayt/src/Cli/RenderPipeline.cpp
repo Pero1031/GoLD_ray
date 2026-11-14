@@ -12,6 +12,57 @@
 
 namespace rayt::cli {
 
+namespace {
+
+// The lens as the Camera takes it. The scene gives a field of view (or a lens); the command line's lens replaces it field by field.
+struct ResolvedLens {
+    Real fovDeg = 35;
+    Real focalLengthMm = 0;
+    Real fStop = 0;           // 0: a pinhole
+    Real aperture = 0;        // diameter in scene units (metres)
+    Real focusDist = 1;       // along the view axis
+    int blades = 0;
+    Real bladeRotationDeg = 0;
+};
+
+ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Real aspect) {
+    LensSpec s = cam.lens;
+    s.overrideWith(fromOptions);
+
+    ResolvedLens r;
+    // The 35 mm convention: the long side of the picture is the 36 mm side of the film. The vertical field of view follows from it.
+    const Real sensorHeightMm = (aspect >= Real(1)) ? Real(36) / aspect : Real(36);
+    if (s.focalLengthMm) {
+        r.focalLengthMm = *s.focalLengthMm;
+        r.fovDeg = Real(2) * std::atan(sensorHeightMm / (Real(2) * r.focalLengthMm)) * constants::RAD_TO_DEG;
+    }
+    else {
+        r.fovDeg = cam.fovDeg;
+        r.focalLengthMm = sensorHeightMm / (Real(2) * std::tan(r.fovDeg * constants::DEG_TO_RAD * Real(0.5)));
+    }
+
+    // The plane of focus: the point or the distance given ("focusAt", "focusDistance", --focus-at, --focus-dist), the scene's "focus",
+    // or the point the camera looks at.
+    const Vector3 viewDir = glm::normalize(cam.at - cam.from);
+    r.focusDist = cam.focus > 0 ? cam.focus : glm::length(cam.from - cam.at);
+    if (s.focusDist) r.focusDist = *s.focusDist;
+    else if (s.focusAt) r.focusDist = glm::dot(*s.focusAt - cam.from, viewDir);
+    if (!(r.focusDist > 0)) {
+        std::cout << "[Camera] the point to focus on is behind the camera: focusing on the point it looks at\n";
+        r.focusDist = glm::length(cam.from - cam.at);
+    }
+
+    // The aperture: an f-number ("fStop", --fstop; 0 = a pinhole) wins over the scene's lens diameter ("aperture"). Scenes are in metres.
+    if (s.fStop) r.aperture = (*s.fStop > 0) ? r.focalLengthMm * Real(0.001) / *s.fStop : Real(0);
+    else r.aperture = cam.aperture;
+    if (r.aperture > 0) r.fStop = r.focalLengthMm * Real(0.001) / r.aperture;
+    r.blades = s.blades.value_or(0);
+    r.bladeRotationDeg = s.bladeRotationDeg.value_or(Real(0));
+    return r;
+}
+
+} // namespace
+
 ImageSize ComputeImageSize(const CliOptions& opt) {
     if (opt.height > 0) return { opt.width, opt.height };
     const SceneDef* def = FindScene(opt.scene);
@@ -89,19 +140,27 @@ int RenderScene(CliOptions& opt) {
     const Point3 lookFrom = setup.camera.from;
     const Point3 lookAt = setup.camera.at;
     const Vector3 vUp = setup.camera.up;
-    const Real fovDeg = setup.camera.fovDeg;
 
-    const Real distToFocus = setup.camera.focus > 0 ? setup.camera.focus : glm::length(lookFrom - lookAt);
-    const Real aperture = setup.camera.aperture;   // 0 = pinhole camera (no depth of field); a scene file may set a lens diameter
-    if (aperture > 0) std::cout << "[Camera] depth of field: aperture " << aperture * 1000 << " mm, focus at " << distToFocus << " m\n";
+    const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
+    if (lens.aperture > 0 || opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) {
+        std::cout << "[Camera] focal length " << lens.focalLengthMm << " mm (vertical field of view " << lens.fovDeg << " deg)";
+        if (lens.aperture > 0) {
+            std::cout << ", f/" << lens.fStop << " = aperture " << lens.aperture * 1000.0 << " mm, focus at " << lens.focusDist << " m, "
+                << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round aperture"));
+        }
+        std::cout << std::endl;
+    }
 
     auto camera = std::make_shared<Camera>(
         lookFrom, lookAt, vUp,
-        fovDeg, // FOV
+        lens.fovDeg,
         double(imageWidth) / imageHeight,
-        aperture,
-        distToFocus
+        lens.aperture,
+        lens.focusDist
     );
+    if (lens.blades >= 3) camera->setApertureShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
+    if (lens.aperture > 0 && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
+        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to a pinhole camera: its caustics stay sharp while the rest is defocused\n";
 
     CausticPhotonMap causticMap;
     CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters

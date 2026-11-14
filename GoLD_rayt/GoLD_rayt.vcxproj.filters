@@ -509,6 +509,9 @@
     <ClInclude Include="include\Cli\PmxSupport.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Cli\Lens.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Cli\RenderPipeline.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

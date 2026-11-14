@@ -470,6 +470,7 @@
     <ClInclude Include="include\Cli\Tools.hpp" />
     <ClInclude Include="include\Geometry\ProceduralMesh.hpp" />
     <ClInclude Include="include\Cli\Commands.hpp" />
+    <ClInclude Include="include\Cli\Lens.hpp" />
     <ClInclude Include="include\Cli\RenderPipeline.hpp" />
     <ClInclude Include="include\Cli\Scene.hpp" />
     <ClInclude Include="include\Cli\Scenes.hpp" />

@@ -22,6 +22,22 @@ Vector3 ParseRgb(const std::string& text, const char* name) {
     return Vector3(v[0], v[1], v[2]);
 }
 
+// The lens options (--focal-length, --fstop, --focus-dist, --focus-at, --blades, --blade-rotation). Returns false for any other option.
+bool ApplyLensArg(const std::string& a, const std::function<std::string(const char*)>& value, LensSpec& lens) {
+    if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
+    else if (a == "--fstop") lens.fStop = std::stod(value("--fstop"));
+    else if (a == "--focus-dist") lens.focusDist = std::stod(value("--focus-dist"));
+    else if (a == "--focus-at") {
+        const std::string text = value("--focus-at");
+        if (std::count(text.begin(), text.end(), ',') != 2) throw std::runtime_error("--focus-at needs x,y,z");
+        lens.focusAt = ParseRgb(text, "--focus-at");
+    }
+    else if (a == "--blades") lens.blades = std::stoi(value("--blades"));
+    else if (a == "--blade-rotation") lens.bladeRotationDeg = std::stod(value("--blade-rotation"));
+    else return false;
+    return true;
+}
+
 // Applies the options of one command line; throws std::runtime_error with a message for a bad option or value.
 void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
     {
@@ -31,6 +47,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
                 if (i + 1 >= args.size()) throw std::runtime_error(std::string("missing value for ") + name);
                 return args[++i];
             };
+            if (ApplyLensArg(a, value, o.lens)) continue;   // (a separate function: one else-if chain this long does not compile)
             if (a == "--scene")      o.scene = value("--scene");
             else if (a == "--width") o.width = std::stoi(value("--width"));
             else if (a == "--height") o.height = std::stoi(value("--height"));
@@ -175,6 +192,11 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
         if (o.height < 0) throw std::runtime_error("--height must be >= 0");
         if (o.seed < -1) throw std::runtime_error("--seed must be >= 0");
+        if (o.lens.focalLengthMm && !(*o.lens.focalLengthMm > 0)) throw std::runtime_error("--focal-length must be above 0 (mm)");
+        if (o.lens.fStop && !(*o.lens.fStop >= 0)) throw std::runtime_error("--fstop must be 0 (a pinhole) or an f-number above 0");
+        if (o.lens.focusDist && !(*o.lens.focusDist > 0)) throw std::runtime_error("--focus-dist must be above 0");
+        if (o.lens.blades && (*o.lens.blades < 0 || (*o.lens.blades > 0 && *o.lens.blades < 3) || *o.lens.blades > 32))
+            throw std::runtime_error("--blades must be 0 (a round aperture) or 3 to 32");
     }
 }
 

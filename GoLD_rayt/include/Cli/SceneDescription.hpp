@@ -8,6 +8,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/Precision.hpp"
+#include "Cli/Lens.hpp"
 
 namespace rayt::cli {
 
@@ -16,8 +17,9 @@ struct CameraSpec {
     Point3 at = Point3(0, 0, -1);
     Vector3 up = Vector3(0, 1, 0);
     Real fovDeg = 35.0;
-    Real aperture = 0;        // lens diameter (m); 0 = pinhole, no depth of field
-    Real focus = 0;           // focus distance (m); 0 = the distance from `from` to `at`
+    Real aperture = 0;        // lens diameter (m); 0 = pinhole, no depth of field ("aperture"; "fStop" in `lens` wins)
+    Real focus = 0;           // focus distance (m); 0 = the distance from `from` to `at` ("focus"; `lens` focus wins)
+    LensSpec lens;            // the lens as a photographer states it, if the scene states one; the command line overrides it
 };
 
 // A light spectrum: a preset (d65 | tungsten | candle | led), a blackbody temperature, an RGB color (x D65), a table from a CSV file,

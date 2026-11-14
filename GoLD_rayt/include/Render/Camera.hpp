@@ -122,8 +122,8 @@ namespace rayt {
             // --- lens sample (DoF) ---
             Vector3 offset(0);
             if (m_lensRadius > Real(0)) {
-                // You can switch to ConcentricSampleDisk later.
-                const Vector3 rd = m_lensRadius * sampling::UniformSampleDisk(cs.pLens);
+                // A round aperture, or a regular polygon (blades >= 3): out-of-focus highlights take its shape.
+                const Vector3 rd = (m_blades >= 3) ? sampleBlades(cs.pLens) : m_lensRadius * sampling::UniformSampleDisk(cs.pLens);
                 offset = m_u * rd.x + m_v * rd.y;
             }
 
@@ -197,6 +197,22 @@ namespace rayt {
             return s >= Real(0) && s < Real(1) && t >= Real(0) && t < Real(1);
         }
 
+        /**
+         * @brief Gives the aperture the shape of a regular polygon with `blades` corners (3 or more; fewer: a circle again).
+         *
+         * The polygon has the area of the round aperture of the same f-number, so the size of the blur stays the same and only its
+         * shape changes. `rotation` (radians) turns it about the view axis.
+         */
+        void setApertureShape(int blades, Real rotation = Real(0)) {
+            m_blades = (blades >= 3) ? blades : 0;
+            m_bladeRotation = rotation;
+            if (m_blades >= 3) {
+                const Real n = Real(m_blades);
+                // area of a regular n-gon of circumradius R: (n / 2) R^2 sin(2 pi / n); equal to pi r^2
+                m_bladeRadius = m_lensRadius * std::sqrt(constants::PI / (Real(0.5) * n * std::sin(constants::TWO_PI / n)));
+            }
+        }
+
         /// Area of the film rectangle on the focal plane (world units), and the focus distance: the geometry of the pixel footprint.
         Real focalPlaneArea() const { return glm::length(m_horizontal) * glm::length(m_vertical); }
         Real focusDistance() const { return m_focusDist; }
@@ -207,6 +223,20 @@ namespace rayt {
         const Medium* medium() const { return m_medium; }
 
     private:
+        /// A uniform point of the polygonal aperture: pick one of the n triangles (centre, corner k, corner k+1), then a point in it.
+        Vector3 sampleBlades(const Point2& u) const {
+            const Real scaled = u.x * Real(m_blades);
+            const int k = std::min(static_cast<int>(scaled), m_blades - 1);
+            const Real a = scaled - Real(k);                    // position along the outer edge, uniform again
+            const Real r = std::sqrt(u.y);                      // distance factor towards the edge
+            const Real step = constants::TWO_PI / Real(m_blades);
+            const Real a0 = m_bladeRotation + step * Real(k);
+            const Real a1 = a0 + step;
+            const Real x = m_bladeRadius * r * ((Real(1) - a) * std::cos(a0) + a * std::cos(a1));
+            const Real y = m_bladeRadius * r * ((Real(1) - a) * std::sin(a0) + a * std::sin(a1));
+            return Vector3(x, y, Real(0));
+        }
+
         Point3 m_origin;
         Point3 m_lowerLeftCorner;
         Vector3 m_horizontal;
@@ -218,6 +248,9 @@ namespace rayt {
         // Thin lens
         Real m_lensRadius = 0.0;
         Real m_focusDist = 1.0;
+        int m_blades = 0;           // 0: a round aperture
+        Real m_bladeRotation = 0.0;
+        Real m_bladeRadius = 0.0;   // circumradius of the polygon
 
         // Motion blur (shutter interval)
         Real m_shutterOpen = 0.0;

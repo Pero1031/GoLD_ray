@@ -6,6 +6,7 @@
 #include <string>
 
 #include "Core/Precision.hpp"
+#include "Cli/Lens.hpp"
 
 namespace rayt::cli {
 
@@ -252,6 +253,9 @@ struct CliOptions {
     bool whiteBalance = false;         // --wb: white-balance the film to the light (spd scene; scene files: the first emission material)
     std::optional<Real> fadeHours;     // --fade-hours H: the hours of exposure of every "fading" material of a scene file (overrides the file)
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
+    // The lens: --focal-length MM (replaces the field of view of the scene), --fstop N (defocus blur), --focus-dist D | --focus-at x,y,z,
+    // --blades N (polygonal aperture), --blade-rotation DEG. Whatever is given overrides the scene's own lens (see Lens.hpp).
+    LensSpec lens;
 };
 
 // Parses the command line, and the scene file if the first argument is one (the command line wins over the file).
