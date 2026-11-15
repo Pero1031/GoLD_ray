@@ -128,6 +128,56 @@ bool RunMeshChecks(const CliOptions& opt) {
         }
     }
 
+    // c3. STL: binary (the stored normals are zero, the header starts with "solid" as some writers do) and ascii, both as a triangle soup.
+    //     The corners must be welded back to the sphere's vertices, with smooth normals built from the winding.
+    {
+        const std::string base = (std::filesystem::temp_directory_path() / "rayt_test_mesh").string();
+        const size_t nt = sphere->numTriangles();
+        auto corner = [&](size_t t, int k) { return sphere->p[static_cast<size_t>(sphere->indices[3 * t + static_cast<size_t>(k)])]; };
+        {   // binary
+            std::ofstream f(base + "_b.stl", std::ios::binary);
+            char header[80] = {};
+            std::memcpy(header, "solid COLOR=1 1 1 MATERIAL=1 1 1", 32);
+            f.write(header, 80);
+            const std::uint32_t count = static_cast<std::uint32_t>(nt);
+            f.write(reinterpret_cast<const char*>(&count), 4);
+            for (size_t t = 0; t < nt; ++t) {
+                float rec[12] = {};   // normal left zero
+                for (int k = 0; k < 3; ++k) { const Point3 c = corner(t, k); rec[3 + 3 * k] = float(c.x); rec[4 + 3 * k] = float(c.y); rec[5 + 3 * k] = float(c.z); }
+                f.write(reinterpret_cast<const char*>(rec), 48);
+                const std::uint16_t attr = 0;
+                f.write(reinterpret_cast<const char*>(&attr), 2);
+            }
+        }
+        {   // ascii
+            std::ofstream f(base + "_a.stl");
+            f.precision(9);
+            f << "solid sphere\n";
+            for (size_t t = 0; t < nt; ++t) {
+                f << "facet normal 0 0 0\n outer loop\n";
+                for (int k = 0; k < 3; ++k) { const Point3 c = corner(t, k); f << "  vertex " << c.x << " " << c.y << " " << c.z << "\n"; }
+                f << " endloop\nendfacet\n";
+            }
+            f << "endsolid sphere\n";
+        }
+        for (const char* suffix : { "_b.stl", "_a.stl" }) {
+            TriangleMesh back;
+            std::string err;
+            const bool loaded = io::loadMesh(base + suffix, back, &err);   // by the extension
+            double minDot = 1.0;
+            if (loaded && back.hasNormals() && back.p.size() == sphere->p.size()) {   // the exact sphere normal is the unit position
+                for (size_t i = 0; i < back.p.size(); ++i) minDot = std::min(minDot, glm::dot(back.n[i], glm::normalize(Vector3(back.p[i]))));
+            }
+            const bool ok = loaded && back.numTriangles() == nt && back.p.size() == sphere->p.size() && back.hasNormals() && minDot > 0.99
+                && std::abs(back.signedVolume() - sphere->signedVolume()) < 1e-4 * sphere->signedVolume();
+            check(std::string("STL write + load, ") + (suffix[1] == 'b' ? "binary (zero stored normals)" : "ascii")
+                + ": triangles, welded vertices, smooth normals, volume", ok,
+                loaded ? std::to_string(back.numTriangles()) + " triangles, " + std::to_string(back.p.size()) + " vertices (soup had " + std::to_string(3 * nt) + "), min normal . radial " + std::to_string(minDot) : err);
+            std::error_code ec;
+            std::filesystem::remove(base + suffix, ec);
+        }
+    }
+
     // d. BVH vs brute force on the torus file (2304 triangles): same hit / miss / distance for random rays
     {
         TriangleMesh torus;

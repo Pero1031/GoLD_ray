@@ -131,6 +131,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\IO\StlLoader.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Geometry\GaussianSplats.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -452,6 +456,7 @@
     <ClInclude Include="include\Geometry\TriangleMesh.hpp" />
     <ClInclude Include="include\IO\ObjLoader.hpp" />
     <ClInclude Include="include\IO\PlyLoader.hpp" />
+    <ClInclude Include="include\IO\StlLoader.hpp" />
     <ClInclude Include="include\Geometry\GaussianSplats.hpp" />
     <ClInclude Include="include\IO\PmxLoader.hpp" />
     <ClInclude Include="include\IO\PmxMorph.hpp" />

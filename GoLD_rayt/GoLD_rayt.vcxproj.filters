@@ -90,6 +90,9 @@
     <ClCompile Include="src\IO\PlyLoader.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\IO\StlLoader.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Geometry\GaussianSplats.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -447,6 +450,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\IO\PlyLoader.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IO\StlLoader.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Geometry\GaussianSplats.hpp">

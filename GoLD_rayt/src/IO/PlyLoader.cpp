@@ -9,6 +9,7 @@
 #include <tuple>
 
 #include "IO/ObjLoader.hpp"
+#include "IO/StlLoader.hpp"
 
 namespace rayt::io {
 
@@ -262,13 +263,14 @@ namespace rayt::io {
         return true;
     }
 
-    /// Loads an OBJ or a PLY by the file's extension (docs/SCENE_FILE.md, "mesh").
+    /// Loads an OBJ, a PLY or an STL by the file's extension (docs/SCENE_FILE.md, "mesh").
     bool loadMesh(const std::string& filename, TriangleMesh& out, std::string* outError, std::string* outTexture) {
         std::string ext;
         const size_t dot = filename.find_last_of('.');
         if (dot != std::string::npos) ext = filename.substr(dot + 1);
         std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (ext == "ply") return loadPly(filename, out, outError, outTexture);
+        if (ext == "stl") return loadStl(filename, out, outError);
         return loadObj(filename, out, outError);
     }
 

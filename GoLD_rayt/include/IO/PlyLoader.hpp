@@ -111,7 +111,7 @@ namespace rayt::io {
      */
     bool loadPly(const std::string& filename, TriangleMesh& out, std::string* outError = nullptr, std::string* outTexture = nullptr);
 
-    /// Loads an OBJ or a PLY by the file's extension (docs/SCENE_FILE.md, "mesh").
+    /// Loads an OBJ, a PLY or an STL by the file's extension (docs/SCENE_FILE.md, "mesh").
     bool loadMesh(const std::string& filename, TriangleMesh& out, std::string* outError = nullptr, std::string* outTexture = nullptr);
 
 } // namespace rayt::io

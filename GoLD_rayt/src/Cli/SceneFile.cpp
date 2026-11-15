@@ -114,7 +114,7 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
     else if (shape == "mesh") {
         CheckKeys(o, { "shape", "material", "light", "velocity", "file", "cutout", "scale", "rotate", "translate" }, where);
         s.shape = ObjectSpec::Shape::Mesh;
-        if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ or a PLY)");
+        if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ, a PLY or an STL)");
         s.file = ReadString(o.at("file"), where + ".file");
         Optional<std::string>(o, "cutout", where, s.cutout, ReadString);   // an RGBA image over the uv: alpha < 1/2 = a hole (the glass under a water drop)
         Optional<double>(o, "scale", where, s.scale, ReadNumber);

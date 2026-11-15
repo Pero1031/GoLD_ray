@@ -563,7 +563,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         case ObjectSpec::Shape::Mesh: {
             TriangleMesh mesh;
             std::string err;
-            if (!io::loadMesh(o.file, mesh, &err)) { std::cerr << "[SceneFile] mesh " << o.file << ": " << err << "\n"; return 1; }   // OBJ or PLY
+            if (!io::loadMesh(o.file, mesh, &err)) { std::cerr << "[SceneFile] mesh " << o.file << ": " << err << "\n"; return 1; }   // OBJ, PLY or STL
             std::cout << "[SceneFile] mesh " << o.file << ": " << mesh.numTriangles() << " triangles, " << mesh.p.size() << " vertices"
                 << (mesh.hasNormals() ? ", smooth normals" : ", flat") << (mesh.uv.size() == mesh.p.size() ? ", uv" : "") << "\n";
             const glm::dmat3 rotation(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
