@@ -28,7 +28,7 @@ namespace rayt {
             }
         }
 
-        Real reflectance(Real cosI, Real nI, Real nF, Real dNm, Complex nT, Real lambdaNm) {
+        StackAmplitudes amplitudes(Real cosI, Real nI, Real nF, Real dNm, Complex nT, Real lambdaNm) {
             cosI = std::clamp(cosI, Real(0), Real(1));
             const Real sinI = std::sqrt(std::max(Real(0), Real(1) - cosI * cosI));
             const Complex n0(nI, 0), n1(nF, 0);
@@ -43,15 +43,28 @@ namespace rayt {
             const Complex r01p = (n1 * cos0 - n0 * cos1) / (n1 * cos0 + n0 * cos1);
             const Complex r12s = (n1 * cos1 - nT * cos2) / (n1 * cos1 + nT * cos2);
             const Complex r12p = (nT * cos1 - n1 * cos2) / (nT * cos1 + n1 * cos2);
+            const Complex t01s = Real(2) * n0 * cos0 / (n0 * cos0 + n1 * cos1);
+            const Complex t01p = Real(2) * n0 * cos0 / (n1 * cos0 + n0 * cos1);
+            const Complex t12s = Real(2) * n1 * cos1 / (n1 * cos1 + nT * cos2);
+            const Complex t12p = Real(2) * n1 * cos1 / (nT * cos1 + n1 * cos2);
 
             // phase thickness of one pass through the film; the round trip is 2 beta
             const Real twoPi = Real(2) * Real(3.14159265358979323846);
             const Complex beta = Complex(twoPi * dNm / lambdaNm, 0) * n1 * cos1;
-            const Complex e2 = std::exp(Complex(0, 2) * beta);
+            const Complex e1 = std::exp(Complex(0, 1) * beta);
+            const Complex e2 = e1 * e1;
 
-            const Complex rs = (r01s + r12s * e2) / (Complex(1) + r01s * r12s * e2);
-            const Complex rp = (r01p + r12p * e2) / (Complex(1) + r01p * r12p * e2);
-            return std::clamp(Real(0.5) * (std::norm(rs) + std::norm(rp)), Real(0), Real(1));
+            StackAmplitudes a;
+            a.rs = (r01s + r12s * e2) / (Complex(1) + r01s * r12s * e2);
+            a.rp = (r01p + r12p * e2) / (Complex(1) + r01p * r12p * e2);
+            a.ts = t01s * t12s * e1 / (Complex(1) + r01s * r12s * e2);
+            a.tp = t01p * t12p * e1 / (Complex(1) + r01p * r12p * e2);
+            return a;
+        }
+
+        Real reflectance(Real cosI, Real nI, Real nF, Real dNm, Complex nT, Real lambdaNm) {
+            const StackAmplitudes a = amplitudes(cosI, nI, nF, dNm, nT, lambdaNm);
+            return std::clamp(Real(0.5) * (std::norm(a.rs) + std::norm(a.rp)), Real(0), Real(1));
         }
 
     } // namespace thinfilm
@@ -110,7 +123,7 @@ namespace rayt {
 #endif
     }
 
-    Real ThinFilm::reflectanceAt(Real cosI, bool entering, Real d, Real lambdaNm) const {
+    thinfilm::StackAmplitudes ThinFilm::amplitudesAt(Real cosI, bool entering, Real d, Real lambdaNm) const {
         Real nI = Real(1);
         thinfilm::Complex nT(1, 0);
         switch (m_substrate) {
@@ -129,7 +142,12 @@ namespace rayt {
             break;
         }
         }
-        return thinfilm::reflectance(cosI, nI, m_nF, d, nT, lambdaNm);
+        return thinfilm::amplitudes(cosI, nI, m_nF, d, nT, lambdaNm);
+    }
+
+    Real ThinFilm::reflectanceAt(Real cosI, bool entering, Real d, Real lambdaNm) const {
+        const thinfilm::StackAmplitudes a = amplitudesAt(cosI, entering, d, lambdaNm);
+        return std::clamp(Real(0.5) * (std::norm(a.rs) + std::norm(a.rp)), Real(0), Real(1));
     }
 
 #if !defined(RAYT_SPECTRAL_MODE)
@@ -232,6 +250,96 @@ namespace rayt {
         if (mode == TransportMode::Radiance) s.f /= etap * etap;               // radiance changes with the index (as in Dielectric)
         s.flags = BxDFFlags::Specular | BxDFFlags::Transmission;
         return s;
+    }
+
+#if !defined(RAYT_SPECTRAL_MODE)
+    ThinFilm::PolEntry ThinFilm::polEntryDirect(bool transmission, bool fromAmbient, Real cosI, Real d) const {
+        const RgbWeights& t = rgbWeights();
+        PolEntry e;
+        for (int k = 0; k < RgbWeights::kN; ++k) {
+            const thinfilm::StackAmplitudes a = amplitudesAt(cosI, fromAmbient, d, t.nm[static_cast<size_t>(k)]);
+            const thinfilm::Complex as = transmission ? a.ts : a.rs, ap = transmission ? a.tp : a.rp;
+            const Vector3 w = t.w[static_cast<size_t>(k)];
+            const thinfilm::Complex c = as * std::conj(ap);
+            e.A += w * Real(0.5) * (std::norm(as) + std::norm(ap));
+            e.B += w * Real(0.5) * (std::norm(as) - std::norm(ap));
+            e.ReC += w * std::real(c);
+            e.ImC += w * std::imag(c);
+        }
+        return e;
+    }
+
+    void ThinFilm::buildPolTable() const {
+        for (int tr = 0; tr < 2; ++tr)
+            for (int side = 0; side < 2; ++side) {
+                if (side == 1 && m_substrate != Substrate::Dielectric) continue;   // one side only (as the reflectance table)
+                if (tr == 1 && m_substrate == Substrate::Conductor) continue;      // nothing is transmitted
+                std::vector<PolEntry>& tab = m_polTable[tr][side];
+                tab.assign(static_cast<size_t>(kTableCos) * static_cast<size_t>(m_tableD), PolEntry());
+                #pragma omp parallel for schedule(static)
+                for (int ic = 0; ic < kTableCos; ++ic) {
+                    const Real cosI = Real(ic) / Real(kTableCos - 1);
+                    for (int id = 0; id < m_tableD; ++id)
+                        tab[static_cast<size_t>(ic) * static_cast<size_t>(m_tableD) + static_cast<size_t>(id)] = polEntryDirect(tr == 1, side == 0, cosI, Real(id) * kTableStep);
+                }
+            }
+    }
+
+    ThinFilm::PolEntry ThinFilm::polEntry(bool transmission, bool fromAmbient, Real cosI, Real d) const {
+        if (d >= Real(m_tableD - 1) * kTableStep) return polEntryDirect(transmission, fromAmbient, cosI, d);   // beyond the table (rare, slow)
+        std::call_once(m_polOnce, [this] { buildPolTable(); });
+        const std::vector<PolEntry>& tab = m_polTable[transmission ? 1 : 0][(m_substrate == Substrate::Dielectric && !fromAmbient) ? 1 : 0];
+        const Real x = std::clamp(cosI, Real(0), Real(1)) * Real(kTableCos - 1);
+        const int i = std::min(static_cast<int>(x), kTableCos - 2);
+        const Real fx = x - Real(i);
+        const Real y = std::max(d, Real(0)) / kTableStep;
+        const int j = std::min(static_cast<int>(y), m_tableD - 2);
+        const Real fy = y - Real(j);
+        auto at = [&](int a, int b) -> const PolEntry& { return tab[static_cast<size_t>(a) * static_cast<size_t>(m_tableD) + static_cast<size_t>(b)]; };
+        auto mix = [&](Vector3 PolEntry::* m) {
+            return (at(i, j).*m * (Real(1) - fy) + at(i, j + 1).*m * fy) * (Real(1) - fx) + (at(i + 1, j).*m * (Real(1) - fy) + at(i + 1, j + 1).*m * fy) * fx;
+        };
+        PolEntry e;
+        e.A = mix(&PolEntry::A); e.B = mix(&PolEntry::B); e.ReC = mix(&PolEntry::ReC); e.ImC = mix(&PolEntry::ImC);
+        return e;
+    }
+#endif
+
+    bool ThinFilm::scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+        const SampledWavelengths& lambda, pol::ScatterEvent& out) const {
+
+        const bool reflection = glm::dot(rec.n, wo) * glm::dot(rec.n, wi) > 0;
+        if (!reflection && m_substrate == Substrate::Conductor) return false;   // nothing gets through a metal
+        // The stack as the light sees it: the light arrives from the side of wo for a reflection, from the other side for a transmission.
+        // frontFace says that wo is on the ambient side, where the film is.
+        const bool lightFromAmbient = reflection ? rec.frontFace : !rec.frontFace;
+        const Real cosLight = std::abs(glm::dot(rec.n, reflection ? wo : wi));
+        const Real d = m_thickness.at(rec.p);
+        out.s = pol::planeNormalS(wo, rec.n);
+
+#if defined(RAYT_SPECTRAL_MODE)
+        for (int i = 0; i < kLanes; ++i) {
+            const thinfilm::StackAmplitudes a = amplitudesAt(cosLight, lightFromAmbient, d, lambda[i]);
+            if (reflection) pol::setInterface(out.m, i, a.rs, a.rp);
+            else pol::setInterface(out.m, i, a.ts, a.tp);
+        }
+#else
+        (void)lambda;
+        // Each channel integrates the wavelengths with its weights: the Mueller matrix of the channel is the weighted sum of the matrices of
+        // the wavelengths (energy factors that do not depend on the wavelength cancel in the division by the first element).
+        const PolEntry e = polEntry(!reflection, lightFromAmbient, cosLight, d);
+        for (int c = 0; c < kLanes; ++c) {
+            if (!(e.A[c] > Real(1e-12))) { for (int r = 0; r < 4; ++r) out.m.e[r][r][c] = Real(1); continue; }
+            const Real inv = Real(1) / e.A[c];
+            out.m.e[0][0][c] = Real(1);
+            out.m.e[0][1][c] = out.m.e[1][0][c] = e.B[c] * inv;
+            out.m.e[1][1][c] = Real(1);
+            out.m.e[2][2][c] = out.m.e[3][3][c] = e.ReC[c] * inv;
+            out.m.e[2][3][c] = e.ImC[c] * inv;
+            out.m.e[3][2][c] = -e.ImC[c] * inv;
+        }
+#endif
+        return true;
     }
 
 } // namespace rayt

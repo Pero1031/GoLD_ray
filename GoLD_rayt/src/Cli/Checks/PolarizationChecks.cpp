@@ -10,6 +10,7 @@
 #include "Geometry/Sphere.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
+#include "Materials/ThinFilm.hpp"
 #include "Render/Integrator.hpp"
 
 #include <functional>
@@ -165,6 +166,79 @@ int RunPolarizationTests() {
         }
         report("two reflections (glass, metal) with random directions: Mueller chain = field propagation, " + std::to_string(trials) + " cases",
             worst < 1e-9, "max difference " + std::to_string(worst) + " of the input intensity");
+    }
+
+    // (2b) A thin film: the stack amplitudes against the plain interface (d = 0, a dielectric and a metal substrate), and energy conservation
+    //      for a film on glass (|r|^2 + g |t|^2 = 1 for s and p, g = n2 cos2 / (n0 cos0)).
+    {
+        Real worst0 = 0, worstE = 0;
+        for (Real deg = 0; deg < 89.5; deg += 4.5) {
+            const Real ci = std::cos(deg * kPi / 180);
+            const Real n0 = 1.0, nF = 1.4, n2 = 1.5;
+            const thinfilm::StackAmplitudes a0 = thinfilm::amplitudes(ci, n0, nF, 0.0, Complex(n2), 550.0);
+            const pol::Amplitudes f = pol::fresnelAmplitudes(ci, Complex(n2));
+            worst0 = std::max({ worst0, std::abs(a0.rs - f.rs), std::abs(a0.rp - f.rp), std::abs(a0.ts - f.ts), std::abs(a0.tp - f.tp) });
+            const thinfilm::StackAmplitudes m0 = thinfilm::amplitudes(ci, n0, nF, 0.0, Complex(0.27, 2.95), 550.0);
+            const pol::Amplitudes fm = pol::fresnelAmplitudes(ci, Complex(0.27, 2.95));
+            worst0 = std::max({ worst0, std::abs(m0.rs - fm.rs), std::abs(m0.rp - fm.rp) });
+            for (const Real d : { Real(120), Real(310), Real(777) }) {
+                const thinfilm::StackAmplitudes a = thinfilm::amplitudes(ci, n0, nF, d, Complex(n2), 550.0);
+                const Real sin2 = (1 - ci * ci) / (n2 * n2);
+                const Real g = n2 * std::sqrt(1 - sin2) / (n0 * ci);
+                worstE = std::max({ worstE, std::abs(std::norm(a.rs) + g * std::norm(a.ts) - 1), std::abs(std::norm(a.rp) + g * std::norm(a.tp) - 1) });
+            }
+        }
+        report("film amplitudes with d = 0 = the plain interface (dielectric and metal substrate), 20 angles", worst0 < 1e-12, "max difference " + std::to_string(worst0));
+        report("film on glass (120, 310, 777 nm): |r|^2 + g |t|^2 = 1 for s and p, 20 angles", worstE < 1e-12, "max difference " + std::to_string(worstE));
+    }
+
+    // (2c) The film material with d = 0 on a glass substrate is plain glass: the same Mueller matrices for reflection and transmission, seen
+    //      from the outside and from the inside (the film material in both build modes: per wavelength, or integrated per color channel).
+    {
+        FilmThickness none;
+        none.base = 0;
+        ThinFilm film(1.4, none, 1.5);
+        Dielectric glass(1.5, 0.0);
+        const SampledWavelengths lambda = [] {
+#if defined(RAYT_SPECTRAL_MODE)
+            return SampledWavelengths::sampleVisible(Real(0.37));
+#else
+            return SampledWavelengths();
+#endif
+        }();
+        Real worst = 0;
+        int cases = 0;
+        for (const bool outside : { true, false })
+            for (const Real deg : { Real(15), Real(35) }) {
+                const Real th = deg * kPi / 180;
+                const Real nWo = outside ? 1.0 : 1.5, nOther = outside ? 1.5 : 1.0;
+                const Real thOther = std::asin(nWo / nOther * std::sin(th));
+                SurfaceInteraction rec;
+                rec.p = Point3(0.0);
+                rec.n = rec.gn = Vector3(0, 1, 0);
+                rec.frontFace = outside;
+                const Vector3 wo(std::sin(th), std::cos(th), 0);
+                for (const bool refl : { true, false }) {
+                    const Vector3 wi = refl ? Vector3(-std::sin(th), std::cos(th), 0) : Vector3(-std::sin(thOther), -std::cos(thOther), 0);
+                    pol::ScatterEvent a, b;
+                    if (!film.scatterMueller(rec, wo, wi, lambda, a) || !glass.scatterMueller(rec, wo, wi, lambda, b)) { worst = 1; continue; }
+                    ++cases;
+                    for (int r = 0; r < 4; ++r)
+                        for (int c = 0; c < 4; ++c)
+                            for (int i = 0; i < pol::kN; ++i) worst = std::max(worst, std::abs(a.m.e[r][c][i] - b.m.e[r][c][i]));
+                    worst = std::max(worst, glm::length(a.s - b.s));
+                    Real w = 0;
+                    for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) for (int i = 0; i < pol::kN; ++i) w = std::max(w, std::abs(a.m.e[r][c][i] - b.m.e[r][c][i]));
+                    if (w > 1e-9) std::cout << "[Polarization]     (" << (outside ? "outside" : "inside") << ", " << deg << " deg, " << (refl ? "reflection" : "transmission") << ": difference " << w << ")" << std::endl;
+                }
+            }
+#if defined(RAYT_SPECTRAL_MODE)
+        const Real tol = Real(1e-9);
+#else
+        const Real tol = Real(2e-2);   // the RGB film is tabulated over cos(theta) (64 nodes): the error is largest near the critical angle (inside, 35 deg)
+#endif
+        report("film (d = 0) on glass = glass: Mueller matrices of reflection and transmission, " + std::to_string(cases) + " cases", worst < tol && cases == 8,
+            "max difference " + std::to_string(worst));
     }
 
     // (3) The path tracer: a camera ray reflected by a smooth surface under a uniform sky. Only the reflection counts (depth 2: a refracted

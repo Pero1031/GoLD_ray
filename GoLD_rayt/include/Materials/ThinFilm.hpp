@@ -29,6 +29,7 @@
 #include <complex>
 #include <memory>
 #include <optional>
+#include <mutex>
 #include <vector>
 
 #include "Core/Types.hpp"
@@ -54,6 +55,12 @@ namespace rayt {
          * @param lambdaNm  wavelength in nm
          */
         Real reflectance(Real cosI, Real nI, Real nF, Real dNm, Complex nT, Real lambdaNm);
+
+        /// Complex amplitudes of the stack for light that arrives from the ambient medium: reflection (rs, rp) and transmission into the substrate
+        /// (ts, tp), in the (s, p) bases of Core/Polarization.hpp. The transmission amplitudes are those of the field (the energy factor of the
+        /// change of medium is not included). Same arguments as reflectance().
+        struct StackAmplitudes { Complex rs, rp, ts, tp; };
+        StackAmplitudes amplitudes(Real cosI, Real nI, Real nF, Real dNm, Complex nT, Real lambdaNm);
 
     } // namespace thinfilm
 
@@ -112,6 +119,11 @@ namespace rayt {
         bool isSpecular() const override { return true; }
         Vector3 aovAlbedo(const SurfaceInteraction&) const override { return Vector3(0.9); }
 
+        /// Polarization (docs/POLARIZATION.md): the complex amplitudes of the stack, per sampled wavelength (RGB mode: integrated over the
+        /// wavelengths of each channel, with the weights of the film table; slow, but only polarized renders ask). No transmission through a metal.
+        bool scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda, pol::ScatterEvent& out) const override;
+
         /// Reflectance and transmittance of the film at a point, per sampled wavelength (RGB mode: per channel). Used by sample() and the checks.
         void reflectTransmit(const Point3& p, Real cosI, bool entering, const SampledWavelengths& lambda, Spectrum& R, Spectrum& T) const;
 
@@ -132,6 +144,7 @@ namespace rayt {
         static constexpr int kFirstNm = 360, kLastNm = 830;
 
         Real reflectanceAt(Real cosI, bool entering, Real d, Real lambdaNm) const;
+        thinfilm::StackAmplitudes amplitudesAt(Real cosI, bool entering, Real d, Real lambdaNm) const;
 
 #if !defined(RAYT_SPECTRAL_MODE)
         // RGB mode: the film color under white light (R integrated against the D65 sensor weights, 81 wavelengths) is tabulated once over
@@ -143,6 +156,16 @@ namespace rayt {
         std::vector<Vector3> m_table[2];                     // [entering ? 0 : 1][iCos * m_tableD + iD]
         void buildRgbTable();
         Vector3 rgbReflectance(Real cosI, bool entering, Real d) const;
+
+        // Polarized renders (--stokes) need the Mueller matrix of the channel: the wavelength-weighted sums of 1/2 (|as|^2 + |ap|^2) (A, the
+        // reflectance or the transmittance), 1/2 (|as|^2 - |ap|^2) (B) and as conj(ap) (C). Tabulated like the reflectance, on first use
+        // (an unpolarized render never builds them). [transmission ? 1 : 0][side as in m_table]
+        struct PolEntry { Vector3 A = Vector3(0.0), B = Vector3(0.0), ReC = Vector3(0.0), ImC = Vector3(0.0); };
+        mutable std::once_flag m_polOnce;
+        mutable std::vector<PolEntry> m_polTable[2][2];
+        PolEntry polEntryDirect(bool transmission, bool fromAmbient, Real cosI, Real d) const;
+        void buildPolTable() const;
+        PolEntry polEntry(bool transmission, bool fromAmbient, Real cosI, Real d) const;
 #endif
     };
 
