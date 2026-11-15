@@ -212,7 +212,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -245,6 +245,18 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
             lens.blades = n;
         }
         if (c.contains("bladeRotation")) lens.bladeRotationDeg = ReadNumber(c.at("bladeRotation"), "camera.bladeRotation");
+        // aberrations: "distortion" is k1, or [k1, k2]
+        if (c.contains("distortion")) {
+            const json& k = c.at("distortion");
+            if (k.is_array()) {
+                if (k.size() != 2) Fail("camera.distortion", "must be a number k1 or an array [k1, k2]");
+                lens.distortionK1 = ReadNumber(k[0], "camera.distortion[0]");
+                lens.distortionK2 = ReadNumber(k[1], "camera.distortion[1]");
+            }
+            else lens.distortionK1 = ReadNumber(k, "camera.distortion");
+        }
+        if (c.contains("lateralCA")) lens.lateralCA = ReadNumber(c.at("lateralCA"), "camera.lateralCA");
+        if (c.contains("axialCA")) lens.axialCA = ReadNumber(c.at("axialCA"), "camera.axialCA");
     }
 
     if (doc.contains("environment")) {

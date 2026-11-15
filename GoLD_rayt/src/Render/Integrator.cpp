@@ -105,12 +105,13 @@ namespace rayt {
 
                     Point2 lensSample = sampling::Random2D();
 
-                    Ray r = m_camera->getRay(u, v, lensSample);
-
                     // Each camera path carries its own set of wavelengths (spectral mode).
                     // Li() may drop the secondary wavelengths (dispersion), so convert with
                     // the wavelengths *after* Li() has run (separate statements on purpose).
                     SampledWavelengths lambda = samplePathWavelengths();
+                    // A lens with chromatic aberration sends every wavelength its own way: the path keeps its first one only.
+                    Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0]);
+                    if (m_camera->chromatic()) lambda.terminateSecondary();
                     PathAOV aov;
                     const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr);
                     pixelColor += SpectrumToRGB(Lpath, lambda);
@@ -167,10 +168,10 @@ namespace rayt {
                 Real v = (Real(j) + sampling::Random()) / Real(height);
 
                 Point2 lensSample = sampling::Random2D();
-                Ray r = m_camera->getRay(u, v, lensSample);
-
                 // Each camera path carries its own set of wavelengths (spectral mode).
                 SampledWavelengths lambda = samplePathWavelengths();
+                Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0]);
+                if (m_camera->chromatic()) lambda.terminateSecondary();   // chromatic aberration: one ray, one wavelength
                 const Spectrum Lpath = Li(r, scene, lambda);   // may drop secondary wavelengths
                 Vector3 L = SpectrumToRGB(Lpath, lambda);
 

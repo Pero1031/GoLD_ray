@@ -23,6 +23,9 @@ struct ResolvedLens {
     Real focusDist = 1;       // along the view axis
     int blades = 0;
     Real bladeRotationDeg = 0;
+    Real k1 = 0, k2 = 0;      // radial distortion
+    Real lateralCA = 0;       // chromatic aberrations (per 100 nm)
+    Real axialCA = 0;
 };
 
 ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Real aspect) {
@@ -58,6 +61,10 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     if (r.aperture > 0) r.fStop = r.focalLengthMm * Real(0.001) / r.aperture;
     r.blades = s.blades.value_or(0);
     r.bladeRotationDeg = s.bladeRotationDeg.value_or(Real(0));
+    r.k1 = s.distortionK1.value_or(Real(0));
+    r.k2 = s.distortionK2.value_or(Real(0));
+    r.lateralCA = s.lateralCA.value_or(Real(0));
+    r.axialCA = s.axialCA.value_or(Real(0));
     return r;
 }
 
@@ -159,6 +166,23 @@ int RenderScene(CliOptions& opt) {
         lens.focusDist
     );
     if (lens.blades >= 3) camera->setApertureShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
+    camera->setAberrations(lens.k1, lens.k2, lens.lateralCA, lens.axialCA, lens.focalLengthMm * Real(0.001));
+    if (lens.k1 != 0 || lens.k2 != 0) {
+        std::cout << "[Camera] radial distortion k1 = " << lens.k1 << ", k2 = " << lens.k2 << (lens.k1 > 0 ? " (barrel)" : lens.k1 < 0 ? " (pincushion)" : "") << "\n";
+        if (camera->distortionFolds()) std::cout << "[Camera] warning: this distortion folds the picture over itself near the edge; use a smaller k1 / k2\n";
+    }
+    if (lens.lateralCA != 0 || lens.axialCA != 0) {
+#if defined(RAYT_SPECTRAL_MODE)
+        std::cout << "[Camera] chromatic aberration: lateral " << lens.lateralCA << ", axial " << lens.axialCA
+            << " per 100 nm (one wavelength per path: the color noise is higher)\n";
+        if (lens.axialCA != 0 && !(lens.aperture > 0)) std::cout << "[Camera] note: axial chromatic aberration shows as colored defocus: it needs --fstop\n";
+        if (opt.lvc && setup.bptLight) std::cout << "[Camera] note: --lvc connects to a pinhole camera of one wavelength: no chromatic aberration there\n";
+#else
+        std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
+#endif
+    }
+    if ((lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0) && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
+        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
     if (lens.aperture > 0 && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
         std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to a pinhole camera: its caustics stay sharp while the rest is defocused\n";
 

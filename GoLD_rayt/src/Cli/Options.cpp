@@ -34,6 +34,14 @@ bool ApplyLensArg(const std::string& a, const std::function<std::string(const ch
     }
     else if (a == "--blades") lens.blades = std::stoi(value("--blades"));
     else if (a == "--blade-rotation") lens.bladeRotationDeg = std::stod(value("--blade-rotation"));
+    else if (a == "--distortion") {   // K1 or K1,K2
+        const std::string text = value("--distortion");
+        const size_t comma = text.find(',');
+        lens.distortionK1 = std::stod(text.substr(0, comma));
+        if (comma != std::string::npos) lens.distortionK2 = std::stod(text.substr(comma + 1));
+    }
+    else if (a == "--lateral-ca") lens.lateralCA = std::stod(value("--lateral-ca"));
+    else if (a == "--axial-ca") lens.axialCA = std::stod(value("--axial-ca"));
     else return false;
     return true;
 }

@@ -27,7 +27,14 @@ namespace rayt {
 
         // Time sample in [0,1)
         Real time{ 0.0 };
+
+        // Wavelength of the path (nm). Only the chromatic aberrations (Camera::setAberrations) depend on it;
+        // the reference wavelength is the one the lens is focused and scaled for.
+        Real lambdaNm{ 550.0 };
     };
+
+    /// The wavelength at which the lens has no chromatic aberration (nm).
+    constexpr Real kReferenceWavelengthNm = Real(550);
 
     /**
      * @brief A physically-based camera.
@@ -97,6 +104,11 @@ namespace rayt {
             m_horizontal = focusDist * viewportWidth * m_u;
             m_vertical = focusDist * viewportHeight * m_v;
 
+            // The film rectangle at unit depth, for the radial distortion (its radius is measured in half diagonals)
+            m_viewportW = viewportWidth;
+            m_viewportH = viewportHeight;
+            m_invHalfDiag2 = Real(4) / (viewportWidth * viewportWidth + viewportHeight * viewportHeight);
+
             // Compute the lower-left corner of the projected image plane in world space
             m_lowerLeftCorner = m_origin
                 - m_horizontal * Real(0.5)
@@ -116,8 +128,25 @@ namespace rayt {
             const Real s = math::saturate(cs.pFilm.x);
             const Real t = math::saturate(cs.pFilm.y);
 
+            // --- where on the film this ray comes from: radial distortion and lateral chromatic aberration ---
+            // The pixel at (s, t) looks along the direction of the ideal (pinhole) film point (s', t') = centre + (s, t - centre) * g,
+            // g = (1 + k1 r^2 + k2 r^4) * (1 + lateral * (lambda - 550 nm) / 100 nm), r = distance from the centre in half diagonals.
+            Real sd = s, td = t;
+            if (m_distorted || m_lateralCA != Real(0)) {
+                const Real dx = s - Real(0.5), dy = t - Real(0.5);
+                const Real xw = dx * m_viewportW, yh = dy * m_viewportH;
+                const Real r2 = (xw * xw + yh * yh) * m_invHalfDiag2;
+                Real g = Real(1) + m_k1 * r2 + m_k2 * r2 * r2;
+                g *= Real(1) + m_lateralCA * (cs.lambdaNm - kReferenceWavelengthNm) * Real(0.01);
+                sd = Real(0.5) + dx * g;
+                td = Real(0.5) + dy * g;
+            }
+
             // --- point on focal plane ---
-            const Point3 target = m_lowerLeftCorner + s * m_horizontal + t * m_vertical;
+            Point3 target = m_lowerLeftCorner + sd * m_horizontal + td * m_vertical;
+            // Axial chromatic aberration: the plane of focus of this wavelength lies nearer or farther (the chief ray is not bent)
+            if (m_axialCA != Real(0) && m_lensRadius > Real(0))
+                target = m_origin + (target - m_origin) * (focusDistanceFor(cs.lambdaNm) / m_focusDist);
 
             // --- lens sample (DoF) ---
             Vector3 offset(0);
@@ -144,12 +173,13 @@ namespace rayt {
          * @param uLens  2D random sample for lens/aperture sampling (for DoF).
          * @return Ray   A world-space ray originating from the lens toward the focal plane.
          */
-        Ray getRay(Real s, Real t, const Point2& uLens, Real timeSample = 0.0) const {
+        Ray getRay(Real s, Real t, const Point2& uLens, Real timeSample = 0.0, Real lambdaNm = kReferenceWavelengthNm) const {
 
             CameraSample cs;
             cs.pFilm = Point2(s, t);
             cs.pLens = uLens;
             cs.time = timeSample;
+            cs.lambdaNm = lambdaNm;
             return generateRay(cs);
 
             /*Vector3 offset(0.0);
@@ -213,6 +243,46 @@ namespace rayt {
             }
         }
 
+        /**
+         * @brief The lens aberrations (all 0: an ideal lens).
+         *
+         * @param k1, k2      radial distortion, r' = r (1 + k1 r^2 + k2 r^4) with r in half diagonals of the film: the pixel at radius r sees
+         *                    what the ideal picture shows at r'. k1 > 0 is barrel distortion (straight lines bow outwards), k1 < 0 pincushion.
+         * @param lateralCA   lateral chromatic aberration: the picture of wavelength lambda is scaled by 1 + lateralCA (lambda - 550 nm) / 100 nm
+         *                    about the centre (0.004: red and blue differ by 0.8 % in size, 8 pixels at the corner of a 2000 px wide picture).
+         *                    > 0: the red picture is the smaller one.
+         * @param axialCA     axial chromatic aberration: the focal length of a thin lens varies as 1 + axialCA (lambda - 550 nm) / 100 nm
+         *                    (0.01 is an uncorrected singlet of crown glass, 0.0005 an achromat), so every wavelength has its own plane of focus.
+         *                    Needs the focal length (metres) and an aperture; the film stays where the lens is focused for 550 nm.
+         *
+         * The chromatic ones need the wavelength of the path (CameraSample::lambdaNm) and so the spectral build.
+         */
+        void setAberrations(Real k1, Real k2, Real lateralCA, Real axialCA, Real focalLength) {
+            m_k1 = k1;
+            m_k2 = k2;
+            m_distorted = (k1 != Real(0) || k2 != Real(0));
+            m_lateralCA = lateralCA;
+            m_axialCA = axialCA;
+            m_focalLength = focalLength;
+            if (m_axialCA != Real(0)) {
+                // the film distance that focuses the reference wavelength at m_focusDist (thin lens equation)
+                if (focalLength > Real(0) && m_focusDist > focalLength) m_filmDist = focalLength * m_focusDist / (m_focusDist - focalLength);
+                else m_axialCA = Real(0);   // focused at or inside the focal length: no meaningful film distance
+            }
+        }
+
+        /// True when the rays depend on the wavelength (lateral or axial chromatic aberration is on).
+        bool chromatic() const { return m_lateralCA != Real(0) || (m_axialCA != Real(0) && m_lensRadius > Real(0)); }
+
+        /// True when the distortion maps the film onto itself with a fold (r' stops growing with r somewhere on the film).
+        bool distortionFolds() const {
+            for (int i = 0; i <= 64; ++i) {
+                const Real r2 = Real(i) / Real(64) * Real(i) / Real(64);
+                if (Real(1) + Real(3) * m_k1 * r2 + Real(5) * m_k2 * r2 * r2 <= Real(0)) return true;
+            }
+            return false;
+        }
+
         /// Area of the film rectangle on the focal plane (world units), and the focus distance: the geometry of the pixel footprint.
         Real focalPlaneArea() const { return glm::length(m_horizontal) * glm::length(m_vertical); }
         Real focusDistance() const { return m_focusDist; }
@@ -223,6 +293,14 @@ namespace rayt {
         const Medium* medium() const { return m_medium; }
 
     private:
+        /// The distance of the plane of focus for light of this wavelength: the film is fixed, the focal length changes with the wavelength.
+        Real focusDistanceFor(Real lambdaNm) const {
+            const Real f = m_focalLength * (Real(1) + m_axialCA * (lambdaNm - kReferenceWavelengthNm) * Real(0.01));
+            if (!(f > Real(0))) return m_focusDist;
+            const Real gap = m_filmDist - f;
+            return (gap > f * Real(1e-6)) ? f * m_filmDist / gap : Real(1e6);   // film at or inside the focal length: focused at infinity
+        }
+
         /// A uniform point of the polygonal aperture: pick one of the n triangles (centre, corner k, corner k+1), then a point in it.
         Vector3 sampleBlades(const Point2& u) const {
             const Real scaled = u.x * Real(m_blades);
@@ -251,6 +329,16 @@ namespace rayt {
         int m_blades = 0;           // 0: a round aperture
         Real m_bladeRotation = 0.0;
         Real m_bladeRadius = 0.0;   // circumradius of the polygon
+
+        // Aberrations (setAberrations)
+        Real m_viewportW = 1.0, m_viewportH = 1.0;   // the film at unit depth
+        Real m_invHalfDiag2 = 1.0;                   // 1 / (half diagonal)^2 of it
+        Real m_k1 = 0.0, m_k2 = 0.0;
+        bool m_distorted = false;
+        Real m_lateralCA = 0.0;
+        Real m_axialCA = 0.0;
+        Real m_focalLength = 0.0;                    // metres
+        Real m_filmDist = 0.0;                       // lens to film, metres
 
         // Motion blur (shutter interval)
         Real m_shutterOpen = 0.0;
