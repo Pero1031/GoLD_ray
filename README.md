@@ -32,9 +32,10 @@ materials, captured objects (scans, 3D Gaussian Splatting), and a photographic l
 
 - [How much does RGB rendering get wrong for metals?](#how-much-does-rgb-rendering-get-wrong-for-metals): the main result
 - [Gallery](#gallery): renders of the other materials
+- [Captured objects and 3D Gaussian Splatting](#captured-objects-and-3d-gaussian-splatting): a capture with rendered objects in it, and a reconstruction lit by new lights
 - [Metals and spectral rendering](#metals-and-spectral-rendering): what the spectral engine does
 - [Quick start](#quick-start): build, run, options
-- [The renderer in general](#the-renderer-in-general) / [How it works](#how-it-works) / [Verification](#verification) / [What could come next](#what-could-come-next)
+- [The renderer in general](#the-renderer-in-general) / [How it works](#how-it-works) / [Verification](#verification)
 - [Third-party code and data](#third-party-code-and-data) / [References](#references)
 
 ---
@@ -176,6 +177,19 @@ which is checked against path tracing and the photon map (`--scene lvc`, [detail
 
 ---
 
+## Captured objects and 3D Gaussian Splatting
+
+The renderer reads what photograph-based methods produce, in two ways ([details](docs/CAPTURE.md), Japanese). A mesh from a scan, or from a method that extracts a surface (PLY, OBJ), is an ordinary object: it can be shown as photographed or given any material of the renderer, under the same lights. A 3D Gaussian Splatting point cloud (the `point_cloud.ply` of the training) is ray-traced directly, as particles that emit what the photographs saw and also block light, so a mirror or a glass ball placed in it reflects and refracts the captured room.
+
+**Lighting a reconstruction with new lights.** A statue was rendered here twice, as an opaque glossy material and as thin wax, under one light, and a relightable 3D Gaussian Splatting model (Relightable 3D Gaussians) was trained on each set. Then both were lit by three other lights and compared with a render of the statue under the same new light. The wax is off already under the training light: the reconstruction brings back shading with 2.4 to 3.7 times the contrast of the smooth, pale truth under all four lights (the opaque statue: 1.0 to 1.6 times). This agrees with what Dihlmann et al. report for subsurface scattering (*Subsurface Scattering for 3D Gaussian Splatting*, NeurIPS 2024), here with the renderer as the source of the truth images. 256 px renders, 120 training views and 8 test views per light, one training each; the second training stage was shortened to a fifth of its default.
+
+<img src="docs/img/gs_relit_wax.png" alt="An opaque and a wax statue under four lights: the ground truth next to the relit 3D Gaussian Splatting render" width="820">
+
+<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/); the scan is not part of this repository.</sub>
+
+---
+
 ## Metals and spectral rendering
 
 The color of a metal comes from how its complex refractive index `n(λ) + i k(λ)` changes with wavelength. Gold is yellow
@@ -228,11 +242,6 @@ GoLD_rayt.exe --scene spd --light tungsten --wb --out spd.png             :: met
 GoLD_rayt.exe --scene glass --abbe 6 --out dispersion.png                 :: dispersive glass (spectral mode)
 GoLD_rayt.exe --scene metals                                              :: metal data tests, no image
 ```
-
-### Not done (metals)
-
-Lorentz-Drude / multi-angle fitting, per-wavelength edge tint, a better
-RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering compensation for rough dielectrics.
 
 ---
 
@@ -379,17 +388,6 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 
 Bugs found this way (and fixed): refraction that never left a glass sphere, an unnormalized camera ray that made rough gold
 ~22 % too dark, area lights that were always shadowed at grazing angles, wrong MIS weights for area lights.
-
----
-
-## What could come next
-
-- **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
-  alpha cut-outs).
-- **Metals and films**: Lorentz-Drude, multilayer coatings and rough films, spectral upsampling of saturated colors.
-- **Light transport**: caustics seen through glass (vertex merging), rough dielectrics and colored media in the bidirectional path tracer.
-- **Hair and skin**: a comparison with measured data, curly and elliptical fibers, a second specular lobe and vellus hair for skin.
-- **Infrastructure**: a light tree, `ctest` integration.
 
 ---
 
