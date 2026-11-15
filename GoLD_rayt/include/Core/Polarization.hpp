@@ -143,7 +143,7 @@ namespace rayt::pol {
      * `m` is the polarization-dependent part of the event (M00 = 1), `s` the unit vector perpendicular to the plane of incidence
      * (the s axis of both bases: the one of the outgoing ray, along wo, and the one of the incoming ray, along -wi).
      */
-    struct SpecularEvent {
+    struct ScatterEvent {
         Mueller m;
         Vector3 s = Vector3(1, 0, 0);
     };

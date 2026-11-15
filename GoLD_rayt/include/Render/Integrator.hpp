@@ -150,6 +150,7 @@ namespace rayt {
             pol::Mueller T = pol::Mueller::identity();   ///< (camera basis) <- (basis of the light arriving at the last specular vertex)
             Vector3 xPrev = Vector3(1, 0, 0); ///< x axis of the basis of the ray that arrives at the last specular vertex (the camera's at first)
             Spectrum S[4] = { Spectrum(0.0), Spectrum(0.0), Spectrum(0.0), Spectrum(0.0) };
+            Spectrum neeS[4] = { Spectrum(0.0), Spectrum(0.0), Spectrum(0.0), Spectrum(0.0) };   ///< the Stokes vector of the light samples of one vertex (before beta)
         };
 
         /// Everything that one path carries from vertex to vertex.
@@ -163,6 +164,13 @@ namespace rayt {
             void add(const Spectrum& v) {
                 L += v;
                 if (pol.on) for (int k = 0; k < 4; ++k) pol.S[k] += v * pol.T.e[k][0];
+            }
+
+            /// Adds the direct light of a vertex (Ld, not yet weighted by beta); its Stokes vector was collected in pol.neeS by estimateDirect.
+            void addNee(const Spectrum& Ld) {
+                L += beta * Ld;
+                if (!pol.on) return;
+                for (int k = 0; k < 4; ++k) { pol.S[k] += beta * pol.neeS[k]; pol.neeS[k] = Spectrum(0.0); }
             }
 
             // The previous scattering event, for the MIS weight of an emitter that the next ray finds.
@@ -240,11 +248,11 @@ namespace rayt {
          *     pdf_light_strategy = p * light.pdfLi(wi)
          * The BSDF-sampling side (Li) uses sampler->pmf(ctx, light) * pdfLi for the same context.
          */
-        Spectrum sampleAllLights(const Scene& scene, const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda) const;
+        Spectrum sampleAllLights(const Scene& scene, const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda, PathState* st = nullptr) const;
 
         /// One NEE sample of `light`, which was selected with probability `pSelect`, with MIS.
         Spectrum estimateDirect(const Scene& scene, const SurfaceInteraction& rec, const Vector3& wo, const SampledWavelengths& lambda,
-            const LightSampleContext& ctx, const Light* light, Real pSelect) const;
+            const LightSampleContext& ctx, const Light* light, Real pSelect, PathState* st = nullptr) const;
 
         /// Check visibility between surface point and light.
         static bool visible(const Scene& scene, const SurfaceInteraction& ref, const Vector3& wi, Real tMax, const Point3& pLight);

@@ -172,8 +172,8 @@ namespace rayt {
             const SampledWavelengths& lambda) const override;
 
         /// Polarization of the smooth reflection / refraction: the Fresnel amplitudes of the interface (a rough surface depolarizes).
-        bool specularEvent(const SurfaceInteraction& rec, const Vector3& wo, const BSDFSample& s,
-            const SampledWavelengths& lambda, pol::SpecularEvent& out) const override;
+        bool scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda, pol::ScatterEvent& out) const override;
 
         bool isSpecular() const override { return isSmooth() && !m_hasFar; }
         /// A smooth surface with the same index on both sides (1 against air, or 1.333 against water) bends and reflects nothing.

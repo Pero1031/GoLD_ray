@@ -325,8 +325,8 @@ namespace rayt {
     {
         // Light that leaves a vertex that is not a smooth interface is unpolarized: what the camera sees of it is the first column of the
         // chain so far (the chain is frozen; later light is added through it by PathState::add).
-        pol::SpecularEvent ev;
-        if (!sample.isSpecular() || !rec.matPtr->specularEvent(rec, wo, sample, lambda, ev)) {
+        pol::ScatterEvent ev;
+        if (!rec.matPtr->scatterMueller(rec, wo, sample.wi, lambda, ev)) {
             st.pol.done = true;
             return;
         }
@@ -519,7 +519,7 @@ namespace rayt {
         for (int stage = 0; ; ++stage) {
             // ========== Next Event Estimation (NEE) ==========
             if (!rec.matPtr->isSpecular()) {
-                st.add(st.beta * sampleAllLights(scene, rec, -r.d, lambda));
+                st.addNee(sampleAllLights(scene, rec, -r.d, lambda, &st));
                 // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
                 if (m_caustics && photonsAllowedIn(r.medium, mediaTraced()) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.add(st.beta * m_caustics->radiance(rec, -r.d, lambda));
                 // The same caustic of point lights, solved exactly through a flat-faced glass body (manifold NEE)
@@ -619,7 +619,7 @@ namespace rayt {
     // ------------------------------------------------------------------------------------------------
 
     Spectrum PathIntegrator::sampleAllLights(const Scene& scene, const SurfaceInteraction& rec, const Vector3& wo,
-        const SampledWavelengths& lambda) const
+        const SampledWavelengths& lambda, PathState* st) const
     {
         Spectrum Ld(0.0);
         const LightSampler* sampler = scene.lightSampler();
@@ -633,18 +633,18 @@ namespace rayt {
             for (size_t i = 0; i < sampler->numLights(); ++i) {
                 const Light* light = sampler->lightAt(i);
                 const Real p = sampler->pmf(ctx, light);
-                if (p > Real(0)) Ld += estimateDirect(scene, rec, wo, lambda, ctx, light, p);
+                if (p > Real(0)) Ld += estimateDirect(scene, rec, wo, lambda, ctx, light, p, st);
             }
             return Ld;
         }
 
         const auto sampled = sampler->sample(ctx, sampling::Random());
         if (!sampled || sampled->p <= Real(0)) return Ld;
-        return estimateDirect(scene, rec, wo, lambda, ctx, sampled->light, sampled->p);
+        return estimateDirect(scene, rec, wo, lambda, ctx, sampled->light, sampled->p, st);
     }
 
     Spectrum PathIntegrator::estimateDirect(const Scene& scene, const SurfaceInteraction& rec, const Vector3& wo,
-        const SampledWavelengths& lambda, const LightSampleContext& ctx, const Light* light, Real pSelect) const
+        const SampledWavelengths& lambda, const LightSampleContext& ctx, const Light* light, Real pSelect, PathState* st) const
     {
         Spectrum Ld(0.0);
 
@@ -701,6 +701,17 @@ namespace rayt {
         // ========== Final Contribution ==========
         // Li already includes the geometry term from light sampling.
         Ld = f * Li * transmittance * (cosTheta * w / pdfLight);
+
+        // The light is unpolarized: the camera sees the first column of the chain that includes this scattering (a material that does not
+        // know its polarization depolarizes: the chain so far).
+        if (st && st->pol.on) {
+            pol::ScatterEvent ev;
+            if (!st->pol.done && rec.matPtr->scatterMueller(rec, wo, wi, lambda, ev)) {
+                const pol::Mueller T = st->pol.T * pol::basisChange(ev.s, st->pol.xPrev, wo) * ev.m;
+                for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * T.e[k][0];
+            }
+            else for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * st->pol.T.e[k][0];
+        }
 
         return Ld;
     }

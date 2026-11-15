@@ -9,7 +9,10 @@
 #include "Core/Sampling.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Materials/Dielectric.hpp"
+#include "Materials/RoughConductor.hpp"
 #include "Render/Integrator.hpp"
+
+#include <functional>
 
 namespace rayt::cli {
 
@@ -164,64 +167,85 @@ int RunPolarizationTests() {
             worst < 1e-9, "max difference " + std::to_string(worst) + " of the input intensity");
     }
 
-    // (3) The path tracer: a camera ray reflected by smooth glass under a uniform sky. Only the reflection counts (depth 2: the refracted
-    //     ray is not followed), so the Stokes vector is F (1, B, 0, 0) in the basis (s, p) of the reflection: horizontal polarization
-    //     for a horizontal surface seen from the side, for the basis x = along s, and the same turned for another reference direction.
-    {
+    // (3) The path tracer: a camera ray reflected by a smooth surface under a uniform sky. Only the reflection counts (depth 2: a refracted
+    //     ray is not followed), so the Stokes vector is (|rs|^2 + |rp|^2, |rs|^2 - |rp|^2, 0, 0) / 2 in the basis (s, p) of the reflection:
+    //     horizontal polarization for a horizontal surface seen from the side. The image reference direction is turned from s by 0, 30, 90 degrees.
+    //     Glass is compared with the closed forms of the Fresnel equations, a metal (a narrow GGX lobe, light sampled by both strategies) with
+    //     the amplitudes that part (1) and (2) have checked.
+    auto reflectionCase = [&](const std::string& label, const std::shared_ptr<Material>& material, Real deg, int maxDepth, int N,
+        const std::function<void(Real, Real&, Real&)>& reflectances, Real relTol) {
         auto world = std::make_shared<Aggregate>();
-        const Real n = 1.5;
-        world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, std::make_shared<Dielectric>(n, 0.0)));
+        world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, material));
         auto scene = std::make_shared<Scene>(world);
         auto sky = std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0))));
         scene->setEnvLight(std::make_shared<EnvLight>(sky, 1.0));
         scene->finalize("spatial");
 
-        for (const Real deg : { Real(56.3099), Real(40) }) {
-            const Real ti = deg * kPi / 180;
-            const Real tt = std::asin(std::sin(ti) / n);
-            const Real rs = std::pow(std::sin(ti - tt) / std::sin(ti + tt), Real(2));
-            const Real rp = std::pow(std::tan(ti - tt) / std::tan(ti + tt), Real(2));
-            const Vector3 d(std::sin(ti), -std::cos(ti), 0);   // plane of incidence: x-y, so s is the z axis
-            const Ray ray(Point3(0, 0, 0) - d * Real(10), d);
-            const Vector3 k = -d;
-            for (const Real turnDeg : { Real(0), Real(30), Real(90) }) {
-                const Real turn = turnDeg * kPi / 180;
-                const Vector3 sAxis(0, 0, 1), u = glm::cross(k, sAxis);
-                const Vector3 xRef = std::cos(turn) * sAxis + std::sin(turn) * u;   // the reference direction of the image, turned by `turn` from s
-                const Vector3 yRef = glm::cross(k, xRef);
-                const Real alpha = std::atan2(glm::dot(sAxis, yRef), glm::dot(sAxis, xRef));   // angle of s in the image basis
-                const Real e0 = Real(0.5) * (rs + rp), e1 = Real(0.5) * (rs - rp) * std::cos(2 * alpha), e2 = Real(0.5) * (rs - rp) * std::sin(2 * alpha);
+        const Real ti = deg * kPi / 180;
+        Real rs2 = 0, rp2 = 0;
+        reflectances(std::cos(ti), rs2, rp2);
+        const Vector3 d(std::sin(ti), -std::cos(ti), 0);   // plane of incidence: x-y, so s is the z axis
+        const Ray ray(Point3(0, 0, 0) - d * Real(10), d);
+        const Vector3 k = -d;
+        for (const Real turnDeg : { Real(0), Real(30), Real(90) }) {
+            const Real turn = turnDeg * kPi / 180;
+            const Vector3 sAxis(0, 0, 1), u = glm::cross(k, sAxis);
+            const Vector3 xRef = std::cos(turn) * sAxis + std::sin(turn) * u;   // the reference direction of the image, turned by `turn` from s
+            const Vector3 yRef = glm::cross(k, xRef);
+            const Real alpha = std::atan2(glm::dot(sAxis, yRef), glm::dot(sAxis, xRef));   // angle of s in the image basis
+            const Real e0 = Real(0.5) * (rs2 + rp2), e1 = Real(0.5) * (rs2 - rp2) * std::cos(2 * alpha), e2 = Real(0.5) * (rs2 - rp2) * std::sin(2 * alpha);
 
-                PathIntegrator integrator(nullptr, 2, 1);
-                const int N = 80000;
-                Real sum[4] = { 0, 0, 0, 0 }, sum2[4] = { 0, 0, 0, 0 };
-                for (int i = 0; i < N; ++i) {
+            PathIntegrator integrator(nullptr, maxDepth, 1);
+            Real sum[4] = { 0, 0, 0, 0 }, sum2[4] = { 0, 0, 0, 0 };
+            for (int i = 0; i < N; ++i) {
 #if defined(RAYT_SPECTRAL_MODE)
-                    SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
+                SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
 #else
-                    SampledWavelengths lambda;
+                SampledWavelengths lambda;
 #endif
-                    PathStokes st;
-                    st.xRef = xRef;
-                    integrator.Li(ray, *scene, lambda, nullptr, &st);
-                    for (int c = 0; c < 4; ++c) {
-                        const Real v = mean3(SpectrumToRGB(st.S[c], lambda));
-                        sum[c] += v;
-                        sum2[c] += v * v;
-                    }
-                }
-                const Real expected[4] = { e0, e1, e2, 0 };
-                bool ok = true;
-                std::string detail;
+                PathStokes st;
+                st.xRef = xRef;
+                integrator.Li(ray, *scene, lambda, nullptr, &st);
                 for (int c = 0; c < 4; ++c) {
-                    const Real m = sum[c] / N, se = std::sqrt(std::max(Real(0), sum2[c] / N - m * m) / N);
-                    ok = ok && std::abs(m - expected[c]) <= 4 * se + Real(1e-3) * e0;
-                    detail += (c ? ", " : "") + std::to_string(m) + " (" + std::to_string(expected[c]) + ")";
+                    const Real v = mean3(SpectrumToRGB(st.S[c], lambda));
+                    sum[c] += v;
+                    sum2[c] += v * v;
                 }
-                report("glass at " + std::to_string(int(std::lround(deg))) + " deg, image axis turned " + std::to_string(int(turnDeg)) + " deg from s: S0..S3 (expected)", ok, detail);
             }
+            const Real expected[4] = { e0, e1, e2, 0 };
+            bool ok = true;
+            std::string detail;
+            for (int c = 0; c < 4; ++c) {
+                const Real m = sum[c] / N, se = std::sqrt(std::max(Real(0), sum2[c] / N - m * m) / N);
+                ok = ok && std::abs(m - expected[c]) <= 4 * se + relTol * e0;
+                detail += (c ? ", " : "") + std::to_string(m) + " (" + std::to_string(expected[c]) + ")";
+            }
+            report(label + " at " + std::to_string(int(std::lround(deg))) + " deg, image axis turned " + std::to_string(int(turnDeg)) + " deg from s: S0..S3 (expected)", ok, detail);
         }
+    };
+
+    {
+        const Real n = 1.5;
+        auto glass = std::make_shared<Dielectric>(n, 0.0);
+        for (const Real deg : { Real(56.3099), Real(40) })
+            reflectionCase("glass", glass, deg, 2, 80000, [&](Real ci, Real& rs, Real& rp) {
+                const Real ti = std::acos(ci), tt = std::asin(std::sin(ti) / n);
+                rs = std::pow(std::sin(ti - tt) / std::sin(ti + tt), Real(2));
+                rp = std::pow(std::tan(ti - tt) / std::tan(ti + tt), Real(2));
+            }, Real(1e-3));
     }
+    {
+        auto table = std::make_shared<color::ComplexIorTable>();
+        table->assign({ { 300.0, 0.27, 2.95 }, { 900.0, 0.27, 2.95 } });   // a gray metal (the same index at every wavelength)
+        auto metal = std::make_shared<RoughConductor>(table, Real(0.02));
+        for (const Real deg : { Real(70), Real(45) })
+            reflectionCase("metal (narrow GGX lobe)", metal, deg, 2, 60000, [&](Real ci, Real& rs, Real& rp) {
+                const pol::Amplitudes a = pol::fresnelAmplitudes(ci, Complex(0.27, 2.95));
+                rs = std::norm(a.rs);
+                rp = std::norm(a.rp);
+            }, Real(0.03));   // the lobe has a width: the direction (and the Fresnel factor) is not exactly the mirror's
+    }
+
 
     std::cout << "[Polarization] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;

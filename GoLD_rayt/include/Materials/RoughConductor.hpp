@@ -285,6 +285,11 @@ namespace rayt {
             const Vector3& wo, const Vector3& wi,
             const SampledWavelengths& lambda) const override;
 
+        /// Polarization (docs/POLARIZATION.md): the complex Fresnel amplitudes of the metal at the microfacet normal (the half vector), whose plane
+        /// of incidence holds wo and wi. The multiple-scattering lobe is unpolarized: it mixes in a depolarizer in proportion to its share of f.
+        bool scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+            const SampledWavelengths& lambda, pol::ScatterEvent& out) const override;
+
         /// @brief Returns false as this is a glossy material, not a perfect specular mirror.
         bool isSpecular() const override { return false; } // It is Glossy, not delta-Specular
 

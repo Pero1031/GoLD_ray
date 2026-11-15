@@ -133,6 +133,40 @@ namespace rayt {
         return bsdfSample;
     }
 
+    bool RoughConductor::scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+        const SampledWavelengths& lambda, pol::ScatterEvent& out) const {
+
+        if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return false;
+        Vector3 wh = wi + wo;
+        const Real whLen2 = glm::dot(wh, wh);
+        if (whLen2 <= Real(0)) return false;
+        wh *= math::safe_recip(math::safe_sqrt(whLen2));
+
+        const Real cosD = std::abs(glm::dot(wi, wh));
+        out.s = pol::planeNormalS(wo, wh);
+        for (int i = 0; i < pol::kN; ++i) {
+#if defined(RAYT_SPECTRAL_MODE)
+            const pol::Complex n(lutAt(etaLut, lambda[i]), lutAt(kLut, lambda[i]));
+#else
+            const pol::Complex n(eta[i], k[i]);
+#endif
+            const pol::Amplitudes a = pol::fresnelAmplitudes(cosD, n);
+            pol::setInterface(out.m, i, a.rs, a.rp);
+        }
+
+        if (m_msActive) {
+            const Spectrum fms = msBrdf(std::max(Real(0), glm::dot(rec.n, wo)), std::max(Real(0), glm::dot(rec.n, wi)), lambda);
+            const Spectrum f = eval(rec, wo, wi, lambda, TransportMode::Radiance);
+            for (int i = 0; i < pol::kN; ++i) {
+                if (!(f[i] > Real(0))) continue;
+                const Real w = std::clamp((f[i] - fms[i]) / f[i], Real(0), Real(1));   // the polarizing share of the lobe
+                for (int r = 0; r < 4; ++r)
+                    for (int c = 0; c < 4; ++c) out.m.e[r][c][i] = w * out.m.e[r][c][i] + (r == 0 && c == 0 ? Real(1) - w : Real(0));
+            }
+        }
+        return true;
+    }
+
     Real RoughConductor::pdf(const SurfaceInteraction& rec,
         const Vector3& wo, const Vector3& wi,
         const SampledWavelengths& lambda) const {

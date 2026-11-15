@@ -233,14 +233,15 @@ namespace rayt {
         virtual void perturbShading(SurfaceInteraction& /*rec*/, const Vector3& /*wo*/) const {}
 
         /**
-         * @brief Polarization of a specular event this material has just sampled (docs/POLARIZATION.md).
+         * @brief Polarization of the scattering from `wi` (toward the source) to `wo` (toward the camera) (docs/POLARIZATION.md).
          *
-         * Called when a polarized render follows the path (--stokes). `s` is the sample sample() returned for `wo`. A material that knows what
-         * the event does to the polarization fills `out` (the Mueller matrix without its first element, and the axis perpendicular to the plane
-         * of incidence) and returns true. The default returns false: the event is then treated as depolarizing, like a diffuse bounce.
+         * Called when a polarized render follows the path (--stokes), for the direction that sample() chose and for the directions of light
+         * samples. A material that knows what the scattering does to the polarization fills `out` (the Mueller matrix divided by its first
+         * element, the one that eval() already holds, and the axis perpendicular to the plane of incidence) and returns true. The default
+         * returns false: the scattering is then treated as depolarizing, like a diffuse bounce.
          */
-        virtual bool specularEvent(const SurfaceInteraction& /*rec*/, const Vector3& /*wo*/, const BSDFSample& /*s*/,
-            const SampledWavelengths& /*lambda*/, pol::SpecularEvent& /*out*/) const { return false; }
+        virtual bool scatterMueller(const SurfaceInteraction& /*rec*/, const Vector3& /*wo*/, const Vector3& /*wi*/,
+            const SampledWavelengths& /*lambda*/, pol::ScatterEvent& /*out*/) const { return false; }
 
         /**
          * @brief Returns the emitted radiance for area lights.

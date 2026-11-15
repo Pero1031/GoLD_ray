@@ -229,10 +229,11 @@ namespace rayt {
         return bsdfSample;
     }
 
-    bool Dielectric::specularEvent(const SurfaceInteraction& rec, const Vector3& wo, const BSDFSample& s,
-        const SampledWavelengths& lambda, pol::SpecularEvent& out) const {
+    bool Dielectric::scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
+        const SampledWavelengths& lambda, pol::ScatterEvent& out) const {
 
-        if (!smoothAt(rec) || !s.isSpecular()) return false;
+        if (!smoothAt(rec)) return false;
+        const bool reflection = glm::dot(rec.n, wo) * glm::dot(rec.n, wi) > 0;
 
         // The Fresnel amplitudes are those of the light that arrives at the interface, from wi: the medium it comes from is medium 1.
         // wo is on the outside when the ray enters (frontFace). Reflection: the light comes from the side of wo. Refraction: from the other.
@@ -240,16 +241,15 @@ namespace rayt {
         const bool entering = rec.frontFace;
         const Real nRelWo = entering ? ior : Real(1) / ior;   // n2 / n1 of light that arrives from the side of wo
         out.s = pol::planeNormalS(wo, rec.n);
-        if (s.isReflection()) {
+        if (reflection) {
             const pol::Amplitudes a = pol::fresnelAmplitudes(std::abs(glm::dot(rec.n, wo)), pol::Complex(nRelWo));
             out.m = pol::interfaceMueller(a.rs, a.rp);
         }
-        else if (s.isTransmission()) {
+        else {
             // Light from the other medium: relative index n(wo side) / n(wi side) is the inverse; its angle of incidence is that of wi.
-            const pol::Amplitudes a = pol::fresnelAmplitudes(std::abs(glm::dot(rec.n, s.wi)), pol::Complex(Real(1) / nRelWo));
+            const pol::Amplitudes a = pol::fresnelAmplitudes(std::abs(glm::dot(rec.n, wi)), pol::Complex(Real(1) / nRelWo));
             out.m = pol::interfaceMueller(a.ts, a.tp);
         }
-        else return false;
         return true;
     }
 
