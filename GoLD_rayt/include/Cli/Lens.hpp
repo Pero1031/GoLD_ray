@@ -4,6 +4,8 @@
 // ("--focal-length", "--fstop", ...) overrides it field by field. RenderPipeline.cpp turns the result into a Camera.
 
 #include <optional>
+#include <stdexcept>
+#include <string>
 
 #include "Core/Types.hpp"
 #include "Core/Precision.hpp"
@@ -28,8 +30,18 @@ struct LensSpec {
     std::optional<Real> vignetteDistMm;    // how far in front of the aperture stop that opening is (default: half the focal length)
     std::optional<Real> naturalVignetting; // the cos^4 law: 0 = off, 1 = full
 
+    // Motion blur (Camera::setShutter, setMotion); none = off
+    std::optional<Real> shutter;           // seconds the shutter stays open (1/60 s = 0.0167); objects with a velocity and a moving camera blur over it
+    std::optional<Vector3> velocity;       // the camera moves with this velocity (m/s)
+    std::optional<Real> panYawRate;        // the view turns to the right by this many degrees per second
+    std::optional<Real> panPitchRate;      // ... and up
+
     // The fields that `o` states replace the ones here.
     void overrideWith(const LensSpec& o) {
+        if (o.shutter) shutter = o.shutter;
+        if (o.velocity) velocity = o.velocity;
+        if (o.panYawRate) panYawRate = o.panYawRate;
+        if (o.panPitchRate) panPitchRate = o.panPitchRate;
         if (o.vignetteFStop) vignetteFStop = o.vignetteFStop;
         if (o.vignetteDistMm) vignetteDistMm = o.vignetteDistMm;
         if (o.naturalVignetting) naturalVignetting = o.naturalVignetting;
@@ -45,5 +57,14 @@ struct LensSpec {
         if (o.bladeRotationDeg) bladeRotationDeg = o.bladeRotationDeg;
     }
 };
+
+// A shutter time as typed: seconds ("0.02") or the photographer's fraction ("1/50"). Throws std::invalid_argument for anything else.
+inline Real ParseShutterSeconds(const std::string& text) {
+    const size_t slash = text.find('/');
+    if (slash == std::string::npos) return std::stod(text);
+    const Real num = std::stod(text.substr(0, slash)), den = std::stod(text.substr(slash + 1));
+    if (!(den > 0)) throw std::invalid_argument("a shutter time of the form 1/N needs N above 0");
+    return num / den;
+}
 
 } // namespace rayt::cli

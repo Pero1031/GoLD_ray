@@ -19,6 +19,7 @@
 #include "Materials/ThinFilm.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Transmittance.hpp"
+#include "Scene/MovingObject.hpp"
 #include "Scene/Primitive.hpp"
 #include "stb_image_write.h"
 
@@ -500,6 +501,11 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
     }
 
     // ---- objects ----
+    // The exposure decides how far a moving object travels (its bounds cover the whole path): the command line wins over the file.
+    LensSpec exposure = d.camera.lens;
+    exposure.overrideWith(opt.lens);
+    const Real shutterSeconds = exposure.shutter.value_or(Real(0));
+    bool warnedNoShutter = false;
     for (const ObjectSpec& o : d.objects) {
         if (o.shape == ObjectSpec::Shape::Splats) {   // a captured cloud of Gaussians (docs/CAPTURE.md): one per scene, no material
             if (out.splats) { std::cerr << "[SceneFile] splats " << o.file << ": a scene can hold one cloud of splats\n"; return 1; }
@@ -527,6 +533,12 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         const std::shared_ptr<Material>& mat = materials.at(o.material);
         const bool emission = spec.type == MaterialSpec::Type::Emission;
         const bool asLight = emission && o.light != 0;   // an emitter is a light for next-event estimation unless it says "light": false
+        const bool moves = glm::dot(o.velocity, o.velocity) > 0;
+        if (moves && asLight) {
+            std::cerr << "[SceneFile] a light cannot have a \"velocity\" (the light samplers know its place at time 0 only); give the emitter \"light\": false to let it move as a picture only\n";
+            return 1;
+        }
+        const size_t objectsBefore = world->objects.size();
         switch (o.shape) {
         case ObjectSpec::Shape::Sphere: {
             auto sphere = std::make_shared<Sphere>(o.center, o.radius, mat);
@@ -616,6 +628,16 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             world->add(MakeMeshHittable(std::make_shared<const TriangleMesh>(std::move(sea)), mat, opt.accel));
             break;
         }
+        }
+        if (moves) {   // everything this object added moves with it (motion blur over the shutter time)
+            if (shutterSeconds > 0) {
+                for (size_t k = objectsBefore; k < world->objects.size(); ++k)
+                    world->objects[k] = std::make_shared<MovingObject>(world->objects[k], o.velocity, shutterSeconds);
+            }
+            else if (!warnedNoShutter) {
+                std::cout << "[SceneFile] note: an object has a \"velocity\" but the shutter is closed (camera \"shutter\", --shutter): nothing moves\n";
+                warnedNoShutter = true;
+            }
         }
     }
 

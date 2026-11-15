@@ -193,6 +193,7 @@ struct ObjectSpec {
     Shape shape = Shape::Sphere;
     std::string material;                          // empty for splats (they have no material: the color is the capture's)
     int light = -1;                                // emission only: 1 = register as a light for next-event estimation, 0 = do not (-1: yes)
+    Vector3 velocity = Vector3(0.0);               // sphere, quad, mesh, lathe: moves with this velocity (m/s) during the exposure (camera "shutter"); not for a light
     Point3 center = Point3(0.0);                   // sphere
     Real radius = 1;
     Point3 corner = Point3(0.0);                   // quad (corner and two edges; faces toward cross(edge1, edge2))

@@ -42,6 +42,8 @@ void PrintHelp(std::ostream& out) {
         << "  --vignette N [--vignette-dist MM]   lens barrel opening of f/N (diameter = focal length / N) MM in front of the stop (default: half the focal length):\n"
         << "                    darkens the corners and makes the out-of-focus highlights there cat eyes; gone once the lens is stopped down (needs --fstop)\n"
         << "  --natural-vignette S   the cos^4 law of the film (0 = off, 1 = full; no aperture needed)\n"
+        << "  --shutter T       motion blur: the shutter stays open T seconds (0.02 or 1/50); scene objects with a \"velocity\" (m/s) and a moving camera blur over it\n"
+        << "  --cam-velocity x,y,z   the camera moves with this velocity (m/s) during the exposure      --pan YAW[,PITCH]   it turns (degrees per second; right / up)\n"
         << "  --env FILE        environment map (.hdr)     --light d65|tungsten|candle|led   light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --caustic-trace   with --caustics: light tracing of the caustics on surfaces the camera sees directly (sharp edges, no radius)\n"

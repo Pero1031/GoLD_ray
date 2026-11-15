@@ -104,6 +104,9 @@ namespace rayt {
                     Real v = (Real(j) + sampling::Random()) / Real((height));
 
                     Point2 lensSample = sampling::Random2D();
+                    // The moment of the exposure (motion blur). No random number is drawn without a shutter, so --seed pictures of the
+                    // scenes without motion stay what they were.
+                    const Real timeSample = m_camera->hasShutter() ? sampling::Random() : Real(0);
 
                     // Each camera path carries its own set of wavelengths (spectral mode).
                     // Li() may drop the secondary wavelengths (dispersion), so convert with
@@ -112,7 +115,7 @@ namespace rayt {
                     // A lens with chromatic aberration sends every wavelength its own way: the path keeps its first one only.
                     // Vignetting: camW is 0 for a ray the lens barrel blocks, else the natural-vignetting factor.
                     Real camW = Real(1);
-                    Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0], &camW);
+                    Ray r = m_camera->getRay(u, v, lensSample, timeSample, lambda[0], &camW);
                     if (m_camera->chromatic()) lambda.terminateSecondary();
                     if (camW <= Real(0) && !wantAOVs) continue;   // nothing to trace: the sample adds no light
                     PathAOV aov;
@@ -171,10 +174,11 @@ namespace rayt {
                 Real v = (Real(j) + sampling::Random()) / Real(height);
 
                 Point2 lensSample = sampling::Random2D();
+                const Real timeSample = m_camera->hasShutter() ? sampling::Random() : Real(0);   // the moment of the exposure (motion blur)
                 // Each camera path carries its own set of wavelengths (spectral mode).
                 SampledWavelengths lambda = samplePathWavelengths();
                 Real camW = Real(1);   // vignetting: 0 for a blocked ray, else the natural-vignetting factor
-                Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0], &camW);
+                Ray r = m_camera->getRay(u, v, lensSample, timeSample, lambda[0], &camW);
                 if (m_camera->chromatic()) lambda.terminateSecondary();   // chromatic aberration: one ray, one wavelength
                 Vector3 L(0.0);
                 if (camW > Real(0)) {

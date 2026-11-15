@@ -48,7 +48,9 @@ namespace rayt {
          * @return True if any geometry in the scene was hit within the ray's interval.
          */
         bool hit(const Ray& r, SurfaceInteraction& rec) const {
-            return m_aggregate->hit(r, rec);
+            if (!m_aggregate->hit(r, rec)) return false;
+            rec.time = r.time;   // the rays spawned from this hit (bounces, shadow rays, probes) carry the same moment of the exposure
+            return true;
         }
 
         /// Any-hit query for shadow rays (cheaper than hit()).

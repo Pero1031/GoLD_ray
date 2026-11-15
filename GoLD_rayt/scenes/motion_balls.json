@@ -1,0 +1,27 @@
+{
+  // Motion blur: balls rolling across a floor during a 1/10 s exposure (the shutter, in seconds, and a "velocity" in m/s for each moving object).
+  // The gold ball moves fastest, the red one slower, the glass one stands still.
+  // The blur is the average over the moments of the exposure: the shadows and the reflections move with the balls.
+  "options": { "width": 1200, "height": 675, "spp": 256, "depth": 16, "denoise": true },
+  "camera": { "from": [0.0, 0.55, 2.6], "at": [0.0, 0.25, 0.0], "up": [0, 1, 0], "focalLength": 50, "fStop": 9, "focusAt": [0, 0.2, 0.0],
+              "shutter": "1/10" },
+  "materials": {
+    "floor": {"type": "layered", "coat": {"ior": 1.5, "roughness": 0.08}, "base": {"albedo": [0.35, 0.33, 0.30]}},
+    "gold": {"type": "conductor", "metal": "Au", "roughness": 0.05},
+    "red": {"type": "layered", "coat": {"ior": 1.5, "roughness": 0.03}, "base": {"albedo": [0.75, 0.08, 0.06]}},
+    "glass": {"type": "dielectric", "ior": 1.5, "abbe": 30},
+    "back": {"type": "diffuse", "albedo": [0.12, 0.12, 0.14]},
+    "key": {"type": "emission", "spectrum": "d65", "radiance": 14},
+    "strip": {"type": "emission", "spectrum": "tungsten", "radiance": 6}
+  },
+  "objects": [
+    {"shape": "quad", "corner": [-6, 0, -6], "edge1": [12, 0, 0], "edge2": [0, 0, 12], "material": "floor"},
+    {"shape": "quad", "corner": [-6, 0, -1.6], "edge1": [12, 0, 0], "edge2": [0, 4, 0], "material": "back"},
+    {"shape": "sphere", "center": [-0.55, 0.2, 0.15], "radius": 0.2, "material": "gold", "velocity": [2.2, 0, 0]},
+    {"shape": "sphere", "center": [-0.1, 0.16, -0.45], "radius": 0.16, "material": "red", "velocity": [1.1, 0, 0.1]},
+    {"shape": "sphere", "center": [0.75, 0.18, 0.2], "radius": 0.18, "material": "glass"},
+    {"shape": "quad", "corner": [-1.2, 2.2, -0.9], "edge1": [2.4, 0, 0], "edge2": [0, 0, 1.6], "material": "key"},
+    {"shape": "quad", "corner": [-2.6, 0.9, -1.55], "edge1": [0.25, 0, 0], "edge2": [0, 1.4, 0], "material": "strip"},
+    {"shape": "quad", "corner": [2.4, 0.9, -1.55], "edge1": [0.25, 0, 0], "edge2": [0, 1.4, 0], "material": "strip"}
+  ]
+}

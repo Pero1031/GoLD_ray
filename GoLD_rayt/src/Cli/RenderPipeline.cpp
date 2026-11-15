@@ -29,6 +29,9 @@ struct ResolvedLens {
     Real barrelRadius = 0;    // vignetting: the opening of the lens barrel (metres; 0 = none), its distance in front of the stop (metres), the cos^4 share
     Real barrelDist = 0;
     Real naturalVignetting = 0;
+    Real shutter = 0;         // motion blur: seconds the shutter is open (0 = off), the velocity of the camera (m/s) and its pan rates (degrees per second)
+    Vector3 velocity = Vector3(0.0);
+    Real panYaw = 0, panPitch = 0;
 };
 
 ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Real aspect) {
@@ -74,6 +77,10 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
         r.barrelDist = s.vignetteDistMm.value_or(r.focalLengthMm * Real(0.5)) * Real(0.001);
     }
     r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
+    r.shutter = s.shutter.value_or(Real(0));
+    r.velocity = s.velocity.value_or(Vector3(0.0));
+    r.panYaw = s.panYawRate.value_or(Real(0));
+    r.panPitch = s.panPitchRate.value_or(Real(0));
     return r;
 }
 
@@ -190,6 +197,16 @@ int RenderScene(CliOptions& opt) {
         std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
 #endif
     }
+    camera->setShutter(lens.shutter);
+    camera->setMotion(lens.velocity, lens.panYaw, lens.panPitch);
+    if (camera->hasShutter()) {
+        std::cout << "[Camera] shutter " << lens.shutter << " s";
+        if (lens.shutter < 1.0) std::cout << " (1/" << std::lround(1.0 / lens.shutter) << ")";
+        if (camera->moving()) std::cout << "; the camera moves " << lens.velocity.x << ", " << lens.velocity.y << ", " << lens.velocity.z << " m/s, pans " << lens.panYaw << " / " << lens.panPitch << " deg/s";
+        std::cout << "\n";
+        if (opt.lvc && setup.bptLight) std::cout << "[Camera] note: --lvc connects to a camera at time 0: no motion blur there\n";
+    }
+    else if (camera->moving()) std::cout << "[Camera] note: the camera has a velocity or a pan but the shutter is closed (--shutter, \"shutter\"): it does not move\n";
     camera->setVignetting(lens.barrelRadius, lens.barrelDist, lens.naturalVignetting);
     if (lens.barrelRadius > 0) {
         if (lens.aperture > 0) {

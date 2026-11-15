@@ -94,8 +94,9 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
     if (!o.contains("material")) Fail(where, "needs a \"material\" (the name of one of the materials)");
     s.material = ReadString(o.at("material"), where + ".material");
     if (o.contains("light")) s.light = ReadBool(o.at("light"), where + ".light") ? 1 : 0;
+    if (o.contains("velocity")) s.velocity = ReadVec3(o.at("velocity"), where + ".velocity");   // m/s: the object moves during the exposure (camera "shutter")
     if (shape == "sphere") {
-        CheckKeys(o, { "shape", "material", "light", "center", "radius" }, where);
+        CheckKeys(o, { "shape", "material", "light", "velocity", "center", "radius" }, where);
         s.shape = ObjectSpec::Shape::Sphere;
         if (!o.contains("center") || !o.contains("radius")) Fail(where, "a sphere needs \"center\" and \"radius\"");
         s.center = ReadVec3(o.at("center"), where + ".center");
@@ -103,7 +104,7 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         if (!(s.radius > 0)) Fail(where + ".radius", "must be above 0");
     }
     else if (shape == "quad") {
-        CheckKeys(o, { "shape", "material", "light", "corner", "edge1", "edge2" }, where);
+        CheckKeys(o, { "shape", "material", "light", "velocity", "corner", "edge1", "edge2" }, where);
         s.shape = ObjectSpec::Shape::Quad;
         if (!o.contains("corner") || !o.contains("edge1") || !o.contains("edge2")) Fail(where, "a quad needs \"corner\", \"edge1\" and \"edge2\"");
         s.corner = ReadVec3(o.at("corner"), where + ".corner");
@@ -111,7 +112,7 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         s.edge2 = ReadVec3(o.at("edge2"), where + ".edge2");
     }
     else if (shape == "mesh") {
-        CheckKeys(o, { "shape", "material", "light", "file", "cutout", "scale", "rotate", "translate" }, where);
+        CheckKeys(o, { "shape", "material", "light", "velocity", "file", "cutout", "scale", "rotate", "translate" }, where);
         s.shape = ObjectSpec::Shape::Mesh;
         if (!o.contains("file")) Fail(where, "a mesh needs a \"file\" (an OBJ or a PLY)");
         s.file = ReadString(o.at("file"), where + ".file");
@@ -127,7 +128,7 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         }
     }
     else if (shape == "lathe") {
-        CheckKeys(o, { "shape", "material", "light", "profile", "segments", "translate" }, where);
+        CheckKeys(o, { "shape", "material", "light", "velocity", "profile", "segments", "translate" }, where);
         s.shape = ObjectSpec::Shape::Lathe;
         if (!o.contains("profile")) Fail(where, "a lathe needs a \"profile\"");
         s.profile = ParseProfile(o.at("profile"), where + ".profile");
@@ -212,7 +213,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette", "shutter", "velocity", "pan" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -269,6 +270,26 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
         if (c.contains("naturalVignette")) {
             lens.naturalVignetting = ReadNumber(c.at("naturalVignette"), "camera.naturalVignette");
             if (!(*lens.naturalVignetting >= 0 && *lens.naturalVignetting <= 1)) Fail("camera.naturalVignette", "must be between 0 (off) and 1 (the cos^4 law)");
+        }
+        // motion blur: "shutter" is seconds, or a string such as "1/60"; "velocity" (m/s) moves the camera; "pan" is [yaw, pitch] in degrees per second (or a yaw)
+        if (c.contains("shutter")) {
+            const json& s = c.at("shutter");
+            if (s.is_string()) {
+                try { lens.shutter = ParseShutterSeconds(s.get<std::string>()); }
+                catch (const std::exception&) { Fail("camera.shutter", "must be seconds (0.02) or a fraction such as \"1/50\""); }
+            }
+            else lens.shutter = ReadNumber(s, "camera.shutter");
+            if (!(*lens.shutter >= 0)) Fail("camera.shutter", "must be 0 (off) or the seconds the shutter is open");
+        }
+        if (c.contains("velocity")) lens.velocity = ReadVec3(c.at("velocity"), "camera.velocity");
+        if (c.contains("pan")) {
+            const json& p = c.at("pan");
+            if (p.is_array()) {
+                if (p.size() != 2) Fail("camera.pan", "must be a yaw rate or an array [yaw, pitch] in degrees per second");
+                lens.panYawRate = ReadNumber(p[0], "camera.pan[0]");
+                lens.panPitchRate = ReadNumber(p[1], "camera.pan[1]");
+            }
+            else lens.panYawRate = ReadNumber(p, "camera.pan");
         }
     }
 

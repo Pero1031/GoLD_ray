@@ -45,6 +45,18 @@ bool ApplyLensArg(const std::string& a, const std::function<std::string(const ch
     else if (a == "--vignette") lens.vignetteFStop = std::stod(value("--vignette"));
     else if (a == "--vignette-dist") lens.vignetteDistMm = std::stod(value("--vignette-dist"));
     else if (a == "--natural-vignette") lens.naturalVignetting = std::stod(value("--natural-vignette"));
+    else if (a == "--shutter") lens.shutter = ParseShutterSeconds(value("--shutter"));   // seconds or 1/N
+    else if (a == "--cam-velocity") {   // x,y,z in m/s
+        const std::string text = value("--cam-velocity");
+        if (std::count(text.begin(), text.end(), ',') != 2) throw std::runtime_error("--cam-velocity needs x,y,z (metres per second)");
+        lens.velocity = ParseRgb(text, "--cam-velocity");
+    }
+    else if (a == "--pan") {   // YAW or YAW,PITCH in degrees per second
+        const std::string text = value("--pan");
+        const size_t comma = text.find(',');
+        lens.panYawRate = std::stod(text.substr(0, comma));
+        if (comma != std::string::npos) lens.panPitchRate = std::stod(text.substr(comma + 1));
+    }
     else return false;
     return true;
 }

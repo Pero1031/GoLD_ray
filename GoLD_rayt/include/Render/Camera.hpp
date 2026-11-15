@@ -65,34 +65,17 @@ namespace rayt {
             Real aperture,
             Real focusDist,
             Real shutterOpen = 0.0,
-            Real shutterClose = 1.0,
+            Real shutterClose = 0.0,
             const Medium* medium = nullptr)
             : m_origin(lookFrom)
             , m_lensRadius(aperture* Real(0.5))
             , m_focusDist(std::max(focusDist, Real(0)))
+            , m_vUp(vUp)
             , m_shutterOpen(shutterOpen)
             , m_shutterClose(std::max(shutterClose, shutterOpen))
             , m_medium(medium) {
 
             m_lensRadius = aperture / 2.0;
-
-            // Convert vertical FOV from degrees to radians and compute half-height
-            // Real theta = rayt::math::toRadians(vfovDeg);
-            // Real h = std::tan(theta / 2.0);
-
-            // Viewport dimensions in the focal plane
-            // Real viewportHeight = 2.0 * h;
-            // Real viewportWidth = aspect * viewportHeight;
-
-            // Construct the Camera Coordinate System (Right-Handed)
-            // m_w: Points directly away from the target (View direction = -m_w)
-            m_w = glm::normalize(lookFrom - lookAt);
-
-            // m_u: "Right" vector (perpendicular to world-up and view direction)
-            m_u = glm::normalize(glm::cross(vUp, m_w));
-
-            // m_v: "Up" vector within the camera's local frame
-            m_v = glm::cross(m_w, m_u);
 
             // --- Perspective viewport on the focal plane ---
             const Real theta = rayt::math::toRadians(vfovDeg);
@@ -100,21 +83,45 @@ namespace rayt {
             const Real viewportHeight = Real(2) * halfHeight;
             const Real viewportWidth = aspect * viewportHeight;
 
-            // Calculate the view vectors scaled by focus distance to reach the focal plane
-            m_horizontal = focusDist * viewportWidth * m_u;
-            m_vertical = focusDist * viewportHeight * m_v;
-
             // The film rectangle at unit depth, for the radial distortion (its radius is measured in half diagonals)
             m_viewportW = viewportWidth;
             m_viewportH = viewportHeight;
             m_invHalfDiag2 = Real(4) / (viewportWidth * viewportWidth + viewportHeight * viewportHeight);
 
-            // Compute the lower-left corner of the projected image plane in world space
-            m_lowerLeftCorner = m_origin
-                - m_horizontal * Real(0.5)
-                - m_vertical * Real(0.5)
-                - focusDist * m_w;
+            // The basis and the image plane at the focus distance
+            orient(lookFrom, glm::normalize(lookFrom - lookAt));
         }
+
+        /**
+         * @brief The exposure: the shutter is open from time 0 to `seconds` (ray times are in seconds).
+         *
+         * Every camera ray gets a time in that interval; the moving objects (Scene/MovingObject.hpp) and the moving camera
+         * (setMotion) are where they are at that time. 0: no exposure time, nothing blurs and no extra random number is drawn.
+         */
+        void setShutter(Real seconds) {
+            m_shutterOpen = Real(0);
+            m_shutterClose = std::max(seconds, Real(0));
+        }
+        bool hasShutter() const { return m_shutterClose > m_shutterOpen; }
+        Real shutterSeconds() const { return m_shutterClose - m_shutterOpen; }
+
+        /**
+         * @brief The camera moves during the exposure.
+         *
+         * @param velocity   metres per second (the view direction stays unless a pan is set)
+         * @param yawRate    degrees per second: the view turns to the right (negative: to the left) about the up vector
+         * @param pitchRate  degrees per second: the view turns up (negative: down)
+         *
+         * The pose at time 0 is the one the camera was built with. The focus distance does not change.
+         * project() (used by light tracing) keeps the pose at time 0.
+         */
+        void setMotion(const Vector3& velocity, Real yawRate, Real pitchRate) {
+            m_velocity = velocity;
+            m_yawRate = yawRate * constants::DEG_TO_RAD;
+            m_pitchRate = pitchRate * constants::DEG_TO_RAD;
+            m_moving = (glm::dot(velocity, velocity) > Real(0)) || yawRate != Real(0) || pitchRate != Real(0);
+        }
+        bool moving() const { return m_moving; }
 
         /**
          * @brief Generate a camera ray from a sample (PBRT-style).
@@ -123,6 +130,14 @@ namespace rayt {
         Ray generateRay(const CameraSample& cs, Real* weight = nullptr) const {
             // --- time (motion blur) ---
             const Real time = math::lerp(m_shutterOpen, m_shutterClose, math::saturate(cs.time));
+
+            // A moving camera: the same camera at its pose of that moment (a copy: a few dozen numbers, next to a whole path).
+            if (m_moving) {
+                Camera at(*this);
+                at.m_moving = false;
+                at.placeAt(*this, time);
+                return at.generateRay(cs, weight);   // the same time again
+            }
 
             // --- the point on the focal plane that the film sample looks at (distortion, chromatic aberrations) ---
             const Point3 target = focalTarget(cs.pFilm.x, cs.pFilm.y, cs.lambdaNm);
@@ -333,6 +348,34 @@ namespace rayt {
         const Medium* medium() const { return m_medium; }
 
     private:
+        /// Places the camera at `from`, looking along -w: the orthonormal basis and the image plane at the focus distance.
+        void orient(const Point3& from, const Vector3& w) {
+            m_origin = from;
+            // m_w points directly away from the target (the view direction is -m_w)
+            m_w = w;
+            // m_u: "right" (perpendicular to the world up and the view direction), m_v: "up" in the camera's frame
+            m_u = glm::normalize(glm::cross(m_vUp, m_w));
+            m_v = glm::cross(m_w, m_u);
+            // the view vectors scaled by the focus distance reach the focal plane
+            m_horizontal = m_focusDist * m_viewportW * m_u;
+            m_vertical = m_focusDist * m_viewportH * m_v;
+            m_lowerLeftCorner = m_origin - m_horizontal * Real(0.5) - m_vertical * Real(0.5) - m_focusDist * m_w;
+        }
+
+        /// Puts this camera where `start` (the pose at time 0) is at `time` seconds: moved by its velocity, then turned by the pan rates.
+        void placeAt(const Camera& start, Real time) {
+            Vector3 d = -start.m_w;   // the view direction
+            if (start.m_yawRate != Real(0)) d = rotateAbout(d, glm::normalize(start.m_vUp), -start.m_yawRate * time);   // to the right is clockwise seen from above
+            if (start.m_pitchRate != Real(0)) d = rotateAbout(d, start.m_u, start.m_pitchRate * time);
+            orient(start.m_origin + start.m_velocity * time, -glm::normalize(d));
+        }
+
+        /// Rodrigues' rotation of x about the unit axis k by `angle` (radians).
+        static Vector3 rotateAbout(const Vector3& x, const Vector3& k, Real angle) {
+            const Real c = std::cos(angle), s = std::sin(angle);
+            return x * c + glm::cross(k, x) * s + k * (glm::dot(k, x) * (Real(1) - c));
+        }
+
         /// The point of the focal plane that film position (s, t) looks at: radial distortion, lateral and axial chromatic aberration applied.
         Point3 focalTarget(Real sFilm, Real tFilm, Real lambdaNm) const {
             const Real s = math::saturate(sFilm);
@@ -410,9 +453,15 @@ namespace rayt {
         Real m_barrelDist = 0.0;
         Real m_naturalVignetting = 0.0;
 
-        // Motion blur (shutter interval)
+        // The up vector the basis is built from (also for the moving camera)
+        Vector3 m_vUp = Vector3(0, 1, 0);
+
+        // Motion blur: the shutter interval in seconds, and the motion of the camera in it (setShutter, setMotion)
         Real m_shutterOpen = 0.0;
-        Real m_shutterClose = 1.0;
+        Real m_shutterClose = 0.0;
+        bool m_moving = false;
+        Vector3 m_velocity = Vector3(0.0);
+        Real m_yawRate = 0.0, m_pitchRate = 0.0;   // radians per second
 
         // Medium around camera
         const Medium* m_medium = nullptr;
