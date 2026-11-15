@@ -11,22 +11,40 @@ from Monte Calvo (2nd century A.D., Ny Carlsberg Glyptotek, Copenhagen), from
 (`tools/data/mesh_clean.py`), gold material. The scan is not part of this repository
 ([credits](GoLD_rayt/assets/Meshes/erato/CREDITS.md)). Scene: `scenes/erato_gold.json`; 600 x 800, 256 spp, OIDN-denoised.</sub>
 
-A 3D path tracer in C++20, built around **spectral rendering of metals** (gold first).
+A 3D path tracer in C++20, built around **spectral rendering of metals** (gold first), for studying how materials look.
 
 **Background.** Built for the author's graduation research: gold was measured with a spectroradiometer (SR-5100) and the
 color difference between RGB and spectral rendering was quantified with Mitsuba. This renderer repeats that study in its
 own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
 layered coats and anisotropic metal, scattering media (fog, clouds with Mie scattering), a wave-spectrum sea with sun glitter,
-hair fibers, and MMD characters with skin subsurface scattering (plus a procedural micro-relief and uneven color).
+hair fibers, skin with subsurface scattering (a procedural micro-relief, uneven color, a film of water or lotion), translucent
+materials, captured objects (scans, 3D Gaussian Splatting), and a photographic lens (depth of field, aberrations, vignetting).
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
+
+> **Aurisidus** is a coined term derived from Latin
+> *aurum* (**gold**) and *sidus* (**star**),
+> representing the study of **gold-like metallic appearance** as a
+> **structured, directional, and spectral phenomenon**,
+> analogous to **stellar radiance**.
+
+**Contents**
+
+- [How much does RGB rendering get wrong for metals?](#how-much-does-rgb-rendering-get-wrong-for-metals): the main result
+- [Gallery](#gallery): renders of the other materials
+- [Metals and spectral rendering](#metals-and-spectral-rendering): what the spectral engine does
+- [Quick start](#quick-start): build, run, options
+- [The renderer in general](#the-renderer-in-general) / [How it works](#how-it-works) / [Verification](#verification) / [What could come next](#what-could-come-next)
+- [Third-party code and data](#third-party-code-and-data) / [References](#references)
+
+---
 
 ## How much does RGB rendering get wrong for metals?
 
 Both modes are the same engine with the same optical constants (Johnson & Christy), chosen at compile time
 (`RenderMode.hpp`), so the difference is only the RGB approximation. The reference is a 1 nm integral of
 `Fresnel(λ, θ)^n x light x film sensor` ([`tools/studies/metal_accuracy.py`](tools/studies/metal_accuracy.py)); the engine matches it
-within ΔE00 0.12 (`--scene metalprobe`). The metric is CIEDE2000 (ΔE00: about 1 is visible side by side, 2-3 obvious).
+within ΔE00 0.12. The metric is CIEDE2000 (ΔE00: about 1 is visible side by side, 2-3 obvious).
 These are comparisons between two renderings, not with a photograph.
 
 | ΔE00, RGB vs spectral | Gold (Au) | Copper (Cu) | Silver (Ag) |
@@ -41,17 +59,13 @@ These are comparisons between two renderings, not with a photograph.
 
 - **Silver**: RGB is enough; its reflectance is flat.
 - **Gold is the worst case.** Its red under D65 is 1.036 in the spectral render, but an `(eta, k)` Fresnel model cannot
-  exceed 1, so RGB is about 6 % low in red. The error grows with a non-D65 light and with repeated reflections.
-- The incidence angle is not the main cause (tested and rejected).
-- **Rough metals** add error through the multiple-scattering color: gold under tungsten goes from 3.0 (smooth) to 6.3
-  (roughness 1.0). A prototype that builds that color from the spectrum (not merged) helps for D65 but not for other lights.
+  exceed 1, so RGB is about 6 % low in red. The error grows with a non-D65 light, with repeated reflections and with roughness.
 - **Rule of thumb**: RGB for previews and D65 scenes; spectral when the light is not D65 or the metal is the subject.
   In a Release build spectral is about as fast.
 
 **As a picture.** A gold bowl with a gold ball in it, a white ball and a gray floor, under one sphere light
-(`--scene goldbowl --light d65|tungsten|candle`), rendered by both builds (256 spp, two renders averaged, no denoiser). The
-renders are saved as linear float (`--out x.pfm`), so the difference is measured on the linear images and on the
-displayed images (Reinhard, sRGB, clipped to the display range).
+(`--scene goldbowl --light d65|tungsten|candle`), rendered by both builds (256 spp, no denoiser) and compared on the linear
+renders and on the displayed images (sRGB, clipped to the display range).
 
 ![The gold bowl under three lights: RGB renderer, spectral renderer, and the CIEDE2000 difference of the linear renders and of the displayed images](docs/img/gold_rgb_vs_spectral.png)
 
@@ -61,57 +75,108 @@ displayed images (Reinhard, sRGB, clipped to the display range).
 | Tungsten (illuminant A) | 3.5 | **2.6** | **80 %** |
 | Candle (1850 K) | **5.6** | 0.9 | 36 % |
 
-(ΔE00 of about 1 is roughly the smallest difference an observer can see.)
+- **Tungsten**: visible on screen; the spectral gold is yellower and more saturated.
+- **D65**: small, close to the visibility level.
+- **Candle**: the largest difference in the linear renders and the smallest on an sRGB screen, because a 1850 K blackbody is outside the
+  sRGB gamut and the display clips it. Written as Display P3 (`--gamut p3`) the same two images differ by 5.2 instead of 0.9
+  ([numbers](docs/data/gold_compare_gamut_results.txt)). Whether real gold under a candle looks different was not tested.
 
-- **Tungsten**: the difference is visible on screen. The spectral gold is yellower and more saturated.
-- **D65**: small, in the bright highlights, close to the visibility level.
-- **Candle**: the largest measured difference, and the smallest one on an sRGB screen. A 1850 K blackbody is outside the
-  sRGB gamut; the spectral render gives the gold a clearly negative blue, the RGB render almost none, and an sRGB display
-  clips both to 0. **A wider gamut brings the difference back**: written as Display P3 (`--gamut p3`), the same two images
-  differ by 5.2 instead of 0.9 ([numbers](docs/data/gold_compare_gamut_results.txt)). The engine agrees with the 1 nm
-  integral here, so this is the error of the RGB model. Whether real gold under a candle looks different from this was not tested.
+**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization is not modeled; the Johnson & Christy tables are taken as truth.
 
-Numbers: [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt). Scripts:
-[`gold_compare_linear.py`](tools/studies/gold_compare_linear.py), [`gold_compare_linear_fig.py`](tools/studies/gold_compare_linear_fig.py).
-(An earlier comparison on displayed PNGs only showed candle as the smallest difference, 0.8; that was the clipping.)
-
-**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization is not modeled (thin films
-are, as a separate material, not on the metals themselves); the Johnson & Christy tables are taken as truth; noise at equal render time was not compared.
-
-Write-up with all tables (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Raw outputs:
-[`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`metal_probe_compare.txt`](docs/data/metal_probe_compare.txt),
-[`metal_probe_rough_compare.txt`](docs/data/metal_probe_rough_compare.txt). Reproduce:
-
-```bash
-python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
-```
-
-## Aurisidus
-
-> **Aurisidus** is a coined term derived from Latin
-> *aurum* (**gold**) and *sidus* (**star**),
-> representing the study of **gold-like metallic appearance** as a
-> **structured, directional, and spectral phenomenon**,
-> analogous to **stellar radiance**.
+Write-up with all tables and the reasons (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Numbers:
+[`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt).
+Scripts: [`metal_accuracy.py`](tools/studies/metal_accuracy.py), [`gold_compare_linear.py`](tools/studies/gold_compare_linear.py).
 
 ---
 
-## Contents
+## Gallery
 
-0. [RGB vs spectral error for metals](#how-much-does-rgb-rendering-get-wrong-for-metals)
-1. [Metals and spectral rendering](#1-metals-and-spectral-rendering) (the main topic)
-2. [Quick start](#2-quick-start)
-3. [The renderer in general](#3-the-renderer-in-general)
-4. [How it works](#4-how-it-works)
-5. [Verification](#5-verification)
-6. [What could come next](#6-what-could-come-next)
-7. [Gallery](#7-gallery)
-8. [Third-party code and data](#8-third-party-code-and-data)
-9. [References](#9-references)
+More renders from the same engine (CPU; OIDN-denoised unless noted). The color of light is under [Spectral vs RGB](#spectral-vs-rgb).
+
+**Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
+with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
+surface, scatters inside (a random walk with chromatic coefficients, hero-wavelength weights and null collisions for the density), and
+leaves again; thin parts such as the drapery and the lyre glow. The coefficients are chosen by eye, not measured. 1080 x 675, 96 spp,
+OIDN-denoised, 12 minutes on 8 threads.
+
+![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
+
+<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed,
+its two open boundaries closed (`tools/data/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
+
+**A soap bubble** (`scenes/soap_bubble_hdr.json`): thin-film interference. The film is thin and black at the top and thickens downwards,
+with bands that wobble and swirl where the liquid circulates. Its colors are the interference of the light reflected at the front and
+the back of the film, evaluated per wavelength ([theory](docs/THIN_FILM.md)). 900 x 900, 512 spp, OIDN-denoised.
+
+![A soap bubble in front of a garden, colored by thin-film interference](docs/img/gallery_soap_bubble.png)
+
+**A gold ring with a diamond** (`scenes/diamond_ring.json`): a round brilliant-cut stone with the Sellmeier dispersion of diamond
+(n_d 2.417, Abbe number 55), so the light that is split inside the stone leaves it as colored fire; gold with the Johnson & Christy
+constants. 900 x 600, 768 spp, OIDN-denoised. The stone and the ring are generated by `tools/data/make_ring.py`.
+
+![A gold ring with a round brilliant-cut diamond that shows colored fire, in a dark studio](docs/img/gallery_diamond_ring.png)
+
+**Depth of field** (`scenes/bokeh_layers.json`): a 100 mm lens at f/1.6 with seven blades, focused on the statue. Glossy balls close to the
+camera melt into soft masses in front, balls of gold, copper, glass and ceramic stand behind the statue, and small lights far behind become
+heptagonal discs, the shape of the aperture. The blur follows from the lens alone (`focalLength`, `fStop`, `focusAt`, `blades` in the camera
+of a scene file). 1200 x 800, 256 spp, OIDN-denoised, 4 minutes. The scene is written by `tools/data/make_bokeh_layers.py`. Distortion, chromatic aberration and vignetting are options of the same camera ([The renderer in general](#the-renderer-in-general)).
+
+![A gold statue in focus, with blurred glossy balls in front of it, balls behind it, and heptagonal light discs far behind](docs/img/gallery_bokeh_layers.png)
+
+<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
+[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/); the scan is not part of this repository.</sub>
+
+**A clear coat over a base** (`scenes/layered_gloss.json`, `scenes/layered_lacquer.json`): lacquer on gold, car paint. The coat is a
+rough dielectric over a diffuse or metal base, and the light that bounces between the two layers is summed by a random walk
+([details](docs/GLOSS.md), Japanese; checked against a closed form and against two independent estimators, `--scene layered`).
+Gloss has two independent axes: the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
+base, columns). 1280 x 720, 192 spp, OIDN-denoised.
+
+![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
+
+**Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
+surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
+Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
+a head (a plain sphere); 900 x 506, 512 spp, not denoised (the denoiser smooths single fibers away), 18 minutes. The fibers are drawn 1.6 times
+thicker than real ones to keep the noise down. Checked in white furnaces and against sampling (`--scene hair`).
+
+![The same lock of hair in five colors: black, brown, red, blond and white](docs/img/gallery_hair_colors.png)
+
+![Long hair falling over a head, seen from behind](docs/img/hair_head.png)
+
+**Skin, dry and moist** (`scenes/skin_lamp_dry.json`, `scenes/skin_lamp_wet.json`): a patch of skin 4.3 cm wide with generated furrows and pores.
+Dry skin has whitish flaky patches and a broad glint that the furrows break up. Water pools in the furrows and fills the gaps of the flakes:
+the patches go and the glint gets a sharp core. Below: a lotion alone, and a lotion followed by an emulsion one minute later, over an hour.
+The emulsion is milky at first and leaves a film of oil, which keeps the patches away after the lotion has dried
+([details](docs/SKIN_MOISTURE.md), Japanese). The amounts and time constants are assumptions, not measurements.
+
+<img src="docs/img/skin_wet.png" alt="Dry skin and wet skin under a small lamp, each with a close-up of the glint" width="620">
+
+<img src="docs/img/skin_lotion_series.png" alt="Close-ups of skin over an hour: a lotion alone, and a lotion followed by an emulsion" width="820">
+
+**Faded paper under an LED mix**: the material is a measurement. Dye papers were measured again and again while they faded under simulated
+sunlight (0 to 150 hours; a lab measurement, not part of this repository), and the reflectance at any hour is the blend of the two nearest
+measured rounds. The exposure varies over the surface (`fading` in a scene file: a covered border, a gradient, noise): a mat board kept the rim of each
+sheet at its original color, and the cup of rolled paper by the window faded on the window side. The light is a sum of LED spectra (weights fitted to
+3500 K), rendered spectrally. Where the exposure fell is an assumption of the picture; the measurements give reflectance against time only.
+1200 x 675, 256 spp, OIDN-denoised, under 2 minutes.
+
+<img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
+
+**Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
+fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
+which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
+
+![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
+
+**A glass ball in haze** (`--gal-object ball --gal-floor 0`): the ball focuses the beam into a cone with colored edges.
+
+![A glass ball focusing a beam of light into a cone in haze](docs/img/gallery_ball_haze.png)
 
 ---
 
-## 1. Metals and spectral rendering
+## Metals and spectral rendering
 
 The color of a metal comes from how its complex refractive index `n(λ) + i k(λ)` changes with wavelength. Gold is yellow
 because its reflectance drops sharply below ~550 nm. An RGB renderer approximates that with three numbers; this one can
@@ -171,10 +236,10 @@ RGB-to-spectrum upsampling (Jakob-Hanika), polarization, multiple-scattering com
 
 ---
 
-## 2. Quick start
+## Quick start
 
 Requirements: Windows 10/11 x64, **Visual Studio 2022** (v143), C++20, OpenMP, a CPU with **AVX2**. The third-party
-libraries are not part of this repository; one script downloads them ([section 8](#8-third-party-code-and-data)).
+libraries are not part of this repository; one script downloads them ([Third-party code and data](#third-party-code-and-data)).
 
 1. `powershell -ExecutionPolicy Bypass -File tools\fetch_deps.ps1` downloads Embree, Open Image Denoise, GLM, nlohmann/json,
    stb, GLFW and Dear ImGui into the folders the project expects (about 0.7 GB; it skips what is already there).
@@ -206,6 +271,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.e
 | `--scene NAME` | a built-in scene (`--list-scenes`) or a test (`furnace`, `metals`, `lights`, `aov`, `sss`, `bench`, ...) |
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--seed N` | the same picture again, noise included (path tracing). Without it every run draws a new seed and prints it |
+| `--focal-length MM`, `--fstop N`, `--focus-dist D`, `--blades N` | the lens (`--help` lists the aberration and vignetting options) |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
 | `--gamut srgb\|p3\|rec2020` | primaries of the output (default `srgb`); a `.png` is tagged so that a viewer shows it in that gamut |
@@ -218,9 +284,10 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 
 ---
 
-## 3. The renderer in general
+## The renderer in general
 
-- **Path tracing** with next-event estimation, multiple importance sampling, Russian roulette, thin-lens camera (focal length, f-number, focus point, polygonal aperture).
+- **Path tracing** with next-event estimation, multiple importance sampling, Russian roulette.
+- **Camera**: a photographic lens: focal length (35 mm film), f-number, focus point, polygonal aperture (out-of-focus highlights take the shape of the blades), radial distortion, lateral and axial chromatic aberration (spectral build), and vignetting (a lens barrel that darkens the corners and turns the highlights there into cat's eyes, and the cos^4 law). `--focal-length`, `--fstop`, `--blades`, `--distortion`, `--lateral-ca`, `--axial-ca`, `--vignette`, `--natural-vignette`, or the `camera` of a scene file ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese).
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat, with an optional metal blend and subsurface scattering; used for skin, with a procedural
@@ -244,7 +311,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 
 ---
 
-## 4. How it works
+## How it works
 
 ```
                       +-----------------------------+
@@ -285,7 +352,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 
 ---
 
-## 5. Verification
+## Verification
 
 The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 on failure. They run in RGB and spectral mode
 (`--spp` scales the samples; use Release).
@@ -315,7 +382,7 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 ---
 
-## 6. What could come next
+## What could come next
 
 - **Sampling**: adaptive sampling, low-discrepancy sequences, Embree for the PMX scene (needs per-triangle materials and
   alpha cut-outs).
@@ -326,94 +393,7 @@ Bugs found this way (and fixed): refraction that never left a glass sphere, an u
 
 ---
 
-## 7. Gallery
-
-More renders from the same engine (CPU; OIDN-denoised unless noted). The color of light is under [Spectral vs RGB](#spectral-vs-rgb).
-
-**Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
-with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
-surface, scatters inside (a random walk with chromatic coefficients, hero-wavelength weights and null collisions for the density), and
-leaves again; thin parts such as the drapery and the lyre glow. The coefficients are chosen by eye, not measured. 1080 x 675, 96 spp,
-OIDN-denoised, 12 minutes on 8 threads.
-
-![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
-
-<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
-[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/). Changes: scaled and placed, vertex normals recomputed,
-its two open boundaries closed (`tools/data/mesh_clean.py --cap`), wax / marble / jade media. The scan is not part of this repository.</sub>
-
-**A soap bubble** (`scenes/soap_bubble_hdr.json`): thin-film interference. The film is thin and black at the top and thickens downwards,
-with bands that wobble and swirl where the liquid circulates. Its colors are the interference of the light reflected at the front and
-the back of the film, evaluated per wavelength ([theory](docs/THIN_FILM.md)). 900 x 900, 512 spp, OIDN-denoised.
-
-![A soap bubble in front of a garden, colored by thin-film interference](docs/img/gallery_soap_bubble.png)
-
-**A gold ring with a diamond** (`scenes/diamond_ring.json`): a round brilliant-cut stone with the Sellmeier dispersion of diamond
-(n_d 2.417, Abbe number 55), so the light that is split inside the stone leaves it as colored fire; gold with the Johnson & Christy
-constants. 900 x 600, 768 spp, OIDN-denoised. The stone and the ring are generated by `tools/data/make_ring.py`.
-
-![A gold ring with a round brilliant-cut diamond that shows colored fire, in a dark studio](docs/img/gallery_diamond_ring.png)
-
-**Depth of field** (`scenes/bokeh_layers.json`): a 100 mm lens at f/1.6 with seven blades, focused on the statue. Glossy balls close to the
-camera melt into soft masses in front, balls of gold, copper, glass and ceramic stand behind the statue, and small lights far behind become
-heptagonal discs, the shape of the aperture. The blur follows from the lens alone (`focalLength`, `fStop`, `focusAt`, `blades` in the camera
-of a scene file). 1200 x 800, 256 spp, OIDN-denoised, 4 minutes. The scene is written by `tools/data/make_bokeh_layers.py`.
-
-![A gold statue in focus, with blurred glossy balls in front of it, balls behind it, and heptagonal light discs far behind](docs/img/gallery_bokeh_layers.png)
-
-<sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
-[Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/); the scan is not part of this repository.</sub>
-
-**A clear coat over a base** (`scenes/layered_gloss.json`, `scenes/layered_lacquer.json`): lacquer on gold, car paint. The coat is a
-rough dielectric over a diffuse or metal base, and the light that bounces between the two layers is summed by a random walk
-([details](docs/GLOSS.md), Japanese; checked against a closed form and against two independent estimators, `--scene layered`).
-Gloss has two independent axes: the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
-base, columns). 1280 x 720, 192 spp, OIDN-denoised.
-
-![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
-
-**Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
-surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
-Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
-a head (a plain sphere); 900 x 506, 512 spp, not denoised (the denoiser smooths single fibers away), 18 minutes. The fibers are drawn 1.6 times
-thicker than real ones to keep the noise down. Checked in white furnaces and against sampling (`--scene hair`).
-
-![The same lock of hair in five colors: black, brown, red, blond and white](docs/img/gallery_hair_colors.png)
-
-![Long hair falling over a head, seen from behind](docs/img/hair_head.png)
-
-**Skin, dry and moist** (`scenes/skin_lamp_dry.json`, `scenes/skin_lamp_wet.json`): a patch of skin 4.3 cm wide with generated furrows and pores.
-Dry skin has whitish flaky patches and a broad glint that the furrows break up. Water pools in the furrows and fills the gaps of the flakes:
-the patches go and the glint gets a sharp core. Below: a lotion alone, and a lotion followed by an emulsion one minute later, over an hour.
-The emulsion is milky at first and leaves a film of oil, which keeps the patches away after the lotion has dried
-([details](docs/SKIN_MOISTURE.md), Japanese). The amounts and time constants are assumptions, not measurements.
-
-<img src="docs/img/skin_wet.png" alt="Dry skin and wet skin under a small lamp, each with a close-up of the glint" width="620">
-
-<img src="docs/img/skin_lotion_series.png" alt="Close-ups of skin over an hour: a lotion alone, and a lotion followed by an emulsion" width="820">
-
-**Faded paper under an LED mix**: the material is a measurement. Dye papers were measured again and again while they faded under simulated
-sunlight (0 to 150 hours; a lab measurement, not part of this repository), and the reflectance at any hour is the blend of the two nearest
-measured rounds. The exposure varies over the surface (`fading` in a scene file: a covered border, a gradient, noise): a mat board kept the rim of each
-sheet at its original color, and the cup of rolled paper by the window faded on the window side. The light is a sum of LED spectra (weights fitted to
-3500 K), rendered spectrally. Where the exposure fell is an assumption of the picture; the measurements give reflectance against time only.
-1200 x 675, 256 spp, OIDN-denoised, under 2 minutes.
-
-<img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
-
-**Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
-fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
-which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
-
-![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
-
-**A glass ball in haze** (`--gal-object ball --gal-floor 0`): the ball focuses the beam into a cone with colored edges.
-
-![A glass ball focusing a beam of light into a cone in haze](docs/img/gallery_ball_haze.png)
-
----
-
-## 8. Third-party code and data
+## Third-party code and data
 
 These are **not included in the repository**: `tools/fetch_deps.ps1` downloads them, and each keeps its own license.
 
@@ -436,7 +416,7 @@ Environment map: `assets/env/bryanston_park_sunrise_2k.hdr` (Poly Haven, CC0). M
 
 ---
 
-## 9. References
+## References
 
 The works that the code implements or follows, and the ones that the studies in `docs/` reproduce or test. Each entry says what it is used for.
 Entries marked *(studied)* were implemented as a reference or evaluated, and are not part of the renderer; *(next)* marks work that the documents name as the next step.
