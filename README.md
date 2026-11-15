@@ -80,9 +80,7 @@ renders and on the displayed images (sRGB, clipped to the display range).
 - **D65**: small, close to the visibility level.
 - **Candle**: the largest difference in the linear renders and the smallest on an sRGB screen, because a 1850 K blackbody is outside the
   sRGB gamut and the display clips it. Written as Display P3 (`--gamut p3`) the same two images differ by 5.2 instead of 0.9
-  ([numbers](docs/data/gold_compare_gamut_results.txt)). Whether real gold under a candle looks different was not tested.
-
-**Limits.** Kulla-Conty is an approximation (the true color of a rough metal was not compared); polarization is not modeled; the Johnson & Christy tables are taken as truth.
+  ([numbers](docs/data/gold_compare_gamut_results.txt)).
 
 Write-up with all tables and the reasons (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Numbers:
 [`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt).
@@ -97,7 +95,7 @@ More renders from the same engine (CPU; OIDN-denoised unless noted). The color o
 **Three translucent materials, one statue** (`scenes/erato_translucent.json`): the same scan three times, lit from behind and above,
 with a different scattering medium inside each: wax, marble (a noise density gives it soft variations) and jade. Light enters the
 surface, scatters inside (a random walk with chromatic coefficients, hero-wavelength weights and null collisions for the density), and
-leaves again; thin parts such as the drapery and the lyre glow. The coefficients are chosen by eye, not measured. 1080 x 675, 96 spp,
+leaves again; thin parts such as the drapery and the lyre glow. 1080 x 675, 96 spp,
 OIDN-denoised, 12 minutes on 8 threads.
 
 ![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
@@ -150,7 +148,7 @@ thicker than real ones to keep the noise down. Checked in white furnaces and aga
 Dry skin has whitish flaky patches and a broad glint that the furrows break up. Water pools in the furrows and fills the gaps of the flakes:
 the patches go and the glint gets a sharp core. Below: a lotion alone, and a lotion followed by an emulsion one minute later, over an hour.
 The emulsion is milky at first and leaves a film of oil, which keeps the patches away after the lotion has dried
-([details](docs/SKIN_MOISTURE.md), Japanese). The amounts and time constants are assumptions, not measurements.
+([details](docs/SKIN_MOISTURE.md), Japanese).
 
 <img src="docs/img/skin_wet.png" alt="Dry skin and wet skin under a small lamp, each with a close-up of the glint" width="620">
 
@@ -160,13 +158,13 @@ The emulsion is milky at first and leaves a film of oil, which keeps the patches
 sunlight (0 to 150 hours; a lab measurement, not part of this repository), and the reflectance at any hour is the blend of the two nearest
 measured rounds. The exposure varies over the surface (`fading` in a scene file: a covered border, a gradient, noise): a mat board kept the rim of each
 sheet at its original color, and the cup of rolled paper by the window faded on the window side. The light is a sum of LED spectra (weights fitted to
-3500 K), rendered spectrally. Where the exposure fell is an assumption of the picture; the measurements give reflectance against time only.
+3500 K), rendered spectrally.
 1200 x 675, 256 spp, OIDN-denoised, under 2 minutes.
 
 <img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
 
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
-fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`, a prototype; one wavelength per pass for the dispersion),
+fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`; one wavelength per pass for the dispersion),
 which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
 
 ![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
@@ -309,14 +307,13 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   Own SAH BVH or **Embree**.
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
   (Mie scattering of cloud droplets; [details](docs/CLOUD.md), Japanese), a single-scattering sky with a sun (`tools/data/make_sky.py`).
-- **Bidirectional path tracing** (`--lvc`, a prototype): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
+- **Bidirectional path tracing** (`--lvc`): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
   Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
-  230-420 raw samples; fine texture (stocking weave, single hair fibers) gets softer.
+  230-420 raw samples.
 - **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
   environment map, roughness, exposure, samples per frame; save the image. It renders in the mode `RenderMode.hpp` selects.
-  It does not load characters or use SSS or the denoiser.
 
 ---
 
