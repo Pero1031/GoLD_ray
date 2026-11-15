@@ -1,0 +1,20 @@
+{
+  // The Winged Victory of Samothrace (a 500 000-triangle STL scan, closed; assets/winged-victory-of-samothrace-at-the-louvre-paris-1.stl is not part
+  // of the repository: put your own STL there) made of glass with a little dispersion, in a church light probe (assets/env/grace-new.hdr, also not
+  // in the repository) and a small warm lamp for glints. Spectral build (the dispersion needs it; the RGB build shows the same glass without it).
+  // The scan is in mm with Z up: scaled to 0.5 m and turned so that Z becomes Y; the translate centers it (its box is 1900 x 2127 x 2928 mm).
+  "environment": { "type": "hdr", "file": "assets/env/grace-new.hdr", "scale": 1.6 },
+  "options": { "width": 600, "height": 800, "spp": 256, "depth": 24, "denoise": true },
+  "camera": { "from": [0.25, 0.30, 1.15], "at": [-0.07, 0.24, 0.0], "fov": 32 },
+  "materials": {
+    "glass": { "type": "dielectric", "ior": 1.5, "abbe": 30, "roughness": 0 },
+    "floor": { "type": "diffuse", "albedo": 0.35 },
+    "lamp":  { "type": "emission", "spectrum": "tungsten", "radiance": 40 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/winged-victory-of-samothrace-at-the-louvre-paris-1.stl", "scale": 0.000171,
+      "rotate": { "axis": [1, 0, 0], "degrees": -90 }, "translate": [-0.0771, 0.0, 0.1153], "material": "glass" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    { "shape": "sphere", "center": [-0.5, 0.6, 0.6], "radius": 0.06, "material": "lamp" }
+  ]
+}
