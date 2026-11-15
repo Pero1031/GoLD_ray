@@ -329,6 +329,12 @@
     <ClInclude Include="include\Materials\RoughConductor.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Materials\MeasuredHpBRDF.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Materials\hpbrdf_pca.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Core\Fresnel.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

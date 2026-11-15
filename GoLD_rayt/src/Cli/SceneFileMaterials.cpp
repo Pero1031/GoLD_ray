@@ -54,7 +54,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 } // namespace
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -719,6 +719,14 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
                 if (v < 0 || v > 1) Fail(gw, "fractions and strengths must be between 0 and 1");
         }
     }
+    else if (type == "measured") {   // { "type": "measured", "file": "assets/hpbrdf/Aluminum.hpbpca", "alphaSample": 0.1 }
+        CheckKeys(m, { "type", "file", "alphaSample" }, where);
+        s.type = MaterialSpec::Type::Measured;
+        if (!m.contains("file")) Fail(where, "needs a \"file\": a PCA-compressed hpBRDF table (.hpbpca)");
+        s.measuredFile = ReadString(m.at("file"), where + ".file");
+        Optional<double>(m, "alphaSample", where, s.alphaSample, ReadNumber);
+        if (!(s.alphaSample > 0)) Fail(where + ".alphaSample", "must be above 0");
+    }
     else if (type == "emission") {
         CheckKeys(m, { "type", "spectrum", "radiance", "twoSided" }, where);
         s.type = MaterialSpec::Type::Emission;
@@ -728,7 +736,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair, skin or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured or emission");
     }
     return s;
 }

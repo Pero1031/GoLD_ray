@@ -16,6 +16,7 @@
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/LayeredCoat.hpp"
+#include "Materials/MeasuredHpBRDF.hpp"
 #include "Materials/ThinFilm.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Transmittance.hpp"
@@ -251,6 +252,20 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             metal->setTangentRotation(Real(m.rotation));
             metal->setMultipleScattering(m.multipleScattering);
             materials[name] = metal;
+            break;
+        }
+        case MaterialSpec::Type::Measured: {   // a measured, PCA-compressed hpBRDF table
+            std::string err;
+            auto mat = MeasuredHpBRDF::load(m.measuredFile, Real(m.alphaSample), &err);
+            if (!mat) {
+                std::cerr << "[SceneFile] material \"" << name << "\": " << m.measuredFile << ": " << err << "\n";
+                return 1;
+            }
+            const auto& t = mat->table();
+            std::cout << "[SceneFile] material \"" << name << "\": measured hpBRDF " << m.measuredFile
+                << " (" << t.n_phi << "x" << t.n_thd << "x" << t.n_thh << " bins, " << t.n_wvl << " bands "
+                << t.wvls.front() << "-" << t.wvls.back() << " nm, latent " << t.k1 << "+" << t.k2 << ")\n";
+            materials[name] = mat;
             break;
         }
         case MaterialSpec::Type::Dielectric: {

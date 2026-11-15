@@ -411,3 +411,6 @@ docs/HANDOFF.md
 
 # STL meshes (scans, tens of MB each): kept locally, not in the repository
 *.stl
+
+# Measured hpBRDF tables (PCA-compressed, about 230 MB each): kept locally, not in the repository
+/GoLD_rayt/assets/hpbrdf/

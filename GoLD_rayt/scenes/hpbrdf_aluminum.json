@@ -1,0 +1,18 @@
+{
+  // Measured aluminum (hpBRDF, Moon et al. 2025) next to the Johnson & Christy gold, under one sphere light.
+  // Polarization images: GoLD_rayt.exe scenes\hpbrdf_aluminum.json --stokes --polarizer 0,90
+  "options": { "width": 640, "spp": 64 },
+  "camera": { "from": [0.0, 0.16, 0.42], "at": [0.0, 0.03, 0.0], "fov": 30 },
+  "materials": {
+    "aluminum": { "type": "measured", "file": "assets/hpbrdf/Aluminum.hpbpca", "alphaSample": 0.1 },
+    "gold": { "type": "conductor", "metal": "Au", "roughness": 0.12 },
+    "floor": { "type": "diffuse", "albedo": 0.5 },
+    "bulb": { "type": "emission", "spectrum": "d65", "radiance": 60 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-0.05, 0.04, 0.0], "radius": 0.04, "material": "aluminum" },
+    { "shape": "sphere", "center": [0.05, 0.04, 0.0], "radius": 0.04, "material": "gold" },
+    { "shape": "sphere", "center": [-0.2, 0.25, 0.15], "radius": 0.04, "material": "bulb" },
+    { "shape": "quad", "corner": [-1, 0, 1], "edge1": [2, 0, 0], "edge2": [0, 0, -2], "material": "floor" }
+  ]
+}

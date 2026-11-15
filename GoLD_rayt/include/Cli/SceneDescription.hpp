@@ -42,8 +42,10 @@ struct WrinkleLevelSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin, Measured };
     Type type = Type::Diffuse;
+    std::string measuredFile;                      // measured: a PCA-compressed hpBRDF table (.hpbpca, Materials/MeasuredHpBRDF.hpp)
+    double alphaSample = 0.1;                      //   GGX alpha of the sampling lobe (only the noise depends on it)
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
     std::string table;                             // ... or a complex IOR table (RefractiveIndex.info CSV)
