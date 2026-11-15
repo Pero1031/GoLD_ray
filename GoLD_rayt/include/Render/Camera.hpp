@@ -120,39 +120,19 @@ namespace rayt {
          * @brief Generate a camera ray from a sample (PBRT-style).
          * * Uses thin-lens model if lensRadius > 0.
          */
-        Ray generateRay(const CameraSample& cs) const {
+        Ray generateRay(const CameraSample& cs, Real* weight = nullptr) const {
             // --- time (motion blur) ---
             const Real time = math::lerp(m_shutterOpen, m_shutterClose, math::saturate(cs.time));
 
-            // --- film sample (NDC) ---
-            const Real s = math::saturate(cs.pFilm.x);
-            const Real t = math::saturate(cs.pFilm.y);
-
-            // --- where on the film this ray comes from: radial distortion and lateral chromatic aberration ---
-            // The pixel at (s, t) looks along the direction of the ideal (pinhole) film point (s', t') = centre + (s, t - centre) * g,
-            // g = (1 + k1 r^2 + k2 r^4) * (1 + lateral * (lambda - 550 nm) / 100 nm), r = distance from the centre in half diagonals.
-            Real sd = s, td = t;
-            if (m_distorted || m_lateralCA != Real(0)) {
-                const Real dx = s - Real(0.5), dy = t - Real(0.5);
-                const Real xw = dx * m_viewportW, yh = dy * m_viewportH;
-                const Real r2 = (xw * xw + yh * yh) * m_invHalfDiag2;
-                Real g = Real(1) + m_k1 * r2 + m_k2 * r2 * r2;
-                g *= Real(1) + m_lateralCA * (cs.lambdaNm - kReferenceWavelengthNm) * Real(0.01);
-                sd = Real(0.5) + dx * g;
-                td = Real(0.5) + dy * g;
-            }
-
-            // --- point on focal plane ---
-            Point3 target = m_lowerLeftCorner + sd * m_horizontal + td * m_vertical;
-            // Axial chromatic aberration: the plane of focus of this wavelength lies nearer or farther (the chief ray is not bent)
-            if (m_axialCA != Real(0) && m_lensRadius > Real(0))
-                target = m_origin + (target - m_origin) * (focusDistanceFor(cs.lambdaNm) / m_focusDist);
+            // --- the point on the focal plane that the film sample looks at (distortion, chromatic aberrations) ---
+            const Point3 target = focalTarget(cs.pFilm.x, cs.pFilm.y, cs.lambdaNm);
 
             // --- lens sample (DoF) ---
+            Vector3 rd(0);
             Vector3 offset(0);
             if (m_lensRadius > Real(0)) {
                 // A round aperture, or a regular polygon (blades >= 3): out-of-focus highlights take its shape.
-                const Vector3 rd = (m_blades >= 3) ? sampleBlades(cs.pLens) : m_lensRadius * sampling::UniformSampleDisk(cs.pLens);
+                rd = (m_blades >= 3) ? sampleBlades(cs.pLens) : m_lensRadius * sampling::UniformSampleDisk(cs.pLens);
                 offset = m_u * rd.x + m_v * rd.y;
             }
 
@@ -160,6 +140,29 @@ namespace rayt {
             // The BSDFs (reflect / refract / GGX) assume unit-length directions, and the camera ray
             // becomes `wo` at the first hit, so it must be normalized (its raw length is ~ focusDist).
             const Vector3 rayDir = glm::normalize(target - rayOrigin);
+
+            // --- vignetting: how much of the light of this ray the camera lets through (0 = blocked) ---
+            if (weight) {
+                Real w = Real(1);
+                if (m_naturalVignetting > Real(0)) {
+                    // natural vignetting: the film is lit in proportion to cos^4 of the angle off the axis (relative to the centre)
+                    const Real cosTheta = glm::dot(glm::normalize(target - m_origin), -m_w);
+                    w *= std::pow(std::max(cosTheta, Real(0)), Real(4) * m_naturalVignetting);
+                }
+                if (m_barrelRadius > Real(0) && m_lensRadius > Real(0)) {
+                    // optical vignetting: the opening of the lens barrel, `m_barrelDist` in front of the stop, cuts the bundle of an oblique
+                    // ray; what is left is the overlap of the two circles, and the out-of-focus highlights become cat eyes
+                    const Real dz = glm::dot(rayDir, -m_w);
+                    if (dz <= Real(0)) w = Real(0);
+                    else {
+                        const Real k = m_barrelDist / dz;
+                        const Real lu = rd.x + glm::dot(rayDir, m_u) * k;
+                        const Real lv = rd.y + glm::dot(rayDir, m_v) * k;
+                        if (lu * lu + lv * lv > m_barrelRadius * m_barrelRadius) w = Real(0);
+                    }
+                }
+                *weight = w;
+            }
 
             Ray r(rayOrigin, rayDir, constants::RAY_EPSILON, m_medium);
             r.time = time;
@@ -173,14 +176,14 @@ namespace rayt {
          * @param uLens  2D random sample for lens/aperture sampling (for DoF).
          * @return Ray   A world-space ray originating from the lens toward the focal plane.
          */
-        Ray getRay(Real s, Real t, const Point2& uLens, Real timeSample = 0.0, Real lambdaNm = kReferenceWavelengthNm) const {
+        Ray getRay(Real s, Real t, const Point2& uLens, Real timeSample = 0.0, Real lambdaNm = kReferenceWavelengthNm, Real* weight = nullptr) const {
 
             CameraSample cs;
             cs.pFilm = Point2(s, t);
             cs.pLens = uLens;
             cs.time = timeSample;
             cs.lambdaNm = lambdaNm;
-            return generateRay(cs);
+            return generateRay(cs, weight);
 
             /*Vector3 offset(0.0);
 
@@ -271,6 +274,43 @@ namespace rayt {
             }
         }
 
+        /**
+         * @brief Vignetting (all 0: none).
+         *
+         * @param barrelRadius  radius (metres) of an opening of the lens barrel `barrelDist` metres in front of the aperture stop: it cuts the light
+         *                      of oblique rays, which darkens the corners and turns out-of-focus highlights there into cat eyes. It clips nothing
+         *                      once the stop is smaller than it (the lens stopped down). 0: no such opening.
+         * @param natural       natural vignetting, the cos^4 law of the angle off the axis: 0 = none, 1 = the full law (a power in between scales the exponent).
+         *
+         * Reported through the `weight` of generateRay() / getRay(): 0 when the ray is blocked, else the factor of the natural vignetting.
+         */
+        void setVignetting(Real barrelRadius, Real barrelDist, Real natural) {
+            m_barrelRadius = std::max(barrelRadius, Real(0));
+            m_barrelDist = std::max(barrelDist, Real(0));
+            m_naturalVignetting = std::max(natural, Real(0));
+        }
+
+        /// The share of the (round) aperture the barrel leaves open for the film position (s, t) in [0,1]^2, from the chief ray (1 = all of it).
+        Real apertureFraction(Real s, Real t) const {
+            if (!(m_barrelRadius > Real(0)) || !(m_lensRadius > Real(0))) return Real(1);
+            const Point3 target = focalTarget(s, t, kReferenceWavelengthNm);
+            const Vector3 chief = glm::normalize(target - m_origin);
+            const Real dz = glm::dot(chief, -m_w);
+            if (dz <= Real(0)) return Real(0);
+            const Real k = m_barrelDist / dz;
+            const Real d = std::hypot(glm::dot(chief, m_u) * k, glm::dot(chief, m_v) * k);   // shift of the barrel opening against the stop
+            const Real r = m_lensRadius, R = m_barrelRadius;
+            if (d >= r + R) return Real(0);
+            if (d <= std::fabs(R - r)) return (R >= r) ? Real(1) : (R * R) / (r * r);
+            const Real area = r * r * std::acos((d * d + r * r - R * R) / (Real(2) * d * r))
+                + R * R * std::acos((d * d + R * R - r * r) / (Real(2) * d * R))
+                - Real(0.5) * std::sqrt((-d + r + R) * (d + r - R) * (d - r + R) * (d + r + R));
+            return area / (constants::PI * r * r);
+        }
+
+        /// True when some ray can be blocked or dimmed (vignetting is on): callers then pass a weight to getRay() and apply it.
+        bool vignetted() const { return m_naturalVignetting > Real(0) || (m_barrelRadius > Real(0) && m_lensRadius > Real(0)); }
+
         /// True when the rays depend on the wavelength (lateral or axial chromatic aberration is on).
         bool chromatic() const { return m_lateralCA != Real(0) || (m_axialCA != Real(0) && m_lensRadius > Real(0)); }
 
@@ -293,6 +333,31 @@ namespace rayt {
         const Medium* medium() const { return m_medium; }
 
     private:
+        /// The point of the focal plane that film position (s, t) looks at: radial distortion, lateral and axial chromatic aberration applied.
+        Point3 focalTarget(Real sFilm, Real tFilm, Real lambdaNm) const {
+            const Real s = math::saturate(sFilm);
+            const Real t = math::saturate(tFilm);
+
+            // The pixel at (s, t) looks along the direction of the ideal (pinhole) film point (s', t') = centre + (s, t - centre) * g,
+            // g = (1 + k1 r^2 + k2 r^4) * (1 + lateral * (lambda - 550 nm) / 100 nm), r = distance from the centre in half diagonals.
+            Real sd = s, td = t;
+            if (m_distorted || m_lateralCA != Real(0)) {
+                const Real dx = s - Real(0.5), dy = t - Real(0.5);
+                const Real xw = dx * m_viewportW, yh = dy * m_viewportH;
+                const Real r2 = (xw * xw + yh * yh) * m_invHalfDiag2;
+                Real g = Real(1) + m_k1 * r2 + m_k2 * r2 * r2;
+                g *= Real(1) + m_lateralCA * (lambdaNm - kReferenceWavelengthNm) * Real(0.01);
+                sd = Real(0.5) + dx * g;
+                td = Real(0.5) + dy * g;
+            }
+
+            Point3 target = m_lowerLeftCorner + sd * m_horizontal + td * m_vertical;
+            // Axial chromatic aberration: the plane of focus of this wavelength lies nearer or farther (the chief ray is not bent)
+            if (m_axialCA != Real(0) && m_lensRadius > Real(0))
+                target = m_origin + (target - m_origin) * (focusDistanceFor(lambdaNm) / m_focusDist);
+            return target;
+        }
+
         /// The distance of the plane of focus for light of this wavelength: the film is fixed, the focal length changes with the wavelength.
         Real focusDistanceFor(Real lambdaNm) const {
             const Real f = m_focalLength * (Real(1) + m_axialCA * (lambdaNm - kReferenceWavelengthNm) * Real(0.01));
@@ -339,6 +404,11 @@ namespace rayt {
         Real m_axialCA = 0.0;
         Real m_focalLength = 0.0;                    // metres
         Real m_filmDist = 0.0;                       // lens to film, metres
+
+        // Vignetting (setVignetting)
+        Real m_barrelRadius = 0.0;
+        Real m_barrelDist = 0.0;
+        Real m_naturalVignetting = 0.0;
 
         // Motion blur (shutter interval)
         Real m_shutterOpen = 0.0;

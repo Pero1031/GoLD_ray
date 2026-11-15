@@ -23,8 +23,16 @@ struct LensSpec {
     std::optional<Real> lateralCA;         // size of the picture changes by this fraction per 100 nm (spectral build)
     std::optional<Real> axialCA;           // focal length changes by this fraction per 100 nm: a plane of focus per wavelength (spectral build)
 
+    // Vignetting (Camera::setVignetting); none = off
+    std::optional<Real> vignetteFStop;     // f-number N of the opening of the lens barrel: diameter = focal length / N (smaller N = larger opening = less vignetting)
+    std::optional<Real> vignetteDistMm;    // how far in front of the aperture stop that opening is (default: half the focal length)
+    std::optional<Real> naturalVignetting; // the cos^4 law: 0 = off, 1 = full
+
     // The fields that `o` states replace the ones here.
     void overrideWith(const LensSpec& o) {
+        if (o.vignetteFStop) vignetteFStop = o.vignetteFStop;
+        if (o.vignetteDistMm) vignetteDistMm = o.vignetteDistMm;
+        if (o.naturalVignetting) naturalVignetting = o.naturalVignetting;
         if (o.distortionK1) distortionK1 = o.distortionK1;
         if (o.distortionK2) distortionK2 = o.distortionK2;
         if (o.lateralCA) lateralCA = o.lateralCA;

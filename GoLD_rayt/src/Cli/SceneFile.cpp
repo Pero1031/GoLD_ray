@@ -212,7 +212,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -257,6 +257,19 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
         }
         if (c.contains("lateralCA")) lens.lateralCA = ReadNumber(c.at("lateralCA"), "camera.lateralCA");
         if (c.contains("axialCA")) lens.axialCA = ReadNumber(c.at("axialCA"), "camera.axialCA");
+        // vignetting
+        if (c.contains("vignette")) {
+            lens.vignetteFStop = ReadNumber(c.at("vignette"), "camera.vignette");
+            if (!(*lens.vignetteFStop >= 0)) Fail("camera.vignette", "must be 0 (off) or the f-number of the lens barrel");
+        }
+        if (c.contains("vignetteDist")) {
+            lens.vignetteDistMm = ReadNumber(c.at("vignetteDist"), "camera.vignetteDist");
+            if (!(*lens.vignetteDistMm > 0)) Fail("camera.vignetteDist", "must be above 0 (millimetres)");
+        }
+        if (c.contains("naturalVignette")) {
+            lens.naturalVignetting = ReadNumber(c.at("naturalVignette"), "camera.naturalVignette");
+            if (!(*lens.naturalVignetting >= 0 && *lens.naturalVignetting <= 1)) Fail("camera.naturalVignette", "must be between 0 (off) and 1 (the cos^4 law)");
+        }
     }
 
     if (doc.contains("environment")) {

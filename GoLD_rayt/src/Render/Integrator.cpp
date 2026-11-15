@@ -110,11 +110,14 @@ namespace rayt {
                     // the wavelengths *after* Li() has run (separate statements on purpose).
                     SampledWavelengths lambda = samplePathWavelengths();
                     // A lens with chromatic aberration sends every wavelength its own way: the path keeps its first one only.
-                    Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0]);
+                    // Vignetting: camW is 0 for a ray the lens barrel blocks, else the natural-vignetting factor.
+                    Real camW = Real(1);
+                    Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0], &camW);
                     if (m_camera->chromatic()) lambda.terminateSecondary();
+                    if (camW <= Real(0) && !wantAOVs) continue;   // nothing to trace: the sample adds no light
                     PathAOV aov;
                     const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr);
-                    pixelColor += SpectrumToRGB(Lpath, lambda);
+                    pixelColor += camW * SpectrumToRGB(Lpath, lambda);
                     if (wantAOVs && aov.valid) {
                         pixelAlbedo += aov.albedo;
                         pixelNormal += aov.normal;
@@ -170,10 +173,14 @@ namespace rayt {
                 Point2 lensSample = sampling::Random2D();
                 // Each camera path carries its own set of wavelengths (spectral mode).
                 SampledWavelengths lambda = samplePathWavelengths();
-                Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0]);
+                Real camW = Real(1);   // vignetting: 0 for a blocked ray, else the natural-vignetting factor
+                Ray r = m_camera->getRay(u, v, lensSample, Real(0), lambda[0], &camW);
                 if (m_camera->chromatic()) lambda.terminateSecondary();   // chromatic aberration: one ray, one wavelength
-                const Spectrum Lpath = Li(r, scene, lambda);   // may drop secondary wavelengths
-                Vector3 L = SpectrumToRGB(Lpath, lambda);
+                Vector3 L(0.0);
+                if (camW > Real(0)) {
+                    const Spectrum Lpath = Li(r, scene, lambda);   // may drop secondary wavelengths
+                    L = camW * SpectrumToRGB(Lpath, lambda);
+                }
 
                 // NaN check
                 if (math::hasNonFinite(L)) L = Vector3(0.0);

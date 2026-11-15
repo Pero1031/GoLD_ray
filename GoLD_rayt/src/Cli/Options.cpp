@@ -42,6 +42,9 @@ bool ApplyLensArg(const std::string& a, const std::function<std::string(const ch
     }
     else if (a == "--lateral-ca") lens.lateralCA = std::stod(value("--lateral-ca"));
     else if (a == "--axial-ca") lens.axialCA = std::stod(value("--axial-ca"));
+    else if (a == "--vignette") lens.vignetteFStop = std::stod(value("--vignette"));
+    else if (a == "--vignette-dist") lens.vignetteDistMm = std::stod(value("--vignette-dist"));
+    else if (a == "--natural-vignette") lens.naturalVignetting = std::stod(value("--natural-vignette"));
     else return false;
     return true;
 }
@@ -205,6 +208,9 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.lens.focusDist && !(*o.lens.focusDist > 0)) throw std::runtime_error("--focus-dist must be above 0");
         if (o.lens.blades && (*o.lens.blades < 0 || (*o.lens.blades > 0 && *o.lens.blades < 3) || *o.lens.blades > 32))
             throw std::runtime_error("--blades must be 0 (a round aperture) or 3 to 32");
+        if (o.lens.vignetteFStop && !(*o.lens.vignetteFStop >= 0)) throw std::runtime_error("--vignette must be 0 (off) or the f-number of the lens barrel");
+        if (o.lens.vignetteDistMm && !(*o.lens.vignetteDistMm > 0)) throw std::runtime_error("--vignette-dist must be above 0 (mm)");
+        if (o.lens.naturalVignetting && !(*o.lens.naturalVignetting >= 0 && *o.lens.naturalVignetting <= 1)) throw std::runtime_error("--natural-vignette must be between 0 (off) and 1 (the cos^4 law)");
     }
 }
 

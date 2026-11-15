@@ -26,6 +26,9 @@ struct ResolvedLens {
     Real k1 = 0, k2 = 0;      // radial distortion
     Real lateralCA = 0;       // chromatic aberrations (per 100 nm)
     Real axialCA = 0;
+    Real barrelRadius = 0;    // vignetting: the opening of the lens barrel (metres; 0 = none), its distance in front of the stop (metres), the cos^4 share
+    Real barrelDist = 0;
+    Real naturalVignetting = 0;
 };
 
 ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Real aspect) {
@@ -65,6 +68,12 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     r.k2 = s.distortionK2.value_or(Real(0));
     r.lateralCA = s.lateralCA.value_or(Real(0));
     r.axialCA = s.axialCA.value_or(Real(0));
+    // The lens barrel: an opening of diameter focal length / N, by default half a focal length in front of the stop
+    if (s.vignetteFStop && *s.vignetteFStop > 0) {
+        r.barrelRadius = r.focalLengthMm * Real(0.001) / (Real(2) * *s.vignetteFStop);
+        r.barrelDist = s.vignetteDistMm.value_or(r.focalLengthMm * Real(0.5)) * Real(0.001);
+    }
+    r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
     return r;
 }
 
@@ -181,6 +190,17 @@ int RenderScene(CliOptions& opt) {
         std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
 #endif
     }
+    camera->setVignetting(lens.barrelRadius, lens.barrelDist, lens.naturalVignetting);
+    if (lens.barrelRadius > 0) {
+        if (lens.aperture > 0) {
+            std::cout << "[Camera] vignetting: lens barrel opening f/" << lens.focalLengthMm * 0.001 / (2 * lens.barrelRadius) << " (diameter " << 2000.0 * lens.barrelRadius
+                << " mm) " << 1000.0 * lens.barrelDist << " mm in front of the stop; of the round aperture, " << std::lround(100.0 * camera->apertureFraction(1, 1))
+                << " % is left open at the corner (about)\n";
+            if (2 * lens.barrelRadius <= lens.aperture) std::cout << "[Camera] note: the barrel opening is not larger than the aperture: it acts as the stop. A smaller --vignette N opens it\n";
+        }
+        else std::cout << "[Camera] note: the barrel vignetting needs an aperture (--fstop): a pinhole is not clipped\n";
+    }
+    if (lens.naturalVignetting > 0) std::cout << "[Camera] natural vignetting: the film is lit in proportion to cos^" << 4 * lens.naturalVignetting << " of the angle off the axis\n";
     if ((lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0) && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
         std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
     if (lens.aperture > 0 && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
