@@ -20,6 +20,7 @@ const std::vector<Command>& Commands() {
         { { "aov", "denoiser feature (albedo / normal) checks" }, [](const CliOptions&) { return RunAovTests(); } },
         { { "dispersion", "Sellmeier presets of glasses (n_d, Abbe number) and a diamond in a white furnace" }, [](const CliOptions&) { return RunDispersionTests(); } },
         { { "thinfilm", "thin-film interference checks (Airy's formula, sample() weights, white furnace)" }, [](const CliOptions&) { return RunThinFilmTests(); } },
+        { { "polarization", "polarization: Fresnel amplitudes, the Mueller chain against a 3D field propagation, the Stokes vector of light reflected by glass" }, [](const CliOptions&) { return RunPolarizationTests(); } },
         { { "sss", "subsurface scattering checks" }, [](const CliOptions& o) { return RunSssTests(o); } },
         { { "sssrw", "the BSSRDF against a volumetric random walk on a sphere and thin discs (--sssrw-albedo, --sssrw-g, --sssrw-ell, --sssrw-A)" }, [](const CliOptions& o) { return RunSssRandomWalk(o); } },
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },

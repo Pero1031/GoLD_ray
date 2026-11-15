@@ -42,6 +42,18 @@ namespace rayt {
         bool valid = false;
     };
 
+    /**
+     * @brief The Stokes vector of one camera path (--stokes, docs/POLARIZATION.md).
+     *
+     * The path is followed through its first specular events (smooth glass, water) with Mueller matrices; a diffuse, glossy or
+     * scattering event depolarizes, and everything after it is unpolarized light (the scalar radiance times the first column of the chain).
+     * S[0] is the intensity, S[1] / S[2] the linear and S[3] the circular part, in the basis (right, up) of the image.
+     */
+    struct PathStokes {
+        Vector3 xRef = Vector3(1, 0, 0);   ///< in: the reference direction of the image (the camera's right), world space
+        Spectrum S[4] = { Spectrum(0.0), Spectrum(0.0), Spectrum(0.0), Spectrum(0.0) };
+    };
+
     // Abstract base class for all rendering algorithms.
     class Integrator {
     public:
@@ -109,8 +121,9 @@ namespace rayt {
          *               In/out: a dispersive material drops the secondary wavelengths (pdf = 0),
          *               so pass the same object to SpectrumToRGB afterwards.
          * @param aov    If not null, receives the denoiser features of this path (albedo, normal).
+         * @param stokes If not null, receives the Stokes vector of this path (the returned radiance is the plain scalar one).
          */
-        Spectrum Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov = nullptr) const;
+        Spectrum Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov = nullptr, PathStokes* stokes = nullptr) const;
 
         /// Progressive rendering: render one sample per pixel.
         void renderOnePass(const Scene& scene, Film& film, int sampleIndex);
@@ -130,10 +143,27 @@ namespace rayt {
         /// The photon map traces scattering media: a path's gather and its drop rule treat them like air.
         bool mediaTraced() const;
 
+        /// Polarization of a path (see PathStokes): the chain of Mueller matrices from the camera to the current vertex.
+        struct PolState {
+            bool on = false;                  ///< a Stokes vector is wanted
+            bool done = false;                ///< a depolarizing event has come: the chain stays as it is
+            pol::Mueller T = pol::Mueller::identity();   ///< (camera basis) <- (basis of the light arriving at the last specular vertex)
+            Vector3 xPrev = Vector3(1, 0, 0); ///< x axis of the basis of the ray that arrives at the last specular vertex (the camera's at first)
+            Spectrum S[4] = { Spectrum(0.0), Spectrum(0.0), Spectrum(0.0), Spectrum(0.0) };
+        };
+
         /// Everything that one path carries from vertex to vertex.
         struct PathState {
             Spectrum L = Spectrum(0.0);       ///< accumulated radiance
             Spectrum beta = Spectrum(1.0);    ///< throughput (already divided by the mean of rho, see below)
+            PolState pol;
+
+            /// Adds unpolarized light that arrives at the current vertex (already weighted by beta): to the radiance, and to the Stokes vector
+            /// through the first column of the chain.
+            void add(const Spectrum& v) {
+                L += v;
+                if (pol.on) for (int k = 0; k < 4; ++k) pol.S[k] += v * pol.T.e[k][0];
+            }
 
             // The previous scattering event, for the MIS weight of an emitter that the next ray finds.
             Real lastPdf = 0;
@@ -183,6 +213,9 @@ namespace rayt {
         /// material may return a "subsurface" event instead of a direction: the path then moves to an exit point (probe
         /// rays) and the same two steps run there with the exit lobe, so `rec` can change. Null: the path ends.
         std::optional<BSDFSample> sampleScatter(const Ray& r, const Scene& scene, SurfaceInteraction& rec, const SampledWavelengths& lambda, PathState& st) const;
+
+        /// Extends the polarization chain by the specular event that was just sampled at `rec`, or ends it (a depolarizing event).
+        void updatePolarization(const SurfaceInteraction& rec, const Vector3& wo, const BSDFSample& sample, const SampledWavelengths& lambda, PathState& st) const;
 
         /// Multiplies the throughput by the sample's weight, then Russian roulette; false: the path ends.
         bool updateThroughput(const SurfaceInteraction& rec, const BSDFSample& sample, const Medium* rayMedium, int depth, PathState& st) const;

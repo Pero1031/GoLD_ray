@@ -88,6 +88,7 @@ namespace rayt {
         std::atomic<int> linesCompleted(0);
         const int totalLines = height;
         const bool wantAOVs = film.hasAOVs();
+        const bool wantStokes = film.hasStokes();
         const std::uint64_t renderCall = static_cast<std::uint64_t>(m_renderCalls++);
 
 #pragma omp parallel for schedule(dynamic, 1)
@@ -97,6 +98,7 @@ namespace rayt {
             for (int i = 0; i < width; ++i) {
                 Vector3 pixelColor(0.0);   // linear sRGB
                 Vector3 pixelAlbedo(0.0), pixelNormal(0.0);
+                Vector3 pixelStokes[4] = { Vector3(0.0), Vector3(0.0), Vector3(0.0), Vector3(0.0) };
 
                 for (int s = 0; s < m_spp; ++s) {
                     // Jitter for anti-aliasing
@@ -119,8 +121,12 @@ namespace rayt {
                     if (m_camera->chromatic()) lambda.terminateSecondary();
                     if (camW <= Real(0) && !wantAOVs) continue;   // nothing to trace: the sample adds no light
                     PathAOV aov;
-                    const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr);
+                    PathStokes stokes;
+                    stokes.xRef = m_camera->right();
+                    const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr, wantStokes ? &stokes : nullptr);
                     pixelColor += camW * SpectrumToRGB(Lpath, lambda);
+                    if (wantStokes)
+                        for (int k = 0; k < 4; ++k) pixelStokes[k] += camW * SpectrumToRGB(stokes.S[k], lambda);
                     if (wantAOVs && aov.valid) {
                         pixelAlbedo += aov.albedo;
                         pixelNormal += aov.normal;
@@ -142,6 +148,13 @@ namespace rayt {
                 // Flip vertically and store
                 film.setPixel(i, height - 1 - j, pixelColor);
                 if (wantAOVs) film.setAOV(i, height - 1 - j, pixelAlbedo, pixelNormal);
+                if (wantStokes) {
+                    for (int k = 0; k < 4; ++k) {
+                        pixelStokes[k] /= Real(m_spp);
+                        if (math::hasNonFinite(pixelStokes[k])) pixelStokes[k] = Vector3(0.0);
+                    }
+                    film.setStokes(i, height - 1 - j, pixelStokes);
+                }
             }
 
             // Update the progress when a row is done (thread-safe)
@@ -208,8 +221,14 @@ namespace rayt {
     // The path
     // ------------------------------------------------------------------------------------------------
 
-    Spectrum PathIntegrator::Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov) const {
+    Spectrum PathIntegrator::Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov, PathStokes* stokes) const {
         PathState st;
+        if (stokes) {
+            // The Stokes vectors of the image are expressed in the basis (right, up, toward the viewer) of the camera.
+            st.pol.on = true;
+            const Vector3 k = -r.d;
+            st.pol.xPrev = glm::normalize(stokes->xRef - k * glm::dot(stokes->xRef, k));
+        }
 
         for (int depth = 0; depth < m_maxDepth; ++depth) {
             SurfaceInteraction rec;
@@ -223,7 +242,7 @@ namespace rayt {
                 Real T;
                 scene.splats()->gather(r, hit ? rec.t : constants::INFINITY_VAL, rgb, T);
                 if (T < Real(1)) {
-                    st.L += st.beta * RgbToIlluminantSpectrum(rgb, lambda);
+                    st.add(st.beta * RgbToIlluminantSpectrum(rgb, lambda));
                     if (aov && !aov->valid && T < Real(0.5)) {   // mostly the cloud: its color is the denoiser's albedo
                         aov->albedo = glm::clamp(rgb / std::max(Real(1) - T, Real(1e-3)), Vector3(0.0), Vector3(1.0));
                         aov->valid = true;
@@ -292,11 +311,29 @@ namespace rayt {
             const std::optional<BSDFSample> bsdfSample = sampleScatter(r, scene, rec, lambda, st);
             if (!bsdfSample) break;
             if (!updateThroughput(rec, *bsdfSample, r.medium, depth, st)) break;
+            if (st.pol.on && !st.pol.done) updatePolarization(rec, -r.d, *bsdfSample, lambda, st);
 
             r = nextRay(rec, bsdfSample->wi);
         }
 
+        if (stokes) for (int k = 0; k < 4; ++k) stokes->S[k] = st.pol.S[k];
         return st.L;
+    }
+
+    void PathIntegrator::updatePolarization(const SurfaceInteraction& rec, const Vector3& wo, const BSDFSample& sample,
+        const SampledWavelengths& lambda, PathState& st) const
+    {
+        // Light that leaves a vertex that is not a smooth interface is unpolarized: what the camera sees of it is the first column of the
+        // chain so far (the chain is frozen; later light is added through it by PathState::add).
+        pol::SpecularEvent ev;
+        if (!sample.isSpecular() || !rec.matPtr->specularEvent(rec, wo, sample, lambda, ev)) {
+            st.pol.done = true;
+            return;
+        }
+        // The ray that arrives here travels along wo (toward the camera). Its basis at this vertex is (ev.s, k x ev.s); the chain so far
+        // expects the basis (xPrev, k x xPrev) on the same ray.
+        st.pol.T = st.pol.T * pol::basisChange(ev.s, st.pol.xPrev, wo) * ev.m;
+        st.pol.xPrev = ev.s;
     }
 
     // ------------------------------------------------------------------------------------------------
@@ -378,7 +415,8 @@ namespace rayt {
 
             // A real scattering collision at tNext.
             const Point3 p = r.o + r.d * tNext;
-            if (m_mediaNee) st.L += st.beta * sampleLightsInMedium(scene, p, r.d, med, lambda);
+            if (m_mediaNee) st.add(st.beta * sampleLightsInMedium(scene, p, r.d, med, lambda));
+            st.pol.done = true;   // scattering in a medium depolarizes (as far as this renderer goes)
             const Vector3 dir = med.samplePhase(r.d, Point2(sampling::Random(), sampling::Random()));
             const Real cosScatter = glm::dot(r.d, dir);
             r = Ray(p, dir, Real(0), &med);   // p is inside the medium: nothing to skip (an epsilon would hide nearby surfaces)
@@ -415,7 +453,7 @@ namespace rayt {
         PathAOV* aov, PathState& st) const
     {
         if (!st.hasLastBsdf && scene.hasCameraBackground()) {   // a camera ray that touched nothing: the backdrop
-            st.L += st.beta * RgbToIlluminantSpectrum(scene.cameraBackground(), lambda);
+            st.add(st.beta * RgbToIlluminantSpectrum(scene.cameraBackground(), lambda));
             return;
         }
 
@@ -440,11 +478,11 @@ namespace rayt {
             if (pdfEnv > 0 && st.lastPdf > 0) {
                 w = math::powerHeuristic(st.lastPdf, pdfEnv);
             }
-            st.L += st.beta * envL * w;
+            st.add(st.beta * envL * w);
         }
         else if (!(m_caustics && st.fromReceiver && scene.envLight()->photonCaustics())) {
             // Camera ray or specular path: no MIS (an L S+ D path is left to the caustic photons)
-            st.L += st.beta * envL;
+            st.add(st.beta * envL);
         }
     }
 
@@ -463,10 +501,10 @@ namespace rayt {
             if (pdfLight > 0 && st.lastPdf > 0) {
                 w = math::powerHeuristic(st.lastPdf, pdfLight);
             }
-            st.L += st.beta * Le * w;
+            st.add(st.beta * Le * w);
         }
         else if (!(m_caustics && st.fromReceiver && rec.areaLight && rec.areaLight->photonCaustics())) {
-            st.L += st.beta * Le;
+            st.add(st.beta * Le);
         }
     }
 
@@ -481,11 +519,11 @@ namespace rayt {
         for (int stage = 0; ; ++stage) {
             // ========== Next Event Estimation (NEE) ==========
             if (!rec.matPtr->isSpecular()) {
-                st.L += st.beta * sampleAllLights(scene, rec, -r.d, lambda);
+                st.add(st.beta * sampleAllLights(scene, rec, -r.d, lambda));
                 // Caustic light (L S+ D) at this vertex from the photon map (not inside a scattering medium: no photons there)
-                if (m_caustics && photonsAllowedIn(r.medium, mediaTraced()) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.L += st.beta * m_caustics->radiance(rec, -r.d, lambda);
+                if (m_caustics && photonsAllowedIn(r.medium, mediaTraced()) && !(m_skipDirectCaustics && !st.hasLastBsdf)) st.add(st.beta * m_caustics->radiance(rec, -r.d, lambda));
                 // The same caustic of point lights, solved exactly through a flat-faced glass body (manifold NEE)
-                if (m_specularNee && !r.medium) st.L += st.beta * m_specularNee->sample(scene, rec, -r.d, lambda);
+                if (m_specularNee && !r.medium) st.add(st.beta * m_specularNee->sample(scene, rec, -r.d, lambda));
             }
 
             // ========== BSDF Sampling for Next Path Vertex ==========

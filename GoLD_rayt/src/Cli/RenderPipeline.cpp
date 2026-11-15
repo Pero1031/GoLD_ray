@@ -10,6 +10,9 @@
 #include "Render/SpecularNee.hpp"
 #include "Render/VolumeBPT.hpp"
 
+#include <algorithm>
+#include <sstream>
+
 namespace rayt::cli {
 
 namespace {
@@ -262,6 +265,7 @@ int RenderScene(CliOptions& opt) {
     // ---- the integrator ----
     Film film(imageWidth, imageHeight);
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
+    if (opt.stokes) film.enableStokes();             // --stokes / --polarizer: the Stokes vector of every pixel (docs/POLARIZATION.md)
 
     // the scene's default path depth, unless --depth was given
     if (def->defaultMaxDepth > 0 && opt.maxDepth == MAX_DEPTH) opt.maxDepth = def->defaultMaxDepth;
@@ -351,6 +355,23 @@ int RenderScene(CliOptions& opt) {
         const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);
         film.saveNormal(outStem + "_normal" + aovExt);
+    }
+    if (opt.stokes) {
+        film.saveStokes(outStem);
+        film.saveLinearPolarization(outStem);
+        for (const Real angle : opt.polarizers) {
+            Film filtered(imageWidth, imageHeight);
+            filtered.setOutputGamut(gamut);
+            filtered.setPng16(opt.pngBits == 16);
+            film.polarizerImage(angle, filtered);
+            std::ostringstream name;
+            name << outStem << "_pol" << angle;
+            std::string stem = name.str();
+            std::replace(stem.begin() + static_cast<std::ptrdiff_t>(outStem.size()), stem.end(), '.', 'p');   // 22.5 -> 22p5: keeps the extension clear
+            filtered.save(stem + outExt);
+        }
+        if (opt.lvc || causticOn)
+            std::cout << "[Polarization] note: the caustic photons and the light-traced image are added without polarization" << std::endl;
     }
     if (opt.denoise) {
         Film denoised(imageWidth, imageHeight);

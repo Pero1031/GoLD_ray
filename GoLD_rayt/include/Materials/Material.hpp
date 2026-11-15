@@ -20,6 +20,7 @@
 #include "Core/Interaction.hpp"
 #include "Core/Ray.hpp"
 #include "Core/SampledWavelengths.hpp"
+#include "Core/Polarization.hpp"
 
 namespace rayt {
 
@@ -230,6 +231,16 @@ namespace rayt {
          *        normal rec.n here (the geometric normal rec.gn stays). `wo` points to the viewer. The default does nothing.
          */
         virtual void perturbShading(SurfaceInteraction& /*rec*/, const Vector3& /*wo*/) const {}
+
+        /**
+         * @brief Polarization of a specular event this material has just sampled (docs/POLARIZATION.md).
+         *
+         * Called when a polarized render follows the path (--stokes). `s` is the sample sample() returned for `wo`. A material that knows what
+         * the event does to the polarization fills `out` (the Mueller matrix without its first element, and the axis perpendicular to the plane
+         * of incidence) and returns true. The default returns false: the event is then treated as depolarizing, like a diffuse bounce.
+         */
+        virtual bool specularEvent(const SurfaceInteraction& /*rec*/, const Vector3& /*wo*/, const BSDFSample& /*s*/,
+            const SampledWavelengths& /*lambda*/, pol::SpecularEvent& /*out*/) const { return false; }
 
         /**
          * @brief Returns the emitted radiance for area lights.

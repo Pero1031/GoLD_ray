@@ -171,6 +171,19 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--studio-look") o.studioLook = value("--studio-look");
             else if (a == "--aov") o.aov = true;
             else if (a == "--denoise") o.denoise = true;
+            else if (a == "--stokes") o.stokes = true;
+            else if (a == "--polarizer") {
+                const std::string list = value("--polarizer");
+                size_t pos = 0;
+                while (pos <= list.size()) {
+                    const size_t comma = list.find(',', pos);
+                    const std::string item = list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                    if (!item.empty()) o.polarizers.push_back(std::stod(item));
+                    if (comma == std::string::npos) break;
+                    pos = comma + 1;
+                }
+                o.stokes = true;
+            }
             else if (a == "--clean-aux") o.cleanAux = true;
             else if (a == "--gamut") o.gamut = value("--gamut");
             else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));

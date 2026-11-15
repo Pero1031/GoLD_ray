@@ -101,6 +101,78 @@ namespace rayt {
         m_normal.assign(n, Vector3(0.0));
     }
 
+    void Film::enableStokes() {
+        const size_t n = static_cast<size_t>(m_width) * static_cast<size_t>(m_height);
+        for (auto& b : m_stokes) b.assign(n, Vector3(0.0));
+    }
+
+    void Film::setStokes(int x, int y, const Vector3 s[4]) {
+        if (!hasStokes() || x < 0 || x >= m_width || y < 0 || y >= m_height) return;
+        const size_t i = static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x);
+        for (int k = 0; k < 4; ++k) m_stokes[k][i] = s[k];
+    }
+
+    void Film::saveStokes(const std::string& stem) const {
+        if (!hasStokes()) return;
+        for (int k = 0; k < 4; ++k) {
+            const std::string filename = stem + "_S" + std::to_string(k) + ".pfm";
+            std::vector<float> pfmData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
+            for (int y = 0; y < m_height; ++y)
+                for (int x = 0; x < m_width; ++x) {
+                    const Vector3& p = m_stokes[k][static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)];
+                    const size_t o = (static_cast<size_t>(m_height - 1 - y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)) * 3;
+                    for (int c = 0; c < 3; ++c) pfmData[o + c] = math::hasNonFinite(p[c]) ? 0.0f : static_cast<float>(p[c]);
+                }
+            std::ofstream f(filename, std::ios::binary);
+            f << "PF\n" << m_width << " " << m_height << "\n-1.0\n";
+            f.write(reinterpret_cast<const char*>(pfmData.data()), static_cast<std::streamsize>(pfmData.size() * sizeof(float)));
+            std::cout << "[Film] Saved Stokes image: " << filename << std::endl;
+        }
+    }
+
+    void Film::polarizerImage(Real angleDeg, Film& out) const {
+        if (!hasStokes() || out.m_width != m_width || out.m_height != m_height) return;
+        const Real a = angleDeg * constants::PI / Real(180);
+        const Real c2 = std::cos(Real(2) * a), s2 = std::sin(Real(2) * a);
+        for (int y = 0; y < m_height; ++y)
+            for (int x = 0; x < m_width; ++x) {
+                const size_t i = static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x);
+                out.m_pixels[i] = Real(0.5) * (m_stokes[0][i] + m_stokes[1][i] * c2 + m_stokes[2][i] * s2);
+            }
+    }
+
+    void Film::saveLinearPolarization(const std::string& stem) const {
+        if (!hasStokes()) return;
+        const size_t n = static_cast<size_t>(m_width) * static_cast<size_t>(m_height);
+        std::vector<Vector3> dolp(n), aolp(n);
+        auto luma = [](const Vector3& c) { return Real(0.2126) * c.x + Real(0.7152) * c.y + Real(0.0722) * c.z; };
+        for (size_t i = 0; i < n; ++i) {
+            const Real s0 = luma(m_stokes[0][i]), s1 = luma(m_stokes[1][i]), s2 = luma(m_stokes[2][i]);
+            const Real d = s0 > Real(1e-6) ? std::min(Real(1), std::sqrt(s1 * s1 + s2 * s2) / s0) : Real(0);
+            dolp[i] = Vector3(d);
+            // Hue = angle of polarization (0 .. 180 degrees round the color wheel), value = degree.
+            const Real angle = Real(0.5) * std::atan2(s2, s1);          // -90 .. 90 degrees
+            Real h = angle / constants::PI + Real(0.5);                  // 0 .. 1
+            if (h >= Real(1)) h = Real(0);
+            const Real hh = h * Real(6);
+            const int sector = std::min(5, static_cast<int>(hh));
+            const Real f = hh - Real(sector);
+            const Real v = d, p = 0, q = v * (Real(1) - f), t = v * f;
+            Vector3 rgb;
+            switch (sector) {
+            case 0: rgb = Vector3(v, t, p); break;
+            case 1: rgb = Vector3(q, v, p); break;
+            case 2: rgb = Vector3(p, v, t); break;
+            case 3: rgb = Vector3(p, q, v); break;
+            case 4: rgb = Vector3(t, p, v); break;
+            default: rgb = Vector3(v, p, q); break;
+            }
+            aolp[i] = rgb;
+        }
+        saveBuffer(stem + "_dolp.png", dolp, /*encodeSrgb=*/false, /*remapSigned=*/false);
+        saveBuffer(stem + "_aolp.png", aolp, /*encodeSrgb=*/false, /*remapSigned=*/false);
+    }
+
     void Film::setAOV(int x, int y, const Vector3& albedo, const Vector3& normal) {
         if (!hasAOVs() || x < 0 || x >= m_width || y < 0 || y >= m_height) {
             return;

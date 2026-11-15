@@ -43,6 +43,11 @@ int RunAovTests();
 int RunThinFilmTests();
 
 // -----------------------------------------------------------------------------
+// Polarization tests (--scene polarization): Fresnel amplitudes, Mueller chain against field propagation, Stokes vector of reflected rays
+// -----------------------------------------------------------------------------
+int RunPolarizationTests();
+
+// -----------------------------------------------------------------------------
 // Dispersion tests (--scene dispersion): the Sellmeier presets (n_d, Abbe number) and a diamond ball in a white furnace
 // -----------------------------------------------------------------------------
 int RunDispersionTests();

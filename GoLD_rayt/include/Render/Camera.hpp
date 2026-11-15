@@ -345,6 +345,8 @@ namespace rayt {
 
         // Accessors
         const Point3& origin() const { return m_origin; }
+        /// The image's horizontal axis (to the right) in world space: the reference direction of the Stokes vectors (Core/Polarization.hpp).
+        const Vector3& right() const { return m_u; }
         const Medium* medium() const { return m_medium; }
 
     private:

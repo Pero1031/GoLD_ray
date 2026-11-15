@@ -159,6 +159,8 @@ struct CliOptions {
     std::string studioLook = "default";    // --studio-look default|warm|cool|dramatic|soft : lighting of --pmx-studio
     bool aov = false;                      // --aov : also write <out>_albedo.png and <out>_normal.png (denoiser features)
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
+    bool stokes = false;                   // --stokes : also write the Stokes images <out>_S0..S3.pfm and the degree / angle of linear polarization (docs/POLARIZATION.md)
+    std::vector<Real> polarizers;          // --polarizer A[,A2..] : a linear polarizer at A degrees in front of the camera: <out>_pol<A>.* (implies --stokes)
     std::string gamut = "srgb";            // --gamut srgb|p3|rec2020 : primaries of the written image / .pfm / .hdr (the film stays linear sRGB)
     Real fogPrismDeg = 21.0;               // --fog-prism-deg : rotation of the prism in the fogbeam scene (degrees)
     Real fogFill = 0.4;                    // --fog-fill : intensity of the faint fill light in the fogbeam scene (0 = none)

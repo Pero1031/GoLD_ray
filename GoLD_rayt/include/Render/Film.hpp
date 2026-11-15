@@ -96,6 +96,25 @@ namespace rayt {
         /// .hdr: floats in [-1,1]; .png/.bmp/.jpg: remapped to [0,1] (n * 0.5 + 0.5), no encoding.
         void saveNormal(const std::string& filename) const;
 
+        // ---- Polarization (--stokes, docs/POLARIZATION.md) -----------------------------------------
+        // The Stokes vector of every pixel, S0..S3, each an RGB value (linear sRGB, averaged over the pixel's samples). Off by default.
+
+        void enableStokes();
+        bool hasStokes() const { return !m_stokes[0].empty(); }
+
+        /// Overwrites the Stokes vector of a pixel (s[k] = S_k as RGB).
+        void setStokes(int x, int y, const Vector3 s[4]);
+
+        /// S0..S3 as raw float images <stem>_S0.pfm ... <stem>_S3.pfm (signed values, linear sRGB).
+        void saveStokes(const std::string& stem) const;
+
+        /// The image seen through a linear polarizer at `angleDeg` in front of the camera (0 = horizontal, counter-clockwise on the picture):
+        /// 1/2 (S0 + S1 cos 2a + S2 sin 2a), written to the pixels of `out` (same size).
+        void polarizerImage(Real angleDeg, Film& out) const;
+
+        /// The degree (<stem>_dolp.png, gray) and the angle (<stem>_aolp.png, hue = angle, brightness = degree) of linear polarization.
+        void saveLinearPolarization(const std::string& stem) const;
+
         /**
          * @brief Returns the width of the film in pixels.
          */
@@ -139,6 +158,7 @@ namespace rayt {
 
         std::vector<Vector3> m_albedo;   ///< empty unless enableAOVs() was called
         std::vector<Vector3> m_normal;
+        std::vector<Vector3> m_stokes[4];   ///< empty unless enableStokes() was called
 
         /// Writes an AOV buffer; `encodeSrgb` for color, `remapSigned` for normals (see saveAlbedo / saveNormal).
         void saveBuffer(const std::string& filename, const std::vector<Vector3>& data,

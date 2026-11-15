@@ -46,6 +46,8 @@ void PrintHelp(std::ostream& out) {
         << "  --cam-velocity x,y,z   the camera moves with this velocity (m/s) during the exposure      --pan YAW[,PITCH]   it turns (degrees per second; right / up)\n"
         << "  --env FILE        environment map (.hdr)     --light d65|tungsten|candle|led   light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
+        << "  --stokes          polarization: Stokes images <out>_S0..S3.pfm, degree / angle of linear polarization (smooth glass and water; docs/POLARIZATION.md)\n"
+        << "  --polarizer A[,A2]   a linear polarizer at A degrees in front of the camera (0 = horizontal): <out>_pol<A>.*   (implies --stokes)\n"
         << "  --caustic-trace   with --caustics: light tracing of the caustics on surfaces the camera sees directly (sharp edges, no radius)\n"
         << "  --fog-sigma S, --fog-light I, --fog-fill F, --fog-prism-deg D   fogbeam scene: extinction of the fog (1/m, default 1.5), intensity of the lamp (60) and of a faint fill light (0.4), rotation of the prism\n"
         << "  --lvc [--lvc-paths N --lvc-depth D --lvc-mask M]   fogspot scene: bidirectional path tracing with a cache of light paths (prototype)   --spot-deg A\n"
