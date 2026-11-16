@@ -1,11 +1,11 @@
 /**
  * @file Render/VolumeBPT.hpp
- * @brief PROTOTYPE: bidirectional path tracing in a gray homogeneous fog and on gray diffuse surfaces, with a cache of light sub-paths
- *        (the idea of LVC-BPT).
+ * @brief PROTOTYPE: bidirectional path tracing in a gray homogeneous fog, on gray diffuse surfaces and through smooth glass, with a cache of
+ *        light sub-paths (the idea of LVC-BPT).
  *
  * Scope. One point light (isotropic, or a spot: a cone), a ball of gray homogeneous medium bounded by a null interface (the fog), a pinhole
- * camera, both outside the ball, and any number of other surfaces, all Lambertian with the same gray albedo (VolumeBptParams::surfaceAlbedo).
- * Surfaces may lie inside the fog, outside it, or cross its boundary; they occlude. No glass: a specular vertex cannot be connected.
+ * camera, both outside the ball, and any number of other surfaces: Lambertian with the same gray albedo (VolumeBptParams::surfaceAlbedo), or
+ * smooth glass (see "Glass" below). Surfaces may lie inside the fog, outside it, or cross its boundary; they occlude.
  *
  * The cache. Light sub-paths are traced first, N of them, and their vertices (scattering points in the fog and points on surfaces) are kept.
  * A camera sample then draws one cached light path at random and connects every vertex of its own path to every vertex of that light path.
@@ -56,6 +56,10 @@
  * radius (a hash grid over the cache): p = pdfF[1..k] pdfC[k..n] * (area of the disc on a surface, volume of the ball in the fog), the count is
  * spp * N, and they enter the same balance-heuristic sum D. Biased by the blur for a fixed radius; the radius shrinks with the pass index
  * (r_i = r_1 sqrt(i^(alpha - 1))), each pass having its own light paths, so it is consistent (docs/LVC_BPT.md, "Vertex merging").
+ *
+ * Manifold connections (setManifold, Speierer et al. 2018). When the segment between a camera vertex and the light, or a vertex of the cached
+ * light path, is blocked by a flat-faced glass body of the solver, the two refractions through it are solved and the vertices are connected
+ * through them; a path with such a chain weighs the strategy only if the solver finds exactly its chain (docs/LVC_BPT.md, "Manifold connections").
  *
  * Not handled: rough dielectrics, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that
  * sees itself (the lamp is not a surface). Spectral mode: the medium, the surfaces and the glass are gray, so each sample carries its own

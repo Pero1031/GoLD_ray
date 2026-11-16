@@ -1,14 +1,15 @@
 # LVC-BPT (bidirectional path tracing with a light vertex cache): a prototype
 
-A prototype that renders light shafts and caustics in fog (kiri), on diffuse surfaces and in glass (with dispersion) faster than path tracing (in the same time, the variance of the noise is 10 to 60 times smaller) (2026-11-08). The implementation is `GoLD_rayt/include/Render/VolumeBPT.hpp` (header only). The design learned from the talk at Ray Tracing Camp 10 (listed in the [references](REFERENCES.md)) was rebuilt in this CPU engine.
+A prototype that renders light shafts and caustics in fog (kiri), on diffuse surfaces and in glass (with dispersion) faster than path tracing (in the same time, the variance of the noise is 10 to 280 times smaller in the beams and the haze, section 8) (2026-11-08). Vertex merging and manifold connections, for the paths that no connection can make, were added on 2026-11-16 (sections 8b, 8c). The implementation is `GoLD_rayt/include/Render/VolumeBPT.hpp` (header only). The design learned from the talk at Ray Tracing Camp 10 (listed in the [references](REFERENCES.md)) was rebuilt in this CPU engine.
 
 ## 0. Summary
 
 - **N light paths are traced first and their vertices are stored** (Light Vertex Cache). The camera paths are connected to those vertices.
 - There are three connection strategies: **NEE, connection to a light vertex, and light tracing**. Every path is weighted by the **balance heuristic MIS** from the probability densities of all strategies.
+- Two optional strategies make the paths that no connection can make, and join the same MIS sum: **vertex merging** (section 8b) and **manifold connections** through a flat-faced glass body (section 8c).
 - **This is not a technique for making the GPU faster.** It is a sampling method that combines the strengths of the light side and the camera side. In the talk (GPU), it appears as a form that keeps the state small and reduces branching (the light vertices are stored in an array). On the CPU here, the advantage of reusing light paths for many camera paths works as it is.
 - Glass is put into the sub-paths as a "vertex that cannot be connected". For dispersion, **the wavelength is fixed to one per render pass**.
-- Verification is `--scene lvc` (agreement with PT and with the light tracing of photons).
+- Verification is `--scene lvc` (agreement with PT and with the light tracing of photons) and `--scene lvcmanifold` (the manifold connections).
 
 ![The same render of about 9 seconds. Top: PT + light tracing of photons, bottom: this prototype (dispersive prism)](img/lvc_equal_time_prism.png)
 
@@ -38,6 +39,8 @@ Let the probability density of each strategy be `p_s(x)` and its number of sampl
 4. In the light-tracing-only case, the vertices are not stored (memory ran out at 50 million light paths).
 
 Note: because the light paths are shared, the noise is correlated between pixels (bands and mottling).
+
+Difference from the paper that named the cache (Davidovič et al. 2014): there, each camera vertex is connected to a fixed number of vertices drawn uniformly from the whole cache, and the weights are computed recursively, so the cache needs no record of which path a vertex came from. Here a whole light path is drawn and all of its vertices are connected, as in the earlier GPU bidirectional path tracer of Novák et al. 2010. The cache keeps its paths because the weights are computed from the whole path (section 2) and a merged path is rebuilt from its light path (section 8b).
 
 ## 4. Densities and contributions (fog and diffuse surfaces)
 
@@ -107,6 +110,7 @@ A path with only one connectable vertex, such as the floor under a glass ball th
 - **Implementation**: a hash grid over the cached non-specular vertices (cell `2r`, rebuilt every pass), a range query at every non-specular camera vertex, and the path rebuilt as `z_1..z_{k−1}, y_t, y_{t−1}..y_1` (the light vertex is replaced by the camera vertex, its edge keeps the recorded transmittance). The same `pathContribution` evaluates it with `sActual = k`.
 - **Switch**: `--lvc-merge R` (scene units; 0 = off, the default) and bit 8 of `--lvc-mask` (default mask 15).
 - **Checks** (`--scene lvc`): the fog and the fog with a floor (no glass) with merging, the glass ball in fog (light-side glass, merging at fog vertices, also dispersive), a directly lit floor seen through a glass ball (camera-side glass, no caustic: next event estimation, merging and path tracing agree), and the caustic of a ball on a floor seen through the ball (the one case no connection can make; the reference is path tracing with the photon map).
+- **Known gap (unresolved)**: in the last check (glass at both ends of the path), the merged picture is 10 to 40 % brighter than the reference over the ball, and the ratio does not change with the merging radius; each end alone agrees (glass on the light side: the glass ball in fog; on the camera side: the floor seen through the ball). Only merging can make that path, so its weight is exactly 1 and the estimate is the plain photon-map estimate: the conventions of the weights cannot cause it. Either the camera side of the merging through glass, or the reference, is wrong. The reference gathers with a cone filter of a fixed radius (it does not follow `--lvc-merge`), and the floor lies at the paraxial focal distance of the ball, where the result depends strongly on the shape of the kernel; this is a candidate, not a finding. The check asserts only a loose bound.
 - **Cost**: a camera vertex inside a dense caustic merges thousands of light vertices, each one rebuilding the path and its weights (`O(n)` per pair): about 15 to 20 times the time of the connections alone in the ball-on-a-floor check. The recursive weights of VCM (stored per vertex) would remove that.
 
 ## 8c. Manifold connections (two refractions through a flat-faced body)
@@ -135,9 +139,10 @@ GoLD_rayt.exe --scene fogspot --spot-prism --abbe 6 --spot-deg 1.4 --width 1280 
 # A gem (about 11 minutes)
 GoLD_rayt.exe --scene caustics --gal-object gem --abbe 9 --width 1000 --lvc --lvc-passes 64 --lvc-depth 16 --spp 512 --lvc-paths 400000000 --gal-dist 0.8 --gal-scale 1.4 --gal-light 8 --gal-albedo 0.08 --gal-spread 8 --gal-look 0.02,0.02,-0.015 --gal-fov 9 --denoise
 
-# Self-check
+# Self-checks (about 20 minutes, and 2.5 minutes at --spp 32)
 GoLD_rayt.exe --scene lvc
+GoLD_rayt.exe --scene lvcmanifold --spp 32
 ```
 
-- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of wavelength passes (64 to 128 for dispersive glass). `--lvc-mask M`: strategies (1 = NEE, 2 = connection, 4 = light tracing, 8 = vertex merging, which needs `--lvc-merge R`).
+- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of wavelength passes (64 to 128 for dispersive glass). `--lvc-mask M`: strategies, the sum of 1 = NEE, 2 = connection, 4 = light tracing, 8 = vertex merging (needs `--lvc-merge R`), 16 = manifold NEE, 32 = manifold connections (16 and 32 need a scene that lists its flat-faced glass bodies, such as `--scene fogspot --spot-prism`); the default is 15. With `--scene lvc`, the masks 1016, 1017 and 1018 run only one case of the check (the caustic seen through the ball, the floor seen through the ball, the caustic seen directly).
 - The render time is decided almost by "the number of light paths" (about 0.3 to 1 microsecond per path, 8 threads).
