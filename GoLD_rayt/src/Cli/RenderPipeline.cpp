@@ -8,6 +8,7 @@
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
 #include "Render/Diffraction.hpp"
+#include "Render/LensSystem.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/SpecularNee.hpp"
@@ -24,6 +25,8 @@ namespace {
 struct ResolvedLens {
     Real orthoHeight = 0;     // > 0: the orthographic view, this high (scene units)
     Real diffraction = 0;     // > 0: diffraction at the aperture, the pattern this many times its real size
+    std::string lensFile;     // a real lens instead of the thin one ("" = none)
+    bool fStopGiven = false;  // an f-number was asked for ("fStop", --fstop), not only a lens diameter
     Real fovDeg = 35;
     Real focalLengthMm = 0;
     Real fStop = 0;           // 0: a pinhole
@@ -87,6 +90,8 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
     r.orthoHeight = s.orthoHeight.value_or(Real(0));
     r.diffraction = s.diffraction.value_or(Real(0));
+    r.lensFile = s.lensFile.value_or(std::string());
+    r.fStopGiven = s.fStop.has_value() && *s.fStop > 0;
     r.shutter = s.shutter.value_or(Real(0));
     r.velocity = s.velocity.value_or(Vector3(0.0));
     r.panYaw = s.panYawRate.value_or(Real(0));
@@ -116,6 +121,72 @@ bool ResolveMaskMaterials(const CliOptions& opt, const SceneSetup& setup, std::v
     return true;
 }
 
+// Diffraction at an aperture of f-number N (--diffraction): the pattern's setup, and a line on its size.
+DiffractionSetup MakeDiffraction(const ResolvedLens& lens, Real fNumber, int imageWidth, int imageHeight) {
+    DiffractionSetup d;
+    d.fNumber = fNumber;
+    d.blades = lens.blades;
+    d.bladeRotation = lens.bladeRotationDeg * constants::DEG_TO_RAD;
+    d.pixelPitch = Real(0.036) / Real(std::max(imageWidth, imageHeight));   // the 35 mm convention: 36 mm over the long side
+    d.scale = lens.diffraction;
+    d.radius = std::min(255, std::max(imageWidth, imageHeight));
+    std::cout << "[Camera] diffraction at the aperture (f/" << fNumber << ", " << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round"))
+        << "): Airy radius 1.22 lambda N = " << 1.22 * 0.55 * fNumber << " um at 550 nm, pixel " << d.pixelPitch * 1e6 << " um";
+    if (lens.diffraction > 1) std::cout << ", the pattern enlarged " << lens.diffraction << " times";
+    else std::cout << " (real size)";
+    std::cout << "\n";
+    return d;
+}
+
+// A real lens (--lens, camera "lens"): its prescription, the stop closed to the f-number asked for, focused on the focus distance (from the
+// front principal plane, which sits at the camera position), the film of the 35 mm convention. Its field of view comes from the lens and the film.
+std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup& setup, const ResolvedLens& lens, int imageWidth, int imageHeight,
+    bool lightTracing, std::optional<DiffractionSetup>& diffraction) {
+    if (lens.orthoHeight > 0) { std::cerr << "[Camera] --lens and --ortho exclude each other\n"; return nullptr; }
+    if (lightTracing) {
+        std::cerr << "[Camera] a real lens (--lens) cannot be used with light tracing (--caustic-trace, --lvc, or a scene that light-traces its caustics):"
+            " it weighs its paths for a pinhole camera\n";
+        return nullptr;
+    }
+    std::string error;
+    const auto system = LensSystem::load(lens.lensFile, error);
+    if (!system) { std::cerr << "[Lens] " << error << "\n"; return nullptr; }
+    const double aspect = double(imageWidth) / imageHeight;
+    const Real filmW = aspect >= 1 ? Real(0.036) : Real(0.036 * aspect), filmH = aspect >= 1 ? Real(0.036 / aspect) : Real(0.036);
+    const Real wideOpen = system->wideOpenFNumber();
+    const Real fNumber = lens.fStopGiven ? system->setFNumber(lens.fStop) : wideOpen;
+    system->setStopShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
+    const bool focused = system->focus(lens.focusDist);
+    system->prepare(filmW, filmH);
+
+    auto camera = std::make_shared<Camera>(setup.camera.from, setup.camera.at, setup.camera.up, lens.fovDeg, aspect, Real(0), lens.focusDist);
+    camera->setLensSystem(system);
+    camera->setShutter(lens.shutter);
+    camera->setMotion(lens.velocity, lens.panYaw, lens.panPitch);
+
+    const Real f = system->focalLength();
+    std::cout << "[Lens] " << lens.lensFile << ": " << system->surfaces().size() << " surfaces, focal length " << f * 1000 << " mm, f/" << fNumber
+        << " (wide open f/" << wideOpen << ")" << (lens.blades >= 3 ? ", " + std::to_string(lens.blades) + " blades" : std::string())
+        << "; film " << filmW * 1000 << " x " << filmH * 1000 << " mm, paraxial field of view " << 2 * std::atan(filmW / (2 * f)) * constants::RAD_TO_DEG
+        << " x " << 2 * std::atan(filmH / (2 * f)) * constants::RAD_TO_DEG << " deg; focused at " << lens.focusDist << " m, the film "
+        << (system->surfaces().back().z - system->filmZ()) * 1000 << " mm behind the rear vertex\n";
+    if (lens.fStopGiven && lens.fStop < wideOpen * Real(0.999)) std::cout << "[Lens] note: the lens opens no wider than f/" << wideOpen << "\n";
+    if (!focused) std::cout << "[Lens] warning: the focus distance is not beyond the focal length: focused at infinity\n";
+    if (lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0 || lens.axialCA != 0 || lens.barrelRadius > 0 || lens.naturalVignetting > 0)
+        std::cout << "[Lens] note: a real lens has its own distortion, chromatic aberration and vignetting: those settings are not used\n";
+    if (opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) std::cout << "[Lens] note: the focal length is the lens's own; \"focalLength\" / --focal-length is not used\n";
+    const bool hasAbbe = std::any_of(system->surfaces().begin(), system->surfaces().end(), [](const LensSystem::Surface& s) { return s.abbe > 0 && s.nd > 1; });
+#if defined(RAYT_SPECTRAL_MODE)
+    if (system->dispersive()) std::cout << "[Lens] dispersive glass: every wavelength takes its own path (chromatic aberration; one wavelength per path)\n";
+    else std::cout << "[Lens] note: the file gives no Abbe numbers: the glass is not dispersive\n";
+#else
+    if (hasAbbe) std::cout << "[Lens] note: the glass is dispersive, but the RGB build traces n_d only (use the spectral build for chromatic aberration)\n";
+#endif
+    (void)hasAbbe;
+    if (lens.diffraction > 0) diffraction = MakeDiffraction(lens, fNumber, imageWidth, imageHeight);
+    return camera;
+}
+
 // The camera of the scene with the lens of the command line, and the notes on what the chosen render mode does not show of it.
 // lightTracing: light paths are connected to a pinhole camera (--caustic-trace, --lvc); lvcCamera: --lvc renders the picture.
 // diffraction: set when the lens asks for diffraction at the aperture (applied to the pictures when they are written).
@@ -126,6 +197,7 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
     const Vector3 vUp = setup.camera.up;
 
     const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
+    if (!lens.lensFile.empty()) return BuildLensCamera(opt, setup, lens, imageWidth, imageHeight, lightTracing, diffraction);
     if (lens.orthoHeight > 0) {
         if (lightTracing) {
             std::cerr << "[Camera] the orthographic view cannot be used with light tracing (--caustic-trace, --lvc, or a scene that light-traces its caustics):"
@@ -201,19 +273,7 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
             std::cerr << "[Camera] --diffraction needs an aperture (--fstop, \"fStop\"): a pinhole has no diffraction pattern of finite size\n";
             return nullptr;
         }
-        DiffractionSetup d;
-        d.fNumber = lens.fStop;
-        d.blades = lens.blades;
-        d.bladeRotation = lens.bladeRotationDeg * constants::DEG_TO_RAD;
-        d.pixelPitch = Real(0.036) / Real(std::max(imageWidth, imageHeight));   // the 35 mm convention: 36 mm over the long side
-        d.scale = lens.diffraction;
-        d.radius = std::min(255, std::max(imageWidth, imageHeight));
-        diffraction = d;
-        std::cout << "[Camera] diffraction at the aperture (f/" << lens.fStop << ", " << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round"))
-            << "): Airy radius 1.22 lambda N = " << 1.22 * 0.55 * lens.fStop << " um at 550 nm, pixel " << d.pixelPitch * 1e6 << " um";
-        if (lens.diffraction > 1) std::cout << ", the pattern enlarged " << lens.diffraction << " times";
-        else std::cout << " (real size)";
-        std::cout << "\n";
+        diffraction = MakeDiffraction(lens, lens.fStop, imageWidth, imageHeight);
     }
     return camera;
 }

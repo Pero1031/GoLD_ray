@@ -1,0 +1,7 @@
+# An uncorrected singlet: an equiconvex N-BK7 lens (n_d 1.5168, V_d 64.17, the Schott catalogue values), 5 mm thick, 30 mm across,
+# with a 25 mm stop 2 mm in front of it. Focal length 100.8 mm by the thick-lens formula. Designed for this renderer to show what a
+# single lens does: spherical aberration, field curvature and, in the spectral build, axial and lateral chromatic aberration.
+# radius (mm)  thickness (mm)  n_d  clear diameter (mm)  [Abbe number]
+0          2.0    0         25.0
+103.36     5.0    1.5168    30.0    64.17
+-103.36    0      1         30.0

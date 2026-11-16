@@ -287,6 +287,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--seed N` | the same picture again, noise included (path tracing). Without it every run draws a new seed and prints it |
 | `--focal-length MM`, `--fstop N`, `--focus-dist D`, `--blades N` | the lens (`--help` lists the aberration and vignetting options) |
+| `--lens FILE` | a real lens traced surface by surface (`assets/Lenses/`: double-Gauss 50 mm, wide-angle 22 mm, fisheye 10 mm, a singlet) |
 | `--ortho H` | an orthographic view H high: parallel rays, sizes independent of the distance |
 | `--diffraction S` | diffraction at the aperture: the star of bright points (1 = the real size, S > 1 enlarged) |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |

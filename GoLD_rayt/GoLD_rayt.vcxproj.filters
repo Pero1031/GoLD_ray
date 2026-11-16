@@ -78,6 +78,12 @@
     <ClCompile Include="src\Render\Diffraction.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Render\LensSystem.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClInclude Include="include\Render\LensSystem.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Render\Diffraction.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

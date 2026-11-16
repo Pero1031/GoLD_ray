@@ -1,6 +1,6 @@
 ﻿/**
  * @file include/Render/Camera.hpp
- * @brief The camera: a perspective or orthographic view, a thin lens (defocus, polygonal aperture), aberrations (radial distortion, lateral / axial chromatic aberration),
+ * @brief The camera: a perspective or orthographic view, a real lens traced surface by surface (Render/LensSystem.hpp) or a thin lens (defocus, polygonal aperture), aberrations (radial distortion, lateral / axial chromatic aberration),
  * vignetting (lens barrel, cos^4) and an exposure time (motion blur of the camera and the objects). docs/CAMERA.md
  */
 
@@ -8,11 +8,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include "Core/Core.hpp"
 #include "Core/Ray.hpp"
 #include "Core/Math.hpp"
 #include "Core/Sampling.hpp"
+#include "Render/LensSystem.hpp"
 
 namespace rayt {
 
@@ -135,6 +137,9 @@ namespace rayt {
                 return at.generateRay(cs, weight);   // the same time again
             }
 
+            // --- a real lens (setLensSystem): the ray is traced through its surfaces from the film ---
+            if (m_lensSystem) return lensRay(cs, time, weight);
+
             // --- the chief ray of the film sample: from the lens centre to the point of the focal plane it looks at ---
             Point3 chief, target;
             chiefRay(cs.pFilm.x, cs.pFilm.y, cs.lambdaNm, chief, target);
@@ -205,6 +210,12 @@ namespace rayt {
          * The pinhole view of the camera (the distortion included, no defocus, no motion): what a pixel sees as geometry, e.g. its depth.
          */
         Ray centerRay(Real s, Real t) const {
+            if (m_lensSystem) {
+                Point3 o(0.0);
+                Vector3 d(0, 0, 1);
+                m_lensSystem->centralRay(filmX(s), filmY(t), o, d);
+                return lensToWorld(o, d, m_shutterOpen);
+            }
             Point3 chief, target;
             chiefRay(s, t, kReferenceWavelengthNm, chief, target);
             Ray r(chief, glm::normalize(target - chief), constants::RAY_EPSILON, m_medium);
@@ -237,7 +248,7 @@ namespace rayt {
          *         the only user, weighs its paths for a pinhole).
          */
         bool project(const Point3& p, Real& s, Real& t, Real& cosCam, Real& dist) const {
-            if (orthographic()) return false;
+            if (orthographic() || m_lensSystem) return false;
             const Vector3 d = p - m_origin;
             const Real z = glm::dot(d, -m_w);   // depth along the view axis
             if (z <= Real(0)) return false;
@@ -330,10 +341,21 @@ namespace rayt {
         }
 
         /// True when some ray can be blocked or dimmed (vignetting is on): callers then pass a weight to getRay() and apply it.
-        bool vignetted() const { return m_naturalVignetting > Real(0) || (m_barrelRadius > Real(0) && m_lensRadius > Real(0)); }
+        bool vignetted() const { return m_lensSystem || m_naturalVignetting > Real(0) || (m_barrelRadius > Real(0) && m_lensRadius > Real(0)); }
 
-        /// True when the rays depend on the wavelength (lateral or axial chromatic aberration is on).
-        bool chromatic() const { return m_lateralCA != Real(0) || (m_axialCA != Real(0) && m_lensRadius > Real(0)); }
+        /// True when the rays depend on the wavelength (lateral or axial chromatic aberration is on, or a lens of dispersive glass).
+        bool chromatic() const {
+            return (m_lensSystem && m_lensSystem->dispersive()) || m_lateralCA != Real(0) || (m_axialCA != Real(0) && m_lensRadius > Real(0));
+        }
+
+        /**
+         * @brief Replaces the thin lens by a real one (Render/LensSystem.hpp), focused and prepared: rays are traced through its surfaces.
+         *
+         * Its front principal plane is at the camera position, the axis along the view. The lens and its film (36 mm on the long side)
+         * decide the field of view; the thin lens's aperture, aberrations and vignetting are not used. Light tracing (project()) refuses it.
+         */
+        void setLensSystem(std::shared_ptr<const LensSystem> lens) { m_lensSystem = std::move(lens); }
+        const LensSystem* lensSystem() const { return m_lensSystem.get(); }
 
         /// True when the distortion maps the film onto itself with a fold (r' stops growing with r somewhere on the film).
         bool distortionFolds() const {
@@ -376,6 +398,32 @@ namespace rayt {
             if (start.m_yawRate != Real(0)) d = rotateAbout(d, glm::normalize(start.m_vUp), -start.m_yawRate * time);   // to the right is clockwise seen from above
             if (start.m_pitchRate != Real(0)) d = rotateAbout(d, start.m_u, start.m_pitchRate * time);
             orient(start.m_origin + start.m_velocity * time, -glm::normalize(d));
+        }
+
+        /// The film point of picture position (s, t) for the real lens: the lens forms an upside-down picture, so the film is turned 180 degrees.
+        Real filmX(Real s) const { return -(math::saturate(s) - Real(0.5)) * m_lensSystem->filmWidth(); }
+        Real filmY(Real t) const { return -(math::saturate(t) - Real(0.5)) * m_lensSystem->filmHeight(); }
+
+        /// A camera ray through the real lens. A blocked sample has weight 0; it still gets the pixel's central ray, for the geometry of
+        /// callers that ask for no weight (the mask) and for the denoiser's features.
+        Ray lensRay(const CameraSample& cs, Real time, Real* weight) const {
+            const Real x = filmX(cs.pFilm.x), y = filmY(cs.pFilm.y);
+            Point3 o(0.0);
+            Vector3 d(0, 0, 1);
+            Real w = Real(0);
+            const bool passed = m_lensSystem->generateRay(x, y, cs.pLens, cs.lambdaNm, o, d, w);
+            if (!passed) m_lensSystem->centralRay(x, y, o, d);
+            if (weight) *weight = passed ? w : Real(0);
+            return lensToWorld(o, d, time);
+        }
+
+        /// From the lens frame (z toward the object, the front principal plane at the camera position) to the world.
+        Ray lensToWorld(const Point3& o, const Vector3& d, Real time) const {
+            const Vector3 axis = -m_w;
+            Ray r(m_origin + m_u * o.x + m_v * o.y + axis * (o.z - m_lensSystem->frontPrincipalZ()),
+                glm::normalize(m_u * d.x + m_v * d.y + axis * d.z), constants::RAY_EPSILON, m_medium);
+            r.time = time;
+            return r;
         }
 
         /// Rodrigues' rotation of x about the unit axis k by `angle` (radians).
@@ -457,6 +505,7 @@ namespace rayt {
         Real m_bladeRadius = 0.0;   // circumradius of the polygon
 
         Real m_orthoHeight = 0.0;   // > 0: the orthographic view, this high (setOrthographic)
+        std::shared_ptr<const LensSystem> m_lensSystem;   // a real lens instead of the thin one (setLensSystem)
 
         // Aberrations (setAberrations)
         Real m_viewportW = 1.0, m_viewportH = 1.0;   // the film at unit depth

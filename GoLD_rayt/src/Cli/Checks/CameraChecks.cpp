@@ -3,8 +3,10 @@
 #include "Cli/Checks.hpp"
 #include "Color/ChromaticAdaptation.hpp"
 #include "Color/ColorSpace.hpp"
+#include "Geometry/Quad.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Materials/Lambertian.hpp"
+#include "Render/LensSystem.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Diffraction.hpp"
 #include "Render/Film.hpp"
@@ -13,6 +15,15 @@
 #include "Scene/Scene.hpp"
 
 namespace rayt::cli {
+
+namespace {
+    /// A deterministic number in [0, 1) for the checks' lens samples.
+    Real Hash01Check(int i, int k) {
+        std::uint64_t h = static_cast<std::uint64_t>(i) * 0x9E3779B97F4A7C15ull + static_cast<std::uint64_t>(k) * 0xC2B2AE3D27D4EB4Full;
+        h ^= h >> 33; h *= 0xFF51AFD7ED558CCDull; h ^= h >> 33; h *= 0xC4CEB9FE1A85EC53ull; h ^= h >> 33;
+        return Real(double(h >> 11) * (1.0 / 9007199254740992.0));
+    }
+}
 
 int RunCameraTests() {
     bool allPassed = true;
@@ -237,6 +248,111 @@ int RunCameraTests() {
         report("h  convolution: a uniform picture stays uniform, a bright pixel spreads as the kernel (not mirrored)",
             flatErr < 1e-9 && spotErr < 1e-6 && mirror > 1e-3,
             "uniform " + fmt(flatErr) + ", spot " + fmt(spotErr) + " against a mirror difference of " + fmt(mirror));
+    }
+
+    // ---- A real lens (--lens; Render/LensSystem.hpp) ----
+    // The singlet of assets/Lenses/singlet_bk7_100mm.txt: a 25 mm stop 2 mm in front of an equiconvex N-BK7 lens, R = 103.36 mm, 5 mm thick.
+    const Real nBk7 = 1.5168, rLens = 0.10336, thick = 0.005;
+    auto singlet = [&]() {
+        std::vector<LensSystem::Surface> s(3);
+        s[0].radius = 0;       s[0].z = 0;                   s[0].apertureRadius = 0.0125; s[0].nd = 1;
+        s[1].radius = rLens;   s[1].z = -0.002;              s[1].apertureRadius = 0.015;  s[1].nd = nBk7; s[1].abbe = 64.17;
+        s[2].radius = -rLens;  s[2].z = -0.002 - thick;      s[2].apertureRadius = 0.015;  s[2].nd = 1;
+        return std::make_shared<LensSystem>(s);
+    };
+
+    // (i) Its focal length against the thick-lens formula 1/f = (n-1) (1/R1 - 1/R2 + (n-1) d / (n R1 R2)); the principal planes of the
+    //     symmetric lens lie symmetric to its vertices.
+    {
+        const auto lens = singlet();
+        const Real f = Real(1) / ((nBk7 - 1) * (Real(2) / rLens - (nBk7 - 1) * thick / (nBk7 * rLens * rLens)));
+        const Real frontDepth = lens->frontPrincipalZ() - Real(-0.002), rearDepth = Real(-0.002 - thick) - lens->rearPrincipalZ();
+        report("i  real lens: a singlet's focal length is the thick-lens formula's, its principal planes symmetric",
+            std::fabs(lens->focalLength() - f) < 1e-8 && std::fabs(frontDepth - rearDepth) < 1e-8,
+            "f " + fmt(lens->focalLength() * 1000) + " mm against " + fmt(f * 1000) + " mm");
+    }
+
+    // (j) Stopped down to f/50 and focused at 1 m: rays from the axis point 1 m in front of the front principal plane, near the axis, cross
+    //     it on the film (within 0.1 um). Farther out they cross it nearer the lens, by an amount that grows with the square of the height
+    //     in the stop (third-order spherical aberration of an uncorrected positive lens): 0.8 mm misses about 4 times as much as 0.4 mm.
+    {
+        const auto lens = singlet();
+        lens->setFNumber(50);
+        lens->focus(1.0);
+        const Point3 object(0, 0, lens->frontPrincipalZ() + 1.0);
+        auto crossing = [&](Real h) {   // where the ray through the stop at height h crosses the axis, relative to the film (+: toward the lens)
+            Point3 o = object;
+            Vector3 d = glm::normalize(Point3(h, 0, Real(0)) - object);
+            if (!lens->traceFromObject(o, d, 587.56)) return Real(1);
+            return o.z + (-o.x / d.x) * d.z - lens->filmZ();
+        };
+        Real paraxialMiss = 0;
+        for (const Real h : { 10e-6, 30e-6, 60e-6 }) paraxialMiss = std::max(paraxialMiss, std::fabs(crossing(h)));
+        const Real m4 = crossing(0.4e-3), m8 = crossing(0.8e-3);
+        report("j  real lens: near the axis the rays meet on the film; farther out spherical aberration grows as the height squared",
+            paraxialMiss < 1e-7 && m4 > 0 && std::fabs(m8 / m4 - 4) < 0.4,
+            "paraxial " + fmt(paraxialMiss * 1e6) + " um; at 0.4 / 0.8 mm " + fmt(m4 * 1e6) + " / " + fmt(m8 * 1e6) + " um nearer the lens");
+    }
+
+    // (k) The f-number: wide open the stop is the entrance pupil (nothing in front of it), f / 25 mm; closed to f/8 the pupil is f / 8.
+    {
+        const auto lens = singlet();
+        const Real open = lens->fNumber(), want = lens->focalLength() / 0.025;
+        const Real set = lens->setFNumber(8);
+        report("k  real lens: f-number wide open is f / stop diameter, and closes to f/8",
+            std::fabs(open / want - 1) < 1e-6 && std::fabs(set - 8) < 1e-6, "f/" + fmt(open) + " against f/" + fmt(want) + ", then f/" + fmt(set));
+    }
+
+    // (l) Dispersion (spectral build): the focal lengths at the F and C lines differ by about f / V_d.
+#if defined(RAYT_SPECTRAL_MODE)
+    {
+        const auto lens = singlet();
+        const Real fF = lens->focalLengthAt(486.13), fC = lens->focalLengthAt(656.27);
+        const Real ratio = (fC - fF) / lens->focalLength() * 64.17;
+        report("l  real lens: the focal lengths at the F and C lines differ by f / V_d (2 %)", lens->dispersive() && std::fabs(ratio - 1) < 0.02,
+            "(f_C - f_F) V_d / f = " + fmt(ratio));
+    }
+#else
+    std::cout << "[Camera]   l  real lens dispersion: needs the spectral build (skipped)\n";
+#endif
+
+    // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner
+    //     (vignetting); the picture is upright (its upper right looks up and to the right); a wall 10 m away has depth 10 in the middle
+    //     and the corners.
+    {
+        std::string error;
+        const auto lens = LensSystem::load("assets/Lenses/dgauss_50mm.txt", error);
+        if (!lens) report("m  real lens in a camera (" + error + ")", false);
+        else {
+            lens->focus(10.0);
+            lens->prepare(0.036, 0.024);
+            auto cam = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 40.0, 1.5, 0.0, 10.0);
+            cam->setLensSystem(lens);
+            auto meanWeight = [&](Real s, Real t) {
+                double sum = 0;
+                for (int i = 0; i < 20000; ++i) {
+                    Real w = 0;
+                    cam->getRay(s, t, Point2(Hash01Check(i, 0), Hash01Check(i, 1)), 0, 550, &w);
+                    sum += w;
+                }
+                return sum / 20000;
+            };
+            const double centre = meanWeight(0.5, 0.5), corner = meanWeight(0.97, 0.97);
+            const Ray upRight = cam->centerRay(0.9, 0.9);
+            auto mat = std::make_shared<Lambertian>(RgbColor(Vector3(0.5)));
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Quad>(Point3(-50, -50, -10), Vector3(100, 0, 0), Vector3(0, 100, 0), mat));
+            auto scene = std::make_shared<Scene>(world);
+            scene->finalize("uniform");
+            Film f(30, 20);
+            f.enableDepth();
+            RenderMaskAndDepth(*scene, *cam, f, {}, 1);
+            const float dc = f.depth()[10 * 30 + 15], d0 = f.depth()[0], d1 = f.depth()[30 * 20 - 1];
+            const bool ok = std::fabs(centre - 1) < 0.02 && corner < 0.9 * centre && upRight.d.x > 0 && upRight.d.y > 0
+                && std::fabs(dc - 10) < 1e-4 && std::fabs(d0 - 10) < 1e-4 && std::fabs(d1 - 10) < 1e-4;
+            report("m  real lens in a camera: weight 1 at the centre, less in the corner; upright picture; depth of a wall",
+                ok, "weight " + fmt(centre) + " / " + fmt(corner) + ", depth " + fmt(dc) + " " + fmt(d0) + " " + fmt(d1));
+        }
     }
 
     std::cout << "[Camera] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

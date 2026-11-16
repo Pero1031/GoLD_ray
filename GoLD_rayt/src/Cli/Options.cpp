@@ -46,6 +46,7 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
 bool ApplyLensArg(const std::string& a, const std::function<std::string(const char*)>& value, LensSpec& lens) {
     if (a == "--ortho") lens.orthoHeight = std::stod(value("--ortho"));
     else if (a == "--diffraction") lens.diffraction = std::stod(value("--diffraction"));
+    else if (a == "--lens") lens.lensFile = value("--lens");
     else if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
     else if (a == "--fstop") lens.fStop = std::stod(value("--fstop"));
     else if (a == "--focus-dist") lens.focusDist = std::stod(value("--focus-dist"));

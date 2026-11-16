@@ -1,0 +1,15 @@
+# Double-Gauss 50 mm f/2, 22 deg half field of view
+# Tronnier, US patent 2,673,491; as in W. J. Smith, Modern Lens Design, p. 312; scaled to 50 mm from 100 mm
+# (the same numbers as pbrt's dgauss.50mm.dat). The source gives n_d only: the glass is not dispersive here.
+# radius (mm)  thickness to the next surface (mm)  n_d (0 or 1: air)  clear diameter (mm)  [Abbe number]
+29.475    3.76    1.67    25.2
+84.83     0.12    1       25.2
+19.275    4.025   1.67    23
+40.77     3.275   1.699   23
+12.75     5.705   1       18
+0         4.5     0       17.1
+-14.495   1.18    1.603   17
+40.77     6.065   1.658   20
+-20.385   0.19    1       20
+437.065   3.22    1.717   20
+-39.73    0       1       20

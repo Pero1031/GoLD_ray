@@ -17,6 +17,28 @@ What the camera simulates, what the written files contain, and what is verified.
 
 The lens of the scene file and of the command line are merged in `Cli/RenderPipeline.cpp` (`ResolveLens`, `BuildCamera`).
 
+### A real lens (`--lens FILE`, camera `"lens"`; `Render/LensSystem`)
+
+Instead of the thin lens, the prescription of a real lens: its spherical surfaces and its aperture stop, one line per surface from the
+front, `radius thickness n_d diameter [Abbe number]` in millimetres (a radius of 0 is the stop; the layout of pbrt's lens files). A camera
+ray starts on the film, crosses the surfaces from the back to the front by Snell's law and is lost at a rim, the stop or total internal
+reflection (Kolb, Mitchell and Hanrahan 1995). What the thin lens takes as parameters follows from the prescription: distortion, field
+curvature, natural and optical vignetting, cat's-eye bokeh at the edges, focus breathing, and, in the spectral build with Abbe numbers,
+axial and lateral chromatic aberration.
+
+- **Set-up:** the focal length, the principal planes and the entrance pupil come from rays traced a micrometre off the axis. The front
+  principal plane sits at the camera position; the film (36 mm on the long side) is placed by Gauss's lens equation for the focus distance;
+  `--fstop` closes the stop (no wider than the lens opens), `--blades` makes it a polygon. The lens and the film decide the field of view
+  (`fov` and `focalLength` are not used), and the thin lens's aberration and vignetting settings are not used.
+- **Sampling:** for 64 bands of film radius, the box on the rear vertex's plane through which rays get through (from a 128 × 128 grid of
+  trial rays) is stored; a camera ray aims at a point of that box, turned to the film point's angle. Its weight is the film irradiance
+  factor cos⁴θ × box area / distance², divided by its value at the film centre, so the centre of the picture keeps the scene's radiance and
+  the corners darken as the lens makes them.
+- **Lenses in `assets/Lenses/`:** `dgauss_50mm` (double-Gauss f/2, Tronnier), `wide_22mm` (Nakamura, f/2.8), `fisheye_10mm` (Muller,
+  f/4), all from W. J. Smith, *Modern Lens Design*, as scaled in pbrt's lens files (they give n_d only, so the glass is not dispersive), and
+  `singlet_bk7_100mm`, an uncorrected N-BK7 lens with Abbe number for the chromatic aberration. The set-up prints the focal length, the
+  f-number and the field: 50.4 mm f/2.02, 22.0 mm f/2.79 and 9.99 mm f/3.99 for the three.
+
 ## 2. The written files (`Render/Film`, `IO/ImageWriter`)
 
 | Output | Content |
@@ -42,6 +64,13 @@ translucent layer covers a pixel in proportion to its opacity.
 meet on the plane of focus (perspective and orthographic); the orthographic rays are parallel to the axis and start on the H × W rectangle;
 a sphere covers the same pixel area, π R² over the pixel area, at 3 m and at 9 m, and its depth follows the sphere.
 
+A real lens, also in `--scene camera`: the singlet's focal length matches the thick-lens formula and its principal planes lie symmetric;
+focused at 1 m, rays near the axis from the axis point meet on the film (0.06 µm) and farther out they cross it nearer the lens by an amount
+that grows as the square of the height in the stop (third-order spherical aberration: 2.76 and 11.0 µm at 0.4 and 0.8 mm); the f-number wide
+open is the focal length over the stop's diameter and the stop closes to f/8; in the spectral build the F and C lines' focal lengths differ by
+f / V_d (0.988 of it); in a camera the double-Gauss's weight averages 1 at the film centre and 0.21 in the corner, the picture is upright and
+a wall 10 m away has the depth 10 in the middle and the corners.
+
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged
 pattern has 6 spikes for 6 blades and 14 for 7, across the edges (within 1°); a uniform picture stays uniform and one bright pixel spreads
@@ -61,6 +90,7 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
+- A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.
 - The depth has one ray per pixel (no anti-aliasing): an edge pixel has the depth of the surface at its centre. Gaussian splats are not surfaces for either output.

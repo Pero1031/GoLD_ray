@@ -14,6 +14,7 @@ namespace rayt::cli {
 
 struct LensSpec {
     std::optional<Real> orthoHeight;       // > 0: an orthographic view this high (scene units; replaces the field of view), 0: perspective
+    std::optional<std::string> lensFile;   // a real lens (Render/LensSystem.hpp): its prescription replaces the thin lens; "" = the thin lens
     std::optional<Real> focalLengthMm;     // 35 mm equivalent: the long side of the picture is the 36 mm side of the film (replaces the field of view)
     std::optional<Real> fStop;             // f-number N: aperture diameter = focal length / N (none or 0: a pinhole, no defocus blur)
     std::optional<Real> focusDist;         // distance of the plane of focus along the view axis (scene units, metres)
@@ -41,6 +42,7 @@ struct LensSpec {
     // The fields that `o` states replace the ones here.
     void overrideWith(const LensSpec& o) {
         if (o.orthoHeight) orthoHeight = o.orthoHeight;
+        if (o.lensFile) lensFile = o.lensFile;
         if (o.diffraction) diffraction = o.diffraction;
         if (o.shutter) shutter = o.shutter;
         if (o.velocity) velocity = o.velocity;
