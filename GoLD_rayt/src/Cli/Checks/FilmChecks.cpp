@@ -8,8 +8,14 @@
 #include "Geometry/Sphere.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/Lambertian.hpp"
+#include "Color/Illuminants.hpp"
+#include "Color/SpectralConversion.hpp"
+#include "Core/Image.hpp"
+#include "IO/EnvMap.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Film.hpp"
+#include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
@@ -234,6 +240,80 @@ int RunFilmTests() {
         report("k  files: mask .png (8 / 16 bit, one channel), depth .pfm (one channel), read back", ok);
         for (const std::string& p : { m8, m16, dp }) std::filesystem::remove(p, ec);
     }
+
+    // ---- The spectral image (--spectral-image; the spectral build) ----
+#if defined(RAYT_SPECTRAL_MODE)
+    {
+        // A uniform sky of RGB 0.5 (as light: 0.5 x D65), alone or around a red ball, seen by a pinhole; 32 x 32 pixels, 256 spp.
+        const int n = 32, spp = 256;
+        auto camera = std::make_shared<Camera>(Point3(0, 0, 3), Point3(0, 0, 0), Vector3(0, 1, 0), 30.0, 1.0, 0.0, 3.0);
+        auto render = [&](bool ball, Real first, Real step, int bands) {
+            auto world = std::make_shared<Aggregate>();
+            if (ball) world->add(std::make_shared<Sphere>(Point3(0.0), 0.6, std::make_shared<Lambertian>(RgbColor(Vector3(0.7, 0.15, 0.1)))));
+            auto scene = std::make_shared<Scene>(world);
+            scene->setEnvLight(std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(16, 8, std::vector<Vector3>(16 * 8, Vector3(0.5)))), 1.0));
+            scene->finalize("uniform");
+            auto film = std::make_unique<Film>(n, n);
+            film->enableSpectral(first, step, bands);
+            PathIntegrator(camera, 8, spp).render(*scene, *film);
+            return film;
+        };
+        auto bandMean = [&](const Film& f, int k) {   // the band's value averaged over the picture
+            double s = 0;
+            for (int i = 0; i < n * n; ++i) s += f.spectral()[static_cast<size_t>(k) * n * n + i];
+            return s / (n * n);
+        };
+
+        // (l) The sky seen directly: every band is 0.5 x the mean of D65 over it (the picture's average, 2 %).
+        {
+            const auto f = render(false, 380, 10, 40);
+            double worst = 0;
+            for (int k = 0; k < 40; ++k) {
+                double d65 = 0;
+                for (int s = 0; s < 100; ++s) d65 += color::evaluateD65(Real(380 + 10 * k + (s + 0.5) * 0.1)) / 100;
+                worst = std::max(worst, std::fabs(bandMean(*f, k) / (0.5 * d65) - 1));
+            }
+            std::cout << "[Film]      sky: largest deviation of a 10 nm band from 0.5 x D65 " << worst * 100 << " %\n";
+            report("l  spectral image of a uniform sky: each band is 0.5 x the band's mean of D65 (2 %)", worst < 0.02);
+        }
+
+        // (m) A red ball under the sky, in 5 nm bands: the spectral image weighted by the sensor curves over each band gives the RGB
+        //     picture rendered from the same paths (the picture's average, 0.5 %).
+        {
+            const auto f = render(true, 380, 5, 80);
+            Vector3 fromBands(0.0), rgb(0.0);
+            for (int k = 0; k < 80; ++k) {
+                Vector3 w(0.0);   // the sensor curves integrated over the band
+                for (int s = 0; s < 50; ++s) w += color::rgbSensorWeights(Real(380 + 5 * k + (s + 0.5) * 0.1)) * Real(0.1);
+                fromBands += w * Real(bandMean(*f, k));
+            }
+            for (int i = 0; i < n * n; ++i) rgb += f->getData()[i];
+            rgb /= Real(n * n);
+            const Real worst = std::max({ std::fabs(fromBands.x / rgb.x - 1), std::fabs(fromBands.y / rgb.y - 1), std::fabs(fromBands.z / rgb.z - 1) });
+            std::cout << "[Film]      red ball: RGB from the bands " << fromBands.x << " " << fromBands.y << " " << fromBands.z << ", the RGB picture "
+                << rgb.x << " " << rgb.y << " " << rgb.z << "\n";
+            report("m  spectral image of a red ball, converted with the sensor curves, gives the RGB picture (0.5 %)", worst < 0.005);
+
+            // (n) The ENVI files: the header states the size and the band centres, the data reads back as written.
+            const std::string stem = (dir / "rayt_spectral_check").string();
+            f->saveSpectral(stem);
+            std::ifstream hdr(stem + "_spectral.hdr");
+            const std::string text((std::istreambuf_iterator<char>(hdr)), std::istreambuf_iterator<char>());
+            std::ifstream img(stem + "_spectral.img", std::ios::binary);
+            std::vector<float> data(f->spectral().size());
+            img.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size() * sizeof(float)));
+            const bool ok = text.rfind("ENVI", 0) == 0 && text.find("samples = 32\n") != std::string::npos && text.find("bands = 80\n") != std::string::npos
+                && text.find("interleave = bsq") != std::string::npos && text.find("wavelength = {382.5, 387.5,") != std::string::npos
+                && img.good() && data == f->spectral();
+            report("n  spectral image files (ENVI header and float data) read back", ok);
+            hdr.close();
+            img.close();
+            for (const char* ext : { "_spectral.hdr", "_spectral.img" }) std::filesystem::remove(stem + ext, ec);
+        }
+    }
+#else
+    std::cout << "[Film]   l-n  spectral image: needs the spectral build (skipped)\n";
+#endif
 
     std::cout << "[Film] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;

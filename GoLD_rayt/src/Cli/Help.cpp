@@ -53,6 +53,8 @@ void PrintHelp(std::ostream& out) {
         << "  --mask A[,B..]    <out>_mask.png: the share of each pixel that objects of these materials (names in the scene file) cover, as the camera\n"
         << "                    sees them first (edges anti-aliased, through the lens and shutter; linear gray, 16 bit with --bits 16; .pfm if --out is)\n"
         << "  --depth-map       <out>_depth.pfm: distance of the first surface along the view axis through each pixel centre (0 = none)\n"
+        << "  --spectral-image STEP[,FIRST,LAST]   <out>_spectral.img + .hdr (ENVI): the mean spectral radiance of each pixel in bands of STEP nm\n"
+        << "                    (default 380..780 nm; spectral build). Each band gets a share of the 4 wavelengths of a path: use more spp\n"
         << "  --stokes          polarization: Stokes images <out>_S0..S3.pfm, degree / angle of linear polarization (smooth glass and water; docs/POLARIZATION.md)\n"
         << "  --polarizer A[,A2]   a linear polarizer at A degrees in front of the camera (0 = horizontal): <out>_pol<A>.*   (implies --stokes)\n"
         << "  --caustic-trace   with --caustics: light tracing of the caustics on surfaces the camera sees directly (sharp edges, no radius)\n"

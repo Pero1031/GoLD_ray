@@ -30,4 +30,9 @@ namespace rayt::io {
     /// A Radiance .hdr (RGBE) of three float channels.
     bool WriteHdr(const std::string& path, int width, int height, const std::vector<float>& rgb);
 
+    /// A multiband float image in the ENVI format: `dataPath` holds float32 little endian, band sequential (band k, then row 0 at the top);
+    /// `headerPath` is the text header with the band centres (`wavelength`, nm), their width (`fwhm`) and a description.
+    bool WriteEnvi(const std::string& dataPath, const std::string& headerPath, int width, int height, int bands, const std::vector<float>& bsq,
+        const std::vector<double>& wavelengthsNm, double fwhmNm, const std::string& description);
+
 } // namespace rayt::io

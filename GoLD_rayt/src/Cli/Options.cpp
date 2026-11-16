@@ -30,6 +30,14 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     else if (a == "--tonemap") o.tonemap = value("--tonemap");
     else if (a == "--mask") o.mask = value("--mask");
     else if (a == "--depth-map") o.depthMap = true;
+    else if (a == "--spectral-image") {   // STEP or STEP,FIRST,LAST (nm)
+        std::vector<double> v;
+        std::stringstream list(value("--spectral-image"));
+        for (std::string item; std::getline(list, item, ',');) v.push_back(std::stod(item));
+        if (v.size() != 1 && v.size() != 3) throw std::runtime_error("--spectral-image needs STEP or STEP,FIRST,LAST (nm)");
+        o.spectralStep = v[0];
+        if (v.size() == 3) { o.spectralFirst = v[1]; o.spectralLast = v[2]; }
+    }
     else return false;
     return true;
 }
@@ -231,6 +239,14 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.pngBits != 8 && o.pngBits != 16) throw std::runtime_error("--bits must be 8 or 16");
         if (!std::isfinite(o.exposure) || std::fabs(o.exposure) > 64) throw std::runtime_error("--exposure must be a number of stops between -64 and 64");
         if (o.tonemap != "reinhard" && o.tonemap != "clip") throw std::runtime_error("--tonemap must be reinhard or clip");
+#if !defined(RAYT_SPECTRAL_MODE)
+        if (o.spectralStep != 0) throw std::runtime_error("--spectral-image needs the spectral build (the RGB build has no wavelengths)");
+#endif
+        if (o.spectralStep != 0) {
+            const double bands = (o.spectralLast - o.spectralFirst) / o.spectralStep;
+            if (!(o.spectralStep > 0) || !(o.spectralFirst >= 360) || !(o.spectralLast <= 830) || !(bands >= 1) || std::fabs(bands - std::round(bands)) > 1e-6)
+                throw std::runtime_error("--spectral-image: STEP above 0 that divides LAST - FIRST, with 360 <= FIRST < LAST <= 830 nm");
+        }
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")

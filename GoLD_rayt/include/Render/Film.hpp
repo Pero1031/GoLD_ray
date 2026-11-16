@@ -132,6 +132,22 @@ namespace rayt {
         /// .pfm only (one float channel, scene units).
         void saveDepth(const std::string& filename) const;
 
+        // ---- Spectral image (--spectral-image; the spectral build) -------------------------------------
+        // The mean spectral radiance of every pixel in `bands` bands of `stepNm` from `firstNm` (band k covers [first + k step, first + (k+1) step)).
+        // Units of the renderer: a surface the RGB image shows as white (1,1,1) under D65 has the spectrum of D65 (100 at 560 nm).
+
+        void enableSpectral(Real firstNm, Real stepNm, int bands);
+        bool hasSpectral() const { return m_spectralBands > 0; }
+        int spectralBands() const { return m_spectralBands; }
+        Real spectralFirstNm() const { return m_spectralFirstNm; }
+        Real spectralStepNm() const { return m_spectralStepNm; }
+        /// Overwrites the bands of a pixel (`values`: spectralBands() numbers).
+        void setSpectral(int x, int y, const Real* values);
+        /// Band-sequential: value of band k at pixel (x, y) is [(k * height + y) * width + x], row 0 at the top.
+        const std::vector<float>& spectral() const { return m_spectral; }
+        /// <stem>_spectral.img (float32, band sequential) and <stem>_spectral.hdr (ENVI header with the band centres).
+        void saveSpectral(const std::string& stem) const;
+
         // ---- Polarization (--stokes, docs/POLARIZATION.md) -----------------------------------------
         // The Stokes vector of every pixel, S0..S3, each an RGB value (linear sRGB, averaged over the pixel's samples). Off by default.
 
@@ -199,6 +215,9 @@ namespace rayt {
         std::vector<Vector3> m_stokes[4];   ///< empty unless enableStokes() was called
         std::vector<float> m_mask;          ///< empty unless enableMask() was called
         std::vector<float> m_depth;         ///< empty unless enableDepth() was called
+        std::vector<float> m_spectral;      ///< empty unless enableSpectral() was called (band sequential)
+        int m_spectralBands = 0;
+        Real m_spectralFirstNm = 380, m_spectralStepNm = 10;
 
         /// Writes an AOV buffer; `encodeSrgb` for color, `remapSigned` for normals (see saveAlbedo / saveNormal).
         void saveBuffer(const std::string& filename, const std::vector<Vector3>& data,

@@ -264,6 +264,35 @@ namespace rayt {
         std::cout << "[Film] Saved depth: " << filename << std::endl;
     }
 
+    void Film::enableSpectral(Real firstNm, Real stepNm, int bands) {
+        m_spectralFirstNm = firstNm;
+        m_spectralStepNm = stepNm;
+        m_spectralBands = std::max(bands, 0);
+        m_spectral.assign(static_cast<size_t>(m_spectralBands) * static_cast<size_t>(m_width) * static_cast<size_t>(m_height), 0.0f);
+    }
+
+    void Film::setSpectral(int x, int y, const Real* values) {
+        if (!hasSpectral() || x < 0 || x >= m_width || y < 0 || y >= m_height) return;
+        const size_t plane = static_cast<size_t>(m_width) * static_cast<size_t>(m_height);
+        const size_t i = static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x);
+        for (int k = 0; k < m_spectralBands; ++k) m_spectral[static_cast<size_t>(k) * plane + i] = Finite(values[k]);
+    }
+
+    void Film::saveSpectral(const std::string& stem) const {
+        if (!hasSpectral()) return;
+        std::vector<double> centres(static_cast<size_t>(m_spectralBands));
+        for (int k = 0; k < m_spectralBands; ++k) centres[static_cast<size_t>(k)] = double(m_spectralFirstNm + (Real(k) + Real(0.5)) * m_spectralStepNm);
+        const std::string description = "GoLD_rayt spectral radiance: each band is the mean over [centre - fwhm/2, centre + fwhm/2] nm; "
+            "units of the renderer (a surface shown as RGB white under D65 has the D65 spectrum, 100 at 560 nm)";
+        const std::string data = stem + "_spectral.img", header = stem + "_spectral.hdr";
+        if (!io::WriteEnvi(data, header, m_width, m_height, m_spectralBands, m_spectral, centres, double(m_spectralStepNm), description)) {
+            std::cerr << "[Film] Error: could not write " << data << std::endl;
+            return;
+        }
+        std::cout << "[Film] Saved spectral image: " << data << " + " << header << " (ENVI, " << m_spectralBands << " bands of " << m_spectralStepNm
+            << " nm from " << m_spectralFirstNm << " nm)" << std::endl;
+    }
+
     void Film::saveAlbedo(const std::string& filename) const {
         saveBuffer(filename, m_albedo, /*encodeSrgb=*/true, /*remapSigned=*/false);
     }

@@ -26,6 +26,10 @@ The lens of the scene file and of the command line are merged in `Cli/RenderPipe
 | `--tonemap clip` | Linear up to white, clipped above it: brightness ratios below white are kept (stimuli). The log gives the share of pixels above white and how many stops the brightest is above it, i.e. the `--exposure` that avoids clipping |
 | `--mask A,B` → `_mask.png` | The share of each pixel covered by objects of the named scene-file materials, as the camera first sees them. n × n camera rays per pixel (n = √spp, up to 16) through the lens and the shutter, so the edge is anti-aliased, defocused and blurred like the picture. Linear gray (no tone curve), one channel |
 | `--depth-map` → `_depth.pfm` | Distance of the first surface along the view axis (not along the ray), through each pixel centre with the pinhole view; 0 = no surface |
+| `--spectral-image STEP[,FIRST,LAST]` → `_spectral.img` + `.hdr` | The mean spectral radiance of every pixel in bands of STEP nm (default 380–780 nm; spectral build), as an ENVI image (float32, band sequential; the header lists the band centres). Units of the renderer: a surface the RGB image shows as white under D65 has the D65 spectrum (100 at 560 nm). Made from the same paths and weights as the RGB picture, which it leaves unchanged |
+
+A band's value is the mean radiance over the band (a box of STEP nm); to compare with a measurement at 1 nm, average the measurement over the
+same bands. Reading it in Python: `np.fromfile(stem + "_spectral.img", "<f4").reshape(bands, height, width)`.
 
 The mask and the depth come from a separate pass after the render (`Render/MaskDepth.cpp`): it works with every render mode and leaves the
 picture of a `--seed` run unchanged. Glass, water and mirrors are surfaces; an index-matched boundary (the surface of a fog) is not; a
@@ -41,6 +45,8 @@ a sphere covers the same pixel area, π R² over the pixel area, at 3 m and at 9
 - Display values: Reinhard and clip against their formulas, 8- and 16-bit PNG read back, `.pfm` unchanged by the display settings, the clip report.
 - Mask and depth against closed forms: a sphere's silhouette area (0.01 %), its depth on the axis, a perpendicular wall at the same depth in every corner, a translucent layer, an index-matched boundary against glass, the files read back.
 - On an Erato view, the mask agrees with an earlier mask made by rendering the statue black on white, once that render's tone curve is applied (area −0.07 %).
+- Spectral image (spectral build): a uniform sky gives 0.5 × the band means of D65 (largest deviation 1.1 %, the sampling noise); weighted with the sensor curves, the bands of a red ball give its RGB picture (0.02 %); the ENVI files read back.
+- On measured data: the three cloth swatches of the SR-5100 (spectral reflectance textures) under D65, seen from above with the orthographic camera. Their reflectance recovered from the spectral image (0.3 × swatch / gray table) matches the textures within 0.001 RMS over 420–700 nm in 10 nm bands.
 
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
@@ -50,3 +56,4 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.
 - The depth has one ray per pixel (no anti-aliasing): an edge pixel has the depth of the surface at its centre. Gaussian splats are not surfaces for either output.
+- A path carries 4 wavelengths, so a narrow band gets few samples: the log gives the samples per pixel of the poorest band, and its noise goes as one over their square root. Average over a region, widen the bands or raise spp; 1 nm bands as the SR-5100 records them need thousands of spp. The spectral image is not denoised and not white-balanced (`--wb` acts on the RGB picture only). It is refused with `--lvc`, `--caustic-trace` and `--caustic-passes`, which add RGB pictures of their own. Its units are relative: comparing with a measurement in W·sr⁻¹·m⁻²·nm⁻¹ needs a common reference (e.g. a white or gray patch in both).

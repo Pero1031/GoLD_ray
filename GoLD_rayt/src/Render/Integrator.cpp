@@ -89,16 +89,21 @@ namespace rayt {
         const int totalLines = height;
         const bool wantAOVs = film.hasAOVs();
         const bool wantStokes = film.hasStokes();
+        // --spectral-image (spectral build): the bands of the film's spectral image
+        const int specBands = film.spectralBands();
+        [[maybe_unused]] const Real specFirst = film.spectralFirstNm(), specStep = film.spectralStepNm();   // read in the spectral build only
         const std::uint64_t renderCall = static_cast<std::uint64_t>(m_renderCalls++);
 
 #pragma omp parallel for schedule(dynamic, 1)
         for (int j = 0; j < height; ++j) {
             // With --seed a row always draws the same random numbers, whichever thread renders it and in whatever order.
             sampling::SeedStream(1, renderCall, static_cast<std::uint64_t>(j));
+            std::vector<Real> pixelSpectral(static_cast<size_t>(specBands));
             for (int i = 0; i < width; ++i) {
                 Vector3 pixelColor(0.0);   // linear sRGB
                 Vector3 pixelAlbedo(0.0), pixelNormal(0.0);
                 Vector3 pixelStokes[4] = { Vector3(0.0), Vector3(0.0), Vector3(0.0), Vector3(0.0) };
+                std::fill(pixelSpectral.begin(), pixelSpectral.end(), Real(0));
 
                 for (int s = 0; s < m_spp; ++s) {
                     // Jitter for anti-aliasing
@@ -125,6 +130,16 @@ namespace rayt {
                     stokes.xRef = m_camera->right();
                     const Spectrum Lpath = Li(r, scene, lambda, wantAOVs ? &aov : nullptr, wantStokes ? &stokes : nullptr);
                     pixelColor += camW * SpectrumToRGB(Lpath, lambda);
+#if defined(RAYT_SPECTRAL_MODE)
+                    // Each wavelength of the path adds L / (pdf N step) to its band: the estimate of the band's mean radiance, from the
+                    // same samples and weights as SpectrumToRGB (a dropped secondary wavelength has pdf 0, the hero's pdf is divided by N).
+                    for (int k = 0; k < kSpectralSamples && specBands > 0; ++k) {
+                        const Real pdf = lambda.pdf[k];
+                        const Real band = (lambda[k] - specFirst) / specStep;
+                        if (pdf <= Real(0) || band < Real(0) || band >= Real(specBands)) continue;
+                        pixelSpectral[static_cast<size_t>(band)] += camW * Lpath[k] / (pdf * Real(kSpectralSamples) * specStep);
+                    }
+#endif
                     if (wantStokes)
                         for (int k = 0; k < 4; ++k) pixelStokes[k] += camW * SpectrumToRGB(stokes.S[k], lambda);
                     if (wantAOVs && aov.valid) {
@@ -143,10 +158,15 @@ namespace rayt {
                         std::cerr << "NaN detected at " << i << ", " << j << std::endl;
                     }
                     pixelColor = Vector3(0.0);
+                    std::fill(pixelSpectral.begin(), pixelSpectral.end(), Real(0));
                 }
 
                 // Flip vertically and store
                 film.setPixel(i, height - 1 - j, pixelColor);
+                if (specBands > 0) {
+                    for (Real& v : pixelSpectral) v /= Real(m_spp);
+                    film.setSpectral(i, height - 1 - j, pixelSpectral.data());
+                }
                 if (wantAOVs) film.setAOV(i, height - 1 - j, pixelAlbedo, pixelNormal);
                 if (wantStokes) {
                     for (int k = 0; k < 4; ++k) {

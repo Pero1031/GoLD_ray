@@ -125,4 +125,31 @@ namespace rayt::io {
         return stbi_write_hdr(path.c_str(), width, height, 3, rgb.data()) != 0;
     }
 
+    bool WriteEnvi(const std::string& dataPath, const std::string& headerPath, int width, int height, int bands, const std::vector<float>& bsq,
+        const std::vector<double>& wavelengthsNm, double fwhmNm, const std::string& description) {
+        if (bsq.size() != static_cast<size_t>(width) * static_cast<size_t>(height) * static_cast<size_t>(bands)) return false;
+        {
+            std::ofstream f(dataPath, std::ios::binary);
+            if (!f) return false;
+            f.write(reinterpret_cast<const char*>(bsq.data()), static_cast<std::streamsize>(bsq.size() * sizeof(float)));
+            if (!f) return false;
+        }
+        std::ofstream h(headerPath);
+        if (!h) return false;
+        h << "ENVI\n"
+          << "description = {" << description << "}\n"
+          << "samples = " << width << "\nlines = " << height << "\nbands = " << bands << "\n"
+          << "header offset = 0\nfile type = ENVI Standard\ndata type = 4\ninterleave = bsq\nbyte order = 0\n"
+          << "wavelength units = Nanometers\n";
+        h.precision(10);
+        auto list = [&](const char* key, auto value) {
+            h << key << " = {";
+            for (int k = 0; k < bands; ++k) h << (k ? ", " : "") << value(k);
+            h << "}\n";
+        };
+        list("wavelength", [&](int k) { return wavelengthsNm[static_cast<size_t>(k)]; });
+        list("fwhm", [&](int) { return fwhmNm; });
+        return static_cast<bool>(h);
+    }
+
 } // namespace rayt::io

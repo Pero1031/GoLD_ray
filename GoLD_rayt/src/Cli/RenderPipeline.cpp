@@ -4,6 +4,7 @@
 #include "Cli/RenderPipeline.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/Tools.hpp"
+#include "Core/SampledWavelengths.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
 #include "Render/Integrator.hpp"
@@ -193,7 +194,24 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
     return camera;
 }
 
-// Writes the picture and everything asked for beside it (mask, depth, AOVs, Stokes images, polarizer views, the denoised copy).
+// --spectral-image: the bands of the film's spectral image, and how many wavelength samples the poorest band gets per pixel (its noise
+// goes as one over the square root of that): spp x the wavelengths of a path x the chance that one falls into the band.
+void EnableSpectralImage(const CliOptions& opt, Film& film) {
+    const double first = opt.spectralFirst, step = opt.spectralStep;
+    const int bands = static_cast<int>(std::lround((opt.spectralLast - first) / step));
+    film.enableSpectral(Real(first), Real(step), bands);
+    double fewest = 1e300, fewestAt = first;
+    for (int k = 0; k < bands; ++k) {
+        double chance = 0;
+        for (int s = 0; s < 16; ++s) chance += visibleWavelengthPdf(Real(first + (k + (s + 0.5) / 16) * step)) * step / 16;
+        const double samples = double(opt.spp) * kSpectralSamples * chance;
+        if (samples < fewest) { fewest = samples; fewestAt = first + (k + 0.5) * step; }
+    }
+    std::cout << "[Spectral] spectral image: " << bands << " bands of " << step << " nm from " << first << " to " << opt.spectralLast
+        << " nm; the poorest band (at " << fewestAt << " nm) gets " << fewest << " wavelength samples per pixel\n";
+}
+
+// Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
 // photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization).
 void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
     std::cout << "[Output] Saving images..." << std::endl;
@@ -216,6 +234,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
         std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
     if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
     if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
+    if (film.hasSpectral()) film.saveSpectral(outStem);
     if (opt.aov) {
         const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);
@@ -329,6 +348,15 @@ int RenderScene(CliOptions& opt) {
     const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera);
     if (!camera) return 1;
 
+    // --spectral-image comes from the path tracer's own samples: refused where other parts of the picture are added in RGB (checked
+    // before any photon is traced)
+    if (opt.spectralStep > 0) {
+        const char* why = (opt.lvc && setup.bptLight && setup.bptMedium) ? "--lvc renders the picture with a film of its own"
+            : opt.causticTrace ? "the light-traced caustics (--caustic-trace, or a scene that light-traces them) are added in RGB"
+            : opt.causticPasses > 1 ? "--caustic-passes averages RGB pictures" : nullptr;
+        if (why) { std::cerr << "[Spectral] --spectral-image cannot be used here: " << why << "\n"; return 1; }
+    }
+
     CausticPhotonMap causticMap;
     CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
     bool causticOn = false;
@@ -369,6 +397,7 @@ int RenderScene(CliOptions& opt) {
     Film film(imageWidth, imageHeight);
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
     if (opt.stokes) film.enableStokes();             // --stokes / --polarizer: the Stokes vector of every pixel (docs/POLARIZATION.md)
+    if (opt.spectralStep > 0) EnableSpectralImage(opt, film);
 
     // the scene's default path depth, unless --depth was given
     if (def->defaultMaxDepth > 0 && opt.maxDepth == MAX_DEPTH) opt.maxDepth = def->defaultMaxDepth;
