@@ -417,3 +417,15 @@ docs/HANDOFF.md
 
 # ImGui window layout (rewritten every time the GUI runs)
 /GoLD_rayt/imgui.ini
+
+# Lab measurements and data without a clear license: kept locally
+/GoLD_rayt/assets/Fading_measured/
+/GoLD_rayt/assets/Metal_measured/
+/GoLD_rayt/assets/Skin/
+/GoLD_rayt/assets/env/stpeters_probe_latlong.hdr
+
+# Material file of the Erato scan (the mesh is kept locally too)
+/GoLD_rayt/assets/Meshes/erato/erato.mtl
+
+# Picture written by --scene mesh into the working folder
+/GoLD_rayt/result_*.png

@@ -1,0 +1,18 @@
+{
+  // The gold ring with the brilliant-cut diamond (see scenes/diamond_ring.json) inside a church: the environment map is a light probe of a church
+  // interior (assets/env/grace-new.hdr: not part of the repository, put your own map there or pass --env). The many small bright windows and lamps
+  // of the church make the dispersion of the stone sparkle; a small warm lamp adds glints. Spectral build.
+  "environment": { "type": "hdr", "file": "assets/env/grace-new.hdr", "scale": 2.2 },
+  "options": { "width": 900, "height": 600, "spp": 512, "depth": 24 },
+  "camera": { "from": [0.034, 0.030, 0.052], "at": [0, 0.0105, 0], "fov": 21 },
+  "materials": {
+    "gold":    { "type": "conductor", "metal": "Au", "roughness": 0.06 },
+    "diamond": { "type": "dielectric", "sellmeier": "diamond", "roughness": 0 },
+    "lamp":    { "type": "emission", "spectrum": "tungsten", "radiance": 600 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Meshes/ring/ring.obj", "material": "gold" },
+    { "shape": "mesh", "file": "assets/Meshes/ring/diamond.obj", "scale": 0.0065, "translate": [0, 0.0133, 0], "material": "diamond" },
+    { "shape": "sphere", "center": [0.045, 0.075, 0.03], "radius": 0.006, "material": "lamp" }
+  ]
+}
