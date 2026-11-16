@@ -33,6 +33,7 @@ const std::vector<Command>& Commands() {
         { { "ocean", "ocean surface: wave spectrum, sampled waves, dispersion, mesh" }, [](const CliOptions& o) { return RunOceanTests(o); } },
         { { "caustic", "caustic photon map check against plain path tracing" }, [](const CliOptions& o) { return RunCausticTests(o); } },
         { { "lvc", "bidirectional path tracing with a cache of light paths in a fog (prototype) against path tracing" }, [](const CliOptions& o) { return RunLvcTests(o); } },
+        { { "lvcmanifold", "manifold connections in the cache-based bidirectional path tracer (prism) against the photon map and path tracing" }, [](const CliOptions& o) { return RunLvcManifoldTests(o); } },
         { { "manifoldtest", "prism caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, false); } },
         { { "manifoldcup", "tumbler caustic: specular manifold NEE against the photon map" }, [](const CliOptions& o) { return RunManifoldTests(o, true); } },
         { { "metals", "metal data checks (file layouts, reflectance input, edge tint)" }, [](const CliOptions& o) { return RunMetalTests(o); } },

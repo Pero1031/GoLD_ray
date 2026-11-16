@@ -94,6 +94,7 @@ int RunLvcTests(const CliOptions& opt);
 // map (the existing, independent estimator), at a few lit floor points. The difference to the plain render (direct light only) is the
 // caustic part of each; the two must agree (the photon map blurs, so points in smooth parts of the pattern are used).
 int RunManifoldTests(const CliOptions& opt, bool cup);
+int RunLvcManifoldTests(const CliOptions& opt);   // manifold connections of VolumeBPT against the photon map and path tracing
 
 int RunMetalTests(const CliOptions& opt);
 

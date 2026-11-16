@@ -52,6 +52,7 @@ void PrintHelp(std::ostream& out) {
         << "  --fog-sigma S, --fog-light I, --fog-fill F, --fog-prism-deg D   fogbeam scene: extinction of the fog (1/m, default 1.5), intensity of the lamp (60) and of a faint fill light (0.4), rotation of the prism\n"
         << "  --lvc [--lvc-paths N --lvc-depth D --lvc-mask M --lvc-merge R]   fogspot scene: bidirectional path tracing with a cache of light paths (prototype)   --spot-deg A\n"
         << "                    --lvc-merge R: vertex merging with radius R (scene units) in the first pass, shrinking with --lvc-passes (caustics seen through glass; 0 = off)\n"
+        << "                    --lvc-mask: 1 = NEE, 2 = connections, 4 = light tracing, 8 = merging, 16 / 32 = manifold NEE / connections through flat-faced glass (scene with a prism)\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"
         << "\n"
         << "The options of single scenes (--sea-steep, --pmx-yaw, --caustics, ...) are listed in include/Cli/Options.hpp.\n"

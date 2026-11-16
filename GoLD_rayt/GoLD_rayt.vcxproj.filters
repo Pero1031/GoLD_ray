@@ -126,6 +126,9 @@
     <ClCompile Include="src\Cli\Checks\ManifoldChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Cli\Checks\LvcManifoldChecks.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Cli\Checks\MeshChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>

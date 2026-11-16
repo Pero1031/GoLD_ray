@@ -324,7 +324,15 @@ int RenderScene(CliOptions& opt) {
         bp.width = imageWidth; bp.height = imageHeight; bp.spp = opt.spp; bp.lightPaths = opt.lvcPaths; bp.maxVertices = opt.lvcDepth; bp.passes = opt.lvcPasses; bp.surfaceAlbedo = setup.bptAlbedo;
         bp.useNee = (opt.lvcMask & 1) != 0; bp.useConnections = (opt.lvcMask & 2) != 0; bp.useLightTracing = (opt.lvcMask & 4) != 0;
         bp.mergeRadius = Real(opt.lvcMerge); bp.useMerging = (opt.lvcMask & 8) != 0;
-        VolumeBPT(*scene, *camera, *setup.bptLight, *setup.bptMedium, bp).render(film);
+        bp.useManifoldNee = (opt.lvcMask & 16) != 0; bp.useManifoldConn = (opt.lvcMask & 32) != 0;
+        VolumeBPT vbpt(*scene, *camera, *setup.bptLight, *setup.bptMedium, bp);
+        std::unique_ptr<SpecularNee> lvcManifold;   // the flat-faced glass bodies of the scene (the prism): manifold connections
+        if ((opt.lvcMask & 48) != 0 && !setup.manifoldBodies.empty()) {
+            lvcManifold = std::make_unique<SpecularNee>(setup.manifoldBodies, *scene);
+            vbpt.setManifold(lvcManifold.get());
+        }
+        else if ((opt.lvcMask & 48) != 0) std::cout << "[VolumeBPT] note: this scene lists no flat-faced glass body: no manifold connections\n";
+        vbpt.render(film);
     }
     else integrator->render(*scene, film);
     if (traceOn) {   // add the light-traced caustic image (already an average radiance per pixel)

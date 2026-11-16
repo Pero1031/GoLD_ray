@@ -109,6 +109,23 @@ A path with only one connectable vertex, such as the floor under a glass ball th
 - **Checks** (`--scene lvc`): the fog and the fog with a floor (no glass) with merging, the glass ball in fog (light-side glass, merging at fog vertices, also dispersive), a directly lit floor seen through a glass ball (camera-side glass, no caustic: next event estimation, merging and path tracing agree), and the caustic of a ball on a floor seen through the ball (the one case no connection can make; the reference is path tracing with the photon map).
 - **Cost**: a camera vertex inside a dense caustic merges thousands of light vertices, each one rebuilding the path and its weights (`O(n)` per pair): about 15 to 20 times the time of the connections alone in the ball-on-a-floor check. The recursive weights of VCM (stored per vertex) would remove that.
 
+## 8c. Manifold connections (two refractions through a flat-faced body)
+
+A connection needs the two vertices to see each other. When a glass body is in the way, the path between them is bent by two refractions, and that chain is fixed by Snell's law once the two ends are fixed: the "generalized half vector" at each refraction must be parallel to the facet normal. **Manifold exploration** (Jakob and Marschner 2012; Hanika et al. 2015 for the light; Speierer et al. 2018 for any two vertices of a bidirectional path tracer) solves it with Newton's method, so the connection is made exactly instead of by chance.
+
+- **Strategies.** *Manifold NEE*: a camera vertex and the light. *Manifold connection*: a camera vertex and a vertex of the cached light path. The chain is the two refractions through ONE body of `SpecularNee` (flat facets, as in the manifold NEE; no reflections, no total internal reflection, no curved glass). `SpecularNee::chains(x, y)` returns every chain with its Fresnel transmittance `(1-F_A)(1-F_B)` and `dω/dA`, the change of the solid angle at `y` per area at `x`, from two re-solved neighbours.
+- **Contribution.** The three edges and the two specular vertices of the chain are replaced by `T_out T_out' · (dω/dA) · (1-F_A)(1-F_B)` (the cosine at the camera-side end is inside `dω/dA`). The rest of the path is evaluated as before.
+- **Weights.** The strategy joins the balance-heuristic sum `D` of every path that has two refractions through the same body between two connectable positions, with density `pdfF[1..a] · pdfC[b..n] · Γ` (`a`, `b = a + 3` the connected positions). `Γ` stands in for the two solved vertices, which are not sampled (the light-side conversions of the two refractions); the contribution carries the same factor, so the estimate stays unbiased whatever `Γ` is, and only the variance depends on it. A manifold term is counted in `D` only if the solver, started from the two ends, finds exactly the chain of the path (`manifoldReproduces`): the rule that decides which chains the strategy makes must be the rule that weighs them, or energy is lost.
+- **Where it applies.** With `manifoldOnlyBlocked` (the default, as in the paper) only where the straight segment between the two vertices is blocked; the tests switch it off to compare with the photon map. The medium of the two outside segments is taken from the camera-side vertex (the body and the vertices share a medium). Dispersive glass needs `--lvc-passes > 1` (the chain is solved at the wavelength of the pass). Lights must be point lights.
+- **Switch.** Bits 16 (manifold NEE) and 32 (manifold connections) of `--lvc-mask` (default 15: off); the scene must list its flat-faced glass bodies (the prism of `--scene fogspot --spot-prism`).
+- **Checks** (`--scene lvcmanifold`, 2.5 minutes at `--spp 32`):
+  1. `chains()` against `SpecularNee::sample()` on 197 floor points: identical (the glue: frame, Fresnel, `dω/dA`).
+  2. Manifold NEE alone, with a camera path of one vertex, against the photon map of the two-refraction chains: the sum is within 7 % (the tolerance of the manifold check itself is 10 %), and every chain that is generated is also found again by the weights.
+  3. Adding the manifold strategies to the other strategies changes the picture by 0.4 % (noise): adding a strategy does not change the expectation. With merging added, the picture is within 2 % of path tracing plus the photon map.
+  4. The camera looks through the prism (a chain on both ends): manifold and merging add the same energy to the strategies without them.
+  5. The noise of the picture with and without the manifold strategies (two independent renders).
+- **Not shown.** The solver does not find every chain that exists (the same coverage as the manifold NEE: a few percent of the energy of the photon map is missed, and none of the paths that end on a facet's plane within a millimetre).
+
 ## 9. Usage
 
 ```bash

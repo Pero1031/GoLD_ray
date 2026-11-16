@@ -102,6 +102,63 @@ namespace rayt {
             return m;
         }
 
+        /// A solved chain  x - vA - vB - y  through ONE body (enter at vA, leave at vB: two refractions).
+        struct Chain {
+            Point3 vA, vB;        ///< the refraction points: vA on the side of x, vB on the side of y
+            Vector3 nA, nB;       ///< outward facet normals at vA and vB
+            Real fresnel = 0;     ///< (1 - F_A)(1 - F_B): the Fresnel transmittance of the two interfaces (the 1/eta^2 radiance scalings cancel)
+            Real dwdA = 0;        ///< d(omega at y) / d(area at x): the bundle that leaves y into d(omega) arrives on the patch dA of x
+            int body = -1;
+        };
+
+        /// Index of the body whose glass is `m` (-1 if none).
+        int bodyIndex(const Material* m) const {
+            for (size_t i = 0; i < m_bodies.size(); ++i) if (m_bodies[i].glass.get() == m) return static_cast<int>(i);
+            return -1;
+        }
+
+        /**
+         * @brief Every chain between the two points x and y (each outside the bodies) through one body, at the wavelength `lambdaNm`.
+         *
+         * The chord inside the glass is checked against the scene; the two outside segments (x - vA, vB - y) are NOT: the caller measures them
+         * (it knows the medium). dwdA is measured on the plane through x with the normal `nx`; with `perpendicular` the normal is the direction
+         * from vA to x instead (a point in a medium has no surface: the measure is the area perpendicular to the ray).
+         */
+        void chains(const Scene& scene, const Point3& x, const Vector3& nx, bool perpendicular, const Point3& y, Real lambdaNm, std::vector<Chain>& out) const {
+            out.clear();
+            for (size_t bi = 0; bi < m_bodies.size(); ++bi) {
+                const BodyData& body = m_bodies[bi];
+                const Real n = body.glass->iorAtNm(lambdaNm);
+                const std::vector<Facet>& facets = body.facets;
+                for (size_t ia = 0; ia < facets.size(); ++ia) {
+                    const Facet& A = facets[ia];
+                    if (glm::dot(A.n, Vector3(x - A.p0)) <= Real(1e-9)) continue;
+                    for (size_t ib = 0; ib < facets.size(); ++ib) {
+                        if (ib == ia) continue;
+                        const Facet& B = facets[ib];
+                        if (glm::dot(B.n, Vector3(y - B.p0)) <= Real(1e-9)) continue;
+                        Point2 a, b;
+                        if (!solvePair(x, y, A, B, n, a, b)) continue;
+                        const Point3 vA = A.p0 + A.t1 * a.x + A.t2 * a.y;
+                        const Point3 vB = B.p0 + B.t1 * b.x + B.t2 * b.y;
+                        if (chordBlocked(scene, vA, vB)) continue;
+                        const Vector3 wx = glm::normalize(Vector3(x - vA));
+                        const Vector3 wy = glm::normalize(Vector3(y - vB));
+                        const frame::Frame fr(perpendicular ? wx : nx);
+                        const Real d = focusing(x, fr.localToWorld(Vector3(1, 0, 0)), fr.localToWorld(Vector3(0, 1, 0)), y, A, B, n, a, b, vB);
+                        if (!(d > Real(0)) || !std::isfinite(d)) continue;
+                        Chain c;
+                        c.vA = vA; c.vB = vB; c.nA = A.n; c.nB = B.n;
+                        c.fresnel = (Real(1) - fresnel::fresnelDielectric(std::abs(glm::dot(wx, A.n)), Real(1), n))
+                                  * (Real(1) - fresnel::fresnelDielectric(std::abs(glm::dot(wy, B.n)), Real(1), n));
+                        c.dwdA = d;
+                        c.body = static_cast<int>(bi);
+                        out.push_back(c);
+                    }
+                }
+            }
+        }
+
         /// Where the candidate (receiver facet, light facet) pairs drop out, for diagnostics.
         struct Counters {
             std::atomic<long long> pairs{ 0 };        ///< pairs tried by the solver

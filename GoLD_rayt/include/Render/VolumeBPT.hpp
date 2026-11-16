@@ -89,6 +89,7 @@
 #include "Render/Camera.hpp"
 #include "Render/Film.hpp"
 #include "Render/Transmittance.hpp"
+#include "Render/SpecularNee.hpp"
 #include "Lights/PointLight.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Medium.hpp"
@@ -116,6 +117,13 @@ namespace rayt {
         Real mergeRadius = 0;
         Real mergeAlpha = Real(0.75);
         bool useMerging = true;            ///< strategy "merge at vertex k" (needs mergeRadius > 0)
+        /// Manifold connections (Speierer et al. 2018; needs VolumeBPT::setManifold): when the straight segment between two connectable vertices is
+        /// blocked by a flat-faced glass body, the two refractions through the body are solved (Snell's law, Newton) and the vertices are connected
+        /// through them. Nee: a camera vertex and the light; Conn: a camera vertex and a vertex of the cached light path.
+        bool useManifoldNee = true;
+        bool useManifoldConn = true;
+        /// As in the paper, a manifold connection exists only where the straight segment is blocked. false (tests): wherever the solver finds a chain.
+        bool manifoldOnlyBlocked = true;
     };
 
     class VolumeBPT {
@@ -134,6 +142,10 @@ namespace rayt {
             m_lightPos = m_light.position();
             m_camPos = m_cam.origin();
         }
+
+        /// The flat-faced glass bodies for the manifold connections (see VolumeBptParams::useManifoldNee); the solver must outlive the render.
+        /// Dispersive glass needs passes > 1 (the chain is solved at the wavelength of the pass).
+        void setManifold(const SpecularNee* solver) { m_man = solver; }
 
         /// Renders the image into the film (final pixel values, not sums).
         void render(Film& film) {
@@ -166,6 +178,9 @@ namespace rayt {
             for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) film.setPixel(x, y, total[static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)] / Real(K));
 
             const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (m_manTried > 0)
+                std::cout << "[VolumeBPT] manifold: " << m_manTried.load() << " solver calls, " << m_manRaw.load() << " chains found, " << m_manAccepted.load()
+                    << " connections made (outside segments open); of " << m_manPattern.load() << " two-refraction chains met in the weights, the solver reproduced " << m_manValid.load() << "\n";
             if (m_mergeQueries > 0)
                 std::cout << "[VolumeBPT] merging: " << m_mergeQueries.load() << " queries, " << double(m_mergeCandidates.load()) / double(m_mergeQueries.load()) << " candidates and "
                     << double(m_mergePairs.load()) / double(m_mergeQueries.load()) << " merged pairs per query on average, " << m_mergePairs.load() << " pairs in all\n";
@@ -185,7 +200,12 @@ namespace rayt {
             uint8_t spec;      ///< 1: a specular vertex (smooth glass): it cannot be connected
             uint8_t inFog;     ///< 1: the rays at this vertex travel in the fog
             uint8_t idx;       ///< light sub-paths in the cache: the position of the vertex in its path (1 = the first vertex from the light)
+            uint8_t body;      ///< specular vertex on a body of the manifold solver: its index + 1 (0: none)
+            uint8_t refr;      ///< specular vertex: 1 if the ray was refracted (0: reflected)
         };
+        /// A path made by a manifold connection: positions a and a + 3 (0 = the light) are connectable, the vertices a + 1 and a + 2 (X[a], X[a + 1]) are
+        /// the two refractions that were solved. J = d(omega at the light-side end) / d(area at the camera-side end), F = Fresnel transmittance.
+        struct ManSeg { int a; Real J; Real F; };
         static Point3 pos(const Vtx& v) { return Point3(v.p[0], v.p[1], v.p[2]); }
         static Vector3 nrm(const Vtx& v) { return Vector3(v.n[0], v.n[1], v.n[2]); }
         const Medium* mediumOf(const Vtx& v) const { return v.inFog ? &m_med : nullptr; }
@@ -206,12 +226,16 @@ namespace rayt {
         int m_spp = 1;                 // camera samples per pixel in the current pass
         long long m_N = 1;             // light paths in the current pass
 
+        const SpecularNee* m_man = nullptr;   // the manifold solver (null: no manifold connections)
+        bool manifoldOn() const { return m_man && (m_P.useManifoldNee || m_P.useManifoldConn); }
+
         // vertex merging: a hash grid over the cached vertices that can be merged (not specular), rebuilt every pass
         Real m_mergeR = 0;             // radius of the current pass (0: merging is off)
         Real m_cellSize = 1;
         uint32_t m_gridMask = 0;
         std::vector<uint32_t> m_gridStart;   // bucket b holds m_gridItems[m_gridStart[b] .. m_gridStart[b + 1])
         std::vector<uint32_t> m_gridItems;   // indices into m_verts
+        mutable std::atomic<long long> m_manTried{ 0 }, m_manRaw{ 0 }, m_manAccepted{ 0 }, m_manValid{ 0 }, m_manPattern{ 0 };   // statistics of the manifold connections
         mutable std::atomic<long long> m_mergeQueries{ 0 }, m_mergeCandidates{ 0 }, m_mergePairs{ 0 };   // statistics of the merging
         SampledWavelengths m_passLambda;
         bool m_passLambdaOn = false;
@@ -246,7 +270,7 @@ namespace rayt {
                 for (long long i = first; i < last; ++i) {
                     SampledWavelengths lam = makeLambda();
                     traceLightPath(Z, lam);
-                    if (m_P.useConnections || m_mergeR > 0) {   // the cache is only needed by the connections and by the merging
+                    if (m_P.useConnections || m_mergeR > 0 || (manifoldOn() && m_P.useManifoldConn)) {   // the cache is only needed by the connections, merging and manifold connections
                         vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
                         countPer[th].push_back(static_cast<uint8_t>(Z.size()));
                     }
@@ -354,6 +378,8 @@ namespace rayt {
                     v.surface = 1;
                     v.spec = 1;
                     v.inFog = before ? 1 : 0;
+                    v.body = m_man ? static_cast<uint8_t>(m_man->bodyIndex(rec.matPtr) + 1) : uint8_t(0);
+                    v.refr = (glm::dot(wi, rec.gn) * glm::dot(Vector3(-r.d), rec.gn) < 0) ? 1 : 0;
                     out.push_back(v);
                     lenInMedium = 0;
                     if (rec.medium) r = Ray(rec.p, wi, constants::RAY_EPSILON, rec.medium);
@@ -454,6 +480,78 @@ namespace rayt {
             return p + n * (side * constants::RAY_EPSILON * Real(4));
         }
 
+        // ------------------------------------------------------------------------------------------------
+        // Manifold connections: two refractions through a flat-faced body between two connectable positions
+        // ------------------------------------------------------------------------------------------------
+        /// The wavelength (nm) at which the chains are solved: the one of the pass (dispersive glass needs passes > 1); otherwise the glass is not dispersive.
+        Real chainNm() const { return m_passLambdaOn ? m_passLambda[0] : Real(550); }
+
+        /// X[a], X[a + 1] are two refractions through the same body of the solver, with a connectable vertex (or the light) before and after.
+        bool manifoldChainPattern(const Vtx* X, int a) const {
+            const Vtx& s1 = X[a];
+            const Vtx& s2 = X[a + 1];
+            if (!s1.spec || !s2.spec || s1.body == 0 || s1.body != s2.body || !s1.refr || !s2.refr) return false;
+            if (a >= 1 && X[a - 1].spec) return false;
+            return !X[a + 2].spec;
+        }
+
+        /// Is the straight segment between the light-side end U (a vertex, or the light) and the camera-side vertex V open?
+        bool straightOpen(const Vtx* uV, const Point3& U, const Vtx& V, const SampledWavelengths& lam) const {
+            const Point3 aU = uV ? anchor(*uV, pos(V)) : U;
+            return transmittanceBetween(anchor(V, U), mediumOf(V), aU, lam) > Real(0);
+        }
+
+        /// The strategy "manifold connection at (a, a + 3)" exists for the path if the straight segment is blocked and the solver, started from the two
+        /// end points, finds exactly the chain X[a], X[a + 1] (the same rule that decides which chains the connection makes).
+        bool manifoldReproduces(const Vtx* X, int a) const {
+            const Vtx* uV = (a == 0) ? nullptr : &X[a - 1];
+            const Point3 U = uV ? pos(*uV) : m_lightPos;
+            const Vtx& V = X[a + 2];
+            const SampledWavelengths lamB = m_passLambdaOn ? m_passLambda : SampledWavelengths();
+            if (m_P.manifoldOnlyBlocked && straightOpen(uV, U, V, lamB)) return false;
+            static thread_local std::vector<SpecularNee::Chain> ch;
+            m_man->chains(m_scene, pos(V), nrm(V), !V.surface, U, chainNm(), ch);
+            const Point3 s1 = pos(X[a]), s2 = pos(X[a + 1]);
+            const Real tol = Real(1e-4);
+            for (const SpecularNee::Chain& c : ch)
+                if (glm::length(Vector3(c.vB - s1)) < tol && glm::length(Vector3(c.vA - s2)) < tol) { ++m_manValid; return true; }
+            return false;
+        }
+
+        struct MChain { Vtx nearU, nearV; Real J, F, Tu, Tv; };
+
+        /// The chains that connect U (the light, or the vertex uV) to the camera-side vertex V when the straight segment is blocked: the vertices of
+        /// the two refractions (nearU on the side of U), d omega / d area, the Fresnel transmittance and the two outside transmittances.
+        void manifoldChains(const Vtx* uV, const Point3& U, const Vtx& V, const SampledWavelengths& lam, std::vector<MChain>& out) const {
+            out.clear();
+            if (m_P.manifoldOnlyBlocked && straightOpen(uV, U, V, lam)) return;
+            ++m_manTried;
+            static thread_local std::vector<SpecularNee::Chain> ch;
+            const Point3 pv = pos(V);
+            m_man->chains(m_scene, pv, nrm(V), !V.surface, U, chainNm(), ch);
+            const Real eps = constants::RAY_EPSILON * Real(4);
+            auto mk = [&](const Point3& p, const Vector3& nn, int body) {
+                Vtx v = {};
+                v.p[0] = float(p.x); v.p[1] = float(p.y); v.p[2] = float(p.z);
+                v.n[0] = float(nn.x); v.n[1] = float(nn.y); v.n[2] = float(nn.z);
+                v.W = 0; v.tIn = 1; v.surface = 1; v.spec = 1; v.inFog = V.inFog; v.body = static_cast<uint8_t>(body + 1); v.refr = 1;
+                return v;
+            };
+            m_manRaw += static_cast<long long>(ch.size());
+            for (const SpecularNee::Chain& c : ch) {
+                MChain m;
+                m.Tv = transmittanceBetween(anchor(V, c.vA), mediumOf(V), Point3(c.vA + c.nA * eps), lam);
+                if (!(m.Tv > Real(0))) continue;
+                m.Tu = transmittanceBetween(Point3(c.vB + c.nB * eps), mediumOf(V), uV ? anchor(*uV, c.vB) : U, lam);
+                if (!(m.Tu > Real(0))) continue;
+                m.nearU = mk(c.vB, c.nB, c.body);
+                m.nearV = mk(c.vA, c.nA, c.body);
+                m.J = c.dwdA; m.F = c.fresnel;
+                ++m_manAccepted;
+                out.push_back(m);
+            }
+        }
+
         /// Transmittance of the connecting edge between two vertices.
         Real connectEdge(const Vtx& a, const Vtx& b, const SampledWavelengths& lam) const {
             const Point3 pa = anchor(a, pos(b)), pb = anchor(b, pos(a));
@@ -470,7 +568,7 @@ namespace rayt {
          * sActual: the strategy that made the path (x_1..x_s from the light, the rest from the camera): it decides which cosine a specular
          * vertex's weight is paired with.
          */
-        Real pathContribution(const Vtx* X, int n, const Real* Tedge, int sActual) const {
+        Real pathContribution(const Vtx* X, int n, const Real* Tedge, int sActual, const ManSeg* ms = nullptr) const {
             constexpr int kMax = 40;
             if (n < 1 || n + 2 > kMax) return Real(0);
             Point3 P[kMax];
@@ -535,11 +633,17 @@ namespace rayt {
             scatC[n + 1] = w;
 
             Real f = w;
-            for (int i = 0; i <= n; ++i) f *= T[i] / d2[i];
+            // A manifold connection replaces the three edges and the two vertices of its chain by  T_out T_out' * (d omega / d area) * (Fresnel):
+            // the cosine at the camera-side end is part of d omega / d area, so that end keeps only its BSDF and its outgoing cosine.
+            const int ma = ms ? ms->a : -10;
+            for (int i = 0; i <= n; ++i) { if (ms && i >= ma && i <= ma + 2) continue; f *= T[i] / d2[i]; }
             for (int k = 1; k <= n; ++k) {
+                if (ms && (k == ma + 1 || k == ma + 2)) continue;
                 if (X[k - 1].spec) f *= Real(X[k - 1].W) * (k <= sActual ? cin[k] : cout_[k]);   // f / p of the sampling gives W
+                else if (ms && k == ma + 3) f *= fv[k] * cout_[k];
                 else f *= fv[k] * cin[k] * cout_[k];
             }
+            if (ms) f *= T[ma] * T[ma + 2] * ms->J * ms->F;
 
             // densities of the vertices when sampled from the light (F) and from the camera (C)
             Real pdfF[kMax], pdfC[kMax];
@@ -548,6 +652,10 @@ namespace rayt {
                 pdfF[i] = scatF[i - 1] * (spec ? cin[i] : surf ? X[i - 1].rho * cin[i] : m_sigS) * T[i - 1] / d2[i - 1];
                 pdfC[i] = scatC[i + 1] * (spec ? cout_[i] : surf ? X[i - 1].rho * cout_[i] : m_sigS) * T[i] / d2[i];
             }
+            // The manifold strategy's weight density has no densities for the two solved vertices (they are not sampled); the two conversions of the
+            // light-side sampling stand in for them so that its units are those of the other strategies (a weight can be any positive number: the estimate
+            // stays unbiased, only the variance depends on it). The contribution carries the same factor.
+            if (ms) f *= pdfF[ma + 1] * pdfF[ma + 2];
             // p_s = prod_{i <= s} pdfF[i] * prod_{i > s} pdfC[i]
             Real suffix[kMax];
             suffix[n] = Real(1);
@@ -561,6 +669,11 @@ namespace rayt {
                 // and every camera sample is paired with every one of the m_N light paths
                 if (m_mergeR > 0 && sIdx >= 1 && !X[sIdx - 1].spec && sIdx <= M && n - sIdx + 1 <= M)
                     D += Real(m_spp) * Real(m_N) * mergeMeasure(X[sIdx - 1]) * prefix * suffix[sIdx - 1];
+                // manifold connection between the connectable positions sIdx and sIdx + 3 (the chain X[sIdx], X[sIdx + 1] between them): the strategy
+                // exists for this path if the straight segment is blocked and the solver finds exactly this chain
+                if (manifoldOn() && sIdx + 3 <= n && sIdx <= M && n - sIdx - 2 <= M && (sIdx == 0 ? m_P.useManifoldNee : m_P.useManifoldConn)
+                    && manifoldChainPattern(X, sIdx) && (++m_manPattern, manifoldReproduces(X, sIdx)))
+                    D += Real(m_spp) * prefix * suffix[sIdx + 2] * pdfF[sIdx + 1] * pdfF[sIdx + 2];
                 if (sIdx > M || n - sIdx > M) continue;                         // this strategy cannot make a path of this length
                 // a connection cannot end at a specular vertex (nor can the light or the camera be connected to one)
                 if (sIdx == 0 ? X[0].spec : sIdx == n ? X[n - 1].spec : (X[sIdx - 1].spec || X[sIdx].spec)) continue;
@@ -617,12 +730,13 @@ namespace rayt {
 
             // the cached light path of this sample
             size_t lb = 0, le = 0;
-            if (m_P.useConnections && m_nStored > 0) {
+            if ((m_P.useConnections || (manifoldOn() && m_P.useManifoldConn)) && m_nStored > 0) {
                 const size_t k = std::min(m_nStored - 1, static_cast<size_t>(sampling::Random() * Real(m_nStored)));
                 lb = m_start[k]; le = m_start[k + 1];
             }
 
             Real T[40];
+            std::vector<MChain> MC;
             const int nY = static_cast<int>(Y.size());
             for (int t = 1; t <= nY; ++t) {
                 const Vtx& yt = Y[t - 1];
@@ -642,13 +756,44 @@ namespace rayt {
                         }
                     }
                 }
+                // ---- s = 0 through glass: the light seen from y_t across two refractions of a body (manifold next event estimation) ----
+                if (manifoldOn() && m_P.useManifoldNee) {
+                    manifoldChains(nullptr, m_lightPos, yt, lam, MC);
+                    for (const MChain& c : MC) {
+                        X.clear();
+                        X.push_back(c.nearU); X.push_back(c.nearV);
+                        for (int q = t - 1; q >= 0; --q) X.push_back(Y[q]);
+                        T[0] = c.Tu; T[1] = Real(1); T[2] = c.Tv;
+                        for (int jj = 1; jj <= t; ++jj) T[2 + jj] = Y[t - jj].tIn;
+                        const ManSeg ms{ 0, c.J, c.F };
+                        acc += I * pathContribution(X.data(), t + 2, T, 0, &ms);
+                    }
+                }
                 // ---- 0 < s < n: a vertex of the cached light path connected to y_t ----
                 for (size_t q = lb; q < le; ++q) {
                     const int s = static_cast<int>(q - lb) + 1;
                     const Vtx& zs = m_verts[q];
                     if (zs.spec) continue;
                     const Real Tc = connectEdge(zs, yt, lam);
-                    if (!(Tc > Real(0))) continue;
+                    if (!(Tc > Real(0))) {
+                        // blocked: connect through the two refractions of a body (manifold connection)
+                        if (manifoldOn() && m_P.useManifoldConn) {
+                            manifoldChains(&zs, pos(zs), yt, lam, MC);
+                            for (const MChain& c : MC) {
+                                X.clear();
+                                for (size_t a = lb; a <= q; ++a) X.push_back(m_verts[a]);
+                                X.push_back(c.nearU); X.push_back(c.nearV);
+                                for (int a = t - 1; a >= 0; --a) X.push_back(Y[a]);
+                                for (int e = 0; e < s; ++e) T[e] = m_verts[lb + e].tIn;
+                                T[s] = c.Tu; T[s + 1] = Real(1); T[s + 2] = c.Tv;
+                                for (int jj = 1; jj <= t; ++jj) T[s + 2 + jj] = Y[t - jj].tIn;
+                                const ManSeg ms{ s, c.J, c.F };
+                                acc += I * pathContribution(X.data(), s + t + 2, T, s, &ms);
+                            }
+                        }
+                        continue;
+                    }
+                    if (!m_P.useConnections) continue;
                     X.clear();
                     for (size_t a = lb; a <= q; ++a) X.push_back(m_verts[a]);
                     for (int a = t - 1; a >= 0; --a) X.push_back(Y[a]);
