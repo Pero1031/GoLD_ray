@@ -68,6 +68,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\IO\ImageWriter.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\main_cli.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
@@ -460,6 +464,7 @@
     <ClInclude Include="include\IO\EnvMap.hpp" />
     <ClInclude Include="include\IO\FadingSeries.hpp" />
     <ClInclude Include="include\IO\ImageLoader.hpp" />
+    <ClInclude Include="include\IO\ImageWriter.hpp" />
     <ClInclude Include="include\IO\ObjLoader.hpp" />
     <ClInclude Include="include\IO\PlyLoader.hpp" />
     <ClInclude Include="include\IO\PmxLoader.hpp" />

@@ -88,6 +88,147 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     return r;
 }
 
+// --mask: the materials named in opt.mask (the names of the scene file). False, with a message, for a built-in scene or an unknown name.
+bool ResolveMaskMaterials(const CliOptions& opt, const SceneSetup& setup, std::vector<const Material*>& out) {
+    if (opt.mask.empty()) return true;
+    if (setup.namedMaterials.empty()) {
+        std::cerr << "[Mask] --mask names materials of a scene file; the built-in scene \"" << opt.scene << "\" has no named materials\n";
+        return false;
+    }
+    std::stringstream list(opt.mask);
+    for (std::string name; std::getline(list, name, ',');) {
+        if (name.empty()) continue;
+        const auto it = setup.namedMaterials.find(name);
+        if (it == setup.namedMaterials.end()) {
+            std::cerr << "[Mask] --mask: the scene file has no material \"" << name << "\"; it has:";
+            for (const auto& [n, m] : setup.namedMaterials) std::cerr << " " << n;
+            std::cerr << "\n";
+            return false;
+        }
+        out.push_back(it->second);
+    }
+    return true;
+}
+
+// The camera of the scene with the lens of the command line, and the notes on what the chosen render mode does not show of it.
+// lightTracing: light paths are connected to a pinhole camera (--caustic-trace, --lvc); lvcCamera: --lvc renders the picture.
+std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& setup, int imageWidth, int imageHeight, bool lightTracing, bool lvcCamera) {
+    const Point3 lookFrom = setup.camera.from;
+    const Point3 lookAt = setup.camera.at;
+    const Vector3 vUp = setup.camera.up;
+
+    const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
+    if (lens.aperture > 0 || opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) {
+        std::cout << "[Camera] focal length " << lens.focalLengthMm << " mm (vertical field of view " << lens.fovDeg << " deg)";
+        if (lens.aperture > 0) {
+            std::cout << ", f/" << lens.fStop << " = aperture " << lens.aperture * 1000.0 << " mm, focus at " << lens.focusDist << " m, "
+                << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round aperture"));
+        }
+        std::cout << std::endl;
+    }
+
+    auto camera = std::make_shared<Camera>(
+        lookFrom, lookAt, vUp,
+        lens.fovDeg,
+        double(imageWidth) / imageHeight,
+        lens.aperture,
+        lens.focusDist
+    );
+    if (lens.blades >= 3) camera->setApertureShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
+    camera->setAberrations(lens.k1, lens.k2, lens.lateralCA, lens.axialCA, lens.focalLengthMm * Real(0.001));
+    if (lens.k1 != 0 || lens.k2 != 0) {
+        std::cout << "[Camera] radial distortion k1 = " << lens.k1 << ", k2 = " << lens.k2 << (lens.k1 > 0 ? " (barrel)" : lens.k1 < 0 ? " (pincushion)" : "") << "\n";
+        if (camera->distortionFolds()) std::cout << "[Camera] warning: this distortion folds the picture over itself near the edge; use a smaller k1 / k2\n";
+    }
+    if (lens.lateralCA != 0 || lens.axialCA != 0) {
+#if defined(RAYT_SPECTRAL_MODE)
+        std::cout << "[Camera] chromatic aberration: lateral " << lens.lateralCA << ", axial " << lens.axialCA
+            << " per 100 nm (one wavelength per path: the color noise is higher)\n";
+        if (lens.axialCA != 0 && !(lens.aperture > 0)) std::cout << "[Camera] note: axial chromatic aberration shows as colored defocus: it needs --fstop\n";
+        if (lvcCamera) std::cout << "[Camera] note: --lvc connects to a pinhole camera of one wavelength: no chromatic aberration there\n";
+#else
+        std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
+#endif
+    }
+    camera->setShutter(lens.shutter);
+    camera->setMotion(lens.velocity, lens.panYaw, lens.panPitch);
+    if (camera->hasShutter()) {
+        std::cout << "[Camera] shutter " << lens.shutter << " s";
+        if (lens.shutter < 1.0) std::cout << " (1/" << std::lround(1.0 / lens.shutter) << ")";
+        if (camera->moving()) std::cout << "; the camera moves " << lens.velocity.x << ", " << lens.velocity.y << ", " << lens.velocity.z << " m/s, pans " << lens.panYaw << " / " << lens.panPitch << " deg/s";
+        std::cout << "\n";
+        if (lvcCamera) std::cout << "[Camera] note: --lvc connects to a camera at time 0: no motion blur there\n";
+    }
+    else if (camera->moving()) std::cout << "[Camera] note: the camera has a velocity or a pan but the shutter is closed (--shutter, \"shutter\"): it does not move\n";
+    camera->setVignetting(lens.barrelRadius, lens.barrelDist, lens.naturalVignetting);
+    if (lens.barrelRadius > 0) {
+        if (lens.aperture > 0) {
+            std::cout << "[Camera] vignetting: lens barrel opening f/" << lens.focalLengthMm * 0.001 / (2 * lens.barrelRadius) << " (diameter " << 2000.0 * lens.barrelRadius
+                << " mm) " << 1000.0 * lens.barrelDist << " mm in front of the stop; of the round aperture, " << std::lround(100.0 * camera->apertureFraction(1, 1))
+                << " % is left open at the corner (about)\n";
+            if (2 * lens.barrelRadius <= lens.aperture) std::cout << "[Camera] note: the barrel opening is not larger than the aperture: it acts as the stop. A smaller --vignette N opens it\n";
+        }
+        else std::cout << "[Camera] note: the barrel vignetting needs an aperture (--fstop): a pinhole is not clipped\n";
+    }
+    if (lens.naturalVignetting > 0) std::cout << "[Camera] natural vignetting: the film is lit in proportion to cos^" << 4 * lens.naturalVignetting << " of the angle off the axis\n";
+    if ((lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0) && lightTracing)
+        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
+    if (lens.aperture > 0 && lightTracing)
+        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to a pinhole camera: its caustics stay sharp while the rest is defocused\n";
+    return camera;
+}
+
+// Writes the picture and everything asked for beside it (mask, depth, AOVs, Stokes images, polarizer views, the denoised copy).
+// photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization).
+void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
+    std::cout << "[Output] Saving images..." << std::endl;
+    color::Gamut gamut = color::Gamut::SRGB;
+    color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
+    // Every written picture (the image, the polarizer images, the denoised copy) gets the same output settings.
+    auto setOutput = [&](Film& f) {
+        f.setOutputGamut(gamut);
+        f.setPng16(opt.pngBits == 16);
+        f.setDisplay(opt.exposure, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
+    };
+    setOutput(film);
+    film.save(opt.out);
+    const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
+    const std::string outExt = std::filesystem::path(opt.out).extension().string();
+    std::string outExtLower = outExt;
+    std::transform(outExtLower.begin(), outExtLower.end(), outExtLower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const bool floatOut = (outExtLower == ".pfm" || outExtLower == ".hdr");
+    if (floatOut && (opt.exposure != 0 || opt.tonemap != "reinhard"))
+        std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
+    if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
+    if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
+    if (opt.aov) {
+        const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
+        film.saveAlbedo(outStem + "_albedo" + aovExt);
+        film.saveNormal(outStem + "_normal" + aovExt);
+    }
+    if (opt.stokes) {
+        film.saveStokes(outStem);
+        film.saveLinearPolarization(outStem);
+        for (const Real angle : opt.polarizers) {
+            Film filtered(film.width(), film.height());
+            setOutput(filtered);
+            film.polarizerImage(angle, filtered);
+            std::ostringstream name;
+            name << outStem << "_pol" << angle;
+            std::string stem = name.str();
+            std::replace(stem.begin() + static_cast<std::ptrdiff_t>(outStem.size()), stem.end(), '.', 'p');   // 22.5 -> 22p5: keeps the extension clear
+            filtered.save(stem + outExt);
+        }
+        if (photonsAdded)
+            std::cout << "[Polarization] note: the caustic photons and the light-traced image are added without polarization" << std::endl;
+    }
+    if (opt.denoise) {
+        Film denoised(film.width(), film.height());
+        setOutput(denoised);
+        if (DenoiseFilm(film, denoised, opt.cleanAux, gamut)) denoised.save(outStem + "_denoised" + outExt);
+    }
+}
+
 } // namespace
 
 ImageSize ComputeImageSize(const CliOptions& opt) {
@@ -113,26 +254,10 @@ int RenderScene(CliOptions& opt) {
     if (const std::optional<int> exitCode = def->build(ctx, setup)) return *exitCode;
     const CausticSetup& caustics = setup.caustics;       // what the scene asks of the photon map and the manifold NEE
 
-    // --mask: the materials (by their names in the scene file) whose objects the mask covers; checked before the render starts
+    // --mask: the materials whose objects the mask covers; checked before the render starts
     std::vector<const Material*> maskMaterials;
-    if (!opt.mask.empty()) {
-        if (setup.namedMaterials.empty()) {
-            std::cerr << "[Mask] --mask names materials of a scene file; the built-in scene \"" << opt.scene << "\" has no named materials\n";
-            return 1;
-        }
-        std::stringstream list(opt.mask);
-        for (std::string name; std::getline(list, name, ',');) {
-            if (name.empty()) continue;
-            const auto it = setup.namedMaterials.find(name);
-            if (it == setup.namedMaterials.end()) {
-                std::cerr << "[Mask] --mask: the scene file has no material \"" << name << "\"; it has:";
-                for (const auto& [n, m] : setup.namedMaterials) std::cerr << " " << n;
-                std::cerr << "\n";
-                return 1;
-            }
-            maskMaterials.push_back(it->second);
-        }
-    }
+    if (!ResolveMaskMaterials(opt, setup, maskMaterials)) return 1;
+
     if (caustics.lightTraceOnly) opt.causticTrace = true;
 
     // ---- the scene: lights, caustics ----
@@ -185,68 +310,8 @@ int RenderScene(CliOptions& opt) {
     }
 
     // ---- the camera ----
-    const Point3 lookFrom = setup.camera.from;
-    const Point3 lookAt = setup.camera.at;
-    const Vector3 vUp = setup.camera.up;
-
-    const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
-    if (lens.aperture > 0 || opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) {
-        std::cout << "[Camera] focal length " << lens.focalLengthMm << " mm (vertical field of view " << lens.fovDeg << " deg)";
-        if (lens.aperture > 0) {
-            std::cout << ", f/" << lens.fStop << " = aperture " << lens.aperture * 1000.0 << " mm, focus at " << lens.focusDist << " m, "
-                << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round aperture"));
-        }
-        std::cout << std::endl;
-    }
-
-    auto camera = std::make_shared<Camera>(
-        lookFrom, lookAt, vUp,
-        lens.fovDeg,
-        double(imageWidth) / imageHeight,
-        lens.aperture,
-        lens.focusDist
-    );
-    if (lens.blades >= 3) camera->setApertureShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
-    camera->setAberrations(lens.k1, lens.k2, lens.lateralCA, lens.axialCA, lens.focalLengthMm * Real(0.001));
-    if (lens.k1 != 0 || lens.k2 != 0) {
-        std::cout << "[Camera] radial distortion k1 = " << lens.k1 << ", k2 = " << lens.k2 << (lens.k1 > 0 ? " (barrel)" : lens.k1 < 0 ? " (pincushion)" : "") << "\n";
-        if (camera->distortionFolds()) std::cout << "[Camera] warning: this distortion folds the picture over itself near the edge; use a smaller k1 / k2\n";
-    }
-    if (lens.lateralCA != 0 || lens.axialCA != 0) {
-#if defined(RAYT_SPECTRAL_MODE)
-        std::cout << "[Camera] chromatic aberration: lateral " << lens.lateralCA << ", axial " << lens.axialCA
-            << " per 100 nm (one wavelength per path: the color noise is higher)\n";
-        if (lens.axialCA != 0 && !(lens.aperture > 0)) std::cout << "[Camera] note: axial chromatic aberration shows as colored defocus: it needs --fstop\n";
-        if (opt.lvc && setup.bptLight) std::cout << "[Camera] note: --lvc connects to a pinhole camera of one wavelength: no chromatic aberration there\n";
-#else
-        std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
-#endif
-    }
-    camera->setShutter(lens.shutter);
-    camera->setMotion(lens.velocity, lens.panYaw, lens.panPitch);
-    if (camera->hasShutter()) {
-        std::cout << "[Camera] shutter " << lens.shutter << " s";
-        if (lens.shutter < 1.0) std::cout << " (1/" << std::lround(1.0 / lens.shutter) << ")";
-        if (camera->moving()) std::cout << "; the camera moves " << lens.velocity.x << ", " << lens.velocity.y << ", " << lens.velocity.z << " m/s, pans " << lens.panYaw << " / " << lens.panPitch << " deg/s";
-        std::cout << "\n";
-        if (opt.lvc && setup.bptLight) std::cout << "[Camera] note: --lvc connects to a camera at time 0: no motion blur there\n";
-    }
-    else if (camera->moving()) std::cout << "[Camera] note: the camera has a velocity or a pan but the shutter is closed (--shutter, \"shutter\"): it does not move\n";
-    camera->setVignetting(lens.barrelRadius, lens.barrelDist, lens.naturalVignetting);
-    if (lens.barrelRadius > 0) {
-        if (lens.aperture > 0) {
-            std::cout << "[Camera] vignetting: lens barrel opening f/" << lens.focalLengthMm * 0.001 / (2 * lens.barrelRadius) << " (diameter " << 2000.0 * lens.barrelRadius
-                << " mm) " << 1000.0 * lens.barrelDist << " mm in front of the stop; of the round aperture, " << std::lround(100.0 * camera->apertureFraction(1, 1))
-                << " % is left open at the corner (about)\n";
-            if (2 * lens.barrelRadius <= lens.aperture) std::cout << "[Camera] note: the barrel opening is not larger than the aperture: it acts as the stop. A smaller --vignette N opens it\n";
-        }
-        else std::cout << "[Camera] note: the barrel vignetting needs an aperture (--fstop): a pinhole is not clipped\n";
-    }
-    if (lens.naturalVignetting > 0) std::cout << "[Camera] natural vignetting: the film is lit in proportion to cos^" << 4 * lens.naturalVignetting << " of the angle off the axis\n";
-    if ((lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0) && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
-        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
-    if (lens.aperture > 0 && (opt.causticTrace || caustics.lightTraceOnly || (opt.lvc && setup.bptLight)))
-        std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to a pinhole camera: its caustics stay sharp while the rest is defocused\n";
+    const bool lvcCamera = opt.lvc && setup.bptLight;   // --lvc connects to a pinhole camera of its own
+    const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera);
 
     CausticPhotonMap causticMap;
     CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters
@@ -383,52 +448,7 @@ int RenderScene(CliOptions& opt) {
             << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
-    std::cout << "[Output] Saving images..." << std::endl;
-    color::Gamut gamut = color::Gamut::SRGB;
-    color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
-    // Every written picture (the image, the polarizer images, the denoised copy) gets the same output settings.
-    auto setOutput = [&](Film& f) {
-        f.setOutputGamut(gamut);
-        f.setPng16(opt.pngBits == 16);
-        f.setDisplay(opt.exposure, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
-    };
-    setOutput(film);
-    film.save(opt.out);
-    const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
-    const std::string outExt = std::filesystem::path(opt.out).extension().string();
-    std::string outExtLower = outExt;
-    std::transform(outExtLower.begin(), outExtLower.end(), outExtLower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    const bool floatOut = (outExtLower == ".pfm" || outExtLower == ".hdr");
-    if (floatOut && (opt.exposure != 0 || opt.tonemap != "reinhard"))
-        std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
-    if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
-    if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
-    if (opt.aov) {
-        const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
-        film.saveAlbedo(outStem + "_albedo" + aovExt);
-        film.saveNormal(outStem + "_normal" + aovExt);
-    }
-    if (opt.stokes) {
-        film.saveStokes(outStem);
-        film.saveLinearPolarization(outStem);
-        for (const Real angle : opt.polarizers) {
-            Film filtered(imageWidth, imageHeight);
-            setOutput(filtered);
-            film.polarizerImage(angle, filtered);
-            std::ostringstream name;
-            name << outStem << "_pol" << angle;
-            std::string stem = name.str();
-            std::replace(stem.begin() + static_cast<std::ptrdiff_t>(outStem.size()), stem.end(), '.', 'p');   // 22.5 -> 22p5: keeps the extension clear
-            filtered.save(stem + outExt);
-        }
-        if (opt.lvc || causticOn)
-            std::cout << "[Polarization] note: the caustic photons and the light-traced image are added without polarization" << std::endl;
-    }
-    if (opt.denoise) {
-        Film denoised(imageWidth, imageHeight);
-        setOutput(denoised);
-        if (DenoiseFilm(film, denoised, opt.cleanAux, gamut)) denoised.save(outStem + "_denoised" + outExt);
-    }
+    SaveOutputs(opt, film, opt.lvc || causticOn);
 
     bool hooksPassed = true;
     if (setup.afterSave) hooksPassed = setup.afterSave({ *scene, *camera, film, *integrator });

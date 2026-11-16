@@ -200,9 +200,6 @@ namespace rayt {
         std::vector<float> m_mask;          ///< empty unless enableMask() was called
         std::vector<float> m_depth;         ///< empty unless enableDepth() was called
 
-        /// Writes one float channel as a grayscale PFM ("Pf", rows bottom to top).
-        void savePfmGray(const std::string& filename, const std::vector<float>& data) const;
-
         /// Writes an AOV buffer; `encodeSrgb` for color, `remapSigned` for normals (see saveAlbedo / saveNormal).
         void saveBuffer(const std::string& filename, const std::vector<Vector3>& data,
             bool encodeSrgb, bool remapSigned) const;

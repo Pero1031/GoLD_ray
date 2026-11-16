@@ -1,10 +1,9 @@
 ﻿/*
-* @file src/Render/Fil.cpp
-* @brief Film class implementation (pixel storage, accumulation, and image output).
-* 
-* This file implements the Film class which stores per-pixel radiance values
-* in linear RGB space and provides routines to save the result as HDR (float)
-* or LDR (8-bit) image formats via stb_image_write.
+* @file src/Render/Film.cpp
+* @brief Film class implementation (pixel storage, accumulation, and the values of the written pictures).
+*
+* The Film stores per-pixel radiance in linear RGB and turns it into the values of the files (gamut, exposure, tone map, 8 / 16 bit);
+* the files themselves are encoded by IO/ImageWriter.
 */
 
 #include "pch.h"
@@ -13,7 +12,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -24,76 +22,54 @@
 #include "Render/Film.hpp"
 #include "Color/ColorSpace.hpp"
 #include "Color/ColorTransform.hpp"
-
-// stb_image_write implementation is assumed to be compiled
-// in a separate translation unit (e.g., ImageIO.cpp).
-#include "stb_image_write.h"
+#include "IO/ImageWriter.hpp"
 
 namespace rayt {
 
+    namespace {
+
+        /// A value in [0, 1] (saturated) to 8 bits, rounded to nearest.
+        unsigned char ToByte(Real x) {
+            return static_cast<unsigned char>(Real(255.0) * rayt::math::saturate(x) + Real(0.5));
+        }
+
+        /// A value in [0, 1] (saturated) to 16 bits, rounded to nearest.
+        std::uint16_t To16(Real x) {
+            return static_cast<std::uint16_t>(Real(65535.0) * rayt::math::saturate(x) + Real(0.5));
+        }
+
+        std::string LowerExtension(const std::string& filename) {
+            const size_t dot = filename.find_last_of('.');
+            std::string ext = (dot == std::string::npos) ? std::string() : filename.substr(dot + 1);
+            std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return ext;
+        }
+
+        float Finite(Real v) { return math::hasNonFinite(v) ? 0.0f : static_cast<float>(v); }
+
+    } // namespace
+
     /**
-     * @brief Constructs a Film with the given resolution.
-     *
-     * The Film stores radiance values per pixel in linear color space.
-     * All pixels are initialized to black (zero radiance).
-     *
-     * @param width  Image width in pixels
-     * @param height Image height in pixels
+     * @brief Constructs a Film with the given resolution; all pixels are black.
      */
     Film::Film(int width, int height)
         : m_width(width), m_height(height) {
-        // Initialize all pixels to black (0, 0, 0).
         m_pixels.resize(static_cast<size_t>(width) * static_cast<size_t>(height), Vector3(0.0));
     }
 
-    /**
-     * @brief Sets the radiance value of a single pixel.
-     *
-     * This function overwrites the existing pixel value.
-     * Bounds checking is performed to avoid invalid memory access.
-     *
-     * @param x         Pixel x-coordinate
-     * @param y         Pixel y-coordinate
-     * @param radiance  Radiance value to store (linear space)
-     */
+    /// Overwrites the radiance of a pixel ((0,0) is the top-left corner); outside the film: ignored.
     void Film::setPixel(int x, int y, const Vector3& radiance) {
-
-        // Boundary check to prevent segmentation faults.
-        if (x < 0 || x >= m_width || y < 0 || y >= m_height) {
-            return;
-        }
-
-        // Store the value directly.
-        // Image coordinates assume (0,0) at the top-left corner.
+        if (x < 0 || x >= m_width || y < 0 || y >= m_height) return;
         m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] = radiance;
     }
 
-    /**
-     * @brief Adds radiance to a pixel (for progressive rendering).
-     *
-     * This function accumulates radiance values using +=,
-     * which is typically used in Monte Carlo integration
-     * and progressive / iterative rendering.
-     *
-     * @param x         Pixel x-coordinate
-     * @param y         Pixel y-coordinate
-     * @param radiance  Radiance contribution to add
-     */
+    /// Adds radiance to a pixel (progressive rendering); outside the film: ignored.
     void Film::addPixel(int x, int y, const Vector3& radiance) {
-        if (x < 0 || x >= m_width || y < 0 || y >= m_height) {
-            return;
-        }
-
-        // Accumulate radiance
+        if (x < 0 || x >= m_width || y < 0 || y >= m_height) return;
         m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] += radiance;
     }
 
-    /**
-     * @brief Clears all accumulated pixel values.
-     *
-     * Resets the film to a black image.
-     * Useful when restarting a progressive render.
-     */
+    /// Resets the film to black (restarting a progressive render).
     void Film::clear() {
         std::fill(m_pixels.begin(), m_pixels.end(), Vector3(0.0));
     }
@@ -119,16 +95,10 @@ namespace rayt {
         if (!hasStokes()) return;
         for (int k = 0; k < 4; ++k) {
             const std::string filename = stem + "_S" + std::to_string(k) + ".pfm";
-            std::vector<float> pfmData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
-            for (int y = 0; y < m_height; ++y)
-                for (int x = 0; x < m_width; ++x) {
-                    const Vector3& p = m_stokes[k][static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)];
-                    const size_t o = (static_cast<size_t>(m_height - 1 - y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)) * 3;
-                    for (int c = 0; c < 3; ++c) pfmData[o + c] = math::hasNonFinite(p[c]) ? 0.0f : static_cast<float>(p[c]);
-                }
-            std::ofstream f(filename, std::ios::binary);
-            f << "PF\n" << m_width << " " << m_height << "\n-1.0\n";
-            f.write(reinterpret_cast<const char*>(pfmData.data()), static_cast<std::streamsize>(pfmData.size() * sizeof(float)));
+            std::vector<float> rgb(m_stokes[k].size() * 3);
+            for (size_t i = 0; i < m_stokes[k].size(); ++i)
+                for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = Finite(m_stokes[k][i][c]);
+            if (!io::WritePfm(filename, m_width, m_height, 3, rgb)) { std::cerr << "[Film] Error: could not write " << filename << std::endl; continue; }
             std::cout << "[Film] Saved Stokes image: " << filename << std::endl;
         }
     }
@@ -177,249 +147,64 @@ namespace rayt {
     }
 
     void Film::setAOV(int x, int y, const Vector3& albedo, const Vector3& normal) {
-        if (!hasAOVs() || x < 0 || x >= m_width || y < 0 || y >= m_height) {
-            return;
-        }
+        if (!hasAOVs() || x < 0 || x >= m_width || y < 0 || y >= m_height) return;
         const size_t i = static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x);
         m_albedo[i] = albedo;
         m_normal[i] = normal;
     }
 
-    /**
-     * @brief Converts a normalized float value in [0, 1] to an 8-bit byte.
-     *
-     * Values are saturated to [0, 1] for safety and then converted to
-     * [0, 255] using round-to-nearest.
-     *
-     * @param x Normalized value (expected in [0,1])
-     * @return 8-bit value in [0,255]
-     */
-    static inline unsigned char toByte(Real x) {
-        // x is expected in [0,1] but saturate to be safe
-        x = rayt::math::saturate(x);
-        return static_cast<unsigned char>(Real(255.0) * x + Real(0.5)); // round-to-nearest
-    }
-
-    /// CRC-32 of the PNG spec (polynomial 0xEDB88320), over a chunk's type and data.
-    static uint32_t pngCrc32(const unsigned char* data, size_t n) {
-        uint32_t crc = 0xFFFFFFFFu;
-        for (size_t i = 0; i < n; ++i) {
-            crc ^= data[i];
-            for (int k = 0; k < 8; ++k) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-        }
-        return ~crc;
-    }
-
-    /**
-     * @brief Splices a cICP chunk (ITU-T H.273 code points) into an encoded PNG, right after IHDR (it must come before PLTE / IDAT).
-     *
-     * stb_image_write cannot add chunks. Code points: primaries 12 (Display P3) or 9 (BT.2020), transfer 13 (sRGB curve),
-     * matrix 0 (RGB), full range. A viewer that ignores cICP shows the file as sRGB, i.e. less saturated.
-     */
-    static bool insertCicp(std::vector<unsigned char>& png, color::Gamut gamut) {
-        constexpr size_t kAfterIhdr = 8 + 25;   // signature + (length 4, type 4, data 13, crc 4)
-        if (png.size() < kAfterIhdr) return false;
-        unsigned char chunk[4 + 4 + 4 + 4];
-        chunk[0] = 0; chunk[1] = 0; chunk[2] = 0; chunk[3] = 4;   // data length
-        chunk[4] = 'c'; chunk[5] = 'I'; chunk[6] = 'C'; chunk[7] = 'P';
-        chunk[8] = static_cast<unsigned char>(color::gamutPrimariesCode(gamut));
-        chunk[9] = 13;   // transfer: sRGB curve
-        chunk[10] = 0;   // matrix: RGB
-        chunk[11] = 1;   // full range
-        const uint32_t crc = pngCrc32(chunk + 4, 8);
-        chunk[12] = static_cast<unsigned char>(crc >> 24); chunk[13] = static_cast<unsigned char>(crc >> 16);
-        chunk[14] = static_cast<unsigned char>(crc >> 8);  chunk[15] = static_cast<unsigned char>(crc);
-        png.insert(png.begin() + kAfterIhdr, chunk, chunk + sizeof(chunk));
-        return true;
-    }
-
-    static bool writeBytes(const std::string& filename, const std::vector<unsigned char>& bytes) {
-        std::ofstream f(filename, std::ios::binary);
-        if (!f) return false;
-        f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        return static_cast<bool>(f);
-    }
-
-    static void pngSink(void* ctx, void* data, int size) {
-        auto* v = static_cast<std::vector<unsigned char>*>(ctx);
-        const auto* p = static_cast<const unsigned char*>(data);
-        v->insert(v->end(), p, p + size);
-    }
-
-    /// Writes an 8-bit RGB PNG tagged with a cICP chunk.
-    static bool writePngWithCicp(const std::string& filename, int width, int height,
-        const std::vector<unsigned char>& rgb8, color::Gamut gamut) {
-        std::vector<unsigned char> png;
-        if (!stbi_write_png_to_func(pngSink, &png, width, height, 3, rgb8.data(), width * 3)) return false;
-        return insertCicp(png, gamut) && writeBytes(filename, png);
-    }
-
-    /**
-     * @brief Writes a 16-bit PNG (big-endian samples; RGB, or gray with channels = 1), tagged with cICP unless the gamut is sRGB.
-     *
-     * stb_image_write has no 16-bit mode. A row of W pixels at 16 bits is 2 * channels * W bytes: exactly a row of 2 * W pixels at 8 bits.
-     * So the data is encoded as an 8-bit image of twice the width with the PNG filter forced to "none" (the filters work on the bytes of a
-     * whole pixel, which would be wrong here), and the IHDR is then patched to width W, 16 bits (and its CRC redone).
-     */
-    static bool writePng16(const std::string& filename, int width, int height,
-        const std::vector<unsigned char>& data16, color::Gamut gamut, int channels = 3) {
-        std::vector<unsigned char> png;
-        const int savedFilter = stbi_write_force_png_filter;
-        stbi_write_force_png_filter = 0;
-        const int ok = stbi_write_png_to_func(pngSink, &png, 2 * width, height, channels, data16.data(), 2 * channels * width);
-        stbi_write_force_png_filter = savedFilter;
-        if (!ok || png.size() < 33) return false;
-        for (int k = 0; k < 4; ++k) png[16 + k] = static_cast<unsigned char>(static_cast<uint32_t>(width) >> (8 * (3 - k)));   // width
-        png[24] = 16;                                                                                                         // bit depth
-        const uint32_t crc = pngCrc32(png.data() + 12, 17);                                                                   // type + data
-        for (int k = 0; k < 4; ++k) png[29 + k] = static_cast<unsigned char>(crc >> (8 * (3 - k)));
-        if (gamut != color::Gamut::SRGB && !insertCicp(png, gamut)) return false;
-        return writeBytes(filename, png);
-    }
-
-    /**
-     * @brief Saves the film to an image file (default scale = 1.0).
-     * This overload forwards to save(filename, scale).
-     *
-     * @param filename Output file path. Extension selects the format.
-     */
     void Film::save(const std::string& filename) const {
-        save(filename, Real(1.0));
+        save(filename, 1.0f);
     }
 
     /**
-     * @brief Saves the film to an image file with a multiplicative scale.
+     * @brief Saves the film, every radiance multiplied by `scale` (e.g. 1 / spp of a progressive render). The extension picks the format:
      *
-     * The file extension determines the output format:
-     * - ".hdr": saved as 32-bit float RGB (linear), without tone mapping.
-     * - ".png/.bmp/.jpg": saved as 8-bit RGB after display transform.
-     *
-     * For LDR output, the pipeline is (setDisplay):
-     *   exposure -> tone map (Reinhard, or none and a clip at white) -> sRGB OETF -> clamp -> 8-bit
-     *
-     * @param filename Output file path.
-     * @param scale    Multiply all stored radiance by this factor before saving.
+     * - .pfm / .hdr: linear floats in the output gamut, no exposure or tone map. A .pfm keeps what .hdr (RGBE: one shared exponent and an
+     *   8-bit mantissa per pixel) loses: the small channels of a strongly colored pixel and negative values (colors outside sRGB).
+     * - .png / .bmp / .jpg: the display values (setDisplay): primaries, exposure, Reinhard or a clip at white, sRGB curve, clamp; 8 bits,
+     *   or 16 for a .png with setPng16. A .png in another gamut than sRGB is cICP-tagged; .bmp / .jpg carry no tag.
      */
     void Film::save(const std::string& filename, float scale) const {
-
-        /**
-         * @brief Parse and normalize extension to lowercase.
-         *
-         * We do a simple extension parse by taking the substring after the last '.'.
-         * If the filename has no '.', behavior is undefined (same as original code).
-         */
-        std::string ext = filename.substr(filename.find_last_of('.') + 1);
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
+        const std::string ext = LowerExtension(filename);
         const Real s = static_cast<Real>(scale);
-
-        if (ext == "pfm") {
-            // --------------------------------------------------
-            // PFM output: raw 32-bit float RGB, linear, no tone mapping. Unlike .hdr (RGBE: one shared exponent and an 8-bit mantissa per
-            // pixel) it keeps the small channels of a strongly colored pixel (the blue of a candle-lit scene) and negative values (colors
-            // outside the sRGB gamut), which is what a measurement needs. Rows are stored bottom to top, little endian ("-1" scale).
-            // --------------------------------------------------
-            std::vector<float> pfmData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
-            for (int y = 0; y < m_height; ++y) {
-                for (int x = 0; x < m_width; ++x) {
-                    Vector3 p = color::fromLinearSRGB(m_gamut, m_pixels[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] * s);
-                    const size_t o = (static_cast<size_t>(m_height - 1 - y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)) * 3;
-                    for (int c = 0; c < 3; ++c)
-                        pfmData[o + c] = math::hasNonFinite(p[c]) ? 0.0f : static_cast<float>(p[c]);
-                }
-            }
-            std::ofstream f(filename, std::ios::binary);
-            f << "PF\n" << m_width << " " << m_height << "\n-1.0\n";
-            f.write(reinterpret_cast<const char*>(pfmData.data()), static_cast<std::streamsize>(pfmData.size() * sizeof(float)));
-            std::cout << "[Film] Saved PFM image: " << filename << std::endl;
-            return;
-        }
-
-        if (ext == "hdr") {
-            // --------------------------------------------------
-            // HDR Output (always pack to float buffer safely)
-            // --------------------------------------------------
-            std::vector<float> hdrData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
-
-            const int numPixels = static_cast<int>(m_pixels.size());
-
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < numPixels; ++i) {
-                Vector3 p = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
-
-                // NaN/Inf -> 0
-                if (math::hasNonFinite(p[0])) p[0] = Real(0);
-                if (math::hasNonFinite(p[1])) p[1] = Real(0);
-                if (math::hasNonFinite(p[2])) p[2] = Real(0);
-
-                hdrData[i * 3 + 0] = static_cast<float>(p[0]);
-                hdrData[i * 3 + 1] = static_cast<float>(p[1]);
-                hdrData[i * 3 + 2] = static_cast<float>(p[2]);
-            }
-
-            stbi_write_hdr(filename.c_str(), m_width, m_height, 3, hdrData.data());
-            std::cout << "[Film] Saved HDR image: " << filename << std::endl;
-            return;
-        }
-
-        // --------------------------------------------------
-        // LDR Output (PNG / BMP / JPG)
-        // --------------------------------------------------
-        std::vector<unsigned char> outputData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
-
-        // --exposure / --tonemap of the CLI (the GUI applies its own exposure to its display copy).
-        const Real exposureStops = m_exposureStops;
-        const bool clip = (m_toneMap == ToneMap::Clip);
         const int numPixels = static_cast<int>(m_pixels.size());
 
-        const bool want16 = m_png16 && ext == "png";
-        std::vector<unsigned char> data16;
-        if (want16) data16.resize(static_cast<size_t>(numPixels) * 6);
+        if (ext == "pfm" || ext == "hdr") {
+            std::vector<float> rgb(static_cast<size_t>(numPixels) * 3);
+#pragma omp parallel for schedule(static)
+            for (int i = 0; i < numPixels; ++i) {
+                const Vector3 p = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
+                for (int c = 0; c < 3; ++c) rgb[static_cast<size_t>(i) * 3 + c] = Finite(p[c]);
+            }
+            const bool ok = (ext == "pfm") ? io::WritePfm(filename, m_width, m_height, 3, rgb) : io::WriteHdr(filename, m_width, m_height, rgb);
+            if (!ok) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
+            std::cout << "[Film] Saved " << (ext == "pfm" ? "PFM" : "HDR") << " image: " << filename << std::endl;
+            return;
+        }
+        if (ext != "png" && ext != "bmp" && ext != "jpg") {
+            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
+            return;
+        }
 
-        #pragma omp parallel for schedule(static)
+        // --exposure / --tonemap of the CLI (the GUI applies its own exposure to its display copy).
+        const bool clip = (m_toneMap == ToneMap::Clip);
+        const bool want16 = m_png16 && ext == "png";
+        std::vector<unsigned char> data8(want16 ? 0 : static_cast<size_t>(numPixels) * 3);
+        std::vector<std::uint16_t> data16(want16 ? static_cast<size_t>(numPixels) * 3 : 0);
+#pragma omp parallel for schedule(static)
         for (int i = 0; i < numPixels; ++i) {
             // Change of primaries first (exact, unclamped), then the display pipeline, which clips what is still negative:
             // exposure -> Reinhard (or a clip at white) -> sRGB curve -> clamp. The curve is the sRGB one for every gamut (as for Display P3).
             Vector3 pixel = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
-            pixel = clip ? color::toDisplaySRGB_Clip(pixel, exposureStops) : color::toDisplaySRGB_Reinhard(pixel, exposureStops);
-
-            outputData[i * 3 + 0] = toByte(pixel[0]);
-            outputData[i * 3 + 1] = toByte(pixel[1]);
-            outputData[i * 3 + 2] = toByte(pixel[2]);
-            if (want16) {
-                for (int c = 0; c < 3; ++c) {
-                    const unsigned v = static_cast<unsigned>(Real(65535.0) * rayt::math::saturate(pixel[c]) + Real(0.5));
-                    data16[static_cast<size_t>(i) * 6 + static_cast<size_t>(c) * 2] = static_cast<unsigned char>(v >> 8);
-                    data16[static_cast<size_t>(i) * 6 + static_cast<size_t>(c) * 2 + 1] = static_cast<unsigned char>(v & 255u);
-                }
+            pixel = clip ? color::toDisplaySRGB_Clip(pixel, m_exposureStops) : color::toDisplaySRGB_Reinhard(pixel, m_exposureStops);
+            for (int c = 0; c < 3; ++c) {
+                if (want16) data16[static_cast<size_t>(i) * 3 + c] = To16(pixel[c]);
+                else data8[static_cast<size_t>(i) * 3 + c] = ToByte(pixel[c]);
             }
         }
-
-        if (ext == "png") {
-            if (want16) {
-                if (!writePng16(filename, m_width, m_height, data16, m_gamut)) {
-                    std::cerr << "[Film] Error: could not write " << filename << std::endl;
-                    return;
-                }
-            }
-            else if (m_gamut == color::Gamut::SRGB)
-                stbi_write_png(filename.c_str(), m_width, m_height, 3, outputData.data(), m_width * 3);
-            else if (!writePngWithCicp(filename, m_width, m_height, outputData, m_gamut)) {
-                std::cerr << "[Film] Error: could not write " << filename << std::endl;
-                return;
-            }
-        }
-        else if (ext == "bmp") {
-            stbi_write_bmp(filename.c_str(), m_width, m_height, 3, outputData.data());
-        }
-        else if (ext == "jpg") {
-            stbi_write_jpg(filename.c_str(), m_width, m_height, 3, outputData.data(), 90);
-        }
-        else {
-            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
-            return;
-        }
+        const bool ok = want16 ? io::WritePng16(filename, m_width, m_height, 3, data16, m_gamut) : io::WriteImage8(filename, m_width, m_height, 3, data8, m_gamut);
+        if (!ok) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
 
         std::cout << "[Film] Saved LDR image: " << filename << (want16 ? " (16 bit)" : "");
         if (m_gamut != color::Gamut::SRGB && ext != "png")
@@ -455,44 +240,28 @@ namespace rayt {
 
     void Film::saveMask(const std::string& filename) const {
         if (m_mask.empty()) { std::cerr << "[Film] Error: the mask is not enabled, nothing to save: " << filename << std::endl; return; }
-        std::string ext = filename.substr(filename.find_last_of('.') + 1);
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (ext == "pfm") { savePfmGray(filename, m_mask); return; }
-        if (ext != "png") { std::cerr << "[Film] Error: a mask is written as .png or .pfm: " << filename << std::endl; return; }
-        const size_t n = m_mask.size();
-        bool ok;
-        if (m_png16) {
-            std::vector<unsigned char> data16(n * 2);
-            for (size_t i = 0; i < n; ++i) {
-                const unsigned v = static_cast<unsigned>(Real(65535.0) * rayt::math::saturate(Real(m_mask[i])) + Real(0.5));
-                data16[i * 2] = static_cast<unsigned char>(v >> 8);
-                data16[i * 2 + 1] = static_cast<unsigned char>(v & 255u);
-            }
-            ok = writePng16(filename, m_width, m_height, data16, color::Gamut::SRGB, 1);
+        const std::string ext = LowerExtension(filename);
+        bool ok = false;
+        if (ext == "pfm") ok = io::WritePfm(filename, m_width, m_height, 1, m_mask);
+        else if (ext == "png" && m_png16) {
+            std::vector<std::uint16_t> v(m_mask.size());
+            for (size_t i = 0; i < v.size(); ++i) v[i] = To16(Real(m_mask[i]));
+            ok = io::WritePng16(filename, m_width, m_height, 1, v);
         }
-        else {
-            std::vector<unsigned char> gray(n);
-            for (size_t i = 0; i < n; ++i) gray[i] = toByte(Real(m_mask[i]));
-            ok = stbi_write_png(filename.c_str(), m_width, m_height, 1, gray.data(), m_width) != 0;
+        else if (ext == "png") {
+            std::vector<unsigned char> v(m_mask.size());
+            for (size_t i = 0; i < v.size(); ++i) v[i] = ToByte(Real(m_mask[i]));
+            ok = io::WriteImage8(filename, m_width, m_height, 1, v);
         }
+        else { std::cerr << "[Film] Error: a mask is written as .png or .pfm: " << filename << std::endl; return; }
         if (!ok) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
-        std::cout << "[Film] Saved mask: " << filename << (m_png16 ? " (16 bit)" : "") << std::endl;
+        std::cout << "[Film] Saved mask: " << filename << (ext == "png" && m_png16 ? " (16 bit)" : "") << std::endl;
     }
 
     void Film::saveDepth(const std::string& filename) const {
         if (m_depth.empty()) { std::cerr << "[Film] Error: the depth is not enabled, nothing to save: " << filename << std::endl; return; }
-        savePfmGray(filename, m_depth);
-    }
-
-    void Film::savePfmGray(const std::string& filename, const std::vector<float>& data) const {
-        std::vector<float> rows(data.size());
-        for (int y = 0; y < m_height; ++y)   // PFM rows go from the bottom up
-            std::copy_n(data.begin() + static_cast<std::ptrdiff_t>(y) * m_width, m_width, rows.begin() + static_cast<std::ptrdiff_t>(m_height - 1 - y) * m_width);
-        std::ofstream f(filename, std::ios::binary);
-        f << "Pf\n" << m_width << " " << m_height << "\n-1.0\n";
-        f.write(reinterpret_cast<const char*>(rows.data()), static_cast<std::streamsize>(rows.size() * sizeof(float)));
-        if (!f) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
-        std::cout << "[Film] Saved PFM (one channel): " << filename << std::endl;
+        if (!io::WritePfm(filename, m_width, m_height, 1, m_depth)) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
+        std::cout << "[Film] Saved depth: " << filename << std::endl;
     }
 
     void Film::saveAlbedo(const std::string& filename) const {
@@ -503,57 +272,34 @@ namespace rayt {
         saveBuffer(filename, m_normal, /*encodeSrgb=*/false, /*remapSigned=*/true);
     }
 
-    void Film::saveBuffer(const std::string& filename, const std::vector<Vector3>& data,
-        bool encodeSrgb, bool remapSigned) const {
+    void Film::saveBuffer(const std::string& filename, const std::vector<Vector3>& data, bool encodeSrgb, bool remapSigned) const {
         if (data.empty()) {
             std::cerr << "[Film] Error: AOVs are not enabled, nothing to save: " << filename << std::endl;
             return;
         }
-
-        std::string ext = filename.substr(filename.find_last_of('.') + 1);
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-
-        const size_t numPixels = data.size();
-
+        const std::string ext = LowerExtension(filename);
         if (ext == "hdr") {
-            std::vector<float> hdrData(numPixels * 3);
-            for (size_t i = 0; i < numPixels; ++i) {
-                for (int c = 0; c < 3; ++c) {
-                    const Real v = data[i][c];
-                    hdrData[i * 3 + c] = math::hasNonFinite(v) ? 0.0f : static_cast<float>(v);
-                }
-            }
-            stbi_write_hdr(filename.c_str(), m_width, m_height, 3, hdrData.data());
+            std::vector<float> rgb(data.size() * 3);
+            for (size_t i = 0; i < data.size(); ++i)
+                for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = Finite(data[i][c]);
+            if (!io::WriteHdr(filename, m_width, m_height, rgb)) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
             std::cout << "[Film] Saved HDR image: " << filename << std::endl;
             return;
         }
-
-        std::vector<unsigned char> out(numPixels * 3);
-        for (size_t i = 0; i < numPixels; ++i) {
+        if (ext != "png" && ext != "bmp" && ext != "jpg") {
+            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
+            return;
+        }
+        std::vector<unsigned char> out(data.size() * 3);
+        for (size_t i = 0; i < data.size(); ++i)
             for (int c = 0; c < 3; ++c) {
                 Real v = data[i][c];
                 if (math::hasNonFinite(v)) v = Real(0);
                 if (remapSigned) v = v * Real(0.5) + Real(0.5);
                 else if (encodeSrgb) v = color::linearToSRGB(rayt::math::saturate(v));
-                out[i * 3 + c] = toByte(v);
+                out[i * 3 + c] = ToByte(v);
             }
-        }
-
-        if (ext == "png") {
-            stbi_write_png(filename.c_str(), m_width, m_height, 3, out.data(), m_width * 3);
-        }
-        else if (ext == "bmp") {
-            stbi_write_bmp(filename.c_str(), m_width, m_height, 3, out.data());
-        }
-        else if (ext == "jpg") {
-            stbi_write_jpg(filename.c_str(), m_width, m_height, 3, out.data(), 90);
-        }
-        else {
-            std::cerr << "[Film] Error: Unsupported file extension: " << ext << std::endl;
-            return;
-        }
-
+        if (!io::WriteImage8(filename, m_width, m_height, 3, out)) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
         std::cout << "[Film] Saved LDR image: " << filename << std::endl;
     }
 

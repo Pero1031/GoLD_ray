@@ -12,9 +12,9 @@ The flow of drawing one image:
 
 1. `main_cli` → `Cli/Options` (parsing the arguments)
 2. `Cli/Scenes/SceneRegistry` (chooses the builder function from the `--scene` name; JSON scenes go through `Scenes/FileScene`)
-3. `Cli/RenderPipeline` (the common procedure: standard materials, environment, the scene-wide BVH, registering the lights, camera, choosing the integrator, drawing, saving)
+3. `Cli/RenderPipeline` (the common procedure: standard materials, environment, the scene-wide BVH, registering the lights, camera (`BuildCamera`), choosing the integrator, drawing, the mask / depth pass, saving (`SaveOutputs`))
 4. `Render/Integrator` (the core of path tracing, `PathIntegrator::Li`)
-5. `Render/Film` (accumulating pixels, gamut, PNG / PFM) → `Render/Denoiser`
+5. `Render/Film` (accumulating pixels; gamut, exposure and tone map of the written values; the files are encoded by `IO/ImageWriter`) → `Render/Denoiser`
 
 ## 2. Role of each directory
 
@@ -28,8 +28,8 @@ The flow of drawing one image:
 | `Geometry` | Sphere, quad, triangle mesh, hair curves and the generator, meshes of revolution and of the ocean, Gaussian particles (3DGS) |
 | `Scene` | `Hittable` (the common intersection interface), `Primitive` (bundles a shape, a material and a light), `Aggregate` (a list), `MovingObject` (motion blur), `Scene` (the whole: BVH, lights, environment, particles) |
 | `Accelerators` | BVH (own SAH) and Embree |
-| `Render` | Path tracing (`Integrator.cpp`; the hooks for media, particles and caustics are also here), transmittance of shadow rays, exit search for subsurface scattering, caustic photon map, manifold NEE, a prototype of LVC-BPT, camera, film, denoiser |
-| `IO` | OBJ, PLY, STL, PMX (model, morphs, pose), environment maps, CSV spectra, measured series of fading |
+| `Render` | Path tracing (`Integrator.cpp`; the hooks for media, particles and caustics are also here), transmittance of shadow rays, exit search for subsurface scattering, caustic photon map, manifold NEE, a prototype of LVC-BPT, camera, film (the values of the written pictures), the mask and depth pass (`MaskDepth`), denoiser |
+| `IO` | OBJ, PLY, STL, PMX (model, morphs, pose), environment maps, CSV spectra, measured series of fading; `ImageWriter` encodes the image files (PNG 8 / 16 bit with cICP, BMP, JPG, PFM, HDR) |
 
 ## 3. The CLI side
 
@@ -58,6 +58,7 @@ The flow of drawing one image:
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
 | Polarization (Stokes, `--stokes`, `--polarizer`) | `Core/Polarization`, `Render/Integrator` | `POLARIZATION.md` |
+| Camera and film output (lens, aberrations, exposure and tone map, mask, depth) | `Render/Camera`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
 | MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |
 | Scene file | `Cli/SceneFile*`, `SceneDescription` | `SCENE_FILE.md` |
 

@@ -63,12 +63,18 @@
     <ClCompile Include="src\IO\ImageLoader.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\IO\ImageWriter.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Render\Film.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="src\Render\MaskDepth.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClInclude Include="include\Render\MaskDepth.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClCompile Include="src\Materials\Dielectric.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -318,6 +324,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\IO\ImageLoader.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\IO\ImageWriter.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\IO\EnvMap.hpp">

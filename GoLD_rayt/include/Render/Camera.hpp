@@ -1,9 +1,7 @@
 ﻿/**
- * @file Renderer/Camera.hpp
- * @brief Physically-based camera model with Depth of Field (DoF).
- * * Implements a thin-lens camera system. Supports adjustable Field of View (FOV),
- * focal distance, and aperture size to simulate realistic optical effects
- * like defocus blur.
+ * @file include/Render/Camera.hpp
+ * @brief The camera: a thin lens (defocus, polygonal aperture), aberrations (radial distortion, lateral / axial chromatic aberration),
+ * vignetting (lens barrel, cos^4) and an exposure time (motion blur of the camera and the objects). docs/CAMERA.md
  */
 
 #pragma once
@@ -45,11 +43,11 @@ namespace rayt {
     class Camera {
     public:
         /**
-         * @brief Constructs    a camera with full control over orientation and optics.
+         * @brief Constructs a camera with full control over orientation and optics.
          * @param lookFrom      The position of the camera in world space.
          * @param lookAt        The point the camera is looking at.
          * @param vUp           The "up" vector for the world (used to stabilize the camera).
-         * @param vfov          Vertical Field of View in degrees.
+         * @param vfovDeg       Vertical Field of View in degrees.
          * @param aspect        Aspect ratio (Width / Height).
          * @param aperture      Lens diameter (0.0 results in a sharp pinhole camera).
          * @param focusDist     The distance from the lens to the plane of perfect focus.
@@ -74,8 +72,6 @@ namespace rayt {
             , m_shutterOpen(shutterOpen)
             , m_shutterClose(std::max(shutterClose, shutterOpen))
             , m_medium(medium) {
-
-            m_lensRadius = aperture / 2.0;
 
             // --- Perspective viewport on the focal plane ---
             const Real theta = rayt::math::toRadians(vfovDeg);
@@ -199,29 +195,6 @@ namespace rayt {
             cs.time = timeSample;
             cs.lambdaNm = lambdaNm;
             return generateRay(cs, weight);
-
-            /*Vector3 offset(0.0);
-
-            // Defocus Blur (Depth of Field) calculation
-            if (m_lensRadius > 0.0) {
-                // Map the 2D random sample to a point on a circular lens/aperture
-                Vector3 rd = m_lensRadius * sampling::UniformSampleDisk(uLens);
-
-                // Offset the ray origin within the disk of the lens
-                offset = m_u * rd.x + m_v * rd.y;
-            }
-
-            // Target point on the plane of perfect focus
-            Point3 target = m_lowerLeftCorner + s * m_horizontal + t * m_vertical;
-
-            // The ray originates from the sampled point on the lens
-            Point3 rayOrigin = m_origin + offset;
-
-            // The direction points from the lens offset to the target on the focal plane
-            Vector3 rayDirection = glm::normalize(target - rayOrigin);
-
-            // Pass 'medium' (PBRT style)
-            return Ray(rayOrigin, rayDirection);*/
         }
 
         /**
