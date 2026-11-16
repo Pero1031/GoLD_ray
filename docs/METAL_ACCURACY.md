@@ -210,7 +210,7 @@ Python の移植が、実際のエンジンと同じ値を出しているかを�
 
 ## 6. 粗い金属（多重散乱）
 
-粗い金属は、微小面どうしの反射（多重散乱）が増えます。エンジンは Kulla-Conty の補正項 `f_ms = F_ms (1−E(μo))(1−E(μi)) / (π(1−E_avg))`、`F_ms = F_avg² E_avg / (1 − F_avg(1−E_avg))` で、単一散乱 GGX が失うエネルギーを戻します。`F_ms` は反射率の 2 乗に近い量なので、3.4 章の「2 回反射」と同じ種類の差が出ると予想し、`metalprobe --roughness r`（RGB・スペクトル各 512 spp）で測りました。全角度の表は [metal_probe_rough_compare.txt](metal_probe_rough_compare.txt) です。
+粗い金属は、微小面どうしの反射（多重散乱）が増えます。エンジンは Kulla-Conty の補正項 `f_ms = F_ms (1−E(μo))(1−E(μi)) / (π(1−E_avg))`、`F_ms = F_avg² E_avg / (1 − F_avg(1−E_avg))` で、単一散乱 GGX が失うエネルギーを戻します。`F_ms` は反射率の 2 乗に近い量なので、3.4 章の「2 回反射」と同じ種類の差が出ると予想し、`metalprobe --roughness r`（RGB・スペクトル各 512 spp）で測りました。全角度の表は [metal_probe_rough_compare.txt](data/metal_probe_rough_compare.txt) です。
 
 ### 6.1 結果: 「拡大する」のは光源が D65 でないときと、銅
 

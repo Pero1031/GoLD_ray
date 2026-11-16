@@ -414,3 +414,6 @@ docs/HANDOFF.md
 
 # Measured hpBRDF tables (PCA-compressed, about 230 MB each): kept locally, not in the repository
 /GoLD_rayt/assets/hpbrdf/
+
+# ImGui window layout (rewritten every time the GUI runs)
+/GoLD_rayt/imgui.ini

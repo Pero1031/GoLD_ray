@@ -1,6 +1,6 @@
-# コードの構成（2026-11-13）
+# コードの構成（2026-11-16）
 
-どこに何があるかの地図。機能ごとの理論と結果は、各 `docs/*.md`。全体で約 3.4 万行（エンジン約 2.2 万、CLI 約 7 千、自己検査約 5 千）。
+どこに何があるかの地図。機能ごとの理論と結果は、各 `docs/*.md`。全体で約 3.7 万行（エンジン約 2.4 万、CLI 約 6 千、自己検査約 6 千）。
 
 ## 1. 二層構造と、1 枚描くときの流れ
 
@@ -20,16 +20,16 @@
 
 | ディレクトリ | 中身 |
 |---|---|
-| `Core` | 型、乱数と標本抽出、AABB、`Ray`、`SurfaceInteraction`（当たった点の情報。肌の機能が足した欄も多い）、`Spectrum`（RGB か波長標本かをマクロ `RAYT_SPECTRAL_MODE` で切り替える。2 種類のビルドがあるのはこのため）、テクスチャ |
+| `Core` | 型、乱数と標本抽出、AABB、`Ray`、`SurfaceInteraction`（当たった点の情報。肌の機能が足した欄も多い）、`Spectrum`（RGB か波長標本かをマクロ `RAYT_SPECTRAL_MODE` で切り替える。2 種類のビルドがあるのはこのため）、テクスチャ（`SpectralTexture` は分光の反射率画像）、偏光（`Polarization`: Stokes ベクトル、Mueller 行列、Fresnel の振幅） |
 | `Color` | 分光と RGB の変換、等色関数、色域（sRGB / P3 / Rec.2020）、CAT16 のホワイトバランス、照明のスペクトル、金属の複素屈折率の表、Sellmeier の分散 |
-| `Materials` | `Material` が BSDF の共通インターフェイス（eval / sample / pdf に加え、発光、不透明度、媒質の境界、表面下散乱、法線の摂動などのフック）。実装: 拡散、粗い導体、誘電体、薄膜、コート層、髪、肌（`CoatedDiffuse` が肌の本体で、`SkinRelief`・`WrinkleField`・`SkinPigment`・`SkinFilm`・`SkinLotion`・`SkinScatter`・`CosmeticLayer`・`KubelkaMunkLayer` を束ねる）、表面下散乱（`Subsurface` の Burley 型と `SubsurfaceWalk` の体積歩行）、媒質（`Medium`、`DensityField`、`TabulatedPhase`）、褪色（`FadingReflectance`、`FadingDye`） |
+| `Materials` | `Material` が BSDF の共通インターフェイス（eval / sample / pdf に加え、発光、不透明度、媒質の境界、表面下散乱、法線の摂動などのフック）。実装: 拡散、粗い導体、誘電体、薄膜、コート層、髪、肌（`CoatedDiffuse` が肌の本体で、`SkinRelief`・`WrinkleField`・`SkinPigment`・`SkinFilm`・`SkinLotion`・`SkinScatter`・`CosmeticLayer`・`KubelkaMunkLayer` を束ねる）、表面下散乱（`Subsurface` の Burley 型と `SubsurfaceWalk` の体積歩行）、媒質（`Medium`、`DensityField`、`TabulatedPhase`）、褪色（`FadingReflectance`、`FadingDye`）、実測の BRDF（`MeasuredHpBRDF`: PCA で圧縮した hpBRDF の表） |
 | `Microfacet` | GGX と、その方向アルベド（多重散乱の補償） |
 | `Lights` | 面光源、点光源、環境光、光源の選び方（`LightSampler`: 一様、放射パワー、空間的な重要度） |
 | `Geometry` | 球、四角形、三角形メッシュ、髪の曲線と生成、回転体と海のメッシュ、ガウシアンの粒子（3DGS） |
 | `Scene` | `Hittable`（交差の共通インターフェイス）、`Primitive`（形と材質と光源を束ねる）、`Aggregate`（リスト）、`Scene`（全体: BVH、光源、環境、粒子） |
 | `Accelerators` | BVH（自前の SAH）と Embree |
 | `Render` | 経路追跡（`Integrator.cpp`。媒質、粒子、コースティクスのフックもここ）、影の光線の透過率、表面下散乱の出口探索、コースティクスの光子マップ、多様体 NEE、LVC-BPT の試作、カメラ、フィルム、デノイザー |
-| `IO` | OBJ、PLY、PMX（モデル、モーフ、ポーズ）、環境マップ、CSV のスペクトル、褪色の測定系列 |
+| `IO` | OBJ、PLY、STL、PMX（モデル、モーフ、ポーズ）、環境マップ、CSV のスペクトル、褪色の測定系列 |
 
 ## 3. CLI 側
 
@@ -48,7 +48,7 @@
 | 機能 | 場所 | 文書 |
 |---|---|---|
 | 分光レンダリング、色域、ホワイトバランス | `Core/Spectrum`、`Color/*` | `METAL_ACCURACY.md`、`SPECTRUM_FROM_RGB.md` |
-| 金属の精度、測定反射率からの n, k | `Materials/RoughConductor`、`Color/ComplexIorTable`、`ConductorFromReflectance` | `METAL_ACCURACY.md`、`MEASURED_GOLD.md` |
+| 金属の精度、測定反射率からの n, k、実測の BRDF | `Materials/RoughConductor`、`MeasuredHpBRDF`、`Color/ComplexIorTable`、`ConductorFromReflectance` | `METAL_ACCURACY.md`、`MEASURED_GOLD.md` |
 | 薄膜、分散、コート | `Materials/ThinFilm`、`Color/Sellmeier`、`Materials/LayeredCoat` | `THIN_FILM.md`、`GLOSS.md` |
 | 表面下散乱 | `Materials/Subsurface*`、`Render/SubsurfaceProbe` | `SSS.md` |
 | 肌（凹凸、色素、保湿、化粧） | `Materials/CoatedDiffuse` + `Skin*`、`WrinkleField`、`CosmeticLayer` | `SKIN.md`、`SKIN_MOISTURE.md`、`COSMETICS.md`、`WETNESS.md` |
@@ -56,6 +56,7 @@
 | 水、海、雲と霧 | `Geometry/ProceduralMesh`、`Materials/Medium`、`DensityField`、`TabulatedPhase` | `WATER.md`、`CLOUD.md` |
 | コースティクス、多様体 NEE、LVC-BPT | `Render/CausticPhotonMap`、`SpecularNee`、`VolumeBPT` | `LVC_BPT.md` |
 | 撮った物の取り込み、3DGS | `IO/PlyLoader`、`Geometry/GaussianSplats`、`Cli/Scenes/FileScene` | `CAPTURE.md` |
+| 偏光（Stokes、`--stokes`、`--polarizer`） | `Core/Polarization`、`Render/Integrator` | `POLARIZATION.md` |
 | MMD | `IO/Pmx*`、`Cli/PmxSupport`、`Scenes/PmxScene` | — |
 | シーンファイル | `Cli/SceneFile*`、`SceneDescription` | `SCENE_FILE.md` |
 
