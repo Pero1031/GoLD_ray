@@ -126,11 +126,6 @@ namespace rayt {
             if (hasNaNs()) [[unlikely]] return RGBSpectrum(0.0);
             return RGBSpectrum(glm::max(v, Vector3(0.0)));
         }
-
-        // API consistency with spectral mode
-        static RGBSpectrum fromWavelengths(const SampledWavelengths& /*lambda*/) {
-            return RGBSpectrum(1.0);  // White
-        }
     };
 
     // ========================================================================
@@ -265,18 +260,6 @@ namespace rayt {
                 result.c[i] = std::max(c[i], Real(0));
             }
             return result;
-        }
-
-        /**
-         * @brief Create spectrum from wavelength-dependent function.
-         * TODO: Implement actual spectral evaluation
-         */
-        static SampledSpectrumT fromWavelengths(const SampledWavelengths& lambda) {
-            SampledSpectrumT s;
-            for (int i = 0; i < N; ++i) {
-                s.c[i] = Real(1);  // Placeholder: constant SPD
-            }
-            return s;
         }
     };
 

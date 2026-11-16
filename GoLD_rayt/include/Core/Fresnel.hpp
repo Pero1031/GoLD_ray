@@ -24,7 +24,7 @@ namespace rayt::fresnel {
     // Fresnel Equations (Conductor / Metal)
     // -------------------------------------------------------------------------
 
-    // TODO: Switch eta/k to rayt::Spectrum (mode-dependent) once Spectrum.hpp becomes canonical.
+    // The Vector3 overload below is for RGB; the scalar overload (per wavelength) is what the spectral build calls.
 
     /**
      * @brief Calculates Fresnel reflectance for conductors (metals).

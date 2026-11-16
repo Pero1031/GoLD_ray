@@ -365,7 +365,7 @@ namespace rayt {
         // --------------------------------------------------
         std::vector<unsigned char> outputData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
 
-        // TODO: pass this in from the UI / settings (fixed for now)
+        // Fixed at 0 EV: the CLI has no exposure option (the GUI applies its own exposure to its display copy).
         const Real exposureStops = Real(0);
         const int numPixels = static_cast<int>(m_pixels.size());
 

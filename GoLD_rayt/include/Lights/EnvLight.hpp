@@ -142,8 +142,7 @@ namespace rayt {
                 SampledWavelengths& /*lambda*/,
                 Real /*time*/) const override
         {
-            // TODO: For bidirectional path tracing
-            // Would need to:
+            // Not implemented (bidirectional paths and light tracing do not start from the environment). It would need to:
             // 1. Sample a point on the scene bounding sphere
             // 2. Sample a direction from the environment map
             // 3. Return ray pointing inward

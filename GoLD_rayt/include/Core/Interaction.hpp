@@ -156,8 +156,6 @@ namespace rayt {
             return r;
         }
 
-        // TODO: Implement coordinate system construction for tangent space.
-        // Required for Normal Mapping, Anisotropy, and Microfacet distributions.
     };
 
 }

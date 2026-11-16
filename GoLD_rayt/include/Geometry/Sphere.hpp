@@ -93,7 +93,7 @@ namespace rayt {
                 rec.dpdu = len2 > Real(1e-12) ? around / std::sqrt(len2) : Vector3(0.0);
             }
 
-            // TODO: Implement spherical UV mapping for texture lookup (e.g., lat/long).
+            // NOTE: rec.uv is not set on spheres (a texture on a sphere sees the default uv); use a mesh for textured round objects.
 
             return true;
         }
