@@ -1,161 +1,161 @@
-# 化粧（ファンデーション）の層（2026-11-09）
+# Make-up (foundation) layers (2026-11-09)
 
-**状態:** 段階 A（層だけの計算と検査、3 節）と、段階 B（肌の上に載せる、JSON の `foundation`、4 節）を実施済み。下地（毛穴・溝を埋める、JSON の `primer`、4.1 節）を 2026-11-12 に追加。目的は、**つまみを 1 つずつ動かせる刺激を作ること**（見せる絵は、出れば儲けもの）。まずファンデーションだけを扱う。
+**Status:** stage A (the layer alone: calculation and checks, section 3) and stage B (putting it on skin, `foundation` in JSON, section 4) are done. A primer (it fills furrows and pores, `primer` in JSON, section 4.1) was added on 2026-11-12. The aim is to **make stimuli with knobs that can be moved one at a time** (a picture to show is a bonus if one comes out). Only foundation is treated for now.
 
-## 1. もとにした論文
+## 1. The paper
 
-D. Lanza, J. Padrón-Griffe, A. Pranovich, A. Muñoz, J. R. Frisvad, A. Jarabo, "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024（EGSR）。本文の全文と、図 4・6・9 を読んだ。**論文の記述から実装した。公開されているコード（非商用のみ）は使っていない**（パラメータの単位を確かめるために、公開リポジトリの設定ファイル 1 つだけを見た）。
+D. Lanza, J. Padrón-Griffe, A. Pranovich, A. Muñoz, J. R. Frisvad, A. Jarabo, "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024 (EGSR). The full text and figures 4, 6 and 9 were read. **It was implemented from the description in the paper. The public code (non-commercial use only) was not used** (only one configuration file of the public repository was looked at, to check the units of the parameters).
 
-**モデル:** ファンデの層を、2 種類の粒子が浮かぶ薄い媒質として扱う。
+**Model:** the foundation layer is treated as a thin medium with two kinds of suspended particles.
 
-| 粒子 | 実物の対応 | 散らし方 | 見た目 |
+| Particle | Real counterpart | Scattering | Look |
 |---|---|---|---|
-| 球の拡散体 | 酸化チタン、シリカ | Henyey-Greenstein の 2 ローブ | マット |
-| 板状の粒子 | タルク、カオリン、マイカ | 鏡面反射。板の向きは SGGX 分布 | ツヤ |
+| Spherical diffuser | titanium dioxide, silica | two Henyey-Greenstein lobes | matte |
+| Platelet | talc, kaolin, mica | specular reflection; the platelet orientation follows an SGGX distribution | shiny |
 
-- 層は、空気と屈折率が整合している（界面がなく、屈折もしない）。論文の当てはめで、屈折率は約 1 になった。
-- 層は薄いので、光は入った点から出る（層の中の横方向の広がりは無視）。
-- 色は、吸収だけで付ける（衝突のたびに、当たった粒子のアルベドを掛ける）。
-- 光は、層の中のランダムウォークで追う（Guo ら 2018 の、位置を持たないモンテカルロ）。
+- The layer is index-matched to air (no interface, no refraction). In the paper's fit, the refractive index came out at about 1.
+- The layer is thin, so light leaves from the point where it entered (the lateral spread inside the layer is ignored).
+- Colour comes from absorption only (at each collision, the albedo of the particle that was hit is multiplied in).
+- Light is followed by a random walk inside the layer (the position-free Monte Carlo of Guo et al. 2018).
 
-**式:** 長さの単位は、最も密な向きの平均自由行程。
+**Formulas:** the unit of length is the mean free path in the densest direction.
 
-    σt(ω) = c_d + (1 − c_d) Ĉp(ω)                       消散。Ĉp は板の投影面積（板の平均の法線に沿って 1）
-    Λ(ω)·f(ω → ω′) = [ Λd c_d f_d + Λp (1 − c_d) Ĉp(ω) f_p ] / σt(ω)     衝突が ω′ へ送る量
-    f_d = w_g HG(g1) + (1 − w_g) HG(g2)                 拡散体
-    f_p = D_SGGX(ω_h) / (4 Ĉp(ω))                       板（フレネルなし。ω_h は半ベクトル）
+    σt(ω) = c_d + (1 − c_d) Ĉp(ω)                       extinction. Ĉp is the projected area of the platelets (1 along the mean platelet normal)
+    Λ(ω)·f(ω → ω′) = [ Λd c_d f_d + Λp (1 − c_d) Ĉp(ω) f_p ] / σt(ω)     what a collision sends to ω′
+    f_d = w_g HG(g1) + (1 − w_g) HG(g2)                 diffusers
+    f_p = D_SGGX(ω_h) / (4 Ĉp(ω))                       platelets (no Fresnel; ω_h is the half vector)
 
-## 2. つまみ（`CosmeticLayer::Params`）
+## 2. Knobs (`CosmeticLayer::Params`)
 
-| つまみ | 記号 | 変わる見た目 |
+| Knob | Symbol | Appearance it changes |
 |---|---|---|
-| `thickness` | t | 層の光学的な厚さ。隠す力 |
-| `diffuserFraction` | c_d | 球の割合。1 に近いほどマット、小さいほど板（ツヤ）が効く |
-| `plateletRoughness` | α_p | 板の向きのばらつき。小さいほど、ハイライトが鋭い |
-| `plateletTiltDeg` | θ_p | 板の平均の向きの傾き（度。+y の向きへ傾く） |
-| `diffuserAlbedo`、`plateletAlbedo` | Λd、Λp | 粒子の色（RGB） |
-| `g1`、`g2`、`lobeWeight` | g1、g2、w_g | 球の散らし方（前向きか、後ろ向きか） |
+| `thickness` | t | optical thickness of the layer. Hiding power |
+| `diffuserFraction` | c_d | fraction of spheres. The closer to 1, the more matte; the smaller, the more the platelets (shine) count |
+| `plateletRoughness` | α_p | spread of the platelet orientation. The smaller, the sharper the highlight |
+| `plateletTiltDeg` | θ_p | tilt of the mean platelet orientation (degrees; tilted towards +y) |
+| `diffuserAlbedo`, `plateletAlbedo` | Λd, Λp | colour of the particles (RGB) |
+| `g1`, `g2`, `lobeWeight` | g1, g2, w_g | scattering of the spheres (forward or backward) |
 
-論文によれば、c_d はハイライトの**強さ**を、α_p はハイライトの**形**を変える（光沢の 2 つの別々の次元）。
+According to the paper, c_d changes the **strength** of the highlight and α_p its **shape** (two separate dimensions of gloss).
 
-## 3. 段階 A の結果
+## 3. Results of stage A
 
-**実装:** `Materials/CosmeticLayer.hpp`（板と球の位相関数と標本抽出、層の中のランダムウォーク `walk()`、出る向きを指定した見積もり `reflectionSample()`）。検査は `--scene cosmetic`（RGB・スペクトルとも PASS、約 30 秒）。
+**Implementation:** `Materials/CosmeticLayer.hpp` (phase functions and sampling of platelets and spheres, the random walk inside the layer `walk()`, an estimate with a prescribed outgoing direction `reflectionSample()`). The check is `--scene cosmetic` (PASS in both RGB and spectral, about 30 seconds).
 
-**検査:**
+**Checks:**
 
-| 検査 | 結果 |
+| Check | Result |
 |---|---|
-| 板: 法線の分布が投影面積を与える、位相関数の積分が 1、標本が位相関数に従う（粗さ 0.15 / 0.5 / 0.3 + 傾き 35°） | 差 0.3% 以下 |
-| 球: 積分が 1、標本の平均コサインが w_g g1 + (1 − w_g) g2 | 0.3001 対 0.3000 |
-| エネルギー: 吸収のない粒子で、反射 + 透過 = 1（厚さ 0.25 / 1 / 4、混合 3 通り） | 差 0（打ち切られた経路なし） |
-| 単散乱の閉じた式（等方の球、厚さ 1、入射 30°）: 1 回の衝突で反射する光、衝突せずに抜ける光 | 0.1255 対 0.1256、0.3151 対 0.3152 |
-| 相反性: f(a → b) = f(b → a)（傾いた板、色つきの粒子、3 組） | 差 0.2% |
-| 2 つの見積もり（そのままの歩行と、出る向きを指定した見積もり）の反射率 | 一致（0.4% 以内） |
+| Platelets: the distribution of normals gives the projected area, the phase function integrates to 1, samples follow the phase function (roughness 0.15 / 0.5 / 0.3 + tilt 35°) | difference 0.3% or less |
+| Spheres: integral 1, mean cosine of the samples equals w_g g1 + (1 − w_g) g2 | 0.3001 against 0.3000 |
+| Energy: with non-absorbing particles, reflection + transmission = 1 (thickness 0.25 / 1 / 4, three mixtures) | difference 0 (no terminated paths) |
+| Closed form of single scattering (isotropic spheres, thickness 1, incidence 30°): light reflected after one collision, light that passes without collision | 0.1255 against 0.1256, 0.3151 against 0.3152 |
+| Reciprocity: f(a → b) = f(b → a) (tilted platelets, coloured particles, 3 pairs) | difference 0.2% |
+| Reflectance of the two estimates (the plain walk and the estimate with a prescribed outgoing direction) | agree (within 0.4%) |
 
-**論文が当てはめた 4 製品の、層だけの性質**（論文の表 2 の値。緑のチャンネル、入射 30°）:
+**Properties of the layer alone for the 4 products fitted in the paper** (values of the paper's table 2. Green channel, incidence 30°):
 
-| 製品 | 厚さ | 反射 | 素通り | 散乱して透過 | 吸収 |
+| Product | Thickness | Reflected | Straight through | Scattered and transmitted | Absorbed |
 |---|---|---|---|---|---|
-| ツヤ 1 | 0.25 | 0.06 | 0.75 | 0.18 | 0.01 |
+| Dewy 1 | 0.25 | 0.06 | 0.75 | 0.18 | 0.01 |
 | | 0.5 | 0.12 | 0.57 | 0.30 | 0.02 |
 | | 1 | 0.22 | 0.32 | 0.42 | 0.04 |
 | | 4 | 0.47 | 0.01 | 0.33 | 0.18 |
 | | 16 | 0.56 | 0 | 0.03 | 0.41 |
-| マット 2 | 0.25 | 0.11 | 0.76 | 0.09 | 0.05 |
+| Matte 2 | 0.25 | 0.11 | 0.76 | 0.09 | 0.05 |
 | | 0.5 | 0.18 | 0.57 | 0.15 | 0.10 |
 | | 1 | 0.27 | 0.33 | 0.21 | 0.19 |
 | | 4 | 0.39 | 0.01 | 0.10 | 0.49 |
 | | 16 | 0.40 | 0 | 0 | 0.60 |
 
-- **論文が肌の上の絵に使った厚さ（0.25〜0.5）では、光の 6〜8 割が、散乱されずに素通りする。** 下の肌は、まだよく見えている設定。
-- **厚さ 4 で、素通りは 1% になる**（下が隠れる）。反射は厚さとともに頭打ちになり、ツヤ 1 で 0.56、マット 2 で 0.40。
-- 同じ厚さでも、製品で透過が違う: 厚さ 1 で、散乱して下へ届く光は、ツヤ 1 が 0.42、マット 2 が 0.21（マット 2 は吸収が大きい）。
+- **At the thicknesses the paper used for its pictures on skin (0.25 to 0.5), 60 to 80% of the light passes straight through without being scattered.** The skin below is still clearly visible in this setting.
+- **At thickness 4, the straight-through fraction falls to 1%** (the skin below is hidden). The reflection levels off with thickness: 0.56 for dewy 1 and 0.40 for matte 2.
+- At the same thickness, the transmission differs by product: at thickness 1, the light that is scattered and reaches the skin is 0.42 for dewy 1 and 0.21 for matte 2 (matte 2 absorbs more).
 
-**厚い層（16）のハイライト**（入射 40°。入射面内の、半角 5° の円錐に入る光。1 ステラジアンあたり）:
+**Highlight of a thick layer (16)** (incidence 40°. Light entering a cone of 5° half angle in the plane of incidence. Per steradian):
 
-| 製品 | 後ろ −40° | 法線 0° | 鏡面 +40° | 最も明るい向き | 最も明るい / 法線 |
+| Product | Back −40° | Normal 0° | Mirror +40° | Brightest direction | Brightest / normal |
 |---|---|---|---|---|---|
-| ツヤ 1 | 0.118 | 0.160 | 0.319 | +40° | 1.99 |
-| ツヤ 2 | 0.096 | 0.106 | 0.092 | +50° | 1.78 |
-| マット 1 | 0.124 | 0.147 | 0.262 | +40° | 1.78 |
-| マット 2 | 0.080 | 0.100 | 0.075 | 0° | 1.00 |
+| Dewy 1 | 0.118 | 0.160 | 0.319 | +40° | 1.99 |
+| Dewy 2 | 0.096 | 0.106 | 0.092 | +50° | 1.78 |
+| Matte 1 | 0.124 | 0.147 | 0.262 | +40° | 1.78 |
+| Matte 2 | 0.080 | 0.100 | 0.075 | 0° | 1.00 |
 
-（ツヤ 2 は、板の粗さが 0.002 と極端に小さい。ハイライトは半角 5° の円錐より細いので、円錐の平均では弱く出る。）
+(Dewy 2 has an extremely small platelet roughness of 0.002. Its highlight is narrower than the cone of 5° half angle, so it comes out weak in the cone average.)
 
-### 論文の図 4（測定）・図 6（当てはめ）との比較
+### Comparison with the paper's figure 4 (measurement) and figure 6 (fit)
 
-検査は、論文の図と同じ量（白い拡散板に対する反射率 π f を、入射角 20〜70°、観察角 −40〜+70° で）も出す。`tools/figures/cosmetic_maps.py` が、それを色のパッチにする。論文の図と見比べた（図は論文のものなので、ここには載せない）。
+The check also outputs the same quantity as the paper's figures (the reflectance π f relative to a white diffuse plate, for incidence angles 20 to 70° and viewing angles −40 to +70°). `tools/figures/cosmetic_maps.py` turns it into coloured patches. They were compared with the paper's figures (the figures are the paper's, so they are not reproduced here).
 
-| 製品 | 論文の測定・当てはめ | この実装（表 2 の値） | 判定 |
+| Product | Paper's measurement and fit | This implementation (values of table 2) | Verdict |
 |---|---|---|---|
-| ツヤ 1 | 鏡面の向きに、幅のある白い帯 | 同じ | 合う |
-| ツヤ 2 | 鏡面の近くに、細く鋭い白い線 | 同じ（線の位置は、鏡面から約 +10°） | おおむね合う |
-| マット 1 | **ハイライトなし**（入射 70° のすれすれでだけ明るい） | **鏡面の向きに白い帯が出る** | **合わない** |
-| マット 2 | ハイライトなし、ほぼ一様 | 同じ | 合う |
+| Dewy 1 | a broad white band in the specular direction | same | matches |
+| Dewy 2 | a thin sharp white line near the specular direction | same (the line is about +10° from the specular direction) | roughly matches |
+| Matte 1 | **no highlight** (bright only at grazing incidence of 70°) | **a white band appears in the specular direction** | **does not match** |
+| Matte 2 | no highlight, almost uniform | same | matches |
 
-- マット 1 は、表 2 の値のままでは、論文の図と合わない（ツヤ 1 と値がほぼ同じで、同じようなハイライトが出る）。刺激には使わず、つまみを自分で決める。
-- **板の傾きの向きは、マット 2 の測定に合うほうを選んだ。** 論文の本文からは、向き（符号、軸）が決まらない。光源の側へ傾けると、マット 2（傾き 52°）は光源の側が明るくなるが、測定にはそれがない。逆（光の進む向きへ傾く）にすると、一様になって測定に合う。
+- With the values of table 2, matte 1 does not match the paper's figure (its values are almost the same as dewy 1's, and a similar highlight appears). It is not used for stimuli; the knobs are chosen by hand.
+- **The direction of the platelet tilt was chosen to match the measurement of matte 2.** The text of the paper does not fix the direction (sign, axis). If tilted towards the light source, matte 2 (tilt 52°) becomes brighter on the side of the light source, which the measurement does not show. With the opposite direction (tilted in the direction the light travels), it becomes uniform and matches the measurement.
 
-## 4. 段階 B: 肌の上に載せる（2026-11-09）
+## 4. Stage B: putting it on skin (2026-11-09)
 
-**使い方:** JSON の skin の材質に `foundation` を書く（`docs/SCENE_FILE.md`）。
+**Usage:** write `foundation` in the JSON skin material (`docs/SCENE_FILE.md`).
 
 ```jsonc
 "skin": { "type": "skin", ...,
-          "foundation": { "preset": "dewy1", "thickness": 1.0 } }                               // 論文の 4 製品の値から
+          "foundation": { "preset": "dewy1", "thickness": 1.0 } }                               // from the values of the paper's 4 products
 "skin": { "type": "skin", ...,
-          "foundation": { "thickness": 1.0, "diffuserFraction": 0.95, "plateletRoughness": 0.1,  // つまみを直接
+          "foundation": { "thickness": 1.0, "diffuserFraction": 0.95, "plateletRoughness": 0.1,  // the knobs directly
                           "diffuserAlbedo": [0.97, 0.93, 0.87] } }
 ```
 
-`preset` は `dewy1`・`dewy2`・`matte1`・`matte2`（論文の表 2）。その後に書いたキーが、1 つずつ上書きする。実行すると、`[Foundation] ...` の行に、層が法線方向で反射する量・通す量が出る。
+`preset` is `dewy1`, `dewy2`, `matte1` or `matte2` (the paper's table 2). Keys written after it override single values. When run, a `[Foundation] ...` line prints how much the layer reflects and lets through along the normal.
 
-**組み立て方（論文との違い）:** 論文は、層と肌を 1 つのランダムウォークで解く。ここでは、**層の反射だけをランダムウォークで解き、下の肌は、層の「通す量の表」を通して見る**（肌の材質が既に持つ、鱗屑や乳液の層と同じ作法）。
+**How it is put together (difference from the paper):** the paper solves the layer and the skin in one random walk. Here, **only the reflection of the layer is solved by a random walk, and the skin below is seen through a "table of what the layer lets through"** (the same way as the flakes and emulsion layers that the skin material already has).
 
-| 成分 | 扱い |
+| Component | Treatment |
 |---|---|
-| 層そのものの反射（マットな散乱、板のハイライト） | 評価のたびに、層の中のランダムウォーク（`reflectionSampleT`）で 1 標本。ノイズはあるが、平均は層の BSDF |
-| 肌の鏡面ローブ（皮脂の艶） | 層を**衝突せずに通る光**だけで見る: `straight(μi) · straight(μo)` を掛ける |
-| 肌の拡散ローブ、鱗屑の白い散乱 | 層を**通るすべての光**で見る: `through(μi) · through(μo) / (1 − Rback · A)`。分母は、肌と層の間を往復する光の和（A は肌のアルベド） |
-| 表面下散乱 | 視線の側で `through(μo)`、光が入る側で、拡散の平均 `throughDiffuse / (1 − Rback · A)` |
+| Reflection of the layer itself (matte scattering, platelet highlight) | one sample per evaluation, by a random walk inside the layer (`reflectionSampleT`). Noisy, but the mean is the BSDF of the layer |
+| Specular lobe of the skin (shine of sebum) | seen only through the light that **passes through the layer without a collision**: multiplied by `straight(μi) · straight(μo)` |
+| Diffuse lobe of the skin, white scatter of flakes | seen through **all the light that passes through the layer**: `through(μi) · through(μo) / (1 − Rback · A)`. The denominator is the sum of the light going back and forth between the skin and the layer (A is the albedo of the skin) |
+| Subsurface scattering | `through(μo)` on the viewing side; on the side where light enters, the diffuse mean `throughDiffuse / (1 − Rback · A)` |
 
-表（`CosmeticCoat`）は、シーンを読むときに、方向余弦 24 区間 × 10 万本のランダムウォークで作る（方位は平均）。表の誤差は、描画の試行を増やしても消えない（どの試行にも同じ誤差が掛かる）ので、小さくしておく必要がある: 2 万本では、白色炉の値が種によって ±0.6% 動いた。標本抽出は、層のローブを、層の反射の大きさに応じた確率で選び、方向は「最初の衝突で板に当たったときの鏡面反射」と余弦分布の混合から引く（確率密度が式で書けるので、多重重点的サンプリングがそのまま使える）。
+The table (`CosmeticCoat`) is built when the scene is read, from 24 bins of direction cosine × 100 000 random walks (the azimuth is averaged). The error of the table does not go away when more render trials are added (the same error applies to every trial), so it must be kept small: with 20 000 walks, the white furnace value moved by ±0.6% depending on the seed. Sampling chooses a lobe of the layer with a probability according to the size of the layer's reflection, and draws the direction from a mixture of "the specular reflection when the first collision hits a platelet" and a cosine distribution (the probability density can be written in closed form, so multiple importance sampling can be used as it is).
 
-**ならし（`leveling`、0〜1、既定 1）:** 層の反射は、肌の凹凸で曲げた法線ではなく、**層の法線**（`SurfaceInteraction::nl`）で計算する。層の法線は、曲げた法線と、ならした（凹凸のない）法線の間を、`leveling` で混ぜたもの。1 なら、皮溝や毛穴は層の光り方に映らない。0 なら、最初の版と同じ。**肌そのもののローブ（艶、拡散、表面下散乱）は、凹凸を保ったまま**なので、薄い層では、素通りした光で肌の凹凸の艶が見え、厚くなるにつれて、ならされた層の光り方に置き換わる。層が通す量も、層の法線に対する角度で引く。積分器は cos(肌の法線, wi) で重みづけるので、層のローブには cos(層の法線, wi) / cos(肌の法線, wi) を掛ける（膜の鏡面ローブと同じ作法）。層の厚さはどこでも同じで、`leveling` は厚さと無関係のつまみ。
+**Smoothing (`leveling`, 0 to 1, default 1):** the reflection of the layer is calculated not with the normal bent by the relief of the skin but with the **normal of the layer** (`SurfaceInteraction::nl`). The normal of the layer is the bent normal and the smoothed (relief-free) normal, mixed by `leveling`. At 1, the furrows and pores do not show in the shine of the layer. At 0, it is the same as the first version. **The lobes of the skin itself (shine, diffuse, subsurface scattering) keep the relief**, so in a thin layer the relief shine of the skin is seen in the light that passes through, and as the layer gets thicker it is replaced by the smoothed shine of the layer. The amount the layer lets through is also taken at the angle to the normal of the layer. The integrator weights by cos(normal of the skin, wi), so the lobe of the layer is multiplied by cos(normal of the layer, wi) / cos(normal of the skin, wi) (the same way as the specular lobe of a film). The thickness of the layer is the same everywhere, and `leveling` is a knob independent of thickness.
 
-**ならしの中間の値は、自然な中間にならない。** 鋭い板（粗さ 0.05、板 50%）で試すと、`leveling` 0.7 でも、光り方の中に皮溝の網目がはっきり残る。法線を混ぜるだけでは、溝の線が弱まって残るからで、鋭い板は、わずかな傾きにも反応する。1（完全にならす）を使う。完全にならすと、板の多い層は、樹脂の板のように整った光り方になる。
+**Intermediate values of the smoothing do not give a natural in-between.** Tried with sharp platelets (roughness 0.05, 50% platelets), the network of furrows stays clearly visible in the shine even at `leveling` 0.7. Mixing the normals only weakens the lines of the furrows, and sharp platelets react to the slightest tilt. Use 1 (full smoothing). With full smoothing, a layer rich in platelets shines in an orderly way, like a resin plate.
 
-**板の傾きの向き:** 層の座標系は、形が接線を持つとき（球、板、UV のあるメッシュ）、その接線に合わせる。任意の接線では、傾きの向きが面の上の線を境に飛び、光り方に継ぎ目が出た（論文の製品は、どれも 1.5° 以上の傾きを持つ）。
+**Direction of the platelet tilt:** when the shape has a tangent (sphere, plate, mesh with UV), the coordinate system of the layer is aligned to that tangent. With an arbitrary tangent, the direction of the tilt jumped across a line on the surface and the shine showed a seam (every product of the paper has a tilt of 1.5° or more).
 
-**検査**（`--scene cosmetic` の 7。RGB・スペクトルとも PASS）:
+**Checks** (7 of `--scene cosmetic`. PASS in both RGB and spectral):
 
-| 検査 | 結果 |
+| Check | Result |
 |---|---|
-| 吸収のない層の表: 反射 + 通す量 = 1 | 差 0 |
-| 厚さ 10⁻⁶ の層を載せた肌: 評価と確率密度が、層なしと同じ | 差 0 |
-| `sample()` と `eval()` のアルベドが一致（ツヤ 1・マット 2、表面下散乱あり・なし、厚さ 1） | 0.565 対 0.567、0.235 対 0.237、0.457 対 0.455、0.229 対 0.230 |
-| 凹凸のある肌 + 層: 層の法線（ならし 1 で傾き 0°、0 で肌の法線と同じ）、`sample()` と `eval()` の一致（ならし 1 / 0 / 0.5） | 0.555 対 0.555、0.557 対 0.557、0.561 対 0.561 |
-| 白色炉: 白い球に、吸収のない層（厚さ 1） | 層なし 0.998〜0.999、層あり 0.988〜0.992（種 3 通り。約 0.8% 暗い） |
-| 白色炉: 表面下散乱のある肌の球に、ツヤ 1（厚さ 1） | (0.802, 0.526, 0.428) → (0.710, 0.494, 0.411)。1 を超えない |
+| Table of a non-absorbing layer: reflection + transmission = 1 | difference 0 |
+| Skin with a layer of thickness 10⁻⁶: evaluation and probability density equal those without a layer | difference 0 |
+| Albedo of `sample()` and `eval()` agree (dewy 1 and matte 2, with and without subsurface scattering, thickness 1) | 0.565 against 0.567, 0.235 against 0.237, 0.457 against 0.455, 0.229 against 0.230 |
+| Skin with relief + layer: the normal of the layer (tilt 0° at smoothing 1, equal to the skin's normal at 0), agreement of `sample()` and `eval()` (smoothing 1 / 0 / 0.5) | 0.555 against 0.555, 0.557 against 0.557, 0.561 against 0.561 |
+| White furnace: a white sphere with a non-absorbing layer (thickness 1) | without layer 0.998 to 0.999, with layer 0.988 to 0.992 (3 seeds; about 0.8% darker) |
+| White furnace: a skin sphere with subsurface scattering with dewy 1 (thickness 1) | (0.802, 0.526, 0.428) → (0.710, 0.494, 0.411). Does not exceed 1 |
 
-肌に関わる既存の検査（`relief`、`sss`、`furnace`、`metals`、`aov`、`layered`）は、RGB で PASS。`relief` は、2026-11-11 に直した（RGB・スペクトル × 種 4 つで PASS）。`--scene cosmetic` の 8（情報）は、吸収のない層の白色炉を、表面下散乱ありとなしで比べる（ファンデの層では差が 0.003 以下）。
+The existing checks related to skin (`relief`, `sss`, `furnace`, `metals`, `aov`, `layered`) PASS in RGB. `relief` was fixed on 2026-11-11 (PASS in RGB and spectral × 4 seeds). 8 of `--scene cosmetic` (information) compares the white furnace of a non-absorbing layer with and without subsurface scattering (for the foundation layer the difference is 0.003 or less).
 
-**刺激:** `tools/studies/cosmetic_stimuli.py make OUTDIR` が、肌の接写（`skin_lamp_dry.json` から鱗屑を除いたもの。そばかすと色むらがある）に、層なし / 論文の 2 製品 × 厚さ 5 段階 / 球の割合 4 段階 × 板の粗さ 3 段階、の 23 シーンを書く。`--seed` を固定すれば、同じ絵を再現できる。
+**Stimuli:** `tools/studies/cosmetic_stimuli.py make OUTDIR` writes 23 scenes on a close-up of skin (`skin_lamp_dry.json` without the flakes; with freckles and colour unevenness): no layer / the paper's 2 products × 5 thicknesses / 4 sphere fractions × 3 platelet roughnesses. With `--seed` fixed, the same pictures can be reproduced.
 
-**描いてみた結果**（23 枚。640 px、128 spp、種 1。開発用ビルドで 1 枚 約 70 秒。`tools/studies/cosmetic_stimuli.py sheet OUTDIR` が、並べた図 2 枚と数値を出す。絵は `out/` に置く）:
+**Result of rendering them** (23 pictures. 640 px, 128 spp, seed 1. About 70 seconds per picture with a development build. `tools/studies/cosmetic_stimuli.py sheet OUTDIR` outputs two contact sheets and the numbers. The pictures are kept in `out/`):
 
-（下は、ならしを入れた後の絵。ならし 1。）
+(The following are pictures after smoothing was introduced, with smoothing 1.)
 
-- **厚さ（論文の 2 製品）:** マット 2 は、厚くするほど暗い茶色になり、厚さ 2 でハイライトとそばかすが消え、厚さ 4 では一様な面になる。ツヤ 1 は、明るくなり（板の色を直す前は灰色がかっていた。下）、肌の鋭いハイライト（皮溝で割れた艶）の周りに、層のやわらかい光が広がる。厚さ 2 で、肌の艶は見えなくなり、層の光だけになる。そばかすは、厚さ 4 でほぼ消える。
-- **仕上がり（厚さ 1、球の割合 × 板の粗さ）:** 球の割合を下げる（板を増やす）と、光が強くなる（50% では白く飛ぶ）。板の粗さを上げると、光が広く弱くなる（0.05 で小さく鋭い、0.15 で大きくやわらかい、0.4 で全体が白っぽく霞む）。球 100% では、板のつまみは効かず、マットになる。論文の言う「割合は強さ、粗さは形」のとおりに、2 つのつまみが別々に効く。
-- マット 2 の厚い層には、斜めの明暗の帯が出る。板が 52° 傾いていて、その向きを形の接線にそろえたため（傾いた板の、向きのある反射）。
-- **見えた問題と、その修正:** 最初の版では、ツヤの層の光り方の中に、皮溝の網目がくっきり出た。層が肌の凹凸の法線にそのまま従っていたため（実際のファンデは溝を埋めて、表面をならす。最初の保湿の試作と同じ種類の誤り）。**層に、自分の法線を持たせて直した**（下の「ならし」）。
-- **ツヤ 1 の板の色（修正済み）。** 最初の版は、論文の表 2 の板のアルベド (0.75, 0.85, 0.99) をそのまま使い、厚くすると肌が灰色へ寄った。論文の図 4 の測定（ツヤ 1 は桃色）と比べると、この値は青寄りすぎる: 図の背景（約 232, 195, 166）に対し、表のままは灰色がかった黄緑（191, 187, 170）、チャンネルを逆にした (0.99, 0.85, 0.75) は桃色（209, 186, 159）で、G/R・B/R の比が測定に合う（拡散の色 Λd を逆にすると青くなり、合わない）。表の値は、青・緑・赤の順の書き間違いと見て、プリセットは (0.99, 0.85, 0.75) を使う。**根拠は、図の色との比較。**論文の値と違う点なので、他の製品の値は、そのまま。
+- **Thickness (the paper's 2 products):** matte 2 gets a darker brown with thickness; at thickness 2 the highlights and freckles vanish, and at thickness 4 the surface is uniform. Dewy 1 gets brighter (it was greyish before the platelet colour was fixed; see below), and a soft light of the layer spreads around the sharp highlight of the skin (shine broken up by the furrows). At thickness 2 the shine of the skin is no longer visible and only the light of the layer remains. The freckles almost vanish at thickness 4.
+- **Finish (thickness 1, sphere fraction × platelet roughness):** lowering the sphere fraction (more platelets) makes the light stronger (at 50% it burns out to white). Raising the platelet roughness makes the light broader and weaker (0.05: small and sharp, 0.15: large and soft, 0.4: the whole surface hazes to whitish). At 100% spheres, the platelet knobs do not act and the result is matte. The two knobs act separately, as the paper says: "the fraction is the strength and the roughness is the shape".
+- A thick layer of matte 2 shows oblique bands of light and dark. The platelets are tilted by 52° and their direction was aligned to the tangent of the shape (directional reflection of tilted platelets).
+- **A problem seen, and its fix:** in the first version, the network of furrows appeared sharply in the shine of the shiny layer. The layer followed the bent normal of the skin relief as it was (real foundation fills the furrows and smooths the surface; the same kind of mistake as in the first prototype of moisturising). **It was fixed by giving the layer its own normal** (see "Smoothing" above).
+- **Platelet colour of dewy 1 (fixed).** The first version used the platelet albedo (0.75, 0.85, 0.99) of the paper's table 2 as it is, and with a thick layer the skin shifted to grey. Compared with the measurement in the paper's figure 4 (dewy 1 is pinkish), this value is too bluish: against the background of the figure (about 232, 195, 166), the table's value gives a greyish yellow-green (191, 187, 170), while (0.99, 0.85, 0.75) with the channels reversed gives pink (209, 186, 159), and the ratios G/R and B/R match the measurement (reversing the diffuser colour Λd instead makes it blue, which does not match). I take the table's values to be a typo in the order blue, green, red, and the preset uses (0.99, 0.85, 0.75). **The basis is the comparison with the colours of the figure.** This is a point where I differ from the paper's values; the values of the other products are left as they are.
 
-### 4.1 下地（毛穴・溝を埋める。2026-11-12）
+### 4.1 Primer (fills pores and furrows; 2026-11-12)
 
-**使い方:** skin の材質に `primer` を書く（`docs/SCENE_FILE.md`）。
+**Usage:** write `primer` in the skin material (`docs/SCENE_FILE.md`). It needs `relief`. Besides `thicknessUm`, the keys `ior`, `roughness` and `softnessUm` are accepted (defaults 1.40, 0.15 and 3 µm).
 
 ```jsonc
 "skin": { "type": "skin", ..., "relief": {...},
@@ -163,69 +163,69 @@ D. Lanza, J. Padrón-Griffe, A. Pranovich, A. Muñoz, J. R. Frisvad, A. Jarabo, 
           "foundation": { "preset": "dewy1", "thickness": 1.0 } }
 ```
 
-**仕組み:** 溝や毛穴にたまる膜（`SkinFilm`。`docs/SKIN_MOISTURE.md`）と同じ形を使う。肌の高さ h(p) に対し、膜の上面は z = smoothmax(h, L)（深い所から水位 L まで埋まる）で、L は「平均の厚さ」から決める。ファンデの層の面は、この上面の法線に従う（尾根は肌のまま、埋まった溝はほぼ平ら）。`leveling` は、それをさらに平らにするだけ（`primer` があるときの既定は 0）。ファンデがなければ、肌の艶が膜の上面に従う（屈折率 1.40、粗さ 0.15）。**厚さは、「溝がどれだけ埋まるか」を決めるつまみ**。
+**Mechanism:** it uses the same form as the film that collects in furrows and pores (`SkinFilm`; `docs/SKIN_MOISTURE.md`). For the skin height h(p), the top surface of the film is z = smoothmax(h, L) (filled from the deep places up to the level L), and L is determined from the "mean thickness". The surface of the foundation layer follows the normal of this top surface (ridges stay as the skin, filled furrows are almost flat). `leveling` only flattens it further (the default is 0 when there is a `primer`). Without foundation, the shine of the skin follows the top surface of the film (index 1.40, roughness 0.15). **The thickness is the knob that decides "how much of the furrows is filled".**
 
-**検査**（`--scene cosmetic` の c3。RGB・スペクトルとも PASS）: 層の面の傾き（凹凸の既定値、平均）が、下地なし 9.7〜10.0° → 5 µm 3.7〜4.6° → 20 µm 0.1° → 60 µm 0.01° と、厚いほど平らになる。`sample()` と `eval()` のアルベドは、4 通りとも一致（差 0.002 以下）。
+**Check** (c3 of `--scene cosmetic`. PASS in both RGB and spectral): the tilt of the surface of the layer (default relief, mean) becomes flatter with thickness: 9.7 to 10.0° without primer → 3.7 to 4.6° at 5 µm → 0.1° at 20 µm → 0.01° at 60 µm. The albedos of `sample()` and `eval()` agree in all 4 cases (difference 0.002 or less).
 
-**描いてみた結果**（`skin_lamp_dry.json` の接写、ファンデ dewy 1・厚さ 1、480 px・64 spp。この凹凸では 10 µm で皮溝は埋まりきる）: 下地なし（`leveling` 0）は、ハイライトの中に皮溝の網目が見える。10 µm と 30 µm では、網目が消えて、光源が丸くやわらかく映る。ファンデなしで下地だけ（30 µm）だと、そばかすが見えたまま、光源が小さく鋭く映り、ガラスを被せたような艶になる。
+**Result of rendering** (close-up of `skin_lamp_dry.json`, foundation dewy 1, thickness 1, 480 px, 64 spp. With this relief the furrows are filled completely at 10 µm): without primer (`leveling` 0), the network of furrows is visible in the highlight. At 10 µm and 30 µm the network disappears and the light source is reflected round and soft. With primer only and no foundation (30 µm), the freckles remain visible, the light source is reflected small and sharp, and the shine looks as if covered with glass.
 
-**根拠:**
-- 下地の働き（シリコーンのエラストマーが凹みを埋める、球状の粉体が光を散らす、顔料で色を直す）は、メーカーの説明、特許、レビューの検索結果の要約から（査読論文は見つからなかった）。
-- 屈折率 1.40、粗さ 0.15、縁の丸め 3 µm。
+**Basis:**
+- The action of a primer (a silicone elastomer fills dents, a spherical powder scatters light, pigments correct the colour) comes from summaries of search results of manufacturers' descriptions, patents and reviews (no peer-reviewed paper was found).
+- Index 1.40, roughness 0.15 and edge rounding 3 µm are assumed values.
 
-### 4.2 色つきの下地（2026-11-12）
+### 4.2 Coloured primer (2026-11-12)
 
-**使い方:** `primer` に `color` と `opacity` を足す。
+**Usage:** add `color` and `opacity` to `primer` (`opacity` without `color` is an error; the default of `opacity` is 0.5).
 
 ```jsonc
-"primer": { "thicknessUm": 10, "color": [0.55, 0.72, 0.48], "opacity": 0.6 }   // 緑の下地
+"primer": { "thicknessUm": 10, "color": [0.55, 0.72, 0.48], "opacity": 0.6 }   // a green primer
 ```
 
-**モデル:** 下地を、Kubelka-Munk の層（二流束）にする（`Materials/KubelkaMunkLayer.hpp`）。`color` = 無限に厚い膜の色 R∞（Ikkai 2023 の「固有色」）、`opacity` = X = S·D（散乱係数 × 厚さ）。チャンネルごとに a = (R∞ + 1/R∞)/2、b = √(a² − 1) として、層だけの反射 R = sinh(bX)/(a sinh bX + b cosh bX)、透過 T = b/(a sinh bX + b cosh bX)。肌の拡散色 A は、層の下で **R + T²A/(1 − RA)** になる（Kubelka 1954。Doi ら 2005、Yoshida・Okiyama 2021 の 2 層の式と同じ）。
+**Model:** the primer is made a Kubelka-Munk layer (two-flux) (`Materials/KubelkaMunkLayer.hpp`). `color` = the colour R∞ of an infinitely thick film (the "intrinsic colour" of Ikkai 2023), `opacity` = X = S·D (scattering coefficient × thickness). Per channel, with a = (R∞ + 1/R∞)/2 and b = √(a² − 1), the reflection of the layer alone is R = sinh(bX)/(a sinh bX + b cosh bX) and the transmission T = b/(a sinh bX + b cosh bX). The diffuse colour A of the skin below the layer becomes **R + T²A/(1 − RA)** (Kubelka 1954; the same as the two-layer formulas of Doi et al. 2005 and Yoshida and Okiyama 2021).
 
-**肌への入れ方:** 色素（`pigment`）と同じ道を使う: 肌の拡散色にかける係数 `albedoTint` にする（表面下散乱があれば、入るときと出るときに平方根ずつ）。その上のファンデは、新しい色を肌として見る。**変わるのは拡散色だけ**: 肌の艶（皮脂）は下地の上面の法線に従うまま（4.1 節）、表面下散乱の広がりは肌のまま。
+**How it enters the skin:** it uses the same path as the pigment (`pigment`): it becomes the factor `albedoTint` multiplied onto the diffuse colour of the skin (with subsurface scattering, a square root each on the way in and on the way out). The foundation above sees the new colour as the skin. **Only the diffuse colour changes**: the shine of the skin (sebum) still follows the normal of the top surface of the primer (section 4.1), and the spread of subsurface scattering stays that of the skin.
 
-**検査**（`--scene cosmetic` の c4。RGB で PASS）: 層なし（X = 0）で R = 0・T = 1、X = 60 で R = R∞、T = 0、吸収がなければ R + T = 1、**厚さ 0.3 の層の上に 0.7 の層 = 厚さ 1.0 の層**（Kubelka の加法性。差 10⁻⁷ 以下）、肌の色の係数が式どおり。
+**Check** (c4 of `--scene cosmetic`. PASS in RGB): with no layer (X = 0), R = 0 and T = 1; at X = 60, R = R∞ and T = 0; with no absorption, R + T = 1; **a layer of thickness 0.7 on a layer of thickness 0.3 = a layer of thickness 1.0** (Kubelka additivity; difference 10⁻⁷ or less); the colour factor of the skin follows the formula.
 
-**描いてみた結果**（`skin_lamp_dry.json` の接写、赤みを強く（`rednessStrength` 1.0）、下地 10 µm、色 (0.55, 0.72, 0.48)、480 px・64 spp。数値は、ハイライトを除いた 16 × 16 ブロックの log(R/G)）:
+**Result of rendering** (close-up of `skin_lamp_dry.json`, redness strong (`rednessStrength` 1.0), primer 10 µm, colour (0.55, 0.72, 0.48), 480 px, 64 spp. The numbers are log(R/G) over 16 × 16 blocks excluding the highlight):
 
-| | 平均 | ばらつき（標準偏差） |
+| | Mean | Spread (standard deviation) |
 |---|---|---|
-| 下地なし | 0.386 | 0.0200 |
-| 無色の下地 | 0.402 | 0.0203 |
-| 緑、opacity 0.3 | 0.234 | 0.0110 |
-| 緑、opacity 0.6 | 0.121 | 0.0084 |
-| 緑、opacity 1.2 | −0.015 | 0.0066 |
+| No primer | 0.386 | 0.0200 |
+| Colourless primer | 0.402 | 0.0203 |
+| Green, opacity 0.3 | 0.234 | 0.0110 |
+| Green, opacity 0.6 | 0.121 | 0.0084 |
+| Green, opacity 1.2 | −0.015 | 0.0066 |
 
-- 厚くするほど、赤みが減り、赤みのむら（そばかすの暗さも）が隠れる。opacity 0.6 で、赤みは約 3 分の 1、むらは約 4 割。
-- **opacity 1.2 では、肌が灰緑色になる**（R ≈ G）。美容記事の「赤みのない肌に緑は不健康に見える」という注意と同じ向き。
-- 無色の下地は、色もむらも変えない（皮溝が埋まって、艶が丸くなるだけ）。
+- The thicker it is, the more the redness decreases and the more the unevenness of the redness (and the darkness of the freckles) is hidden. At opacity 0.6, the redness is about one third and the unevenness about 40%.
+- **At opacity 1.2 the skin becomes grey-green** (R ≈ G). This is in the same direction as the warning in beauty articles that green on skin without redness looks unhealthy.
+- A colourless primer changes neither the colour nor the unevenness (the furrows are filled and the shine only becomes round).
 
-**根拠:**
-- 二流束は拡散光の理論。層の色は、RGB から分光への変換（上げ底）で扱う。
+**Basis:**
+- Two-flux is a theory of diffuse light. The colour of the layer is handled by the conversion from RGB to spectrum (with a raised floor).
 
-## 5. 論文との違い
+## 5. Differences from the paper
 
-- 色は RGB の 3 チャンネル（論文の測定は分光だが、当てはめは線形 RGB）。
-- **肌の上での組み立ては、論文と違う近似**（4 節）。
-- ~~表面下散乱のある肌に、白い層（鱗屑、乳液）を載せると、赤が約 1〜2% 暗くなる~~ **解決（2026-11-13）**: 1〜2% は検査の揺れ（2.6 万経路）で、100 倍の経路で測ると赤の差は −0.05% ± 0.2%。本物の成分は 2 つ: (1) 赤は白い層の利得が +0.7% と小さく、表面下散乱では入口と出口が別の斑に落ちる分（約 −0.7%）で相殺されて 0 付近に来る。(2) 曲げた法線のまわりのローブは地平線の下の標本を捨てて約 1.2% 失うが、表面下散乱の出口ローブは滑らかな法線で失わない。白い層は光を出口ローブから鱗屑ローブへ移すので、移した割合 × 1.2% だけ暗くなる（コートの重みを 0 にしても残るのは、このため）。`docs/SKIN.md` 6 節、`out/studies/flakes_sss`。ファンデの層では、表面下散乱ありとなしの差が 0.003 以下で見えない（`--scene cosmetic` の 8）。`--scene relief` の 11c・13c は、固定の比率ではなく、帳簿（白い下地で変化なし）・局所モデル（厳密な予測値）・方向（下限 = −ρ × 地平線の損失）の 3 本に作り直し、どれも 4 標準誤差の幅で判定する。
-- 表面下散乱なしの拡散ローブは、鱗屑・乳液の層を、出口の通過 (1 − ρ) と往復 1/(1 − ρR) まで数える式にそろえた（2026-11-11。以前は入口の (1 − ρ) だけで、白い層が足す明るさを 2〜4 倍に見積もっていた）。ありの経路と、足す明るさが一致する（`--scene relief` の 11c・13c の出力）。
+- Colour uses 3 RGB channels (the paper's measurements are spectral, but the fit is linear RGB).
+- **The assembly on skin is an approximation that differs from the paper** (section 4).
+- When a white layer (flakes, lotion) is put on skin with subsurface scattering, red looked about 1 to 2% darker. **Resolved (2026-11-13):** the 1 to 2% was fluctuation of the check (26 000 paths); measured with 100 times as many paths, the difference in red is −0.05% ± 0.2%. The real components are two: (1) For red, the gain of the white layer is small, +0.7%, and with subsurface scattering it cancels to near 0 by the part where the entry and exit fall on different patches (about −0.7%). (2) The lobes around the bent normal discard samples below the horizon and lose about 1.2%, but the exit lobe of subsurface scattering uses the smooth normal and does not lose. A white layer moves light from the exit lobe to the flakes lobe, so it becomes darker by the moved fraction × 1.2% (this is why a residue remains even when the weight of the coat is set to 0). `docs/SKIN.md` section 6, `out/studies/flakes_sss`. For the foundation layer, the difference between with and without subsurface scattering is 0.003 or less and invisible (8 of `--scene cosmetic`). 11c and 13c of `--scene relief` were rebuilt from fixed ratios into three tests: bookkeeping (no change on a white base), local model (an exact predicted value), direction (lower bound = −ρ × horizon loss), each judged with a width of 4 standard errors.
+- The diffuse lobe without subsurface scattering was aligned to a formula that counts the flakes and lotion layers up to the exit transmission (1 − ρ) and the back-and-forth 1/(1 − ρR) (2026-11-11. Before, only the entry (1 − ρ) was counted, and the brightness added by the white layer was estimated 2 to 4 times too large). The added brightness agrees with that of the path with subsurface scattering (output of 11c and 13c of `--scene relief`).
 
-## 6. 次の段階
+## 6. Next stage
 
-| 段階 | 内容 |
+| Stage | Content |
 |---|---|
-| C | 刺激を測る: 厚さ × 仕上がり（c_d、α_p）の掃引で、正面から照らしたパッチの上で、隠す力（色むらの見え方）、肌の内側から返る光の減り方、ハイライトを数値にする。何を指標にするかは、肌の質感の研究で使われる量に合わせて決める |
+| C | Measure the stimuli: with a sweep of thickness × finish (c_d, α_p), on a patch lit from the front, turn the hiding power (how visible the colour unevenness is), the reduction of light returning from inside the skin, and the highlight into numbers. What to use as indicators will be chosen to match the quantities used in research on skin material appearance |
 
-**言葉の注意（2026-11-10）:** 肌の「透明感」は、正面から見た肌の感性的な質で、光が実際に透けること（透け感）ではありません。以前の版は、段階 C に「透ける光（逆光の円錐）」を入れ、研究の問いの候補を「隠す力と透明感の両立」と書いていました。逆光で肌を透かす条件は、人の肌では測れず、肌の質感の実験でも使われないので、外しました。層の計算から言えるのは、「層が厚いほど色むらは隠れ、肌の内側から返る光も減る」ことまでです（論文も「ツヤもマットも、肌の表面下散乱の効果を少し減らす」と書くが、数値はない）。
+**Note on wording (2026-11-10):** the "toumeikan" of skin (a clear, fresh look of skin; a kansei quality, not physical transparency) is a kansei quality of skin seen from the front, not that light really passes through (the see-through look, "sukekan"). An earlier version put "light that passes through (a cone of backlight)" in stage C and wrote "compatibility of hiding power and toumeikan" as a candidate research question. A backlit condition that makes skin see-through cannot be measured on human skin and is not used in experiments on skin material appearance, so it was removed. What the layer calculation can say is limited to this: the thicker the layer, the more the colour unevenness is hidden, and the less light returns from inside the skin (the paper also writes "both shiny and matte reduce the effect of subsurface scattering of the skin a little", but gives no numbers).
 
-## 7. 参考文献
+## 7. References
 
-- D. Lanza ほか, "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024.（本文を読んだ）
-- Y. Guo, M. Hašan, S. Zhao, "Position-free Monte Carlo simulation for arbitrary layered BSDFs", *ACM Trans. Graph.* 37(6), 2018.（上の論文からの孫引き。未読）
-- E. Heitz, J. Dupuy, C. Crassin, C. Dachsbacher, "The SGGX microflake distribution", *ACM Trans. Graph.* 34(4), 2015.（板の法線の分布と、その標本抽出。記憶から実装し、数値積分で確かめた）
-- K. Yoshida, N. Okiyama, "Estimation of reflectance, transmittance, and absorbance of cosmetic foundation layer on skin using translucency of skin", *Optics Express* 29(24), 40038–40050, 2021, doi:10.1364/OE.442219.（全文を読んだ: 層の r_F、t_F、a_F を肌の上で測る。式 R = r_F + t_F² r_S/(1 − r_F r_S)）
-- M. Doi, R. Ohtsuki, S. Tominaga, "Spectral Estimation of Skin Color with Foundation Makeup", *SCIA 2005*, LNCS 3540, 95–104.（全文を読んだ: Kubelka-Munk の 2 層、K・S は厚い層と薄い層を黒い背景の上で測る）
-- C.-G. Huang, T.-S. Huang, W.-C. Lin, J.-H. Chuang, "Physically based cosmetic rendering", *Computer Animation and Virtual Worlds* 24(3–4), 275–283, 2013, doi:10.1002/cav.1523.（全文を読んだ）
-- F. Ikkai, C. Blaksley, R. Hayashi, A. Jaspers, "Cosmetic effects of red-light reflection by ultramarine blue pigment", *Int. J. Cosmet. Sci.*, 2023, doi:10.1111/ics.12849.（全文を読んだ: 固有色の測り方、黒と白の人工皮膚、隠す力の定義）
-- P. Kubelka, "New Contributions to the Optics of Intensely Light-Scattering Materials. Part II: Nonhomogeneous Layers", *J. Opt. Soc. Am.* 44(4), 330–335, 1954.（上の論文からの孫引き。未読）
+- D. Lanza et al., "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024. (Text read.)
+- Y. Guo, M. Hašan, S. Zhao, "Position-free Monte Carlo simulation for arbitrary layered BSDFs", *ACM Trans. Graph.* 37(6), 2018. (Cited second-hand from the paper above. Not read.)
+- E. Heitz, J. Dupuy, C. Crassin, C. Dachsbacher, "The SGGX microflake distribution", *ACM Trans. Graph.* 34(4), 2015. (Distribution of platelet normals and its sampling. Implemented from memory and checked by numerical integration.)
+- K. Yoshida, N. Okiyama, "Estimation of reflectance, transmittance, and absorbance of cosmetic foundation layer on skin using translucency of skin", *Optics Express* 29(24), 40038–40050, 2021, doi:10.1364/OE.442219. (Full text read: measures r_F, t_F, a_F of a layer on skin. Formula R = r_F + t_F² r_S/(1 − r_F r_S).)
+- M. Doi, R. Ohtsuki, S. Tominaga, "Spectral Estimation of Skin Color with Foundation Makeup", *SCIA 2005*, LNCS 3540, 95–104. (Full text read: Kubelka-Munk two layers; K and S measured from a thick and a thin layer on a black background.)
+- C.-G. Huang, T.-S. Huang, W.-C. Lin, J.-H. Chuang, "Physically based cosmetic rendering", *Computer Animation and Virtual Worlds* 24(3–4), 275–283, 2013, doi:10.1002/cav.1523. (Full text read.)
+- F. Ikkai, C. Blaksley, R. Hayashi, A. Jaspers, "Cosmetic effects of red-light reflection by ultramarine blue pigment", *Int. J. Cosmet. Sci.*, 2023, doi:10.1111/ics.12849. (Full text read: how to measure the intrinsic colour, artificial skins on black and white, definition of hiding power.)
+- P. Kubelka, "New Contributions to the Optics of Intensely Light-Scattering Materials. Part II: Nonhomogeneous Layers", *J. Opt. Soc. Am.* 44(4), 330–335, 1954. (Cited second-hand from the paper above. Not read.)

@@ -1,88 +1,88 @@
-# 光沢: 層構造のコート（漆を塗った金、車の塗装）
+# Gloss: layered coats (lacquered gold, car paint)
 
-下地の上に透明なコートがある材質を、**層の間を光が行き来する計算**で表した。結論: コートの粗さと下地の明るさを変えるだけで、光沢の「鮮明さ」と「コントラスト」が独立に動く。金の上のコートは、色も変える（琥珀色の漆）。
+A material with a transparent coat over a base is computed as **light bouncing back and forth between the layers**. Result: changing only the roughness of the coat and the brightness of the base moves the "sharpness" and the "contrast" of the gloss independently. A coat over gold also changes its color (amber lacquer).
 
-## 1. 何を足したか
+## 1. What was added
 
-| 物 | 場所 |
+| Item | Where |
 |---|---|
-| 層構造の材質 `LayeredCoat`（コートは粗い誘電体、下地は拡散または金属。確率的な追跡で、層の往復を足し合わせる） | `include/Materials/LayeredCoat.hpp`、`src/Materials/LayeredCoat.cpp` |
-| 下地の金属を、コートの中の屈折率で扱う（`RoughConductor` の `mediumIor`） | `include/Materials/RoughConductor.hpp` |
-| シーンファイルの `"type": "layered"` | `docs/SCENE_FILE.md` |
-| 自己チェック `--scene layered` | `src/Cli/Checks/LayeredChecks.cpp` |
-| 作例 | `scenes/layered_gloss.json`（粗さ × 下地の明るさの格子）、`scenes/layered_lacquer.json`（漆を塗った金） |
+| Layered material `LayeredCoat` (the coat is a rough dielectric, the base is diffuse or metal; a stochastic trace sums the bounces between the layers) | `include/Materials/LayeredCoat.hpp`, `src/Materials/LayeredCoat.cpp` |
+| The base metal is evaluated with the index of refraction inside the coat (`mediumIor` of `RoughConductor`) | `include/Materials/RoughConductor.hpp` |
+| `"type": "layered"` in the scene file | `docs/SCENE_FILE.md` |
+| Self-check `--scene layered` | `src/Cli/Checks/LayeredChecks.cpp` |
+| Example scenes | `scenes/layered_gloss.json` (grid of roughness x base brightness), `scenes/layered_lacquer.json` (lacquered gold) |
 
-## 2. 仕組み
+## 2. How it works
 
-- **層の往復。** 光は、コートの表面で一部が反射し、残りが中へ入る。下地で散乱して戻ると、コートの裏側でまた一部が反射して下へ戻る。これが無限に続く。閉じた式は、コートが滑らかで下地が拡散のような特別な場合にしかない。
-- **確率的な追跡。** 層の間の往復を、乱数で何回か追って平均する（Jakob ら 2014、pbrt-v4 の `LayeredBxDF` と同じ方式）。任意の粗さと下地に対応し、評価値には少しノイズが乗る（偏りはない）。
-- **コートの表面。** 粗い誘電体（GGX の微小面。Walter ら 2007 の屈折つき）。粗さには下限（0.02）があり、完全な鏡のコートは表さない（デルタ分布が要るため）。
-- **下地の金属。** コートの中は屈折率 n（既定 1.5）の媒質なので、金属のフレネル反射は、相対屈折率 (η + i k) / n で計算する。
-- **色つきのコート。** `tint` は、法線方向にコートを通ったときの透過率（RGB）。斜めの経路ほど長く通るので、より濃く効く（Beer-Lambert）。琥珀色の漆や色つきのニスを表す。
-- **向きのサンプリング。** 追跡が層を抜けた向きが、そのまま標本になる。重みは追跡の通過率で、厳密。積分器が使う確率密度は、決定的な近似（コート自身の反射ローブと余弦ローブの混合）で、光源のサンプリングとの重みづけだけに使う（近似でも偏りは出ない）。
+- **Bounces between the layers.** Part of the light is reflected at the surface of the coat and the rest enters. After scattering at the base it returns, and part of it is reflected again at the underside of the coat and goes back down. This continues indefinitely. A closed form exists only in special cases, such as a smooth coat over a diffuse base.
+- **Stochastic trace.** The bounces between the layers are followed a few times with random numbers and averaged (Jakob et al. 2014; the same approach as `LayeredBxDF` in pbrt-v4). It handles any roughness and any base; the evaluated value carries some noise (no bias).
+- **Surface of the coat.** A rough dielectric (GGX microfacets, with refraction after Walter et al. 2007). The roughness has a lower bound (0.02), so a perfectly mirror-like coat is not represented (it would need a delta distribution).
+- **Base metal.** The inside of the coat is a medium of index n (default 1.5), so the Fresnel reflection of the metal is computed with the relative index (η + i k) / n.
+- **Colored coat.** `tint` is the transmittance (RGB) of the coat for a path along the normal. Oblique paths are longer and therefore attenuated more (Beer-Lambert). It represents amber lacquer or colored varnish.
+- **Direction sampling.** The direction in which the trace leaves the layers is used directly as the sample. Its weight is the throughput of the trace, which is exact. The probability density that the integrator uses is a deterministic approximation (a mixture of the coat's own reflection lobe and a cosine lobe); it is used only for the weighting against light sampling (an approximate density does not introduce bias).
 
-## 3. 確かめたこと（`--scene layered`、RGB・スペクトルとも PASS）
+## 3. What was verified (`--scene layered`, PASS in both RGB and spectral builds)
 
-- **閉じた式との一致。** ほぼ滑らかなコート（粗さ 0.04）の下に、拡散の下地（反射率 0.8）がある場合の方向アルベド = F + (1 − F) R (1 − Fᵢ) / (1 − R Fᵢ)。入射 0°、40°、70° で、差は 0.1% 以内。
-- **`eval()` と `sample()` が同じ値。** 2 つは独立な推定量（直接光つきの追跡と、順方向の追跡）。粗さ 0.1〜0.4、拡散と金の下地、色つきのコートの 5 通り × 入射 2 角度で一致（粗さ 0.4 で 0.2030 と 0.2029）。
-- **エネルギー。** 反射率 1 の拡散の下地でも、方向アルベドは 1 を超えない（最大 0.936。粗いコートの微小面モデルの損失）。
-- **相反性。** f(a, b) と f(b, a) の平均が一致。
+- **Agreement with the closed form.** For a nearly smooth coat (roughness 0.04) over a diffuse base (reflectance 0.8), the directional albedo is F + (1 − F) R (1 − Fᵢ) / (1 − R Fᵢ). At incidence 0°, 40° and 70° the difference is within 0.1%.
+- **`eval()` and `sample()` give the same value.** The two are independent estimators (a trace with direct lighting, and a forward trace). They agree for 5 cases x 2 incidence angles: roughness 0.1 to 0.4, diffuse and gold bases, tinted coats (at roughness 0.4: 0.2030 and 0.2029).
+- **Energy.** Even over a diffuse base of reflectance 1, the directional albedo does not exceed 1 (maximum 0.936; the loss of the microfacet model for a rough coat).
+- **Reciprocity.** The means of f(a, b) and f(b, a) agree.
 
-**途中で見つけた誤り:** 直接光の重みづけで、相手の戦略の確率密度を、向きを取り違えて使っていた（pbrt の式を写したときの取り違え）。粗いコートで、`eval()` が 4〜6% 高く出て、`sample()` との比較で見つかった。コートを外側から標本抽出したときの、中への向きの密度に直して、一致した。
+**An error found on the way:** in the weighting of direct light, the probability density of the other strategy was used with the direction taken the wrong way round (a slip when copying the pbrt formula). For a rough coat `eval()` came out 4 to 6% too high, which was found by comparing with `sample()`. After changing it to the density of the inward direction obtained when the coat is sampled from outside, the two agree.
 
-## 4. 作例
+## 4. Examples
 
-**光沢の格子**（`scenes/layered_gloss.json`。赤い拡散の下地、コートの屈折率 1.5、1280×720、192 spp、デノイズあり。約 3 分）:
+**Gloss grid** (`scenes/layered_gloss.json`. Red diffuse base, coat index 1.5, 1280x720, 192 spp, denoised. About 3 minutes):
 
-![粗さ × 下地の明るさの格子](img/gloss_grid.png)
+![Grid of roughness x base brightness](img/gloss_grid.png)
 
-- 行（奥から手前）: コートの粗さ 0.03、0.12、0.3、0.55。粗いほど、映り込みがぼやけ、ハイライトが広がって、光沢が「鮮明さ」を失う。
-- 列（左から右）: 下地の明るさ 0.02、0.12、0.40、0.80。下地が暗いほど、同じ強さの反射が目立ち、光沢が「コントラスト」を増す。
-- この 2 つの軸は、独立に動く。知覚の研究（Pellacini ら 2000）で、光沢を 2 つのパラメータで整理するときの軸に対応する。
+- Rows (back to front): coat roughness 0.03, 0.12, 0.3, 0.55. The rougher the coat, the more blurred the reflections and the wider the highlights, so the gloss loses "sharpness".
+- Columns (left to right): base brightness 0.02, 0.12, 0.40, 0.80. The darker the base, the more a reflection of the same strength stands out, so the gloss gains "contrast".
+- These two axes move independently. They correspond to the axes used when gloss is organized with two parameters in perception research (Pellacini et al. 2000).
 
-**漆を塗った金**（`scenes/layered_lacquer.json`。同じ設定。約 2.5 分）:
+**Lacquered gold** (`scenes/layered_lacquer.json`. Same settings. About 2.5 minutes):
 
-![左から: 金（粗さ 0.2）、透明なコート 0.04、つや消しのコート 0.3、琥珀色のコート 0.04](img/gloss_lacquered_gold.png)
+![From the left: gold (roughness 0.2), clear coat 0.04, satin coat 0.3, amber coat 0.04](img/gloss_lacquered_gold.png)
 
-- 透明なコートを足すと、金の粗い反射の上に、鮮明な映り込みが重なる。つや消しのコート（0.3）では、その映り込みがぼやける。
-- 琥珀色のコート（`tint` [1.0, 0.72, 0.30]）は、金の色を、コートを 2 回通った色（往復）に染める。青が強く減るので、銅のような濃い橙になる。
+- Adding a clear coat puts a sharp reflection on top of the rough reflection of the gold. With the satin coat (0.3) that reflection is blurred.
+- The amber coat (`tint` [1.0, 0.72, 0.30]) dyes the gold with the color of a double pass through the coat (there and back). Blue is strongly reduced, giving a deep orange like copper.
 
-なお、描画はデノイズ後の画像（OIDN）。デノイズ前は、確率的な評価のため、粒状のノイズが乗る。
+The renders are the images after denoising (OIDN). Before denoising, the stochastic evaluation leaves grainy noise.
 
-## 5. 異方性（ヘアラインの金属、旋盤で削った金属）
+## 5. Anisotropy (hairline metal, lathe-turned metal)
 
-金属を一方向に研磨すると、表面に同じ向きの細かい溝ができる。溝に沿った傾きは小さく、溝に垂直な傾きは大きい。このため、ハイライトは、**溝に垂直な向きに帯状に伸びる**。粗さが方向で違う（x と y で別の α）ので、異方性と呼ぶ。
+When a metal is polished in one direction, fine grooves in that direction form on the surface. The slope along the grooves is small and the slope across them is large. The highlight therefore **stretches in a band perpendicular to the grooves**. Because the roughness differs with direction (separate α for x and y), it is called anisotropic.
 
-**何を足したか**
+**What was added**
 
-- **接線の供給。** 異方性の x 軸の向きを、形から決める。球は緯線の向き、四角形は第 1 辺の向き、メッシュはテクスチャ座標 u が増える向き（座標がなければ第 1 辺）。旋盤で削った面（`lathe`）には、u が軸の周りに回る座標を足した。
-- **材質の座標系。** `RoughConductor` が、接線から座標系を作り、法線の周りに `rotation`（度）だけ回す。`LayeredCoat` の下地にも、同じ接線が渡る。
-- **向きの約束。** `anisotropy > 0` は、接線の向きに粗い（ハイライトが接線に沿って伸びる）。`anisotropy < 0` は、接線の向きに滑らか、つまり**接線に沿った溝**（ヘアライン仕上げ）。
-- **シーンファイル。** 金属（`conductor`）と、`layered` の `base` に、`anisotropy`（−1〜1）と `rotation`（度）。
+- **Supplying the tangent.** The direction of the anisotropy x axis is decided by the shape: for a sphere, the direction of the lines of latitude; for a quad, the direction of the first edge; for a mesh, the direction in which the texture coordinate u increases (the first edge if there are no coordinates). For lathe-turned surfaces (`lathe`) a coordinate was added in which u runs around the axis.
+- **Material frame.** `RoughConductor` builds a frame from the tangent and rotates it about the normal by `rotation` (degrees). The same tangent is passed to the base of a `LayeredCoat`.
+- **Convention for the direction.** `anisotropy > 0` is rough along the tangent (the highlight stretches along the tangent). `anisotropy < 0` is smooth along the tangent, that is, **grooves along the tangent** (hairline finish).
+- **Scene file.** `anisotropy` (−1 to 1) and `rotation` (degrees) for a metal (`conductor`) and for the `base` of `layered`.
 
-**確かめたこと**（`--scene aniso`、RGB・スペクトルとも PASS）
+**What was verified** (`--scene aniso`, PASS in both RGB and spectral builds)
 
-- 形が出す接線の向き（球、四角形、メッシュ。テクスチャ座標の有無）。
-- 異方性 GGX の可視法線の密度が、表を向いた法線について 1 に積分される（誤差 0.004% 以内）。
-- 粗い異方性の金の方向アルベドが、`sample()` と `eval()` で一致する。
-- 軸を ρ だけ回した結果が、方位角を −ρ だけずらした回さない結果と一致する（3 通り、0.1% 以内）。
-- 異方性の金の上に漆を塗った場合も、`sample()` と `eval()` が一致する。
+- The tangent direction that the shapes produce (sphere, quad, mesh; with and without texture coordinates).
+- The density of the visible normals of the anisotropic GGX integrates to 1 over the normals facing outward (error within 0.004%).
+- The directional albedo of rough anisotropic gold agrees between `sample()` and `eval()`.
+- Rotating the axes by ρ gives the same result as shifting the azimuth by −ρ without rotating (3 cases, within 0.1%).
+- Lacquer over anisotropic gold also agrees between `sample()` and `eval()`.
 
-最初の検査で、可視法線の密度の積分が 1 を超えたのは、裏向きの法線まで積分に入れていた検査の誤りだった（実際の反射の半ベクトルは、必ず表向き）。
+In the first run, the integral of the visible-normal density exceeded 1; that was an error in the check, which also integrated normals facing away (the half vector of an actual reflection always faces outward).
 
-**作例**
+**Examples**
 
-**球**（`scenes/aniso_spheres.json`。金、粗さ 0.3、1280×720、192 spp、デノイズあり。約 1 分）: 左から、等方、接線に沿ったヘアライン（`anisotropy` −0.9）、溝を 45° 回した物、90° 回した物。球の接線は緯線の向きなので、溝は軸の周りを回り、ハイライトは、縦に伸びる（2 つ目）、斜めに伸びる（3 つ目）、横に伸びる（4 つ目）。
+**Spheres** (`scenes/aniso_spheres.json`. Gold, roughness 0.3, 1280x720, 192 spp, denoised. About 1 minute): from the left, isotropic, hairline along the tangent (`anisotropy` −0.9), grooves rotated by 45°, grooves rotated by 90°. The tangent of a sphere follows the lines of latitude, so the grooves run around the axis, and the highlight stretches vertically (second), diagonally (third) and horizontally (fourth).
 
-![左から: 等方、ヘアライン、45° 回転、90° 回転](img/aniso_spheres.png)
+![From the left: isotropic, hairline, rotated 45°, rotated 90°](img/aniso_spheres.png)
 
-**旋盤で削った金の鉢**（`scenes/aniso_bowl.json`。同じ設定。約 3.5 分）: 溝が軸の周りの円になり、ハイライトは、溝に垂直に、鉢の内側へ放射状（扇形）に伸びる。
+**Lathe-turned gold bowl** (`scenes/aniso_bowl.json`. Same settings. About 3.5 minutes): the grooves become circles around the axis, and the highlight stretches perpendicular to them, radially (fan-shaped) toward the inside of the bowl.
 
-![旋盤で削った金の鉢](img/aniso_bowl.png)
+![Lathe-turned gold bowl](img/aniso_bowl.png)
 
-## 参考文献
+## References
 
-- Jakob, d'Eon, Jakob, Marschner, "A Comprehensive Framework for Rendering Layered Materials", ACM TOG 33(4), Article 118, 2014（SIGGRAPH）。
-- Pharr, Jakob, Humphreys, *Physically Based Rendering*, 4th ed.（`LayeredBxDF`）。
-- Walter, Marschner, Li, Torrance, "Microfacet Models for Refraction through Rough Surfaces", EGSR 2007。
-- Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018。
+- Jakob, d'Eon, Jakob, Marschner, "A Comprehensive Framework for Rendering Layered Materials", ACM TOG 33(4), Article 118, 2014 (SIGGRAPH).
+- Pharr, Jakob, Humphreys, *Physically Based Rendering*, 4th ed. (`LayeredBxDF`).
+- Walter, Marschner, Li, Torrance, "Microfacet Models for Refraction through Rough Surfaces", EGSR 2007.
+- Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018.

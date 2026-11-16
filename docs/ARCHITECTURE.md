@@ -1,67 +1,68 @@
-# コードの構成（2026-11-16）
+# Code structure (2026-11-16)
 
-どこに何があるかの地図。機能ごとの理論と結果は、各 `docs/*.md`。全体で約 3.7 万行（エンジン約 2.4 万、CLI 約 6 千、自己検査約 6 千）。
+A map of what is where. The theory and results of each feature are in the respective `docs/*.md`. The whole is about 37 thousand lines (engine about 24 thousand, CLI about 6 thousand, self-checks about 6 thousand).
 
-## 1. 二層構造と、1 枚描くときの流れ
+## 1. Two layers, and the flow of drawing one image
 
-**エンジン**（`GoLD_rayt/include/` のヘッダが中心。本体が大きい物は `src/` の同じ名前の .cpp: `Materials/`（CoatedDiffuse、Dielectric、LayeredCoat、RoughConductor、ThinFilm、Hair、WrinkleField）、`Render/`（Integrator、Film、CausticPhotonMap）、`Geometry/`（ProceduralMesh、GaussianSplats）、`IO/`（PmxLoader、PlyLoader、ImageIO）、`Accelerators/`（BVH））と、その上に乗る**アプリ**（`include/Cli` と `src/Cli`。コマンドライン `main_cli.cpp`）の二層。GUI（`Application`、`UI`、`main_ui.cpp`）は別の薄い層で、同じエンジンを呼ぶ。**GUI は凍結中**（CLI が本線。GPU 実装ができたらリアルタイム性が生きる。将来は「描くものを決める操作画面」に転用の可能性があるので、`Cli/SceneDescription`（エンジンに依存しないデータ）はその土台として保つ）。
+The **engine** (mainly the headers in `GoLD_rayt/include/`; where the body is large, a .cpp of the same name in `src/`: `Materials/` (CoatedDiffuse, Dielectric, LayeredCoat, RoughConductor, ThinFilm, Hair, WrinkleField), `Render/` (Integrator, Film, CausticPhotonMap), `Geometry/` (ProceduralMesh, GaussianSplats), `IO/` (PmxLoader, PlyLoader, StlLoader, ImageIO), `Accelerators/` (BVH)) and the **application** on top of it (`include/Cli` and `src/Cli`; the command line `main_cli.cpp`) form two layers. The GUI (`Application`, `UI`, `main_ui.cpp`) is a separate thin layer that calls the same engine. **The GUI is frozen** (the CLI is the main line; real-time use will pay off once a GPU implementation exists. It may later be repurposed as a "control panel for deciding what to draw", so `Cli/SceneDescription` (data independent of the engine) is kept as its foundation).
 
-**新しい .cpp は `GoLD_rayt.vcxproj`（と `.filters`）に登録しないとリンクされない。** 先頭は `#include "pch.h"`。
+**A new .cpp must be registered in `GoLD_rayt.vcxproj` (and `.filters`), or it is not linked.** It begins with `#include "pch.h"`.
 
-1 枚描くときの流れ:
+The flow of drawing one image:
 
-1. `main_cli` → `Cli/Options`（引数の解釈）
-2. `Cli/Scenes/SceneRegistry`（`--scene` 名から組み立て関数を選ぶ。JSON のシーンは `Scenes/FileScene`）
-3. `Cli/RenderPipeline`（共通の手順: 標準材質、環境、シーン全体の BVH、光源の登録、カメラ、積分器の選択、描画、保存）
-4. `Render/Integrator`（経路追跡の本体 `PathIntegrator::Li`）
-5. `Render/Film`（画素の蓄積、色域、PNG / PFM）→ `Render/Denoiser`
+1. `main_cli` → `Cli/Options` (parsing the arguments)
+2. `Cli/Scenes/SceneRegistry` (chooses the builder function from the `--scene` name; JSON scenes go through `Scenes/FileScene`)
+3. `Cli/RenderPipeline` (the common procedure: standard materials, environment, the scene-wide BVH, registering the lights, camera, choosing the integrator, drawing, saving)
+4. `Render/Integrator` (the core of path tracing, `PathIntegrator::Li`)
+5. `Render/Film` (accumulating pixels, gamut, PNG / PFM) → `Render/Denoiser`
 
-## 2. ディレクトリごとの役割
+## 2. Role of each directory
 
-| ディレクトリ | 中身 |
+| Directory | Contents |
 |---|---|
-| `Core` | 型、乱数と標本抽出、AABB、`Ray`、`SurfaceInteraction`（当たった点の情報。肌の機能が足した欄も多い）、`Spectrum`（RGB か波長標本かをマクロ `RAYT_SPECTRAL_MODE` で切り替える。2 種類のビルドがあるのはこのため）、テクスチャ（`SpectralTexture` は分光の反射率画像）、偏光（`Polarization`: Stokes ベクトル、Mueller 行列、Fresnel の振幅） |
-| `Color` | 分光と RGB の変換、等色関数、色域（sRGB / P3 / Rec.2020）、CAT16 のホワイトバランス、照明のスペクトル、金属の複素屈折率の表、Sellmeier の分散 |
-| `Materials` | `Material` が BSDF の共通インターフェイス（eval / sample / pdf に加え、発光、不透明度、媒質の境界、表面下散乱、法線の摂動などのフック）。実装: 拡散、粗い導体、誘電体、薄膜、コート層、髪、肌（`CoatedDiffuse` が肌の本体で、`SkinRelief`・`WrinkleField`・`SkinPigment`・`SkinFilm`・`SkinLotion`・`SkinScatter`・`CosmeticLayer`・`KubelkaMunkLayer` を束ねる）、表面下散乱（`Subsurface` の Burley 型と `SubsurfaceWalk` の体積歩行）、媒質（`Medium`、`DensityField`、`TabulatedPhase`）、褪色（`FadingReflectance`、`FadingDye`）、実測の BRDF（`MeasuredHpBRDF`: PCA で圧縮した hpBRDF の表） |
-| `Microfacet` | GGX と、その方向アルベド（多重散乱の補償） |
-| `Lights` | 面光源、点光源、環境光、光源の選び方（`LightSampler`: 一様、放射パワー、空間的な重要度） |
-| `Geometry` | 球、四角形、三角形メッシュ、髪の曲線と生成、回転体と海のメッシュ、ガウシアンの粒子（3DGS） |
-| `Scene` | `Hittable`（交差の共通インターフェイス）、`Primitive`（形と材質と光源を束ねる）、`Aggregate`（リスト）、`Scene`（全体: BVH、光源、環境、粒子） |
-| `Accelerators` | BVH（自前の SAH）と Embree |
-| `Render` | 経路追跡（`Integrator.cpp`。媒質、粒子、コースティクスのフックもここ）、影の光線の透過率、表面下散乱の出口探索、コースティクスの光子マップ、多様体 NEE、LVC-BPT の試作、カメラ、フィルム、デノイザー |
-| `IO` | OBJ、PLY、STL、PMX（モデル、モーフ、ポーズ）、環境マップ、CSV のスペクトル、褪色の測定系列 |
+| `Core` | Types, random numbers and sampling, AABB, `Ray`, `SurfaceInteraction` (information about the hit point; many fields were added by the skin features), `Spectrum` (switches between RGB and wavelength samples with the macro `RAYT_SPECTRAL_MODE`; this is why there are two kinds of build), textures (`SpectralTexture` is a spectral reflectance image), polarization (`Polarization`: Stokes vectors, Mueller matrices, Fresnel amplitudes) |
+| `Color` | Conversion between spectrum and RGB, color matching functions, gamuts (sRGB / P3 / Rec.2020), CAT16 white balance, illumination spectra, tables of the complex refractive index of metals, Sellmeier dispersion |
+| `Materials` | `Material` is the common BSDF interface (eval / sample / pdf, plus hooks for emission, opacity, medium boundaries, subsurface scattering, normal perturbation and so on). Implementations: diffuse, rough conductor, dielectric, thin film, coat layer, hair, skin (`CoatedDiffuse` is the skin itself and combines `SkinRelief`, `WrinkleField`, `SkinPigment`, `SkinFilm`, `SkinScatter`, `CosmeticLayer` and `KubelkaMunkLayer`; `SkinLotion` gives the time course of a lotion with which the film and the scatter are built; `LayeredSkin` is the Monte Carlo radial profile of a layered skin), subsurface scattering (the Burley type of `Subsurface` and the volumetric walk of `SubsurfaceWalk`), media (`Medium`, `DensityField`, `TabulatedPhase`), fading (`FadingReflectance`, `FadingDye`), measured BRDF (`MeasuredHpBRDF`: a table of hpBRDF compressed by PCA) |
+| `Microfacet` | GGX and its directional albedo (multiple-scattering compensation) |
+| `Lights` | Area light, point light, environment light, how lights are chosen (`LightSampler`: uniform, emitted power, spatial importance) |
+| `Geometry` | Sphere, quad, triangle mesh, hair curves and the generator, meshes of revolution and of the ocean, Gaussian particles (3DGS) |
+| `Scene` | `Hittable` (the common intersection interface), `Primitive` (bundles a shape, a material and a light), `Aggregate` (a list), `MovingObject` (motion blur), `Scene` (the whole: BVH, lights, environment, particles) |
+| `Accelerators` | BVH (own SAH) and Embree |
+| `Render` | Path tracing (`Integrator.cpp`; the hooks for media, particles and caustics are also here), transmittance of shadow rays, exit search for subsurface scattering, caustic photon map, manifold NEE, a prototype of LVC-BPT, camera, film, denoiser |
+| `IO` | OBJ, PLY, STL, PMX (model, morphs, pose), environment maps, CSV spectra, measured series of fading |
 
-## 3. CLI 側
+## 3. The CLI side
 
-| 場所 | 中身 |
+| Where | Contents |
 |---|---|
-| `Cli/Options` | 引数の既定値、構造体、解釈 |
-| `Cli/Commands` | 描かないコマンド（検査、測定、モデルの一覧） |
-| `Cli/Scenes/` | 組み込みシーンの組み立て: 金属、ガラスと媒質、スタジオ、水、PMX、粒子。`SceneRegistry` が表 |
-| `Cli/SceneFile.cpp`、`SceneFileMaterials.cpp`、`SceneDescription.hpp`、`Scenes/FileScene.cpp` | JSON シーン。読む → 素の構造体 → エンジンの物を作る、の三段 |
-| `Cli/RenderPipeline` | 共通の描画手順 |
-| `Cli/Checks/` | 話題ごとの自己検査（`--scene furnace \| lights \| aov \| sss \| volume \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| ...`） |
-| `Cli/Tools/` | 測定と診断（`--scene skinlayers`、`sssrw`、`bench`、`--trace`） |
+| `Cli/Options` | Default values of the arguments, structures, parsing |
+| `Cli/Commands` | Commands that do not draw (checks, measurements, listing models) |
+| `Cli/Scenes/` | Building the built-in scenes: metal, glass and media, studio, water, PMX, particles. `SceneRegistry` is the table |
+| `Cli/SceneParts` | Building blocks shared by the demo scenes and the self-checks (meshes as hittables, lights, assets) |
+| `Cli/SceneFile.cpp`, `SceneFileMaterials.cpp`, `SceneFileReaders.hpp`, `SceneDescription.hpp`, `Scenes/FileScene.cpp` | JSON scenes. Three stages: read → plain structures → build the engine objects |
+| `Cli/RenderPipeline` | The common drawing procedure |
+| `Cli/Checks/` | Self-checks by topic (`--scene furnace \| lights \| aov \| sss \| volume \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| ...`) |
+| `Cli/Tools/` | Measurement and diagnostics (`--scene skinlayers`, `sssrw`, `bench`, `--trace`) |
 
-## 4. 機能と場所の対応
+## 4. Features and where they are
 
-| 機能 | 場所 | 文書 |
+| Feature | Where | Document |
 |---|---|---|
-| 分光レンダリング、色域、ホワイトバランス | `Core/Spectrum`、`Color/*` | `METAL_ACCURACY.md`、`SPECTRUM_FROM_RGB.md` |
-| 金属の精度、測定反射率からの n, k、実測の BRDF | `Materials/RoughConductor`、`MeasuredHpBRDF`、`Color/ComplexIorTable`、`ConductorFromReflectance` | `METAL_ACCURACY.md`、`MEASURED_GOLD.md` |
-| 薄膜、分散、コート | `Materials/ThinFilm`、`Color/Sellmeier`、`Materials/LayeredCoat` | `THIN_FILM.md`、`GLOSS.md` |
-| 表面下散乱 | `Materials/Subsurface*`、`Render/SubsurfaceProbe` | `SSS.md` |
-| 肌（凹凸、色素、保湿、化粧） | `Materials/CoatedDiffuse` + `Skin*`、`WrinkleField`、`CosmeticLayer` | `SKIN.md`、`SKIN_MOISTURE.md`、`COSMETICS.md`、`WETNESS.md` |
-| 髪 | `Materials/Hair`、`Geometry/HairCurves`、`HairGenerator` | `HAIR.md` |
-| 水、海、雲と霧 | `Geometry/ProceduralMesh`、`Materials/Medium`、`DensityField`、`TabulatedPhase` | `WATER.md`、`CLOUD.md` |
-| コースティクス、多様体 NEE、LVC-BPT | `Render/CausticPhotonMap`、`SpecularNee`、`VolumeBPT` | `LVC_BPT.md` |
-| 撮った物の取り込み、3DGS | `IO/PlyLoader`、`Geometry/GaussianSplats`、`Cli/Scenes/FileScene` | `CAPTURE.md` |
-| 偏光（Stokes、`--stokes`、`--polarizer`） | `Core/Polarization`、`Render/Integrator` | `POLARIZATION.md` |
-| MMD | `IO/Pmx*`、`Cli/PmxSupport`、`Scenes/PmxScene` | — |
-| シーンファイル | `Cli/SceneFile*`、`SceneDescription` | `SCENE_FILE.md` |
+| Spectral rendering, gamut, white balance | `Core/Spectrum`, `Color/*` | `METAL_ACCURACY.md`, `SPECTRUM_FROM_RGB.md` |
+| Metal accuracy, n and k from measured reflectance, measured BRDF | `Materials/RoughConductor`, `MeasuredHpBRDF`, `Color/ComplexIorTable`, `ConductorFromReflectance` | `METAL_ACCURACY.md`, `MEASURED_GOLD.md` |
+| Thin film, dispersion, coat | `Materials/ThinFilm`, `Color/Sellmeier`, `Materials/LayeredCoat` | `THIN_FILM.md`, `GLOSS.md` |
+| Subsurface scattering | `Materials/Subsurface*`, `Render/SubsurfaceProbe` | `SSS.md` |
+| Skin (relief, pigment, moisture, makeup) | `Materials/CoatedDiffuse` + `Skin*`, `WrinkleField`, `CosmeticLayer` | `SKIN.md`, `SKIN_MOISTURE.md`, `COSMETICS.md`, `WETNESS.md` |
+| Hair | `Materials/Hair`, `Geometry/HairCurves`, `HairGenerator` | `HAIR.md` |
+| Water, ocean, cloud and fog | `Geometry/ProceduralMesh`, `Materials/Medium`, `DensityField`, `TabulatedPhase` | `WATER.md`, `CLOUD.md` |
+| Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
+| Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
+| Polarization (Stokes, `--stokes`, `--polarizer`) | `Core/Polarization`, `Render/Integrator` | `POLARIZATION.md` |
+| MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |
+| Scene file | `Cli/SceneFile*`, `SceneDescription` | `SCENE_FILE.md` |
 
-## 5. 整理の記録
+## 5. Records of tidy-ups
 
-**済み（2026-11-13、分割）:** 本体が長く、よく直し、インターフェイスが安定している物を .hpp と .cpp に分けた: `WrinkleField`（構築は .cpp、レイごとの参照だけヘッダ）、`Hair`（ローブの数式 `hairmath` はヘッダ、材質は .cpp）、`CausticPhotonMap`、`PmxLoader`、`PlyLoader`、`GaussianSplats`。分けなかった物: `VolumeBPT`・`SpecularNee`（試作で、触らない）、`CosmeticLayer`・`SkinRelief` など（レイごとに呼ぶ小さな関数が多く、開発用ビルド（LTCG なし）で遅くなり得る）、テンプレート（`Spectrum`）。回帰は `tools/test/regress.py`（小さな描画の平均色 + 自己検査 15 本）で確かめた。**ビルド時間（開発用ビルド）:** 分割した物の中身（.cpp）を直したときの再ビルドが、全体（約 80 秒）から約 4 秒になった。ヘッダを触ったときは、分割の前後とも全体の再ビルド（`Cli/EngineHeaders.hpp` が全ヘッダを全 CLI ファイルに配るため）。
+**Done (2026-11-13, splitting):** things whose body is long, which are edited often and whose interface is stable were split into .hpp and .cpp: `WrinkleField` (construction in the .cpp, only the per-ray lookup in the header), `Hair` (the lobe formulas `hairmath` in the header, the material in the .cpp), `CausticPhotonMap`, `PmxLoader`, `PlyLoader`, `GaussianSplats`. Not split: `VolumeBPT` and `SpecularNee` (prototypes that are left alone), `CosmeticLayer`, `SkinRelief` and the like (many small functions called per ray, which can be slow in the development build (no LTCG)), templates (`Spectrum`). Regression was checked with `tools/test/regress.py` (the mean color of small renderings + 15 self-checks). **Build time (development build):** rebuilding after editing the inside (.cpp) of a split item went from the full build (about 80 seconds) to about 4 seconds. When a header is touched, the whole is rebuilt both before and after the split (because `Cli/EngineHeaders.hpp` distributed all the headers to every CLI file).
 
-**済み（2026-11-13、include の整理）:** `Cli/EngineHeaders.hpp`（63 個のヘッダの束。CLI の 41 ファイル全部が読んでいた）を廃止し、各 CLI ファイルが使うヘッダだけを include する形にした（ヘッダの宣言名からファイルごとの一覧を機械的に作り、ビルドで残りを直した）。あわせて、ポインタや参照でしか使わない型は前方宣言に: `Render/Integrator.hpp`（光子マップ、多様体 NEE、媒質、カメラ、フィルムを前方宣言。`setCausticMap` と `mediaTraced` は .cpp へ）、`Cli/Scene.hpp`・`CheckSupport.hpp`・`Checks.hpp`・`Tools.hpp`、`Materials/Material.hpp`（`SubsurfaceTable.hpp` を外した）。`SpecularNee::Body` は `Render/SpecularBody.hpp`（メッシュとガラスの shared_ptr だけ）に出し、シーン側は試作のヘッダを読まない。**効果（CLI 44 ファイルのうち、そのヘッダが届く数）:** 肌の層 `CoatedDiffuse`・`WrinkleField`・`SkinRelief` 41 → 11、`Lambertian` 41 → 24、`Dielectric` 41 → 22、`Integrator` 41 → 21、`RoughConductor` 41 → 15、`PmxLoader` 41 → 8、`GaussianSplats` 41 → 5、`Hair` 41 → 3、`SpecularNee` 41 → 3、`VolumeBPT` 41 → 2。`Core/*`、`Color/*`、`Material.hpp`、`Scene.hpp` は土台なので今もほぼ全部に届く（触れば全体の再ビルド）。
+**Done (2026-11-13, tidying includes):** `Cli/EngineHeaders.hpp` (a bundle of 63 headers, read by all 41 CLI files) was abolished, and each CLI file now includes only the headers it uses (a per-file list was made mechanically from the declared names in the headers, and the rest was fixed by building). Types used only by pointer or reference became forward declarations: `Render/Integrator.hpp` (forward declarations for the photon map, manifold NEE, medium, camera and film; `setCausticMap` and `mediaTraced` moved to the .cpp), `Cli/Scene.hpp`, `CheckSupport.hpp`, `Checks.hpp`, `Tools.hpp`, `Materials/Material.hpp` (`SubsurfaceTable.hpp` removed). `SpecularNee::Body` was moved out to `Render/SpecularBody.hpp` (only the shared_ptr of the mesh and glass), so the scene side does not read the prototype's header. **Effect (of 44 CLI files, the number that the header reaches):** the skin layers `CoatedDiffuse`, `WrinkleField`, `SkinRelief` 41 → 11, `Lambertian` 41 → 24, `Dielectric` 41 → 22, `Integrator` 41 → 21, `RoughConductor` 41 → 15, `PmxLoader` 41 → 8, `GaussianSplats` 41 → 5, `Hair` 41 → 3, `SpecularNee` 41 → 3, `VolumeBPT` 41 → 2. `Core/*`, `Color/*`, `Material.hpp` and `Scene.hpp` are foundations and still reach almost all (touching them rebuilds everything).

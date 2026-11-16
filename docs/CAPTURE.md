@@ -1,33 +1,33 @@
-# 撮った物を取り込む（スキャン、3D Gaussian Splatting）（2026-11-13）
+# Importing captured objects (scans, 3D Gaussian Splatting) (2026-11-13)
 
-**状態:** 段階 1（メッシュを経由して取り込み、質感を物理材質で差し替える）と、段階 2（ガウシアンそのものを、発光して遮る粒子として周囲に置く）を実装済み。3DGS の学習は、この PC（GPU なし）では回さず、別の PC で回した結果（メッシュ、`point_cloud.ply`）を持ってくる前提。
+**Status:** Stage 1 (bring the object in as a mesh and replace its material appearance (shitsukan) with a physical material) and stage 2 (place the Gaussians themselves around the scene as emitting, occluding particles) are implemented. 3DGS training is not part of this repository: this document starts from its outputs (a mesh, `point_cloud.ply`), which are produced on a machine with a GPU.
 
-## 1. ねらい
+## 1. Aim
 
-3DGS は、多視点写真から「その照明での見え方」を再現する表現で、反射率や散乱係数のような物理量を持たない。鏡面や半透明は崩れ、照明を変えられない。このレンダラーは逆で、物理量（スペクトル、表面下散乱、層）はあるが、形は手で作る。**3DGS から形を借り、質感はこちらで差し替える**のが、両方の長所をそのまま使う筋。
+3DGS reproduces "how the scene looked under that lighting" from multi-view photographs. It has no physical quantities such as reflectance or scattering coefficients, so mirrors and translucent objects break down and the lighting cannot be changed. This renderer is the opposite: it has physical quantities (spectra, subsurface scattering, layers), but the shapes are made by hand. The sensible approach is to **borrow the shape from 3DGS and replace the material appearance here**, which uses the strengths of both as they are.
 
-| 段階 | 内容 | 状態 |
+| Stage | Content | Status |
 |---|---|---|
-| 1 | 撮影 → 3DGS → メッシュ → 整える → 読む → 物理材質で再照明 | 済み（この文書） |
-| 2 | 3DGS の `.ply`（ガウシアン）を直接読み、発光する粒子として周囲に置く（NVIDIA の 3DGRT と同じ考え） | 済み（4 節） |
+| 1 | Photograph → 3DGS → mesh → clean up → load → relight with a physical material | Done (this document) |
+| 2 | Read a 3DGS `.ply` (Gaussians) directly and place it around the scene as emitting particles (the same idea as NVIDIA's 3DGRT) | Done (section 4) |
 
-## 2. 手順（段階 1）
+## 2. Procedure (stage 1)
 
-**(1) 撮影 → 3DGS → メッシュ**（GPU のある PC で）。メッシュを出せる実装を使う: 2DGS（`mesh extraction` で PLY）、Gaussian Opacity Fields、SuGaR（テクスチャ付き OBJ）。GPU が弱いときは、画像を長辺 1000〜1600 px に縮小し、反復を 15k〜30k に抑える。2DGS は本家の 3DGS より軽く、メッシュも素直に出る。対象は静物（石、金属、ガラス、半透明の物）。人の顔や肌は動くので向かない。
+**(1) Photograph → 3DGS → mesh** (on a PC with a GPU). Use an implementation that can output a mesh: 2DGS (PLY by `mesh extraction`), Gaussian Opacity Fields, SuGaR (textured OBJ). When the GPU is weak, shrink the images to 1000-1600 px on the long side and keep the iterations to 15k-30k. 2DGS is lighter than the original 3DGS and gives a clean mesh. The subject should be a still object (stone, metal, glass, translucent objects). Human faces and skin move, so they are not suitable.
 
-**(2) 整える**（`tools/data/mesh_clean.py`。OBJ と PLY を読み書きする）:
+**(2) Clean up** (`tools/data/mesh_clean.py`; reads and writes OBJ and PLY):
 
 ```bat
 python tools\data\mesh_clean.py mesh.ply out.ply --keep-uv --up=-y --drop-small 0.01 --height 0.3 --ground
 ```
 
-- `--up=-y`: COLMAP / 3DGS の座標（y が下）を、レンダラーの y 上に回す。`--up=z` は z 上（Blender、Open3D）。
-- `--drop-small 0.01`: 全体の 1% 未満の三角形しか持たない、離れた破片（floaters）を捨てる。
-- `--height 0.3 --ground`: 高さ 0.3 m に合わせ、底を y = 0、足元の中心を x = z = 0 に置く（単位はメートル）。
-- `--keep-uv`: 撮影テクスチャを貼るなら uv を残す（なければ捨てて小さくする）。`--cap`: 散乱媒質や `randomWalk` で中を満たすときに、穴を閉じる。
-- 法線は、常に捨てて、幾何から作り直す（スキャンの法線は向きが信用できない）。符号付き体積が負なら `--flip`。
+- `--up=-y`: rotates the COLMAP / 3DGS coordinates (y down) to the renderer's y up. `--up=z` is for z up (Blender, Open3D).
+- `--drop-small 0.01`: discards detached fragments (floaters) that hold less than 1% of all triangles.
+- `--height 0.3 --ground`: scales to a height of 0.3 m, puts the bottom at y = 0 and the center of the footprint at x = z = 0 (units are meters).
+- `--keep-uv`: keeps the uv when the photographed texture is to be applied (otherwise they are dropped to make the file smaller). `--cap`: closes holes when the inside is filled with a scattering medium or `randomWalk`.
+- Normals are always discarded and rebuilt from the geometry (the orientation of scanned normals cannot be trusted). If the signed volume is negative, use `--flip`.
 
-**(3) シーンに置く**（`docs/SCENE_FILE.md`）。`mesh` の `file` に `.ply` を書けばそのまま読める。撮影の見え方は `diffuse` の `texture`、差し替えは好きな材質。
+**(3) Place it in the scene** (`docs/SCENE_FILE.md`). A `.ply` can be given directly as the `file` of a `mesh`; an STL scan (binary or ascii) is read the same way, with coincident vertices welded and smooth normals rebuilt from the winding (`--scene mesh`, c3), but it has no uv or color, and its unit is usually mm with Z up, so set `scale` and `rotate`. The appearance as photographed is the `texture` of a `diffuse` material; the replacement can be any material.
 
 ```jsonc
 "materials": { "captured": { "type": "diffuse", "albedo": 1.0, "texture": "assets/x/texture.jpg" },
@@ -35,18 +35,18 @@ python tools\data\mesh_clean.py mesh.ply out.ply --keep-uv --up=-y --drop-small 
 "objects":   [ { "shape": "mesh", "file": "assets/x/out.ply", "material": "gold" } ]
 ```
 
-**例:** `scenes/capture_erato.json`。Erato のスキャン（`assets/Meshes/erato/`）を `--keep-uv` で PLY にし、左は撮影テクスチャのまま、右は金にして、同じ 3 灯で描く。絵は `out\studies\capture\capture_erato.png`。
+**Example:** `scenes/capture_erato.json`. The Erato scan (`assets/Meshes/erato/`) is converted to PLY with `--keep-uv`; the left copy keeps the photographed texture, the right copy is gold, both drawn with the same 3 lights. The picture is `out\studies\capture\capture_erato.png`.
 
-## 3. 確かめたこと
+## 3. What was checked
 
-- `--scene mesh` の c2: PLY の書き出しと読み込みの往復（ascii の頂点 uv + 色の読み飛ばし + `TextureFile` のコメント、バイナリの面ごとの `texcoord` 列）。三角形数・法線・体積が一致し、uv の v が反転して入る（テクスチャの約束: `Core/Texture.hpp` は v が下向き。OBJ の読み込みも同じ反転にそろえた）。RGB ビルドで PASS。
-- `mesh_clean.py` の往復: トーラス（`--up=-y --height 0.1 --ground` → PLY → OBJ）、Erato（OBJ 1,237,495 の角 → uv を保って溶接 227,503 頂点、12 秒、PLY 12.6 MB。OBJ の 107 MB から 1/8）。
-- 描画: テクスチャは正しい向き（顔、竪琴）で貼れ、同じ光の下で金に差し替わる。900 × 600、128 spp で約 3 分（開発用ビルド）。
+- `--scene mesh`, c2: the round trip of PLY writing and reading (ascii: per-vertex uv + skipping the color + a `TextureFile` comment; binary: a per-face `texcoord` list). Triangle count, normals and volume agree, and the v of the uv comes in flipped (texture convention: in `Core/Texture.hpp` v points down; the OBJ reader was made to flip in the same way). PASS in the RGB build.
+- Round trip of `mesh_clean.py`: a torus (`--up=-y --height 0.1 --ground` → PLY → OBJ), and Erato (OBJ with 1,237,495 face corners → 227,503 vertices welded with uv kept, 12 seconds, PLY 12.6 MB; 1/8 of the 107 MB OBJ).
+- Rendering: the texture is applied in the correct orientation (face, lyre) and is replaced by gold under the same light. 900 × 600, 128 spp, about 3 minutes (development build).
 
-## 4. 段階 2: ガウシアンを粒子として描く（2026-11-13）
+## 4. Stage 2: drawing the Gaussians as particles (2026-11-13)
 
-**何をするか:** 3DGS が学習で書く `point_cloud.ply`（位置、不透明度、3 軸の大きさ、向きの四元数、3 次までの球面調和の色）をそのまま読み、各粒子を**発光して遮る楕円体のガウシアン**として経路追跡する。レイに対する粒子の応答は、共分散の距離で中心に最も近い点 t* での値 α = 不透明度 × exp(−½ |x(t*) − μ|²_Σ)（3D Gaussian Ray Tracing、Moenne-Loccoz ら 2024 の「レイとガウシアンの応答」）。レイが出会う粒子を t* で並べ、前から順に L = Σ T_i α_i c_i、T = Π(1 − α_i) と合成する。散乱も反射率もない: c_i は撮影が見た放射輝度で、粒子は**背景であり光源**（経路が通り抜けるときに見え、金属にも映る）、後ろの物は T で遮られる。粒子の箱（α が alphaMin に届く範囲）の BVH で、レイの粒子を集める。`Geometry/GaussianSplats.hpp`、`Scene::setSplats`、`Integrator.cpp`（レイごとに合成、`Render/Transmittance.hpp`（影の光線は T だけ掛ける）。
+**What it does:** It reads the `point_cloud.ply` that 3DGS writes during training (position, opacity, 3-axis size, orientation quaternion, color as spherical harmonics up to degree 3) as it is, and path-traces each particle as an **emitting, occluding ellipsoidal Gaussian**. The response of a particle to a ray is the value at t*, the point closest to the center in the covariance distance: α = opacity × exp(−½ |x(t*) − μ|²_Σ) (the "ray-Gaussian response" of 3D Gaussian Ray Tracing, Moenne-Loccoz et al. 2024). The particles a ray meets are sorted by t* and composited front to back, L = Σ T_i α_i c_i, T = Π(1 − α_i). There is no scattering or reflectance: c_i is the radiance the capture saw, and the particles are **background and light source** (visible when a path passes through them, and reflected in metals), while objects behind them are occluded by T. A BVH over the particles' boxes (the range where α reaches alphaMin) collects the particles of a ray. Code: `Geometry/GaussianSplats.hpp`, `Scene::setSplats`, `Integrator.cpp` (compositing per ray) and `Render/Transmittance.hpp` (a shadow ray is only multiplied by T).
 
-**使い方:** シーンファイルの `splats` 物体（`docs/SCENE_FILE.md`）。雛形は `scenes/capture_splats.json`（COLMAP の y 下向きを `rotate` で起こし、`keep` で遠い浮遊片を捨て、`remove` で物体を置く場所の粒子を抜き、`intensity` で明るさを合わせる）。データなしの見本は `--scene splats`（合成したドーム 4 万粒子の中に、金とすりガラスの球。絵は `out\studies\capture\splats_demo.png`）。
+**Usage:** the `splats` object of the scene file (`docs/SCENE_FILE.md`). The template is `scenes/capture_splats.json` (`rotate` turns COLMAP's y down upright, `keep` discards distant floaters, `remove` takes out the particles where an object is to be placed, `intensity` matches the brightness). A sample without data is `--scene splats` (a gold sphere and a frosted glass sphere inside a synthetic dome of 40,000 particles; the picture is `out\studies\capture\splats_demo.png`).
 
-**確かめたこと**（`--scene splats` の検査 a〜g。RGB・分光とも PASS）: 1 粒子の α（中心、1σ、手前の面で切る）、回転した異方性の粒子の閉じた式と、レイに沿った数値の最大値との一致（786 本、差 1e-6 以下）、5 粒子の合成の順（挿入順を乱す）と面での打ち切り、BVH と総当たりの一致（3000 粒子、5000 本）、3DGS 形式の PLY の往復（logit・log・四元数の正規化、f_rest のチャンネル優先の並び、1 次の色を手計算と比較）、シーンの変換（中心、箱、調和関数が雲と一緒に回る）、積分器（α = ½ の黒い板を光源と床の間に置くと、カメラ光線と光源への光線が 1 回ずつ通って、床の輝度が ¼ になる: 推定 0.09192 ± 0.00011、理論 0.09185）。合成した 3DGS 形式の雲（2 万粒子 + 物体の場所の 200 個 + 遠くの 100 個）で、`rotate`・`keep`・`remove` が効くことも確認した。
+**What was checked** (checks a-g of `--scene splats`; PASS in both RGB and spectral): α of one particle (center, 1σ, cut by a surface in front); agreement of the closed form for a rotated anisotropic particle with the numerical maximum along the ray (786 rays, difference 1e-6 or less); the order of compositing 5 particles (insertion order scrambled) and cutting off at a surface; agreement of the BVH with brute force (3000 particles, 5000 rays); the round trip of a 3DGS-format PLY (logit, log, quaternion normalization, the channel-major order of f_rest, the degree-1 color against a hand calculation); the scene transform (the center, the box, and the harmonics rotate together with the cloud); the integrator (a black plate with α = ½ placed between the light and the floor is crossed once by the camera ray and once by the ray to the light, so the floor radiance becomes ¼: estimate 0.09192 ± 0.00011, theory 0.09185). With a synthetic cloud in 3DGS format (20,000 particles + 200 at the object's place + 100 far away), it was also confirmed that `rotate`, `keep` and `remove` work.

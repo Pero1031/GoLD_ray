@@ -1,47 +1,47 @@
-# 水滴のついたガラス（2026-11-13）
+# Glass with water drops (2026-11-13)
 
-**状態:** 入れ子の誘電体（面ごとの外側屈折率）、水滴の生成器、見本シーン。
+**Status:** nested dielectrics (an outside refractive index per surface), a water drop generator, sample scenes.
 
-## 1. 何が要るか
+## 1. What is needed
 
-水滴がガラスを「濡らして」見えるかは、水とガラスの接触面で決まる。そこは水（1.333）からガラス（1.5）へ直接入る境界で、反射は 0.3% ほどしかない。空気の隙間を挟む手口だと、境界が 2 つ（各 4%）入って、水滴はガラスに載ったビー玉に見える。
+Whether a water drop looks "wet" on the glass is decided at the contact between the water and the glass. It is a boundary where light goes directly from water (1.333) into glass (1.5), and the reflection is only about 0.3%. With a trick that puts an air gap in between, two boundaries (4% each) appear, and the drop looks like a marble sitting on the glass.
 
-対策は Mitsuba 3 と同じ「屈折率が変わる所で面を分け、各面が内外の屈折率を持つ」方式（`dielectric` の `exteriorIor`、`docs/SCENE_FILE.md`）。水滴は 2 つの面でできる:
+The remedy is the same approach as Mitsuba 3: split the surface where the refractive index changes, and let each surface carry the indices of its inside and outside (`exteriorIor` of `dielectric`, `docs/SCENE_FILE.md`). A water drop is made of two surfaces:
 
-| 面 | 材質 | 法線 |
+| Surface | Material | Normal |
 |---|---|---|
-| 冠（空気に接する自由表面） | `ior` 1.333 | 外向き |
-| 接触面の円板（ガラスに接する） | `ior` 1.333、`exteriorIor` 1.5 | ガラスへ向く（−z） |
+| Cap (the free surface in contact with air) | `ior` 1.333 | outward |
+| Disc of the contact face (in contact with the glass) | `ior` 1.333, `exteriorIor` 1.5 | toward the glass (−z) |
 
-そして、**水滴の下のガラス上面はなくす**。ガラス上面のメッシュに `cutout`（RGBA のマスク。アルファ 0 の所はすべての光線が素通り）を貼る。
+And **the top face of the glass under the drop is removed**. A `cutout` (an RGBA mask; where the alpha is 0, every ray passes through) is attached to the mesh of the glass top face.
 
-Arnold や RenderMan の優先順位方式（Schmidt & Budge 2002: 物体を重ねて作り、レイが「内部リスト」を持つ）とは別に、ここでは接触面を自分で書く。
+Apart from the priority approach of Arnold and RenderMan (Schmidt & Budge 2002: objects are made overlapping, and a ray carries an "interior list"), the contact face is written explicitly here.
 
-## 2. 生成器
+## 2. Generator
 
 ```bat
 python tools\data\make_drops.py GoLD_rayt\assets\Drops --plate 0.20 0.15 --coverage 0.25 --tilt 60 --seed 1
 ```
 
-書き出すのは `caps.ply`（冠）、`contacts.ply`（接触面）、`plate_top.ply`（uv 付きのガラス上面）、`plate_mask.png`（穴）、`drops.csv`。板は x–y 平面の z = 0、水滴は +z 側、下は −y。
+It writes `caps.ply` (caps), `contacts.ply` (contact faces), `plate_top.ply` (glass top face with uv), `plate_mask.png` (the holes) and `drops.csv`. The plate lies in the x-y plane at z = 0, the drops are on the +z side, and down is −y.
 
-モデルは現象論（Kaneda ら 1993 の「球の一部」の延長）:
-- 接触半径は対数正規分布（中央値 1.2 mm、幅 0.6、0.25〜4 mm）。重ならない配置で、面積の割合（`--coverage`）まで置く。
-- 形は接触角 θ（≤ 90°。清浄なガラス 20〜40°、使った車窓 50〜70°）の球冠。大きい滴は重力で平たくする（毛管長 2.7 mm を目安に高さを下げる）。
-- 傾いた板（`--tilt`、水平からの角度）では、重力を感じる大きさの滴が**洋梨形**になる: 下が丸い頭、上に細る尾（接触線は原点から星形の多角形で、頭は半径 a の半円、尾は長さ a(1 + 0.8 s b)、尖り 0.6 s b、b = min(1, (a/2.7 mm)²)）。頂点は下へずれる（下側が前進角で急、上側が後退角で緩い）。急な板では、大きい滴の一部が細長い流れた跡（長い洋梨形、頂点は下端寄り）になる。
-- **霧状の微小滴**（`--mist`、面積の割合。既定 2%）: 0.05〜0.25 mm の滴を、大きい滴の隙間に敷く。写真の、大きい滴のまわりの細かい粒。
+The model is phenomenological (an extension of the "part of a sphere" of Kaneda et al. 1993):
+- The contact radius follows a log-normal distribution (median 1.2 mm, width 0.6, range 0.25-4 mm). The drops are placed without overlap, up to a fraction of the area (`--coverage`).
+- The shape is a spherical cap with contact angle θ (≤ 90°; clean glass 20-40°, a used car window 50-70°). Large drops are flattened by gravity (the height is lowered using the capillary length of 2.7 mm as a guide).
+- On a tilted plate (`--tilt`, the angle from horizontal), drops large enough to feel gravity become **pear-shaped**: a round head at the bottom and a tail tapering upward (the contact line is a star-shaped polygon from the origin; the head is a semicircle of radius a, the tail has length a(1 + 0.8 s b) and pointedness 0.6 s b, with b = min(1, (a/2.7 mm)²)). The apex shifts downward (the lower side is at the advancing angle and steep, the upper side at the receding angle and gentle). On a steep plate, some of the large drops become long, thin trails (a long pear shape with the apex near the lower end).
+- **Mist of tiny droplets** (`--mist`, fraction of the area; default 2%): droplets of 0.05-0.25 mm laid in the gaps between the large drops. These are the fine grains around the large drops in photographs.
 
-水滴 1 つは最大 40 分割 × 10 環の三角形（霧は 10 × 3）で、滴 2370 個 + 霧 1.2 万個で約 185 万三角形（50 MB）。生成は 7 秒。マスクは接触線の多角形を塗る（形は何でもよい）。
+One drop has at most 40 segments × 10 rings of triangles (mist: 10 × 3). With 2370 drops + 12,000 mist droplets this is about 1.85 million triangles (50 MB). Generation takes 7 seconds. The mask paints the polygon of the contact line (any shape is fine).
 
-## 3. 見本
+## 3. Samples
 
-`scenes/water_drops.json`: 夜の街灯（発光する球）をガラス越しに見る。カメラに `aperture`（レンズの直径）と `focus` が付いたので、ガラスにピントを合わせれば灯りは玉ボケに、`focus` を灯りの距離にすれば水滴がぼけて灯りが鋭くなる（Raindrop Clarity の「滴にピント / 背景にピント」の 2 条件に対応する）。各水滴は魚眼レンズとして灯りを逆さに小さく結像し、縁が光る。900 × 600、256 spp で約 4 分（開発用ビルド）。
+`scenes/water_drops.json`: a street lamp at night (an emitting sphere) seen through the glass. The camera now has `aperture` (lens diameter) and `focus`. If the glass is in focus, the lamps become bokeh discs; if `focus` is set to the distance of the lamps, the drops blur and the lamps become sharp (this corresponds to the two conditions "focus on the drops / focus on the background" of Raindrop Clarity). Each drop forms a small inverted image of the lamps as a fisheye lens, and its rim glows. 900 × 600, 256 spp, about 4 minutes (development build).
 
-`scenes/water_drops_soft.json`: 同じ板を、灯りを画面の外に置いた柔らかい光で見る。1 m 後ろの色つきの球と、斜め上の面光源の勾配を、各水滴が逆さに映し、カメラ側の小さなランプが縁に光を入れる。水滴そのものの形を見るならこちら。
+`scenes/water_drops_soft.json`: the same plate seen under a soft light with the lamps placed outside the frame. Each drop mirrors upside down a colored sphere 1 m behind and the gradient of an area light diagonally above, and a small lamp on the camera side puts light into the rims. Use this one to look at the shape of the drops themselves.
 
-`scenes/water_drops_overcast.json`: 曇り空の HDR（Poly Haven の CC0 のもの。大きさの都合で git には入れない）を環境にする。実物の写真に一番近い: 空が大きく柔らかい光源なので、各滴の中に明るい空と暗い地平線の逆さの像が出て、上の縁に空が映り、接触線の近くが暗い輪になる。晴れの HDR は太陽が全部の滴に硬い点として入るので、雨の日には見えない。
+`scenes/water_drops_overcast.json`: uses an overcast-sky HDR (CC0 from Poly Haven; not put in git because of its size) as the environment. It is the closest to photographs of real drops: because the sky is a large, soft light source, each drop shows an inverted image of the bright sky and the dark horizon, the upper rim mirrors the sky, and a dark ring appears near the contact line. In a clear-sky HDR the sun enters every drop as a hard point, which is not seen on a rainy day.
 
-## 4. 確かめたこと
+## 4. What was checked
 
-- `--scene dispersion` の 4（入れ子の誘電体。RGB・分光とも PASS）: 45° で入る屈折角（空気 28.12°、水 38.93°）、50° で出るときの全反射（空気）と透過（水、59.54°）、平板の透過率 (1−R)/(1+R)（空気 0.923、水 0.993）、水の外側の平板の白色炉 1.000。
-- 生成器: マスクの穴と接触面の円板が一致すること、冠の縁が z = 0 にあることは、構成から保証される（同じ楕円を使う）。描画では、水滴の中に灯りの像が出ることと、流れた跡が細長く映ることを目で確認した。
+- `--scene dispersion`, 4 (nested dielectrics. PASS in both RGB and spectral): the refraction angle for entry at 45° (air 28.12°, water 38.93°), total reflection (air) and transmission (water, 59.54°) on exit at 50°, the transmittance of a flat plate (1−R)/(1+R) (air 0.923, water 0.993), and the white furnace of a plate outside water, 1.000.
+- Generator: that the hole in the mask coincides with the disc of the contact face, and that the rim of the cap lies at z = 0, are guaranteed by construction (the same ellipse is used). In rendering, it was confirmed by eye that the image of the lamp appears inside the drops and that the trails appear long and thin.

@@ -1,53 +1,55 @@
-# 実測の金と解析的な金: KAIST pBRDF の金の試料と `RoughConductor` の比較（2026-11-10）
+# Measured gold and analytic gold: the KAIST pBRDF gold sample against `RoughConductor` (2026-11-10)
 
-**状態:** 形、分光の形、アルベドの比較と、Spectralon（試料 1、白色標準）による尺度の確認を実施。
-結論: データセットの絶対値は垂直付近で理論の 0.64 倍で、入射角とともにさらに下がる（測定系の系統誤差）。Spectralon を伝達標準にして補正すると、金の半球反射率は Johnson & Christy の金の **0.63〜0.79 倍**（θi ≤ 45°）。
-後継の hpBRDF（2025、68 波長）のアルミニウムも同じ手順で比べ（第 6 節）、形は同じ「スパイク + もや」、絶対値はやはり理論の 0.4 倍前後で角度とともに低下。**2 つのデータセットとも、絶対値はそのまま使えない。形の結論（GGX 2 ローブが要る）は一致。**
-第 7 節: 表は「BRDF × cos θi × 装置の定数 0.60」とみなすと、Spectralon・金・アルミニウムの角度依存が一度に説明でき、金は理論の約 0.75 倍になる。
-再現: `python tools/studies/measured_gold.py`（約 30 秒）、`python tools/studies/pbrdf_calibration.py`（約 1 分）。出力は `out/studies/measured_gold/`（`results.txt`、`measured_gold.png`、`calibration.txt`）。生のログの写し: `docs/data/measured_gold_results.txt`、`measured_gold_calibration.txt`、`measured_aluminum_results.txt`。
+**Status:** the comparisons of shape, spectral shape and albedo, and the scale check with Spectralon (sample 1, the white standard), have been done.
+Conclusion: near normal incidence the absolute values of the dataset are 0.64 times the theory, and fall further with incidence angle (a systematic error of the measurement system). With Spectralon as a transfer standard for the correction, the hemispherical reflectance of the gold is **0.63 to 0.79 times** that of Johnson & Christy's gold (θi ≤ 45°).
+The aluminum of the successor hpBRDF (2025, 68 wavelengths) was compared by the same procedure (section 6): the shape is the same "spike + haze", and the absolute value is again about 0.4 times the theory, falling with angle. **For both datasets the absolute values cannot be used as they are. The conclusion about shape (two GGX lobes are needed) agrees.**
+Section 7: if the table is taken to be "BRDF × cos θi × an instrument constant of 0.60", the angle dependence of Spectralon, gold and aluminum is explained at once, and gold comes out at about 0.75 times the theory.
+Reproduction: `python tools/studies/measured_gold.py` (about 30 seconds), `python tools/studies/pbrdf_calibration.py` (about 1 minute). Output goes to `out/studies/measured_gold/` (`results.txt`, `measured_gold.png`, `calibration.txt`). Copies of the raw logs: `docs/data/measured_gold_results.txt`, `measured_gold_calibration.txt`, `measured_aluminum_results.txt`.
 
-## 1. データ
+This study works on unpolarized extractions of the tables. The renderer itself reads the 2025 hpBRDF, with its measured Mueller matrices (used by `--stokes`, see [POLARIZATION.md](POLARIZATION.md)), through a PCA-compressed table (`.hpbpca`) as the scene-file material `"type": "measured"` (`include/Materials/MeasuredHpBRDF.hpp`, example `scenes/hpbrdf_aluminum.json`). The tables are not in the repository.
 
-KAIST の偏光 BRDF データセット（Baek, Zeltner, Ku, Hwang, Tong, Jakob, Kim, "Image-Based Acquisition and Modeling of Polarimetric
-Reflectance", ACM TOG 39(4), SIGGRAPH 2020）の試料 6「Gold」。配布ページの材料表と README、補足資料 1 で確認したこと:
+## 1. Data
 
-- 表 `pbrdf_T[φd 361, θd 91, θh 91, 波長 5, 4, 4]`（ミュラー行列、float32）。θh は 2 乗サンプリング（θh = (j/90)²·90°）、θd と φd は 1°。波長は 450 / 500 / 550 / 600 / 650 nm（狭帯域フィルタ）。
-- 未測定のビンは NaN（`pbrdf_T`）。`pbrdf_T_f` は補完版。θd < 5° は全部未測定（光源とカメラの最小角が 6.75°）。
-- **値の単位と絶対較正の方法は、配布ページにも README にも書かれていない**（較正ファイルには光源の放射照度がある）。
-- 使ったのは無偏光成分（ミュラー行列の (0, 0)）。`references/kaist_pbrdf/`（git 対象外）に抜き出した表がある。
+Sample 6, "Gold", of the KAIST polarimetric BRDF dataset (Baek, Zeltner, Ku, Hwang, Tong, Jakob, Kim, "Image-Based Acquisition and Modeling of Polarimetric
+Reflectance", ACM TOG 39(4), SIGGRAPH 2020). What was confirmed from the materials table and README of the distribution page, and from supplementary material 1:
 
-## 2. 比べ方
+- The table `pbrdf_T[φd 361, θd 91, θh 91, wavelength 5, 4, 4]` (Mueller matrices, float32). θh is sampled quadratically (θh = (j/90)²·90°); θd and φd are in 1° steps. The wavelengths are 450 / 500 / 550 / 600 / 650 nm (narrow-band filters).
+- Unmeasured bins are NaN (`pbrdf_T`). `pbrdf_T_f` is the filled-in version. θd < 5° is entirely unmeasured (the minimum angle between light and camera is 6.75°).
+- **The unit of the values and the method of absolute calibration are written neither on the distribution page nor in the README** (the calibration file holds the irradiance of the light).
+- The unpolarized component (element (0, 0) of the Mueller matrix) was used. The extracted table is in `references/kaist_pbrdf/` (not tracked by git).
 
-エンジンの `RoughConductor`（GGX、α = 粗さ²、高さ相関の Smith、Johnson & Christy の Au の導体フレネル、Kulla-Conty の多重散乱補償）を
-numpy で再実装し、同じ (θh, θd, φd) で評価した。方向の変換は MERL の `BRDFRead.cpp` の規約。
+## 2. How it was compared
 
-1. **形:** θh < 35°、床（迷光）の 20 倍以上の値のビンで、log(実測 / 模型) の分散が最小になる α を探す（尺度は別に出す）。GGX と Beckmann。θd = 5° の断面には GGX 2 ローブもフィット。
-2. **分光の形:** スパイク（θh < 0.5°）ともや（θh 10〜35°）で、実測 / フレネル(Johnson) の波長ごとの比を 650 nm で割る。
-3. **方向アルベド:** 実測の表を出射半球で積分（鏡面方向の 3° 以内は 0.005° 刻み、外は 0.25° 刻み）。模型の単散乱、単散乱 + 多重散乱と比べる。
+The engine's `RoughConductor` (GGX, α = roughness², height-correlated Smith, the conductor Fresnel of Johnson & Christy's Au, Kulla-Conty multiple-scattering compensation) was
+reimplemented in numpy and evaluated at the same (θh, θd, φd). The conversion of directions follows the convention of MERL's `BRDFRead.cpp`.
 
-## 3. 結果
+1. **Shape:** find the α that minimizes the variance of log(measured / model) over bins with θh < 35° and values at least 20 times the floor (stray light); the scale is obtained separately. GGX and Beckmann. A two-lobe GGX was also fitted to the θd = 5° slice.
+2. **Spectral shape:** in the spike (θh < 0.5°) and the haze (θh 10 to 35°), divide the per-wavelength ratio measured / Fresnel (Johnson) by its value at 650 nm.
+3. **Directional albedo:** integrate the measured table over the outgoing hemisphere (0.005° steps within 3° of the specular direction, 0.25° steps outside). Compare with the model's single scattering and with single + multiple scattering.
 
-**形。** 実測は幅約 1°（半値）の鋭いスパイクと、θh 10° 以上の広いもやの 2 成分で、θh > 50° では 0.001〜0.003 sr⁻¹ の床（Lambert 換算 0.4〜1%）になる。
+## 3. Results
 
-| 模型 | 合わせた α（粗さ） | log(実測 / 模型) の残差 |
+**Shape.** The measurement has two components: a sharp spike about 1° wide (half maximum) and a broad haze beyond θh of 10°, and at θh > 50° it reaches a floor of 0.001 to 0.003 sr⁻¹ (0.4 to 1% in Lambert terms).
+
+| Model | Fitted α (roughness) | Residual of log(measured / model) |
 |---|---|---|
-| GGX 1 ローブ | 0.049（0.22） | ×1.9 |
-| Beckmann 1 ローブ | 0.146（0.38） | ×3.2 |
-| GGX 2 ローブ（θd = 5° の断面） | スパイク 0.022（0.15）重み 0.39、もや 0.24（0.49）重み 0.08 | ×1.23 |
+| GGX, 1 lobe | 0.049 (0.22) | ×1.9 |
+| Beckmann, 1 lobe | 0.146 (0.38) | ×3.2 |
+| GGX, 2 lobes (θd = 5° slice) | spike 0.022 (0.15) weight 0.39, haze 0.24 (0.49) weight 0.08 | ×1.23 |
 
-GGX は裾が長いので Beckmann より合うが、1 ローブではスパイクともやを同時に表せない（ピークが半分、5° で 4 倍）。2 ローブなら ×1.2 まで合う。重みはフレネルに対する倍率で、合計 0.47 は下のアルベドの比と整合する。
+GGX has long tails and so fits better than Beckmann, but one lobe cannot represent the spike and the haze together (the peak is off by half, and by a factor of 4 at 5°). Two lobes fit to ×1.2. The weights are multipliers on the Fresnel term, and their sum of 0.47 agrees with the ratio in the albedo below.
 
-**分光の形（650 nm に対する比）。**
+**Spectral shape (relative to 650 nm).**
 
 | | 450 | 500 | 550 | 600 | 650 nm |
 |---|---|---|---|---|---|
-| フレネル F0（Johnson & Christy） | 0.43 | 0.50 | 0.83 | 0.95 | 1 |
-| 実測のスパイク / フレネル | 0.66 | 0.73 | 0.86 | 0.90 | 1 |
-| 実測のもや / フレネル | 1.13 | 1.18 | 1.13 | 1.05 | 1 |
+| Fresnel F0 (Johnson & Christy) | 0.43 | 0.50 | 0.83 | 0.95 | 1 |
+| Measured spike / Fresnel | 0.66 | 0.73 | 0.86 | 0.90 | 1 |
+| Measured haze / Fresnel | 1.13 | 1.18 | 1.13 | 1.05 | 1 |
 
-スパイクは Johnson の金より**彩度が高く**（450 nm で 34% 低い）、もやは**中立に近い**（青が 13〜18% 高い）。金の表面の汚れや膜がもやの色を薄め、スパイクが金属本体の色を持つ、という読みが自然。
+The spike is **more saturated** than Johnson's gold (34% lower at 450 nm), and the haze is **close to neutral** (13 to 18% higher in blue). A natural reading is that dirt or a film on the gold surface dilutes the color of the haze, while the spike carries the color of the bulk metal.
 
-**方向アルベド（実測 / 模型の単散乱 + 多重散乱）。**
+**Directional albedo (measured / model single + multiple scattering).**
 
 | θi | 450 | 500 | 550 | 600 | 650 nm |
 |---|---|---|---|---|---|
@@ -57,77 +59,76 @@ GGX は裾が長いので Beckmann より合うが、1 ローブではスパイ�
 | 60° | 0.41 | 0.40 | 0.38 | 0.37 | 0.38 |
 | 75° | 0.39 | 0.38 | 0.34 | 0.31 | 0.32 |
 
-実測の金は、**Johnson & Christy の金が返すはずの光の 0.3〜0.46 倍**しか返さない。波長によらず、入射角にもほぼよらない。未測定ビン（NaN）にエネルギーは無い（補完版の表でも同じ値）。
+The measured gold returns only **0.3 to 0.46 times the light that Johnson & Christy's gold should return**, independently of wavelength and almost independently of incidence angle. The unmeasured bins (NaN) hold no energy (the same values with the filled-in table).
 
-## 4. 尺度の確認: Spectralon（試料 1）を伝達標準に（`tools/studies/pbrdf_calibration.py`）
+## 4. Checking the scale: Spectralon (sample 1) as a transfer standard (`tools/studies/pbrdf_calibration.py`)
 
-Spectralon は反射率約 0.99 の拡散標準で、BRDF は全方向で 0.99 / π = 0.315 sr⁻¹ のはず。同じデータセットの表は:
+Spectralon is a diffuse standard with reflectance of about 0.99, so its BRDF should be 0.99 / π = 0.315 sr⁻¹ in all directions. The table of the same dataset gives:
 
-| 配置 | 表の値（550 nm） | 理論との比 |
+| Configuration | Table value (550 nm) | Ratio to theory |
 |---|---|---|
-| θi、θo < 20° | 0.203 sr⁻¹（5 波長とも ±2%） | **0.64** |
-| θi 30〜40°（θo 20〜40°） | 0.159 | 0.50 |
-| θi 60〜70° | 0.105 | 0.33 |
-| θi 80〜90° | 0.087 | 0.28 |
+| θi, θo < 20° | 0.203 sr⁻¹ (±2% at all five wavelengths) | **0.64** |
+| θi 30 to 40° (θo 20 to 40°) | 0.159 | 0.50 |
+| θi 60 to 70° | 0.105 | 0.33 |
+| θi 80 to 90° | 0.087 | 0.28 |
 
-つまり、(1) 絶対値が垂直付近で 0.64 倍、(2) 入射角とともにさらに下がる（cos θi より緩い）、(3) 波長方向は平坦（分光の較正は良い）、(4) θh ≈ 0（θi ≈ θo）に 1.2 倍の過剰（60° 以上では数倍）。
-金の表も同じ装置で測られているので、**同じ幾何配置で「金 ÷ Spectralon × 0.315」** を取れば、(1) と (2) は相殺される。θh < 5° の過剰を含める版（A）と、5〜8° の値で置き換える版（B）の両方で補正した。
+That is: (1) the absolute value is 0.64 times near normal incidence, (2) it falls further with incidence angle (more gently than cos θi), (3) it is flat across wavelength (the spectral calibration is good), (4) there is an excess of 1.2 times at θh ≈ 0 (θi ≈ θo) (several times at 60° and above).
+The gold table was measured with the same instrument, so taking **"gold ÷ Spectralon × 0.315"** in the same geometric configuration cancels (1) and (2). The correction was made in two versions: one that keeps the excess at θh < 5° (A), and one that replaces it with the values at 5 to 8° (B).
 
-**補正後の金の半球反射率 / Johnson & Christy のフレネル**（450 / 500 / 550 / 600 / 650 nm）:
+**Hemispherical reflectance of gold after correction / Fresnel of Johnson & Christy** (450 / 500 / 550 / 600 / 650 nm):
 
-| θi | 補正 A | 補正 B |
+| θi | Correction A | Correction B |
 |---|---|---|
 | 15° | 0.63 / 0.67 / 0.72 / 0.73 / 0.75 | 0.64 / 0.68 / 0.73 / 0.75 / 0.77 |
 | 30° | 0.62 / 0.66 / 0.69 / 0.72 / 0.76 | 0.64 / 0.69 / 0.72 / 0.74 / 0.79 |
 | 45° | 0.64 / 0.69 / 0.67 / 0.69 / 0.72 | 0.70 / 0.76 / 0.74 / 0.76 / 0.79 |
 | 60° | 0.52 / 0.54 / 0.49 / 0.48 / 0.50 | 0.65 / 0.67 / 0.62 / 0.62 / 0.64 |
-| 75° | 0.12（補正が破綻） | 0.17（同左） |
+| 75° | 0.12 (the correction breaks down) | 0.17 (same) |
 
-60° 以上は Spectralon が Lambert から外れる（かすめ角で鏡面に寄り、それ以外で暗くなる）ので、伝達標準として使えない。θi ≤ 45° では、**補正後の金は理論の 0.63〜0.79 倍**で、赤より青の方が低い（彩度が高い）。スパイクともやの分光比は補正でほぼ変わらない（Spectralon が波長方向に平坦なため）。
+At 60° and above Spectralon departs from Lambertian (toward specular at grazing angles, and darker elsewhere), so it cannot be used as a transfer standard. For θi ≤ 45° **the corrected gold is 0.63 to 0.79 times the theory**, with blue lower than red (more saturated). The spectral ratios of the spike and the haze hardly change with the correction (because Spectralon is flat across wavelength).
 
-## 5. 読み方
+## 5. How to read this
 
-- 形の結論は尺度に依らない: **この試料を描くには GGX 2 ローブ（鋭い鏡面 + もや）が要る。** エンジンの `RoughConductor` は 1 ローブ。
-- **データセットの絶対値は、そのままでは使えない**（0.64 倍 + 角度依存）。使うときは Spectralon との比にする。配布ページと README に値の定義と較正方法の記載が無いことと整合する。
-- 相反性（φd と φd + π）は、金の鏡面ローブ内で中央値 25%、Spectralon で 16% ずれる。表には測定ノイズと補間のむらがある。
+- The conclusion about shape does not depend on the scale: **to render this sample, two GGX lobes (a sharp specular lobe + haze) are needed.** The engine's `RoughConductor` has one lobe.
+- **The absolute values of the dataset cannot be used as they are** (0.64 times + angle dependence). When using them, take the ratio to Spectralon. This agrees with the absence of a definition of the values and of the calibration method on the distribution page and in the README.
+- Reciprocity (φd against φd + π) is off by a median of 25% inside the specular lobe of the gold, and 16% for Spectralon. The table has measurement noise and unevenness from interpolation.
 
-## 6. hpBRDF（Moon ら、SIGGRAPH Asia 2025）のアルミニウム（`tools/studies/measured_metal.py`）
+## 6. Aluminum of the hpBRDF (Moon et al., SIGGRAPH Asia 2025) (`tools/studies/measured_metal.py`)
 
-同じ研究室の後継データセット（68 波長、414〜950 nm、8 nm 刻み、表の形式は 2020 年版と同じ、1 素材 13 GB、HuggingFace で公開。純金は無い）の
-「Aluminum」を、同じ手順で比べた（`references/kaist_pbrdf/aluminum_unpolarized.npz`、元は `D:\kaist_dl\hpbrdf\Aluminum.hpbrdf`）。
-光学定数は McPeak 2015 と Rakić 1995（RefractiveIndex.info、CC0。`assets/Metal_data/McPeak_Al.csv`、`Rakic_Al.csv` に追加）。両者で結果はほぼ同じ。
-アルミニウムは可視で反射率がほぼ平坦（F0 ≈ 0.92）、800 nm 付近に浅い落ち込み（0.86）があり、尺度と分光の両方の検証点になる。
-出力は `out/studies/measured_aluminum/`（McPeak）と `measured_aluminum_rakic/`。
+"Aluminum" of the successor dataset from the same laboratory (68 wavelengths, 414 to 950 nm, 8 nm steps, the same table format as the 2020 version, 13 GB per material, published on HuggingFace; there is no pure gold) was compared by the same procedure (`references/kaist_pbrdf/aluminum_unpolarized.npz`, extracted from the original file `Aluminum.hpbrdf`).
+The optical constants are McPeak 2015 and Rakić 1995 (RefractiveIndex.info, CC0; added as `assets/Metal_data/McPeak_Al.csv` and `Rakic_Al.csv`). The two give almost the same results.
+Aluminum has almost flat reflectance in the visible (F0 ≈ 0.92) and a shallow dip near 800 nm (0.86), so it is a check point for both scale and spectral shape.
+Output goes to `out/studies/measured_aluminum/` (McPeak) and `measured_aluminum_rakic/`.
 
-| 項目 | 結果 |
+| Item | Result |
 |---|---|
-| 形 | 金と同じ「スパイク + もや」。GGX 1 ローブ ×2.3、Beckmann ×2.7、**GGX 2 ローブ ×1.14**（スパイク α 0.048、重み 0.31; もや α 0.48、重み 0.15） |
-| 相反性 | 鏡面ローブ内（> 0.5 sr⁻¹）で中央値 10%（2020 年版の金は 25%。補完済みの表なので滑らか） |
-| 半球反射率 / フレネル | θi 15°: 0.38、30°: 0.45、45°: 0.31、60°: 0.18、75°: 0.12（波長によらずほぼ同じ） |
-| 分光の形（650 nm 比） | スパイク: 446〜702 nm で 1.0〜1.25 と帯域ごとに ±20% 揺れる、798 nm 0.96、902 nm 0.86。もや: 446 nm 1.27 → 902 nm 0.84 と単調に青寄り。800 nm の落ち込みは揺れに埋もれて判別できない |
+| Shape | The same "spike + haze" as gold. GGX 1 lobe ×2.3, Beckmann ×2.7, **GGX 2 lobes ×1.14** (spike α 0.048, weight 0.31; haze α 0.48, weight 0.15) |
+| Reciprocity | Median 10% inside the specular lobe (> 0.5 sr⁻¹) (25% for the 2020 gold; the table is smooth because it is filled in) |
+| Hemispherical reflectance / Fresnel | θi 15°: 0.38, 30°: 0.45, 45°: 0.31, 60°: 0.18, 75°: 0.12 (almost the same at all wavelengths) |
+| Spectral shape (ratio to 650 nm) | Spike: fluctuates by ±20% from band to band, 1.0 to 1.25 over 446 to 702 nm, 0.96 at 798 nm, 0.86 at 902 nm. Haze: decreases monotonically from 1.27 at 446 nm to 0.84 at 902 nm, toward blue. The dip at 800 nm is buried in the fluctuation and cannot be identified |
 
-**読み方。** 2025 年版も、**絶対値は理論の 0.4 倍前後で、入射角とともに落ちる**。2020 年版の Spectralon と同じ型の系統誤差（尺度 + 角度依存）と見るのが自然で、
-2 つのデータセットで「金属が理論の 4 割しか返さない」のは試料でなく測定の処理（球の画像から BRDF への換算）側の問題と考えられる。波長方向は、帯域ごとの ±20% の揺れと、もやの単調な傾きがある。
-形の結論（2 ローブが要る）は 2 つのデータセットで一致した。
+**How to read this.** The 2025 version also has **absolute values of about 0.4 times the theory, falling with incidence angle**. It is natural to see this as a systematic error of the same type as the Spectralon of the 2020 version (scale + angle dependence), and
+that two datasets show "the metal returns only 40% of the theory" is thought to be a problem of the measurement processing (the conversion from sphere images to BRDF), not of the sample. Across wavelength there are ±20% fluctuations from band to band and a monotonic slope of the haze.
+The conclusion about shape (two lobes are needed) agrees in the two datasets.
 
-## 7. 表の値は何か: 「BRDF × cos θi × 定数」とみなす（2026-11-10）
+## 7. What the values of the table are: taking them as "BRDF × cos θi × a constant" (2026-11-10)
 
-論文本文（2025、11 ページ、`pypdf` で全文を読んだ）には値の定義が無く、M は式 (5) の最小二乗（計測強度 f と、光源のストークス [L^λ, 0, 0, 0] を偏光素子と M に通した予測の差）で決めると書かれているだけ。
-入射角の余弦、放射照度、光源までの距離は式に出てこない。2020 年版の較正ファイルには `M_air_inv`（光源を直接見た測定の逆行列）がある。
-そこで「表 = 反射光のストークス ÷ 光源を直接見たストークス = BRDF × cos θi × 装置の定数」と仮定し、半球積分 ÷ 期待値 ÷ cos θi が θi によらず一定かを見た（550 nm）:
+The body of the paper (2025, 11 pages, read in full with `pypdf`) has no definition of the values; it says only that M is determined by the least squares of equation (5) (the difference between the measured intensity f and the prediction obtained by passing the light's Stokes vector [L^λ, 0, 0, 0] through the polarization elements and M).
+The cosine of the incidence angle, the irradiance and the distance to the light do not appear in the equations. The 2020 calibration file has `M_air_inv` (the inverse matrix of the measurement looking directly at the light).
+So it was assumed that "table = Stokes vector of the reflected light ÷ Stokes vector looking directly at the light = BRDF × cos θi × an instrument constant", and it was checked whether hemispherical integral ÷ expected value ÷ cos θi is constant independently of θi (550 nm):
 
 | θi | 5° | 15° | 30° | 45° | 60° | 75° |
 |---|---|---|---|---|---|---|
-| Spectralon 2020（÷ 0.99） | 0.60 | 0.60 | 0.60 | 0.64 | 0.76 | 1.33 |
-| 金 2020（÷ Johnson のフレネル） | 0.42 | 0.45 | 0.45 | 0.54 | 0.76 | 1.29 |
-| アルミニウム 2025（÷ McPeak のフレネル） | 0.41 | 0.39 | 0.55 | 0.44 | 0.36 | 0.47 |
+| Spectralon 2020 (÷ 0.99) | 0.60 | 0.60 | 0.60 | 0.64 | 0.76 | 1.33 |
+| Gold 2020 (÷ Johnson's Fresnel) | 0.42 | 0.45 | 0.45 | 0.54 | 0.76 | 1.29 |
+| Aluminum 2025 (÷ McPeak's Fresnel) | 0.41 | 0.39 | 0.55 | 0.44 | 0.36 | 0.47 |
 
-Spectralon は 45° まで 0.60 でぴたりと一定（それ以上は Spectralon 自身がかすめ角で鏡面に寄る既知の挙動と、装置の共通の過剰）。金も 30° まで一定で、60° 以上の上がり方が Spectralon と同じ。アルミニウムは揺れるが傾向は無い。
-**読み: 表は BRDF ではなく「放射輝度係数」（cos θi 込み）で、装置の定数（2020 年版で 0.60）が掛かっている。** 定数が素材によらないなら、金は Johnson の 0.45 / 0.60 = **0.75 倍**、アルミニウムは McPeak の 0.45 / 0.60 前後で、どちらも「表面の酸化・汚れ・めっきで理論より 2 割ほど低い実物」として自然な値になる。
-使うときの手順: **表 × (1 / cos θi) × (1 / 0.60)**。
+Spectralon is exactly constant at 0.60 up to 45° (beyond that, the known behavior of Spectralon itself of going specular at grazing angles, and the excess common to the instrument). Gold is also constant up to 30°, and the rise at 60° and above is the same as for Spectralon. Aluminum fluctuates but has no trend.
+**Reading: the table is not a BRDF but a "radiance factor" (with cos θi included), multiplied by an instrument constant (0.60 for the 2020 version).** If the constant does not depend on the material, gold is 0.45 / 0.60 = **0.75 times** Johnson's, and aluminum about 0.45 / 0.60 times McPeak's; both are natural values for "a real object 20% or so below the theory because of oxidation, dirt and plating on the surface".
+The procedure for use: **table × (1 / cos θi) × (1 / 0.60)**.
 
-**2020 年の本文で分かったこと（`D:\kaist_dl\polarbrdf_main.pdf`、pypdf で全文）。** 2025 年の補足資料は ACM DL にも無く、公開されていない。2020 年の本文には:
-- 放射量の較正: 「LED の分光の偏りと偏光素子の透過率の違いを補正するため、**Spectralon の球（Labsphere SRM-990、反射率 99%）を 5 帯域で撮り、帯域ごとに定数の倍率を決めて、色の再現とエネルギー保存を保証した**」。作者の意図は絶対値だが、表の実測は fr × cos θi × 0.60 なので、倍率を決める計算に cos θi が入ったまま（例えば球の画素の平均を使った）と推測される。
-- **金の試料は「炭素鋼の球に金めっき」**（gold-plated metal sphere on a carbon steel base）。検証では同じ金の平面（Thorlabs の保護膜なしの金ミラー PF20-03-M03）をレーザーのエリプソメータで測り、633 nm の金の屈折率から計算した理想のミュラー行列と比べている。比べているのは **−1〜1 に正規化したミュラー行列の形**で、絶対値ではない。「球と平面の組成の違いによる食い違いが残る」と明記。
-- つまり、金が理論の 0.75 倍で青が低いのは「めっきの金」として自然で、スパイク + もやは「めっき面の鏡面 + 下地の粗さ」と読める。
-- 実用上は上の補正（÷ cos θi ÷ 0.60）で足りる。
+**What was learned from the body of the 2020 paper (`polarbrdf_main.pdf`, read in full with pypdf).** The supplementary material of 2025 is not in the ACM DL either, and is not public. The body of the 2020 paper says:
+- Radiometric calibration: "to correct for the polarization bias of the LED spectrum and for the differences in transmittance of the polarization elements, **a Spectralon sphere (Labsphere SRM-990, reflectance 99%) was photographed in five bands, and a constant multiplier was determined for each band, to guarantee color reproduction and energy conservation**". The authors intended absolute values, but since the measured table is fr × cos θi × 0.60, it is presumed that cos θi remained in the calculation that determined the multiplier (for example, a mean over the pixels of the sphere was used).
+- **The gold sample is "a gold-plated metal sphere on a carbon steel base"**. For validation, a flat gold sample of the same kind (Thorlabs' unprotected gold mirror PF20-03-M03) was measured with a laser ellipsometer and compared with the ideal Mueller matrix calculated from the refractive index of gold at 633 nm. What is compared is **the shape of the Mueller matrix normalized to −1 to 1**, not absolute values. It states explicitly that "a discrepancy remains because of the difference in composition between the sphere and the flat sample".
+- So that gold is 0.75 times the theory and is low in blue is natural for "plated gold", and the spike + haze can be read as "the specular reflection of the plated surface + the roughness of the base".
+- In practice, the correction above (÷ cos θi ÷ 0.60) is sufficient.

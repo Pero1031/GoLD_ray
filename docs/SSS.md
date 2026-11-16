@@ -1,67 +1,67 @@
-# 表面下散乱（SSS）の実装ノート
+# Subsurface scattering (SSS): implementation notes
 
-皮膚のように、光が表面から内部へ入り、散乱してから**別の点**で出てくる材質の実装をまとめたものです。
-対象は GoLD_rayt の現状の実装（2026-11 時点）です。
+Notes on the implementation of materials such as skin, where light enters through the surface, scatters inside, and leaves at a **different point**.
+They describe the current implementation of GoLD_rayt (as of 2026-11).
 
-- [1. 全体像](#1-全体像)
-- [2. 半径プロファイル](#2-半径プロファイル)
-- [3. 材質（CoatedDiffuse）](#3-材質coateddiffuse)
-- [4. 出射点のサンプリング（プローブ光線）](#4-出射点のサンプリングプローブ光線)
-- [5. 出射点のローブ](#5-出射点のローブ)
-- [6. インテグレータの流れ](#6-インテグレータの流れ)
-- [7. スペクトルモード](#7-スペクトルモード)
-- [8. 使い方とパラメータ](#8-使い方とパラメータ)
-- [9. 検証](#9-検証)
-- [10. 計算コスト](#10-計算コスト)
-- [11. ファイル一覧](#11-ファイル一覧)
-- [12. 内部を歩くモード](#12-内部を歩くモードrandomwalk2026-11-10)
+- [1. Overview](#1-overview)
+- [2. Radial profile](#2-radial-profile)
+- [3. Material (CoatedDiffuse)](#3-material-coateddiffuse)
+- [4. Sampling the exit point (probe rays)](#4-sampling-the-exit-point-probe-rays)
+- [5. Lobe at the exit point](#5-lobe-at-the-exit-point)
+- [6. Flow of the integrator](#6-flow-of-the-integrator)
+- [7. Spectral mode](#7-spectral-mode)
+- [8. Usage and parameters](#8-usage-and-parameters)
+- [9. Verification](#9-verification)
+- [10. Computational cost](#10-computational-cost)
+- [11. File list](#11-file-list)
+- [12. Walking inside the object](#12-walking-inside-the-object-randomwalk-2026-11-10)
 
 ---
 
-## 1. 全体像
+## 1. Overview
 
-### 1.1 何を近似しているか
+### 1.1 What is approximated
 
-光が点 `po` から入り、点 `pi` から出て行く過程を BSSRDF（双方向散乱面下反射率分布関数）`S` で表します。
+The process in which light enters at a point `po` and leaves at a point `pi` is expressed with the BSSRDF (bidirectional scattering-surface reflectance distribution function) `S`.
 
 ```
 S(po, wo, pi, wi) = (1 − F(wo)) · Sp(|po − pi|) · Sw(wi)
 ```
 
-| 項 | 意味 | 実装 |
+| Term | Meaning | Implementation |
 |---|---|---|
-| `1 − F(wo)` | 表面のコートを通り抜けて内部へ入る割合 | `CoatedDiffuse` のローブ選択 |
-| `Sp(r)` | 入射点から距離 `r` の場所へ出てくる光の割合（半径プロファイル） | `Subsurface.hpp`、`SubsurfaceProbe.hpp` |
-| `Sw(wi)` | 出射点での方向分布（Fresnel 透過を含む余弦ローブ） | `SubsurfaceExit` |
+| `1 − F(wo)` | fraction that passes the surface coat and enters | lobe selection of `CoatedDiffuse` |
+| `Sp(r)` | fraction of the light that comes out at distance `r` from the entry point (radial profile) | `Subsurface.hpp`, `SubsurfaceProbe.hpp` |
+| `Sw(wi)` | directional distribution at the exit point (a cosine lobe including the Fresnel transmission) | `SubsurfaceExit` |
 
-`Sp` は距離だけで決まる（点の向きや形状に依存しない）と仮定します。これは「平らな面」を想定した近似です。
+`Sp` is assumed to depend only on distance (not on the orientation or shape at the points). This is an approximation that assumes a "flat surface".
 
-### 1.2 経路追跡の中での扱い
+### 1.2 How it is handled inside path tracing
 
-SSS は経路追跡の中の 1 つの**イベント**です。表面で「内部へ入った」というイベントが選ばれたら、
-出射点を確率的に探し、その点から経路を続けます。
+SSS is one **event** in the path tracing. When the event "entered the inside" is chosen at the surface,
+the exit point is searched for stochastically, and the path continues from that point.
 
 ```
- カメラ → 入射点 po ──(SSS イベント)──→ 出射点 pi → 光源サンプル（NEE）／次の方向 → …
+ camera → entry point po ──(SSS event)──→ exit point pi → light sample (NEE) / next direction → …
             │
-            └─(鏡面ローブ) コートでの反射 → 従来どおり次の方向へ
+            └─(specular lobe) reflection at the coat → next direction as usual
 ```
 
-### 1.3 方式を選んだ理由
+### 1.3 Why this method was chosen
 
-| 方式 | 採否 | 理由 |
+| Method | Adopted? | Reason |
 |---|---|---|
-| ランダムウォーク（内部を実際に歩く） | 当初は不採用 | 当時は媒質（`Medium`）の仕組みがまだなかった。PMX の肌は閉じたメッシュではない。**今は、閉じた形に使えるモードがある（12 節）** |
-| **BSSRDF + プローブ光線** | **採用** | メッシュが閉じていなくても動く。BVH も Embree もそのまま使える。皮膚向けの標準手法 |
-| 画像空間のぼかし | 不採用 | 経路追跡と整合しない |
+| Random walk (actually walking inside) | not at first | at the time there was no medium mechanism (`Medium`) yet. The skin of a PMX model is not a closed mesh. **There is now a mode for closed shapes (section 12)** |
+| **BSSRDF + probe rays** | **adopted** | works even if the mesh is not closed. BVH and Embree can be used as they are. The standard method for skin |
+| Image-space blur | rejected | inconsistent with path tracing |
 
 ---
 
-## 2. 半径プロファイル
+## 2. Radial profile
 
-### 2.1 Burley の正規化拡散
+### 2.1 Burley's normalized diffusion
 
-チャンネル `c`（RGB、スペクトルモードでは 4 波長）ごとに、出射点の面積密度を次の式で表します。
+For each channel `c` (RGB; 4 wavelengths in spectral mode), the area density of the exit point is expressed by
 
 ```
 Sp_c(r) = A_c · P(r; d_c)
@@ -69,221 +69,221 @@ Sp_c(r) = A_c · P(r; d_c)
 P(r; d) = ( e^(−r/d) + e^(−r/(3d)) ) / ( 8π · d · r )
 ```
 
-`P` は平面全体で積分すると 1 になります（`∫ P · 2πr dr = 1`）。したがって `Sp_c` を全面で積分すると
-`A_c`、つまり拡散色（アルベド）になります。エネルギーが保存されます。
+`P` integrates to 1 over the whole plane (`∫ P · 2πr dr = 1`). Therefore the integral of `Sp_c` over the whole surface
+is `A_c`, the diffuse color (albedo). Energy is conserved.
 
-### 2.2 パラメータの決め方
+### 2.2 How the parameters are determined
 
 ```
 d_c = ℓ_c / s(A_c)          s(A) = 1.85 − A + 7·|A − 0.8|³
 ```
 
-| 記号 | 意味 | 値の出どころ |
+| Symbol | Meaning | Origin of the value |
 |---|---|---|
-| `A_c` | 拡散色（入射点のテクスチャ色 × 材質色） | 材質。**入射点**の値を使う |
-| `ℓ_c` | 散乱距離（平均自由行程） | 既定: 赤 3.67、緑 1.37、青 0.68 mm × `--sss-scale` |
-| `s(A)` | Burley の近似式（アルベドから形状を決める） | 固定式 |
+| `A_c` | diffuse color (texture color at the entry point x material color) | material. The value at the **entry point** is used |
+| `ℓ_c` | scattering distance (mean free path) | default: red 3.67, green 1.37, blue 0.68 mm x `--sss-scale` |
+| `s(A)` | Burley's approximation (sets the shape from the albedo) | fixed formula |
 
-入射点のテクスチャ色を使うので、絵（眉、肌の模様）は鮮明なまま、**ぼけるのは光だけ**です。
+Because the texture color at the entry point is used, the picture (eyebrows, skin patterns) stays sharp, and **only the light is blurred**.
 
-### 2.3 サンプリング
+### 2.3 Sampling
 
-半径の分布関数（CDF）は閉じた形です。
+The cumulative distribution function (CDF) of the radius has a closed form.
 
 ```
 CDF(r) = 1 − ¼·e^(−r/d) − ¾·e^(−r/(3d))
 ```
 
-逆関数はニュートン法（括弧付き、最大 7 反復）で解き、一様乱数 `u` から半径 `r` を得ます。
-平均半径は `2.5·d` です（検証に使っています）。
+The inverse is solved with Newton's method kept inside a bracket (at most 24 iterations in the code), giving the radius `r` from a uniform random number `u`.
+The mean radius is `2.5·d` (used in the verification).
 
-### 2.4 半径の上限
+### 2.4 Upper limit of the radius
 
-プローブの球の半径 `rMax` は、全チャンネルの「CDF = 0.999 の半径」の最大値です。
-これより大きい半径はサンプルを捨てます（エネルギーの約 0.1% を失います）。
+The radius `rMax` of the probe sphere is the largest of the radii at "CDF = 0.999" over all channels.
+Samples with a larger radius are discarded (about 0.1% of the energy is lost).
 
 ---
 
-## 3. 材質（CoatedDiffuse）
+## 3. Material (CoatedDiffuse)
 
-`CoatedDiffuse` に `setSubsurface(profile)` を呼ぶと、拡散ローブの代わりに SSS イベントを使います。
-表面のコート（GGX の鏡面、重み `w`）は局所的な反射のままです。
+When `setSubsurface(profile)` is called on `CoatedDiffuse`, the SSS event is used instead of the diffuse lobe.
+The surface coat (GGX specular, weight `w`) remains a local reflection.
 
-| ローブ | 選ばれる確率 | 内容 |
+| Lobe | Probability of being chosen | Content |
 |---|---|---|
-| 鏡面（コート） | `pS = clamp( w·F(cosθo), 0.05, 0.95 )` | 従来どおり。方向をサンプルして次へ |
-| SSS イベント | `1 − pS` | 「内部へ入った」。方向は返さない。重みは `(1 − w·F) / (1 − pS)` |
+| Specular (coat) | `pS = clamp( w·F(cosθo), 0.05, 0.95 )` | as usual. Sample a direction and go on |
+| SSS event | `1 − pS` | "entered the inside". No direction is returned. The weight is `(1 − w·F) / (1 − pS)` |
 
-- `pS` がクランプされていなければ、SSS イベントの重みは正確に 1 です。
-- `eval` と `pdf` は鏡面ローブだけを返します（拡散ローブは存在しません）。
-- BSDF のサンプル結果には新しいフラグ `BxDFFlags::Subsurface` が付き、`isSubsurface()` で判別します。
-  このとき `f` は「単なる重み」で、コサインも pdf も掛けません。
+- If `pS` is not clamped, the weight of the SSS event is exactly 1.
+- `eval` and `pdf` return only the specular lobe (there is no diffuse lobe).
+- A new flag `BxDFFlags::Subsurface` is attached to the BSDF sample result and is tested with `isSubsurface()`.
+  Here `f` is "just a weight", and neither the cosine nor the pdf is multiplied in.
 
-### 材質の共有
+### Sharing the material
 
-肌の材質（顔・首・体）は**同じプロファイルのポインタ**を共有します。出射点の候補は、
-このポインタが一致する面だけです。服や髪は候補になりません。
+The skin materials (face, neck, body) share **the same profile pointer**. The candidates for the exit point are
+only the surfaces whose pointer matches. Clothes and hair are not candidates.
 
 ---
 
-## 4. 出射点のサンプリング（プローブ光線）
+## 4. Sampling the exit point (probe rays)
 
-`SampleSubsurfaceExit`（`Render/SubsurfaceProbe.hpp`）が、入射点 `po` から出射点 `pi` を決めます。
-PBRT v3 の BSSRDF サンプリングと同じ方式です。
+`SampleSubsurfaceExit` (`Render/SubsurfaceProbe.hpp`) decides the exit point `pi` from the entry point `po`.
+It is the same method as the BSSRDF sampling of PBRT v3.
 
-### 4.1 手順
+### 4.1 Procedure
 
-1. **チャンネル選択**: 全チャンネルから一様に 1 つを選びます。
-2. **半径と角度**: 選んだチャンネルのプロファイルから半径 `r` を、角度 `φ` を一様にサンプルします。
-   `r ≥ rMax` なら失敗（経路は終了）。
-3. **軸の選択**: 入射点の局所座標（接線 s、従接線 t、法線 n）の中から、プローブの向きを選びます。
+1. **Channel selection**: choose one of all the channels uniformly.
+2. **Radius and angle**: sample the radius `r` from the profile of the chosen channel, and the angle `φ` uniformly.
+   If `r ≥ rMax`, it fails (the path ends).
+3. **Axis selection**: choose the direction of the probe among the local axes of the entry point (tangent s, bitangent t, normal n).
 
-   | 軸 | 確率 |
+   | Axis | Probability |
    |---|---|
-   | 法線 n | 1/2 |
-   | 接線 s | 1/4 |
-   | 従接線 t | 1/4 |
+   | normal n | 1/2 |
+   | tangent s | 1/4 |
+   | bitangent t | 1/4 |
 
-4. **プローブ光線**: 選んだ軸に垂直な面内の、オフセット `(r cosφ, r sinφ)` の位置から、
-   半径 `rMax` の球を貫く線分を飛ばします。長さは `2·sqrt(rMax² − r²)` です。
-   曲がった面や折れた面でも、「入射点から約 `r` 離れた表面」を見つけられます。
-5. **ヒットの収集**: 線分上のヒットを手前から順にたどります（最大 32 回）。
-   **同じプロファイルを持つ面**だけを候補に加えます（最大 8 個）。他の材質は通り抜けます。
-6. **候補の選択**: 候補から 1 つを一様に選びます。見つからなければ失敗です。
+4. **Probe ray**: from the position offset by `(r cosφ, r sinφ)` in the plane perpendicular to the chosen axis, shoot a segment
+   that pierces a sphere of radius `rMax`. Its length is `2·sqrt(rMax² − r²)`.
+   Even on curved or creased surfaces, it can find "the surface about `r` away from the entry point".
+5. **Collecting hits**: follow the hits on the segment from the front (at most 32).
+   Only **surfaces with the same profile** are added as candidates (at most 8). Other materials are passed through.
+6. **Choosing a candidate**: choose one of the candidates uniformly. If none is found, it fails.
 
-### 4.2 確率密度（pdf）
+### 4.2 Probability density (pdf)
 
-選ばれた出射点 `pi` が、「どの軸・どのチャンネル」からでも見つかり得ることを考慮します。
+Take into account that the chosen exit point `pi` could have been found from "any axis and any channel".
 
 ```
-pdf = (1 / 候補数) · Σ_軸 [ 軸の確率 · |n_pi の軸成分| · (1/チャンネル数) Σ_c P(rProj_軸; d_c) ]
+pdf = (1 / number of candidates) · Σ_axis [ axis probability · |axis component of n_pi| · (1/number of channels) Σ_c P(rProj_axis; d_c) ]
 ```
 
-- `rProj_軸`: `po − pi` を、その軸に垂直な面へ射影した長さです。
-- `|n_pi の軸成分|`: 出射点の面が、プローブ軸に対して斜めであることによる補正（面積のヤコビアン）です。
+- `rProj_axis`: the length of `po − pi` projected onto the plane perpendicular to that axis.
+- `|axis component of n_pi|`: a correction for the exit surface being oblique to the probe axis (the area Jacobian).
 
-### 4.3 重み
+### 4.3 Weight
 
 ```
 weight_c = A_c · P(|po − pi|; d_c) / pdf
 ```
 
-距離は 3 次元の実距離 `|po − pi|` を使います。この重みを経路のスループット `beta` に掛けます。
+The actual 3D distance `|po − pi|` is used. This weight is multiplied into the path throughput `beta`.
 
-### 4.4 出射頂点
+### 4.4 Exit vertex
 
-- 法線は表面の**外向き**にそろえます（`scene.hit()` はプローブ光線の向きに法線を反転するため、元に戻します）。
-- 材質は `SubsurfaceExit` に差し替えます。
+- The normal is aligned to the **outward** direction of the surface (`scene.hit()` flips the normal toward the direction of the probe ray, so it is flipped back).
+- The material is replaced by `SubsurfaceExit`.
 
 ---
 
-## 5. 出射点のローブ
+## 5. Lobe at the exit point
 
-出射点の方向分布 `Sw` は、Fresnel 透過を含む余弦ローブです。
+The directional distribution `Sw` at the exit point is a cosine lobe including the Fresnel transmission.
 
 ```
 Sw(wi) = ( 1 − w·F(cosθi) ) / ( c·π )
-c      = 1 − 2·w·∫₀¹ F(μ) μ dμ       （128 点の数値積分）
+c      = 1 − 2·w·∫₀¹ F(μ) μ dμ       (numerical integration with 128 points)
 ```
 
-`c` は、半球で `∫ Sw · cosθ dω = 1` となるように決めます。出射方向 `wo` には依存しないため、
-経路は出射点に「到着した」ものとして、そのまま続けられます。
+`c` is chosen so that `∫ Sw · cosθ dω = 1` over the hemisphere. Since it does not depend on the outgoing direction `wo`,
+the path can continue as if it had "arrived" at the exit point.
 
-| 操作 | 内容 |
+| Operation | Content |
 |---|---|
-| `eval` | `Sw(wi)`（`wi` が外向きの半球にあるときだけ） |
+| `eval` | `Sw(wi)` (only when `wi` is in the outward hemisphere) |
 | `pdf` | `cosθi / π` |
-| `sample` | 余弦分布で方向をサンプル。重み `f·cos/pdf = (1 − w·F)/c` |
+| `sample` | sample a direction from the cosine distribution. Weight `f·cos/pdf = (1 − w·F)/c` |
 
 ---
 
-## 6. インテグレータの流れ
+## 6. Flow of the integrator
 
-`Integrator::Li` の、各頂点での処理です（**最大 2 段**）。
+The processing at each vertex of `Integrator::Li` (**at most 2 stages**).
 
 ```
-段 0（入射点）
- ├ 光源サンプル（NEE）…… 鏡面ローブだけが寄与
- └ ローブ選択
-    ├ 鏡面ローブ ……………… 通常の BSDF サンプル → 次の方向へ
-    └ SSS イベント ………… SampleSubsurfaceExit
-                             beta ×= （イベントの重み）×（プロファイルの重み）
-                             rec = 出射頂点、 lastRec = 出射頂点（MIS 用）
-段 1（出射点）
- ├ 光源サンプル（NEE）…… SubsurfaceExit の Sw ローブ
- └ 余弦分布で次の方向 → 経路を続行
+Stage 0 (entry point)
+ ├ light sample (NEE) …… only the specular lobe contributes
+ └ lobe selection
+    ├ specular lobe ……………… ordinary BSDF sample → next direction
+    └ SSS event ………… SampleSubsurfaceExit
+                             beta ×= (event weight) x (profile weight)
+                             rec = exit vertex, lastRec = exit vertex (for MIS)
+Stage 1 (exit point)
+ ├ light sample (NEE) …… the Sw lobe of SubsurfaceExit
+ └ next direction from the cosine distribution → continue the path
 ```
 
-- 出射点が見つからない場合、その経路は終了します。
-- `lastRec` を出射頂点にするので、後で光源に当たったときの MIS の重みは、出射点を基準に計算されます。
-- 入射点の光源サンプルは鏡面ローブだけです。拡散反射はすべて、出射点での光源サンプルが担当します。
+- If no exit point is found, the path ends.
+- Since `lastRec` is the exit vertex, the MIS weight when a light is hit later is computed relative to the exit point.
+- The light sample at the entry point is only for the specular lobe. All diffuse reflection is handled by the light sample at the exit point.
 
 ---
 
-## 7. スペクトルモード
+## 7. Spectral mode
 
-- チャンネル数が 3（RGB）から 4（波長）に変わります（`kSssChannels`）。
-- アルベドは `RgbColor::reflectance(lambda)`、散乱距離は RGB 3 値を滑らかにスペクトル化して使います。
-- 半径のサンプルには、4 波長から一様に選んだ 1 波長を使い、pdf は 4 波長の平均で計算します。
+- The number of channels changes from 3 (RGB) to 4 (wavelengths) (`kSssChannels`).
+- The albedo is `RgbColor::reflectance(lambda)`, and the scattering distance uses the 3 RGB values smoothly converted to spectra.
+- For the radius sample, one wavelength chosen uniformly from the 4 wavelengths is used, and the pdf is computed as the mean over the 4 wavelengths.
 
 ---
 
-## 8. 使い方とパラメータ
+## 8. Usage and parameters
 
 ```bat
 GoLD_rayt.exe --scene pmx --pmx-index 4 --pose-index 0 --expr shy --pmx-yaw -25 --pmx-studio ^
               --pmx-zoom 4.0 --pmx-focus 0.79 --width 420 --spp 128 --sss --denoise --out face.png
 ```
 
-| オプション | 内容 |
+| Option | Content |
 |---|---|
-| `--sss` | PMX の肌の材質（名前に 体・肌・颜・首 を含む）に SSS を有効にする |
-| `--sss-scale S` | 散乱距離を `S` 倍する（指定すると SSS も有効になる） |
+| `--sss` | enables SSS on the skin materials of a PMX model (names containing 体, 肌, 颜 or 首) |
+| `--sss-scale S` | multiplies the scattering distance by `S` (specifying it also enables SSS) |
 
-| `--sss-scale` | 見た目 |
+| `--sss-scale` | Look |
 |---|---|
-| 1 | 実寸に近い。影の側に赤みが回り込み、頬が柔らかくなる（控えめ） |
-| 3 | アニメ調向け。頬や首がオレンジ色にはっきり光る |
+| 1 | close to real size. Reddish light wraps into the shadow side and the cheeks become soft (subtle) |
+| 3 | for an anime look. Cheeks and neck glow clearly orange |
 
-- 効果が見えるのは顔のアップです。全身の構図では、1 px が約 3 mm なので、ほとんど見えません。
-- `--pmx-matte` を付けると、肌のプリセットが無効になり SSS も効きません。
-- コードから使う場合:
+- The effect is visible in close-ups of the face. In a full-body composition, 1 px is about 3 mm, so it is hardly visible.
+- With `--pmx-matte`, the skin preset is disabled and SSS has no effect either.
+- To use it from code:
 
 ```cpp
 auto profile = std::make_shared<SubsurfaceProfile>(Vector3(3.67, 1.37, 0.68) * 0.001, /*eta=*/1.4);
 auto skin = std::make_shared<CoatedDiffuse>(baseColor, /*roughness=*/0.5, /*coat weight=*/0.4, /*metallic=*/0, texture);
-skin->setSubsurface(profile);   // 同じ profile を、顔・首・体の全材質で共有する
+skin->setSubsurface(profile);   // share the same profile among all materials of face, neck and body
 ```
 
 ---
 
-## 9. 検証
+## 9. Verification
 
-`GoLD_rayt.exe --scene sss` で実行します（RGB・スペクトルの両モードで合格）。失敗すると終了コードは 2 です。
+Run with `GoLD_rayt.exe --scene sss` (passes in both RGB and spectral modes). On failure the exit code is 2.
 
-| 検証 | 内容 | 結果 |
+| Check | Content | Result |
 |---|---|---|
-| プロファイルの正規化 | `∫ P · 2πr dr` と CDF の一致 | 一致 |
-| 逆 CDF | `CDF(sampleRadius(u)) = u` | 一致（`--scene sss` は 5 点で 1e-9 以内。同じアルゴリズムの Python 再現で 10 万点を調べ、最大誤差 3e-16、最大 7 反復） |
-| 平均半径 | 理論値 `2.5·d` との比較（4σ 以内） | 一致 |
-| 白炉 | 平らな肌を一様な空で照らす。期待値は反射率 0.8 | 0.797 |
-| ナイフエッジ | 影の縁をまたぐ半径プロファイルを、数値積分の理論値と比較（6 点） | 全点が 4σ 以内 |
+| Normalization of the profile | agreement of `∫ P · 2πr dr` and the CDF | agrees |
+| Inverse CDF | `CDF(sampleRadius(u)) = u` | agrees (`--scene sss` within 1e-9 at 5 points. A Python replica of the same algorithm was run on 100,000 points: maximum error 3e-16, at most 7 iterations) |
+| Mean radius | comparison with the theoretical value `2.5·d` (within 4σ) | agrees |
+| White furnace | a flat skin lit by a uniform sky. The expected value is the reflectance 0.8 | 0.797 |
+| Knife edge | the radial profile across a shadow edge, compared with the numerically integrated theory (6 points) | all points within 4σ |
 
-ナイフエッジの検証は、点光源（高さ 100 m）と黒い遮蔽板で、縁の片側だけを一様に照らします。
-縁から距離 `x` の点の理論値は、プロファイルの質量のうち、直線の向こう側にある割合
-`D(t) = ∫ (e^(−s/d) + 3e^(−s/(3d))) / (8π) dφ`（`s = t/cosφ`）から計算します。
+The knife-edge check uses a point light (height 100 m) and a black occluding plate to light only one side of the edge uniformly.
+The theoretical value at distance `x` from the edge is computed from the fraction of the profile mass on the far side of the straight line,
+`D(t) = ∫ (e^(−s/d) + 3e^(−s/(3d))) / (8π) dφ` (`s = t/cosφ`).
 
-検証の過程で、逆 CDF のソルバーのバグ（収束後に二分法へ落ちる）が見つかり、修正しています。
+During the verification, a bug in the inverse-CDF solver (it fell back to bisection after convergence) was found and fixed.
 
-### 9.1 ランダムウォークとの比較（プロファイルの形の誤差）
+### 9.1 Comparison with a random walk (error of the profile shape)
 
-エンジンの Burley プロファイル（`A · P(r; d)`、`d = ℓ / s(A)`）が、本物の散乱の中の光の広がりを、どれだけ再現しているかを、ランダムウォークの参照で測りました（2026-11-08）。`tools/studies/sss_random_walk.py`（numpy。エンジンとは独立）で、生の表は [data/sss_random_walk.txt](data/sss_random_walk.txt) です。
+How well the engine's Burley profile (`A · P(r; d)`, `d = ℓ / s(A)`) reproduces the spread of light in real scattering was measured against a random-walk reference (2026-11-08). The script is `tools/studies/sss_random_walk.py` (numpy; independent of the engine), and the raw table is [data/sss_random_walk.txt](data/sss_random_walk.txt).
 
-**条件**: 半無限の均質な媒質（消散係数 1、長さは平均自由行程）、単一散乱アルベド α、Henyey-Greenstein の異方性 g、**屈折率整合の境界**（フレネル係数をプロファイルの外で扱うエンジンと同じ前提）、原点に細いビームを垂直に当てる。各光子を、出るか吸収されるまで追い、出た点の半径を数えます（1 ケース 100 万本）。
+**Conditions**: a semi-infinite homogeneous medium (extinction coefficient 1; lengths in mean free paths), single-scattering albedo α, Henyey-Greenstein anisotropy g, an **index-matched boundary** (the same assumption as the engine, which handles the Fresnel factors outside the profile), and a thin beam hitting the origin perpendicularly. Each photon is followed until it exits or is absorbed, and the radius of the exit point is counted (1 million photons per case).
 
-**比べ方**: 歩いて得た全反射率を `A` として、エンジンの写像（`ℓ` は等方なら 1、異方なら簡約平均自由行程 `1/(1−gα)`）でプロファイルを作ります。半径方向の累積分布の最大の差（Kolmogorov 距離 KS。0 = 同一）、`d` だけを最良にしたときの KS、平均半径、いくつかの半径での「歩き / モデル」の比を見ます。
+**How they are compared**: take the total reflectance obtained by the walk as `A`, and build the profile with the engine's mapping (`ℓ` is 1 for isotropic, and the reduced mean free path `1/(1−gα)` for anisotropic). The measures are the maximum difference of the radial cumulative distribution (Kolmogorov distance, KS; 0 = identical), the KS when only `d` is optimized, the mean radius, and the ratio "walk / model" at several radii.
 
-| α | g | A（歩き） | KS（エンジンの写像） | `d` の最良 / 写像 | KS（最良の `d`） | 平均半径 歩き / モデル（2.5d） |
+| α | g | A (walk) | KS (engine mapping) | best `d` / mapping | KS (best `d`) | mean radius walk / model (2.5d) |
 |---|---|---|---|---|---|---|
 | 0.5 | 0 | 0.115 | 0.021 | 1.05 | 0.008 | 0.68 / 0.63 |
 | 0.8 | 0 | 0.285 | 0.013 | 1.02 | 0.007 | 1.03 / 0.99 |
@@ -296,46 +296,46 @@ skin->setSubsurface(profile);   // 同じ profile を、顔・首・体の全材
 | 0.99 | 0.8 | 0.522 | 0.122 | 1.32 | 0.050 | 9.61 / 8.13 |
 | 0.999 | 0.8 | 0.813 | 0.112 | 1.41 | 0.033 | 16.42 / 12.01 |
 
-![半径プロファイル。点: ランダムウォーク、赤: エンジンの写像、青破線: `d` の最良値](img/sss_profile_random_walk.png)
+![Radial profile. Dots: random walk, red: the engine's mapping, blue dashed: best value of `d`](img/sss_profile_random_walk.png)
 
-**分かったこと**
-- **肌の拡散色の範囲（等方、A = 0.3〜0.75）では、よく合います。** KS は 0.010〜0.025 で、出射するエネルギーのうち、半径がずれているのは 1〜2.5% です。`d` の写像も、最良の `d` に近い（±6% 以内）です。
-- **A が大きい（0.9 以上、α ≥ 0.999）と、裾が合いません。** 歩きの平均半径は、モデルの 1.6〜2.1 倍です。`d` を 1.3〜1.5 倍にしても、KS は 0.04〜0.05 までしか下がらず、形の違いが残ります（Burley の `s(A)` は、A が 0.8 付近を中心に合わせた近似です）。
-- **異方性（g = 0.5、0.8）では、近いところが合いません。** `ℓ` を簡約平均自由行程にする相似則は、入射点の近く（半径が ℓ の 0.3 倍以下）で効きません。歩きの値は、モデルの 0.5〜0.7 倍で、モデルが近傍を過大に見積もります。遠いところ（ℓ の 3 倍以上）では、逆に 1.1〜1.4 倍で、歩きのほうが裾が長いです。皮膚の g は 0.8 前後です。
-- 裾（半径 10ℓ）の比は、数える光子が少ないので、ノイズが大きいです（α = 0.5 の 4.4 倍は、ほぼ数十個の光子の揺らぎ）。
+**What was found**
+- **In the range of skin diffuse colors (isotropic, A = 0.3 to 0.75), they agree well.** KS is 0.010 to 0.025, and 1 to 2.5% of the exiting energy has its radius off. The mapping of `d` is also close to the best `d` (within ±6%).
+- **When A is large (0.9 or more, α ≥ 0.999), the tail does not match.** The mean radius of the walk is 1.6 to 2.1 times that of the model. Even with `d` multiplied by 1.3 to 1.5, KS only falls to 0.04 to 0.05, so a difference in shape remains (Burley's `s(A)` is an approximation fitted around A of about 0.8).
+- **With anisotropy (g = 0.5, 0.8), the region near the entry point does not match.** The similarity rule that takes the reduced mean free path as `ℓ` does not work near the entry point (radius up to 0.3 times ℓ). The walk's value is 0.5 to 0.7 times the model's, so the model overestimates the neighborhood. Far away (3 times ℓ or more) it is the other way round, 1.1 to 1.4 times, and the walk has the longer tail. The g of skin is around 0.8.
+- The ratio in the tail (radius 10ℓ) is noisy, because few photons are counted (the 4.4 times at α = 0.5 is mostly the fluctuation of a few tens of photons).
 
-**この比較で言えること**
-- 言えること: **平らな半無限の媒質での、プロファイルの形の誤差**です。普通の肌の色では 1〜2.5%、アルベドが高い、または異方性が強いと 7〜12% です。
+**What this comparison can say**
+- What it can say: the error of the profile shape for a **flat semi-infinite medium**. It is 1 to 2.5% for ordinary skin colors, and 7 to 12% when the albedo is high or the anisotropy is strong.
 
-**再現**: `python -I tools/studies/sss_random_walk.py --walkers 1000000 --out docs/data/sss_random_walk.txt --fig out/sss/profile_rw.png`（約 2 分）。
+**Reproduction**: `python -I tools/studies/sss_random_walk.py --walkers 1000000 --out docs/data/sss_random_walk.txt --fig out/sss/profile_rw.png` (about 2 minutes).
 
-### 9.2 球と薄い板（BSSRDF と体積のランダムウォーク）
+### 9.2 Sphere and thin disc (BSSRDF and volumetric random walk)
 
-9.1 は平らな半無限の媒質でした。曲率と厚さが入ると、どれだけずれるかを、エンジンの中で、同じ媒質を 2 通りに描いて比べました（2026-11-08。`--scene sssrw`、`src/Cli/Tools/SssRandomWalk.cpp`、生の出力は [data/sss_bssrdf_vs_volume.txt](data/sss_bssrdf_vs_volume.txt)）。
+Section 9.1 was a flat semi-infinite medium. To see how much the result shifts once curvature and thickness enter, the same medium was rendered in two ways inside the engine and compared (2026-11-08. `--scene sssrw`, `src/Cli/Tools/SssRandomWalk.cpp`, raw output in [data/sss_bssrdf_vs_volume.txt](data/sss_bssrdf_vs_volume.txt)).
 
-**条件**
-- **体積**: 球または円板の内側を、散乱媒質（灰色、アルベド α、異方性 g）で満たします。境界は**屈折率 1 の無効境界**（反射も屈折もなし）で、媒質内 NEE で点光源に照らします。
-- **BSSRDF**: 同じ形に、`CoatedDiffuse`（コートなし、重み 0）の SSS を付けます。散乱距離 ℓ は簡約平均自由行程（2 mm）、拡散色 `A` は 9.1 の半無限の全反射率（α = 0.99 で 0.752、0.9 で 0.415、α = 0.99・g = 0.8 で 0.522）です。
-- 違いは、プロファイルのモデルが表せないものだけになります（曲率、厚さ、プロファイルの形）。
-- 細い円錐の点光源で照らし、256 spp。値は、フィルムの輝度（緑）で、白い Lambertian 面が光源に正対したときが 1 になる強さです。
+**Conditions**
+- **Volume**: the inside of a sphere or disc is filled with a scattering medium (gray, albedo α, anisotropy g). The boundary is a **null interface with index 1** (no reflection or refraction), lit by a point light with in-medium NEE.
+- **BSSRDF**: the same shape with the SSS of `CoatedDiffuse` (no coat, weight 0). The scattering distance ℓ is the reduced mean free path (2 mm), and the diffuse color `A` is the total reflectance of the semi-infinite medium of 9.1 (0.752 for α = 0.99, 0.415 for 0.9, 0.522 for α = 0.99, g = 0.8).
+- The only differences are what the profile model cannot represent (curvature, thickness, the shape of the profile).
+- Lit by a point light with a narrow cone, 256 spp. The values are the film luminance (green), where 1 is the intensity of a white Lambertian surface facing the light.
 
-**球**（半径 `R`、光源は横 60°。影の境界（terminator）は、直径上の `x/R ≈ −0.5` あたり）
+**Sphere** (radius `R`, light 60° to the side. The terminator is at about `x/R ≈ −0.5` on the diameter)
 
-| 条件 | 画面全体の合計（BSSRDF / 体積） | 影の側（x/R = −0.6） | 中央（0） | 光の側（+0.6） | 光の側の縁（+0.96） |
+| Condition | Whole-image total (BSSRDF / volume) | Shadow side (x/R = −0.6) | Center (0) | Light side (+0.6) | Edge of the light side (+0.96) |
 |---|---|---|---|---|---|
-| α = 0.99、R = 2ℓ | 0.88 | 0.64 | 0.84 | 0.96 | 1.40 |
-| α = 0.99、R = 5ℓ | 0.91 | 0.54 | 0.83 | 0.98 | 1.17 |
-| α = 0.99、R = 10ℓ | 0.91 | 0.63 | 0.87 | 0.99 | 1.09 |
-| α = 0.9、R = 5ℓ | 0.78 | 0.34 | 0.76 | 0.93 | 1.00 |
-| α = 0.99、g = 0.8、R = 5ℓ | 0.88 | 0.50 | 0.76 | 0.95 | 1.52 |
+| α = 0.99, R = 2ℓ | 0.88 | 0.64 | 0.84 | 0.96 | 1.40 |
+| α = 0.99, R = 5ℓ | 0.91 | 0.54 | 0.83 | 0.98 | 1.17 |
+| α = 0.99, R = 10ℓ | 0.91 | 0.63 | 0.87 | 0.99 | 1.09 |
+| α = 0.9, R = 5ℓ | 0.78 | 0.34 | 0.76 | 0.93 | 1.00 |
+| α = 0.99, g = 0.8, R = 5ℓ | 0.88 | 0.50 | 0.76 | 0.95 | 1.52 |
 
-- 光の側（光が当たっているところ）は、7% 以内で合います（縁を除く）。
-- **影の側と中央は、BSSRDF が暗い**（0.34〜0.87 倍）。光が物体の内部を通って、影の境界の向こうへ回り込む分が、足りません。半径を 10ℓ にしても、ほとんど変わらない（0.63）ので、小さな球だけの問題ではありません。
-- 画面全体では、α = 0.99 で 9〜12%、α = 0.9 で 22% 暗くなります。
+- The light side (where the light falls) agrees within 7% (except the edge).
+- **The shadow side and the center are darker with the BSSRDF** (0.34 to 0.87 times). The light that travels through the inside of the object and wraps around beyond the terminator is missing. Even with a radius of 10ℓ it hardly changes (0.63), so it is not a problem of small spheres only.
+- Over the whole image, it is 9 to 12% darker at α = 0.99 and 22% darker at α = 0.9.
 
-**円板**（半径 15ℓ、厚さ `t`、中心の領域の平均。反射 = 光源と同じ側から見る、透過 = 反対側から照らす。光源は軸上、カメラと一直線）
+**Disc** (radius 15ℓ, thickness `t`, mean over the central region. Reflection = viewed from the same side as the light, transmission = lit from the opposite side. The light is on the axis, in line with the camera)
 
-| t / ℓ | 反射: 体積 | 反射: BSSRDF | 比 | 透過: 体積 | 透過: BSSRDF | 比 |
+| t / ℓ | Reflection: volume | Reflection: BSSRDF | Ratio | Transmission: volume | Transmission: BSSRDF | Ratio |
 |---|---|---|---|---|---|---|
 | 0.25 | 0.068 | 0.725 | **10.7** | 0.067 | 0.623 | **9.3** |
 | 0.5 | 0.136 | 0.732 | 5.4 | 0.133 | 0.553 | 4.2 |
@@ -344,111 +344,115 @@ skin->setSubsurface(profile);   // 同じ profile を、顔・首・体の全材
 | 4 | 0.618 | 0.732 | 1.18 | 0.302 | 0.114 | **0.38** |
 | 8 | 0.709 | 0.745 | 1.05 | 0.122 | 0.022 | **0.18** |
 
-（α = 0.99、g = 0）
+(α = 0.99, g = 0)
 
-- **BSSRDF の反射は、厚さによらず一定**（半無限の値、約 0.73）です。実際は、薄いと光が裏から逃げるので、反射は小さくなります。そのため、**t ≤ 1ℓ では、BSSRDF が 3〜11 倍明るく**、**t ≥ 4〜8ℓ で 5〜18% 以内**に収まります。
-- **透過**は、薄いとき（t ≤ 0.5ℓ）に **4〜9 倍過大**、1.5ℓ 付近で一致し、**厚い（t ≥ 4ℓ）と 2.6〜5.5 倍過小**です。
-- アルベドが低い（α = 0.9、A = 0.415）と、同じ傾向で、反射は 7.0、3.6、2.0、1.3、1.1、1.1 倍、透過は 5.6、2.4、1.0、0.41、0.19、0.09 倍です。
-- 異方性（g = 0.8）は、光源を軸から 45° ずらして測りました（軸上だと、カメラが前方散乱のピークをまっすぐ見て、比較にならない）。反射は 9.0、3.8、2.0、1.3、1.04、0.97 倍で、等方と同じ傾向です。透過は 1.3、0.72、0.46、0.36、0.28、0.17 倍です。
-- 光源が 45° のとき（α = 0.99、g = 0）も、反射は 7.9、4.1、2.3、1.5、1.14、1.02 倍、透過は 6.9、3.3、1.6、0.81、0.44、0.21 倍で、垂直入射と同じ傾向（薄いほど過大。値はやや小さい）です。
+- **The reflection of the BSSRDF is constant regardless of thickness** (the semi-infinite value, about 0.73). In reality, when the disc is thin, light escapes from the back and the reflection becomes smaller. Therefore **for t ≤ 1ℓ the BSSRDF is 3 to 11 times brighter**, and **for t ≥ 4 to 8ℓ it is within 5 to 18%**.
+- **Transmission** is **4 to 9 times too high** when thin (t ≤ 0.5ℓ), agrees around 1.5ℓ, and is **2.6 to 5.5 times too low when thick (t ≥ 4ℓ)**.
+- With a low albedo (α = 0.9, A = 0.415), the tendency is the same: reflection 7.0, 3.6, 2.0, 1.3, 1.1, 1.1 times, transmission 5.6, 2.4, 1.0, 0.41, 0.19, 0.09 times.
+- Anisotropy (g = 0.8) was measured with the light shifted 45° from the axis (on the axis, the camera looks straight into the forward-scattering peak, which makes the comparison meaningless). Reflection is 9.0, 3.8, 2.0, 1.3, 1.04, 0.97 times, the same tendency as isotropic. Transmission is 1.3, 0.72, 0.46, 0.36, 0.28, 0.17 times.
+- With the light at 45° (α = 0.99, g = 0), reflection is 7.9, 4.1, 2.3, 1.5, 1.14, 1.02 times and transmission is 6.9, 3.3, 1.6, 0.81, 0.44, 0.21 times, the same tendency as normal incidence (the thinner, the larger the overestimate; the values are somewhat smaller).
 
-**肌での意味**
-- 既定の散乱距離は、赤 3.7 mm、緑 1.4 mm、青 0.7 mm です。厚さ 3 mm の耳では、`t/ℓ` が赤 0.8、緑 2.2、青 4.4 になります。
-- **反射は赤が過大**（約 3 倍）、**緑は 1.6 倍程度、青はほぼ合う**。**透過は、赤が 2 倍ほど過大、緑は 0.8 倍、青は 0.4 倍に過小**になります。薄い部分の色が、チャンネルごとにずれる可能性があります。
+**Meaning for skin**
+- The default scattering distances are red 3.7 mm, green 1.4 mm and blue 0.7 mm. For an ear 3 mm thick, `t/ℓ` becomes 0.8 for red, 2.2 for green and 4.4 for blue.
+- **Reflection is overestimated for red** (about 3 times), **about 1.6 times for green, and almost right for blue**. **For transmission, red is overestimated about 2 times, green is 0.8 times, and blue is underestimated at 0.4 times.** The color of thin parts may shift from channel to channel.
 
-**言えること**
-- 言えること: 境界を屈折率整合にした、**灰色の媒質**での、BSSRDF の誤差です。球では影の側が暗く、薄い板では、薄いほど過大、厚いほど透過が過小です。
+**What this can say**
+- What it can say: the error of the BSSRDF for a **gray medium** with an index-matched boundary. On a sphere the shadow side is dark, and on a thin disc the thinner it is the larger the overestimate, and the thicker it is the more the transmission is underestimated.
 
-**再現**: `GoLD_rayt.exe --scene sssrw --spp 256 --sssrw-albedo 0.99 --sssrw-g 0 --sssrw-A 0.752 --sssrw-sphere 5`（約 90 秒）。`--sssrw-lamp-deg 45` で、円板の光源を軸から 45° ずらします。
+**Reproduction**: `GoLD_rayt.exe --scene sssrw --spp 256 --sssrw-albedo 0.99 --sssrw-g 0 --sssrw-A 0.752 --sssrw-sphere 5` (about 90 seconds). `--sssrw-lamp-deg 45` shifts the light of the disc 45° from the axis.
 
 ---
 
-## 10. 計算コスト
+## 10. Computational cost
 
-顔のアップ（幅 420、128 spp、同じ条件）での、SSS なしに対する比です。
+Ratios to no SSS for a face close-up (width 420, 128 spp, same conditions).
 
-| 設定 | 時間 | SSS なし比 |
+| Setting | Time | Ratio to no SSS |
 |---|---|---|
-| SSS なし | 77 秒 | 1.0 倍 |
-| `--sss`（scale 1） | 130 秒 | 約 1.7 倍 |
-| `--sss-scale 3` | 185 秒 | 約 2.4 倍 |
+| no SSS | 77 s | 1.0x |
+| `--sss` (scale 1) | 130 s | about 1.7x |
+| `--sss-scale 3` | 185 s | about 2.4x |
 
-- 散乱距離が大きいほど、プローブが広い範囲を調べるので遅くなります。
-- 肌が画面の大半を占める構図の数字です。全身では増え方は小さくなります。
-- 数値は、この PC で実行ごとに最大 1.4 倍ほど速度が変わるため、目安です。
+- The larger the scattering distance, the wider the area the probe examines, so it is slower.
+- These are numbers for a composition in which skin fills most of the frame. For a full body the increase is smaller.
+- The numbers are a guide, since on this PC the speed varies by up to about 1.4 times from run to run.
 
 ---
 
-## 11. ファイル一覧
+## 11. File list
 
-| ファイル | 内容 |
+| File | Content |
 |---|---|
-| [`include/Materials/Subsurface.hpp`](../GoLD_rayt/include/Materials/Subsurface.hpp) | プロファイルの数式、`SubsurfaceProfile`、`SubsurfaceExit` |
-| [`include/Render/SubsurfaceProbe.hpp`](../GoLD_rayt/include/Render/SubsurfaceProbe.hpp) | 出射点のサンプリング（`SampleSubsurfaceExit`） |
-| [`include/Materials/CoatedDiffuse.hpp`](../GoLD_rayt/include/Materials/CoatedDiffuse.hpp) | `setSubsurface`、ローブの選択、パラメータの計算 |
-| [`include/Materials/Material.hpp`](../GoLD_rayt/include/Materials/Material.hpp) | `BxDFFlags::Subsurface`、`subsurface()` などのフック |
-| [`include/Render/Integrator.hpp`](../GoLD_rayt/include/Render/Integrator.hpp) | 2 段のループ（`Li` の NEE と BSDF サンプリング） |
-| [`src/main_cli.cpp`](../GoLD_rayt/src/main_cli.cpp) | `--sss`、`--sss-scale`、PMX の肌への割り当て、`--scene sss` |
+| [`include/Materials/Subsurface.hpp`](../GoLD_rayt/include/Materials/Subsurface.hpp) | formulas of the profile, `SubsurfaceProfile`, `SubsurfaceExit` |
+| [`include/Render/SubsurfaceProbe.hpp`](../GoLD_rayt/include/Render/SubsurfaceProbe.hpp) | sampling of the exit point (`SampleSubsurfaceExit`) |
+| [`include/Materials/CoatedDiffuse.hpp`](../GoLD_rayt/include/Materials/CoatedDiffuse.hpp) | `setSubsurface`, lobe selection, computation of the parameters |
+| [`include/Materials/Material.hpp`](../GoLD_rayt/include/Materials/Material.hpp) | `BxDFFlags::Subsurface`, hooks such as `subsurface()` |
+| [`include/Render/Integrator.hpp`](../GoLD_rayt/include/Render/Integrator.hpp) | the 2-stage loop (NEE and BSDF sampling in `Li`) |
+| [`include/Materials/SubsurfaceWalk.hpp`](../GoLD_rayt/include/Materials/SubsurfaceWalk.hpp) | conversion of the coefficients and the medium of the walk mode (section 12) |
+| [`src/Cli/Options.cpp`](../GoLD_rayt/src/Cli/Options.cpp) | `--sss`, `--sss-scale` |
+| [`src/Cli/PmxSupport.cpp`](../GoLD_rayt/src/Cli/PmxSupport.cpp) | assignment of the profile to the skin of a PMX model |
+| [`src/Cli/Checks/SssChecks.cpp`](../GoLD_rayt/src/Cli/Checks/SssChecks.cpp) | `--scene sss` |
+| [`src/Cli/Tools/SssRandomWalk.cpp`](../GoLD_rayt/src/Cli/Tools/SssRandomWalk.cpp) | `--scene sssrw` (section 9.2) |
 
 ---
 
-## 12. 内部を歩くモード（`randomWalk`、2026-11-10）
+## 12. Walking inside the object (`randomWalk`, 2026-11-10)
 
-BSSRDF は、入った点から表面の別の点へ「飛ぶ」ので、物体の厚さを知りません（9.2）。このモードは、同じ肌の材質のまま、**光に物体の内部を実際に歩かせます**。つまみは BSSRDF と同じ（色と散乱距離）で、肌の上の層（色素、鱗屑、乳液、ファンデ）もそのまま使えます。
+The BSSRDF "jumps" from the point of entry to another point on the surface, so it does not know the thickness of the object (9.2). This mode keeps the same skin material but **lets the light actually walk inside the object**. The controls are the same as for the BSSRDF (color and scattering distance), and the layers on the skin (pigment, flaking skin (scales), lotion, foundation) can be used as they are.
 
 ```jsonc
 "skin": { "type": "skin", "albedo": [0.80, 0.52, 0.42], "scatterDistanceMm": [3.67, 1.37, 0.68],
-          "randomWalk": true }            // または { "g": 0.8 }
+          "randomWalk": true }            // or { "g": 0.8 }
 ```
 
-閉じた形（外向きの法線）が必要で、経路追跡の積分器だけで使えます（LVC-BPT、フォトンマップは通りません）。実行すると、`[Skin] ...` の行に、内部の係数が出ます。
+It needs a closed shape (with outward normals) and works only with the path-tracing integrator (LVC-BPT and photon maps do not support it). When run, a `[Skin] ...` line prints the internal coefficients.
 
-### 12.1 境界の扱い
+### 12.1 Treatment of the boundary
 
-映画制作のレンダラーと同じ「拡散する界面」です（Chiang ら 2016、Wrenninge ら 2017。Cycles の出口も同じ）。
+It is the same "diffusing interface" as in film-production renderers (Chiang et al. 2016, Wrenninge et al. 2017; the exit of Cycles is the same).
 
-| 場面 | 扱い |
+| Case | Treatment |
 |---|---|
-| 外から入る | コートを抜けた光（1 − F）が、内向きの余弦分布で入る。屈折は計算しない |
-| 内部 | 既存の媒質の歩行（`PathIntegrator::advanceInMedium`。色つきの係数は、1 チャンネルで距離を選び、他を重みづける） |
-| 内側から表面に着く | 必ず出る（内部反射なし）。出る向きと重みは、BSSRDF の出口のローブ（`SubsurfaceExit`）。そこで光源を直接狙う |
-| 層（色素、鱗屑、乳液、ファンデ） | BSSRDF のときと同じ係数を、入口と出口に掛ける |
+| Entering from outside | the light that passed the coat (1 − F) enters with an inward cosine distribution. Refraction is not computed |
+| Inside | the walk of the existing medium (`PathIntegrator::advanceInMedium`. For colored coefficients, one channel chooses the distance and the others are reweighted) |
+| Reaching the surface from inside | it always exits (no internal reflection). The exit direction and weight are those of the BSSRDF exit lobe (`SubsurfaceExit`). A light is aimed at directly there |
+| Layers (pigment, flaking skin, lotion, foundation) | the same coefficients as for the BSSRDF are applied at the entrance and the exit |
 
-実装: `Materials/SubsurfaceWalk.hpp`（係数の換算と媒質）、`CoatedDiffuse::setSubsurfaceWalk()`。内側から着いた交点は、`perturbShading` が法線を外向きに直す（光源の選択と影の光線が、外側を向くように）。
+Implementation: `Materials/SubsurfaceWalk.hpp` (conversion of the coefficients and the medium), `CoatedDiffuse::setSubsurfaceWalk()`. For an intersection reached from inside, `perturbShading` flips the normal outward (so that light selection and shadow rays face outward).
 
-### 12.2 色と散乱距離から、内部の係数へ
+### 12.2 From color and scattering distance to the internal coefficients
 
-    A = (1 − s)(1 − 0.139 s) / (1 + 1.17 s)        拡散光の下の、半無限の媒質の反射率（van de Hulst の式）
-    s² = σa / (σa + σs (1 − g))                     これを A から解く（2 次方程式）
-    1 / ℓ = σa + σs (1 − g)                         散乱距離 ℓ は、等方に換算した平均自由行程
+    A = (1 − s)(1 − 0.139 s) / (1 + 1.17 s)        reflectance of a semi-infinite medium under diffuse light (van de Hulst's formula)
+    s² = σa / (σa + σs (1 − g))                     solve this for s from A (a quadratic equation)
+    1 / ℓ = σa + σs (1 − g)                         the scattering distance ℓ is the mean free path converted to isotropic
 
-- 厚い所が、BSSRDF と同じ色（A）を返すように決めています。Cycles と同じ式です。
-- `g` を変えても、s と ℓ は変わりません。厚い所の色と広がりはそのままで、少ない回数の散乱で決まる所（薄い所、入口の近く）だけが変わります。
-- 分光ビルドでは、波長ごとに換算します（換算が非線形なので、RGB で換算してからスペクトルにすると、色がずれる）。
+- It is set so that thick regions return the same color (A) as the BSSRDF. It is the same formula as Cycles.
+- Changing `g` does not change s or ℓ. The color and spread of thick regions stay the same; only the regions decided by a small number of scatterings (thin regions, near the entrance) change.
+- In the spectral build the conversion is done per wavelength (the conversion is nonlinear, so converting in RGB and then going to spectra shifts the color).
 
-### 12.3 検査（`--scene sss` の 4〜8。RGB・分光とも PASS）
+### 12.3 Checks (4 to 8 of `--scene sss`. PASS in both RGB and spectral)
 
-| 検査 | 結果 |
+| Check | Result |
 |---|---|
-| 換算の式の誤差（厳密な値: Chandrasekhar の H 関数。A = 0.1〜0.95） | 最大 0.0018（上限 0.004 を検査） |
-| 境界のローブ: 入る割合が 1 − w F、出る重みの平均が 1（`sample()` と `eval()`） | 0.9829 対 0.9829、1.000 |
-| 白色炉の球を、検査の中に書いた独立な歩行と比べる（半径 2〜10ℓ、色 0.4・0.8、g = 0・0.8、色つきの肌） | 5 通りとも、差 0.4% 以内（分光の色つきの肌は、参考値のみ） |
-| 厚い球（半径 1000ℓ）が、拡散色を返す（g = 0・0.8） | 0.8006、0.8002 対 0.8 |
+| Error of the conversion formula (exact value: Chandrasekhar's H function. A = 0.1 to 0.95) | at most 0.0018 (the limit 0.004 is checked) |
+| Boundary lobe: the fraction entering is 1 − w F, and the mean exit weight is 1 (`sample()` and `eval()`) | 0.9829 vs 0.9829, 1.000 |
+| White-furnace sphere against an independent walk written inside the check (radius 2 to 10ℓ, color 0.4 and 0.8, g = 0 and 0.8, a colored skin) | within 0.4% in all 5 cases (the spectral colored skin is for reference only) |
+| A thick sphere (radius 1000ℓ) returns the diffuse color (g = 0 and 0.8) | 0.8006, 0.8002 vs 0.8 |
 
-- **半径 40ℓ の球は、まだ 3% 明るい**（0.826）。横へ広がった光が、凸の面から早く出るためで、不具合ではありません（独立な歩行と一致）。
-- 薄い球（半径 0.5ℓ）の白色炉: 歩行 0.99、BSSRDF 0.31。BSSRDF は、出口が見つからない分を失います。
+- **A sphere of radius 40ℓ is still 3% brighter** (0.826). This is because light that spread sideways leaves early through the convex surface; it is not a defect (it agrees with the independent walk).
+- White furnace of a thin sphere (radius 0.5ℓ): walk 0.99, BSSRDF 0.31. The BSSRDF loses the portion for which no exit is found.
 
-### 12.4 逆光の指（`scenes/skin_fingers.json` の構図。指の中央、赤の線形値）
+### 12.4 Backlit finger (the composition of `scenes/skin_fingers.json`. Center of the finger, linear value of red)
 
-| BSSRDF | このモード（拡散する界面） | 屈折する界面 + 媒質（`dielectric` の `medium`） |
+| BSSRDF | This mode (diffusing interface) | Refracting interface + medium (`medium` of `dielectric`) |
 |---|---|---|
 | 0.35 | 0.46 | 0.82 |
 
-**界面の扱いで、透ける光が約 1.8 倍違います。** 屈折する界面は、光を法線の向きへ集め、内部反射で光を中に留めます。768 spp の 1 枚ずつの値です。
+**The treatment of the interface changes the transmitted light by about 1.8 times.** A refracting interface gathers the light toward the normal and keeps the light inside by internal reflection. These are single-image values at 768 spp.
 
-### 12.5 参考文献
+### 12.5 References
 
-- M. J.-Y. Chiang, P. Kutz, B. Burley, "Practical and Controllable Subsurface Scattering for Production Path Tracing", SIGGRAPH 2016 Talks.（全文を読んだ）
-- M. Wrenninge, R. Villemin, C. Hery, "Path Traced Subsurface Scattering using Anisotropic Phase Functions and Non-Exponential Free Flights", Pixar Technical Memo 17-07, 2017.（全文を読んだ）
-- van de Hulst の式: Cycles のソース（`subsurface_random_walk.h`。d'Eon, "A Hitchhiker's Guide to Multiple Scattering" の式を引く、とある）で知った。数値は、上の H 関数で確かめた。
+- M. J.-Y. Chiang, P. Kutz, B. Burley, "Practical and Controllable Subsurface Scattering for Production Path Tracing", SIGGRAPH 2016 Talks. (read in full)
+- M. Wrenninge, R. Villemin, C. Hery, "Path Traced Subsurface Scattering using Anisotropic Phase Functions and Non-Exponential Free Flights", Pixar Technical Memo 17-07, 2017. (read in full)
+- van de Hulst's formula: learned from the Cycles source (`subsurface_random_walk.h`, which says it cites the formula of d'Eon, "A Hitchhiker's Guide to Multiple Scattering"). The numbers were checked with the H function above.
 - S. Chandrasekhar, *Radiative Transfer*, 1960.

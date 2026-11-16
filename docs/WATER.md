@@ -1,51 +1,51 @@
-# 水: 海面の波と太陽のきらめき
+# Water: ocean waves and the glitter of the sun
 
-低い太陽の海を描くために、**風から決まる波のスペクトル**で海面を作り、遠くで見えなくなる小さな波の傾きを**粗さとして返す**ようにした。結論: 太陽のきらめきの帯は、波の傾きの分布で決まり、その分布は、風速と、解像できない小さな波の両方から来る。
+To draw an ocean under a low sun, the ocean surface is built from a **wave spectrum determined by the wind**, and the slopes of the small waves that disappear in the distance are **returned as roughness**. Result: the band of sun glitter is determined by the distribution of wave slopes, and that distribution comes both from the wind speed and from the small waves that cannot be resolved.
 
-## 1. 何を足したか
+## 1. What was added
 
-| 物 | 場所 |
+| Item | Where |
 |---|---|
-| 波のスペクトルから海面を作る（`MakeOceanWaves`、`MakeOceanMesh`） | `include/Geometry/ProceduralMesh.hpp`、`src/Geometry/ProceduralMesh.cpp` |
-| シーンファイルの `"shape": "ocean"` | `docs/SCENE_FILE.md` |
-| 遠くほど粗くなる水の材質（`Dielectric::setDistanceRoughness`、JSON の `distanceRoughness`） | `include/Materials/Dielectric.hpp` |
-| 自己チェック `--scene ocean` | `src/Cli/Checks/OceanChecks.cpp` |
-| 作例 `scenes/ocean_sunset.json` と、低い太陽の空 `assets/env/sky_el8.hdr`（`tools/data/make_sky.py --sun-el 8 --sun-dir 0 -1`） | |
+| Building the ocean surface from a wave spectrum (`MakeOceanWaves`, `MakeOceanMesh`) | `include/Geometry/ProceduralMesh.hpp`, `src/Geometry/ProceduralMesh.cpp` |
+| `"shape": "ocean"` in the scene file | `docs/SCENE_FILE.md` |
+| A water material that gets rougher with distance (`Dielectric::setDistanceRoughness`, `distanceRoughness` in JSON) | `include/Materials/Dielectric.hpp` |
+| Self-check `--scene ocean` | `src/Cli/Checks/OceanChecks.cpp` |
+| Example `scenes/ocean_sunset.json`, and the low-sun sky `assets/env/sky_el8.hdr` (`tools/data/make_sky.py --sun-el 8 --sun-dir 0 -1`) | |
 
-## 2. 仕組み
+## 2. How it works
 
-- **波のスペクトル。** 風速 U（10 m の高さ、m/s）から、Pierson–Moskowitz のスペクトル S(ω) = α g² ω⁻⁵ exp(−β (g / (U ω))⁴) を作る（α = 8.1e-3、β = 0.74）。波の山を鋭くする JONSWAP の係数（γ）も指定できる。向きは、風に対して cos^(2s)(θ/2) に広がる。
-- **波の足し合わせ。** 深い水の分散関係 ω² = g k で、スペクトルを波数ごとの密度 S(k) にし、(log k, 向き) の箱ごとに平面波を 1 つ選ぶ（波数、向き、位相を、箱の中でランダムにずらす）。各波の振幅は、その箱のエネルギー a = √(2 S(k) Δk D(θ) Δθ)。1344 個の波の和が、海面の高さになる。格子の繰り返し（タイリング）はない。Tessendorf（2001）の FFT による海面は、同じ和を、規則正しい格子の上で、FFT で速く評価する方法。水平線へ視線が向く構図では、繰り返しが見えるので、円形のメッシュで直接足している。
-- **とがった波頭。** 横方向の変位（Gerstner 波）を `chop` で足し、波頭をとがらせる。
-- **円形のメッシュ。** 原点の周りに、リングの間隔が等比で広がる格子（近くは細かく、遠くは荒い）。その場所の格子で解像できない短い波は、少しずつ弱めて消す。
-- **遠くの粗さ。** メッシュで解像できない小さな波の傾きは、水の材質の粗さとして戻す（`distanceRoughness`: 近くは滑らか、遠くは粗さ 0.52、つまり GGX の α ≈ 0.27）。値は、Cox–Munk（1954）の傾きの分散（風速 10 m/s で 0.054）から決めた。こうしないと、遠くのきらめきの帯が細くなりすぎる。
-- **水の中。** 水は、開いた 1 枚の面で、その下に、吸収（純水、Pope & Fry 1997）と少しの散乱（粒子、前方にとがった位相関数）を持つ媒質がある。光が水に入ると、媒質の中を進み、戻ってきた光が、水の色になる。
+- **Wave spectrum.** From the wind speed U (at 10 m height, m/s), the Pierson-Moskowitz spectrum S(ω) = α g² ω⁻⁵ exp(−β (g / (U ω))⁴) is built (α = 8.1e-3, β = 0.74). The JONSWAP coefficient (γ), which sharpens the wave peak, can also be given. The directions spread around the wind as cos^(2s)(θ/2).
+- **Summing the waves.** With the deep-water dispersion relation ω² = g k, the spectrum becomes a density S(k) per wavenumber, and one plane wave is chosen for each (log k, direction) bin (wavenumber, direction and phase are randomly jittered within the bin). The amplitude of each wave is the energy of its bin, a = √(2 S(k) Δk D(θ) Δθ). The sum of 1344 waves is the height of the ocean surface. There is no repetition of a grid (tiling). The FFT ocean of Tessendorf (2001) evaluates the same sum quickly with an FFT on a regular grid. In a composition where the view goes toward the horizon the repetition would be visible, so the sum is taken directly on a circular mesh.
+- **Sharp crests.** A horizontal displacement (Gerstner wave) scaled by `chop` is added to sharpen the crests.
+- **Circular mesh.** Around the origin, a grid whose ring spacing grows geometrically (fine near, coarse far). Short waves that the local grid cannot resolve are gradually weakened until they vanish.
+- **Roughness in the distance.** The slopes of the small waves that the mesh cannot resolve are returned as the roughness of the water material (`distanceRoughness`: smooth near, roughness 0.45 far away, that is GGX α ≈ 0.20). The value was chosen from the slope variance of Cox-Munk (1954) (0.054 at a wind speed of 10 m/s). Without it, the glitter band in the distance becomes too thin.
+- **Inside the water.** The water is a single open surface with, below it, a medium with absorption (pure water, Pope & Fry 1997) and a little scattering (particles, a forward-peaked phase function). Light that enters the water travels through the medium, and the light that returns gives the color of the water.
 
-## 3. 確かめたこと（`--scene ocean`、PASS）
+## 3. What was checked (`--scene ocean`, PASS)
 
-- 波の集合の高さの分散と傾きの分散が、元のスペクトルの積分と、4% 以内で一致（風速 6、10 m/s、γ = 1 と 3.3）。
-- Pierson–Moskowitz で、スペクトル全体の分散が 0.0027 U⁴/g² に一致し、使っている波が、その 99.99% を持つ（有義波高 2.13 m、0.21 U²/g = 2.14 m）。
-- ランダムな 4 万点の高さの平均が 0、分散が波の集合の値に一致（0.1166 と 0.1162）。
-- 分散関係 ω² = g k、波が位相速度 √(g/k) で動く（相対誤差 1e-13）。
-- 向きの分布が cos^(2s)(θ/2) に従う。
-- 傾きの分散を Cox–Munk と比べると、風速 6 m/s では近く、風が強いほど、波のスペクトルのほうが小さい（14 m/s で 2.4 倍）。Pierson–Moskowitz は、傾きが風速でほとんど増えない（飽和する）が、本物の海は、短い波が風とともに増える。そこで、遠くの粗さは、Cox–Munk から決めた。
+- The height variance and slope variance of the wave set agree with the integrals of the original spectrum within 4% (wind speeds 6 and 10 m/s, γ = 1 and 3.3).
+- For Pierson-Moskowitz, the variance of the whole spectrum agrees with 0.0027 U⁴/g², and the waves used hold 99.99% of it (significant wave height 2.13 m, 0.21 U²/g = 2.14 m).
+- The mean of the heights at 40,000 random points is 0, and the variance agrees with the value of the wave set (0.1166 and 0.1162).
+- The dispersion relation ω² = g k, and the waves move at the phase speed √(g/k) (relative error 1e-13).
+- The directional distribution follows cos^(2s)(θ/2).
+- Comparing the slope variance with Cox-Munk: close at a wind speed of 6 m/s; the stronger the wind, the smaller the wave spectrum's value (2.4 times at 14 m/s). In Pierson-Moskowitz the slope hardly increases with wind speed (it saturates), whereas on a real ocean the short waves grow with the wind. So the roughness in the distance was set from Cox-Munk.
 
-## 4. 作例
+## 4. Example
 
-**低い太陽の海**（`scenes/ocean_sunset.json`。風速 10 m/s、波は手前へ向かって来る、太陽は水平線の上 8°、1280×720、192 spp、デノイズあり。約 2.5 分）:
+**Ocean under a low sun** (`scenes/ocean_sunset.json`. Wind speed 10 m/s, the waves come toward the viewer, the sun is 8° above the horizon, 1280×720, 128 spp, denoised. About 2.5 minutes, recorded earlier and not re-measured):
 
-![低い太陽の海: 太陽のきらめきの帯と波](img/water_ocean_sunset.png)
+![Ocean under a low sun: the band of sun glitter and the waves](img/water_ocean_sunset.png)
 
-- 太陽の下に、細かく砕けたきらめきの帯ができる。帯の幅と形は、波の傾きの分布で決まる。
-- 手前の波の谷には、水の色（青緑）が見える。光が水の中へ入り、散乱して戻ってきた分。
-- 空の色が、波の面に、フレネル反射で映る（視線が浅いほど強い）。
+- Under the sun a band of finely broken glitter appears. The width and shape of the band are determined by the distribution of wave slopes.
+- In the troughs of the nearby waves the color of the water (blue-green) is visible: the light that went into the water, scattered and came back.
+- The color of the sky is reflected on the wave surfaces by Fresnel reflection (stronger at grazing view angles).
 
-## 参考文献
+## References
 
-- Tessendorf, "Simulating Ocean Water", SIGGRAPH course notes, 2001（資料の版により、年が 2001 / 2002 と食い違う。著作権表示は 1999-2001）。
-- Pierson & Moskowitz, "A proposed spectral form for fully developed wind seas based on the similarity theory of S. A. Kitaigorodskii", J. Geophys. Res. 69(24), 5181-5190, 1964。
-- Hasselmann et al., "Measurements of wind-wave growth and swell decay during the Joint North Sea Wave Project (JONSWAP)", Deutsche Hydrographische Zeitschrift, Reihe A (8°), Nr. 12, 1973（著者は 16 名で、Hasselmann が筆頭）。
-- Cox & Munk, "Measurement of the roughness of the sea surface from photographs of the sun's glitter", J. Opt. Soc. Am. 44(11), 838-850, 1954。
-- Pope & Fry, "Absorption spectrum (380-700 nm) of pure water. II. Integrating cavity measurements", Applied Optics 36(33), 8710-8723, 1997。
+- Tessendorf, "Simulating Ocean Water", SIGGRAPH course notes, 2001 (depending on the edition of the notes the year differs, 2001 / 2002; the copyright notice is 1999-2001).
+- Pierson & Moskowitz, "A proposed spectral form for fully developed wind seas based on the similarity theory of S. A. Kitaigorodskii", J. Geophys. Res. 69(24), 5181-5190, 1964.
+- Hasselmann et al., "Measurements of wind-wave growth and swell decay during the Joint North Sea Wave Project (JONSWAP)", Deutsche Hydrographische Zeitschrift, Reihe A (8°), Nr. 12, 1973 (16 authors, Hasselmann is the first).
+- Cox & Munk, "Measurement of the roughness of the sea surface from photographs of the sun's glitter", J. Opt. Soc. Am. 44(11), 838-850, 1954.
+- Pope & Fry, "Absorption spectrum (380-700 nm) of pure water. II. Integrating cavity measurements", Applied Optics 36(33), 8710-8723, 1997.
 
-（書誌は、2026-11-09 に、Web 検索で確認した。）
+(The bibliographic details were checked by web search on 2026-11-09.)

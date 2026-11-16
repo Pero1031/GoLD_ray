@@ -1,161 +1,161 @@
-# 肌: 毛穴と皮溝の凹凸、色素の揺らぎ、逆光の指（薄い所の透過）
+# Skin: micro-relief of pores and furrows, pigment variation, backlit fingers (transmission through thin parts)
 
-肌の質感の 3 つの要素を足した。**微細な凹凸**（皮溝と毛穴。法線だけを曲げる）、**色素の揺らぎ**（そばかす、シミ、赤み、毛穴の暗さ）、**薄い所の透過**（指に光を当てたときの赤い透け）の 3 通りの計算の比較。結論: 逆光の指では、**BSSRDF は、同じ光学定数の体積のランダムウォークの 0.44 倍**しか赤い光を通さなかった（`docs/SSS.md` 9.2 の「薄い所の透過」の誤差を、絵と数値で見せた）。
+Three elements of skin appearance (material appearance, shitsukan) were added: the **micro-relief** (skin furrows and pores; only the normal is bent), the **pigment variation** (freckles, blotches, redness, dark pores), and the **transmission through thin parts** (the red see-through look of a finger with light behind it), compared with three calculations. Conclusion: on a backlit finger, the **BSSRDF let through only 0.44 times as much red light as a volume random walk with the same optical constants** (the error of "transmission through thin parts" in `docs/SSS.md` 9.2, shown here as a picture and as numbers).
 
-## 1. 何を足したか
+## 1. What was added
 
-| 物 | 場所 |
+| Item | Where |
 |---|---|
-| 皮膚の微細な凹凸 `SkinRelief`（3 次元の Worley ノイズで、皮溝のネットワークと毛穴の高さを作り、法線を曲げる） | `include/Materials/SkinRelief.hpp` |
-| 皮膚の色の揺らぎ `SkinPigment`（そばかす、うっすらしたシミ、赤み）。毛穴の暗さ（`SkinRelief::poreMask`） | `include/Materials/SkinPigment.hpp` |
-| 皮溝と毛穴のグラフ合成 `WrinkleField`（Weiss ら 2023 の手法の CPU 版。毛穴を節点、皮溝を辺とする） | `include/Materials/WrinkleField.hpp` |
-| 光沢の揺らぎ（皮脂の多い所と少ない所）`CoatedDiffuse::setGlossVariation`（コートの強さと粗さを、ヒットごとに `SurfaceInteraction::glossScale` / `roughScale` で変える） | `include/Materials/CoatedDiffuse.hpp` |
-| 材質のフック `Material::perturbShading`（ヒットの直後に、材質が陰影の法線を差し替える）。`CoatedDiffuse::setRelief`、`setPigment`。出射点の係数のフック `Material::subsurfaceExitTint` | `include/Materials/Material.hpp`、`CoatedDiffuse.hpp`、`src/Render/Integrator.cpp` |
-| シーンファイルの `"type": "skin"`（表面下散乱と凹凸を JSON で）、`lathe` の `translate` | `src/Cli/SceneFile.cpp`、`docs/SCENE_FILE.md` |
-| 自己チェック `--scene relief` | `src/Cli/Checks/ReliefChecks.cpp` |
-| 作例 | `scenes/skin_fingers.json`（逆光の指 3 本）、`scenes/skin_macro.json`（皮膚の接写）、`scenes/skin_lamp_dry.json`・`skin_lamp_wet.json`（濡れる前と後。`docs/SKIN_MOISTURE.md` 5.7） |
+| Micro-relief of the skin `SkinRelief` (3D Worley noise makes the network of furrows and the heights of the pores, and bends the normal) | `include/Materials/SkinRelief.hpp` |
+| Variation of the skin colour `SkinPigment` (freckles, faint blotches, redness). Darkness of the pores (`SkinRelief::poreMask`) | `include/Materials/SkinPigment.hpp` |
+| Graph synthesis of furrows and pores `WrinkleField` (a CPU version of the method of Weiss et al. 2023: pores are the nodes, furrows the edges) | `include/Materials/WrinkleField.hpp` |
+| Variation of the gloss (oily and dry places) `CoatedDiffuse::setGlossVariation` (the strength and roughness of the coat change per hit through `SurfaceInteraction::glossScale` / `roughScale`) | `include/Materials/CoatedDiffuse.hpp` |
+| Material hook `Material::perturbShading` (right after a hit, the material replaces the shading normal). `CoatedDiffuse::setRelief`, `setPigment`. Hook for the factor at the exit point `Material::subsurfaceExitTint` | `include/Materials/Material.hpp`, `CoatedDiffuse.hpp`, `src/Render/Integrator.cpp` |
+| `"type": "skin"` in the scene file (subsurface scattering and relief in JSON), `translate` of `lathe` | `src/Cli/SceneFile.cpp`, `docs/SCENE_FILE.md` |
+| Self-check `--scene relief` | `src/Cli/Checks/ReliefChecks.cpp` |
+| Examples | `scenes/skin_fingers.json` (three backlit fingers), `scenes/skin_macro.json` (close-up of skin), `scenes/skin_lamp_dry.json` and `skin_lamp_wet.json` (before and after wetting; `docs/SKIN_MOISTURE.md` 5.7) |
 
-## 2. 微細な凹凸
+## 2. Micro-relief
 
-**何を作るか。** 皮膚には、細かい溝（皮溝）が網目状に走り、皮膚を約 0.5 mm の多角形に区切っている。その中に毛穴がある。
+**What is made.** Skin has fine grooves (skin furrows) running in a network that divides the skin into polygons of about 0.5 mm. Pores lie inside them.
 
-**作り方。** 世界座標の 3 次元 Worley ノイズ（セル状のノイズ。セルごとに、ずらした特徴点を 1 つ持つ）を使う。位置だけで決まるので、UV は要らず、同じ材質の物体は同じ模様になる。
+**How.** 3D Worley noise in world coordinates (cellular noise; each cell has one jittered feature point). It depends on position only, so no UV is needed and objects with the same material get the same pattern.
 
-- 最も近い特徴点までの距離 F1 と、2 番目に近い F2。F2 − F1 が小さいところ（セルの境目）が、**皮溝**: 深さ × exp(−((F2 − F1) / 幅)²)。
-- 深さは、隣り合う 2 つのセルの乱数の平均で、溝ごとに変わる（どちら側から見ても同じ値なので、溝は連続）。
-- **2 つの尺度**: 細かい網目と、3 倍大きい網目（深さ 0.9 倍）を足す。実際の皮膚も、数本の深い主線と、多数の浅い副線でできている。`stretch` で、セルを x 方向に伸ばす（皮溝は、向きに偏りがある）。
-- 一部のセル（`poreFraction`）の特徴点に、丸いくぼみ（**毛穴**）: 深さ × exp(−(F1 / 半径)²)。
-- 高さ h(p)（m、負 = くぼみ）の勾配を、2 つの接線方向の中心差分で取り、**n′ = normalize(n − ∇h)** とする（バンプマップと同じ）。形は動かさない。
+- The distance F1 to the nearest feature point and F2 to the second nearest. Where F2 − F1 is small (the borders of cells) is a **furrow**: depth × exp(−((F2 − F1) / width)²).
+- The depth is the mean of the random numbers of the two neighbouring cells, so it changes from furrow to furrow (the value is the same seen from either side, so a furrow is continuous).
+- **Two scales**: a fine network and a network 3 times larger (depth 0.9 times) are added. Real skin also has a few deep primary lines and many shallow secondary lines. `stretch` stretches the cells in the x direction (furrows have a preferred direction).
+- A round dent (**pore**) at the feature point of some of the cells (`poreFraction`): depth × exp(−(F1 / radius)²).
+- The gradient of the height h(p) (m, negative = dent) is taken with central differences in two tangent directions, and **n′ = normalize(n − ∇h)** (as in bump mapping). The shape is not moved.
 
-典型値: セル 0.5〜0.6 mm、溝の深さ 35〜40 µm、毛穴の深さ 80〜100 µm、半径 60〜70 µm。
+Typical values: cell 0.5 to 0.6 mm, furrow depth 35 to 40 µm, pore depth 80 to 100 µm, radius 60 to 70 µm.
 
-**積分器との接続。** ヒットの直後に `perturbShading` が呼ばれ、材質が `rec.n`（陰影の法線）を差し替える。幾何法線 `gn` は変わらない。視線に背を向けた法線にならないよう、`dot(n′, wo) ≥ 0.05` に直す。デノイザの法線の特徴量にも、曲げた法線が入る。
+**Connection to the integrator.** Right after a hit, `perturbShading` is called and the material replaces `rec.n` (the shading normal). The geometric normal `gn` does not change. So that the normal does not face away from the viewer, it is corrected to `dot(n′, wo) ≥ 0.05`. The bent normal also goes into the normal feature of the denoiser.
 
-## 2.4 皮溝と毛穴のグラフ合成（Weiss ら 2023）
+## 2.4 Graph synthesis of furrows and pores (Weiss et al. 2023)
 
-**動機。** 2 節の Worley ノイズの皮溝は、規則的な網目で、「ひび割れた革」に見えた。実際の皮膚の微細な皮溝（micro relief）は、**毛穴どうしをつなぎ、毛穴で始まり、毛穴で終わる**。皮膚の張力の向き（顔の流れ）に沿った深い主線と、それと交差する浅い斜めの副線でできていて、密度と深さは部位で変わる。論文（Weiss, Moulin, Chandran, Zoss, Gotardo, Bradley, *Graph-Based Synthesis for Skin Micro Wrinkles*, 2023）と補足資料を読んで、実装した。
+**Motivation.** The furrows of the Worley noise of section 2 form a regular network and looked like "cracked leather". The fine furrows of real skin (micro relief) **connect pores, begin at a pore and end at a pore**. They consist of deep primary lines along the direction of skin tension (the flow of the face) and shallow diagonal secondary lines crossing them, and their density and depth change with the body part. This was implemented after reading the paper (Weiss, Moulin, Chandran, Zoss, Gotardo, Bradley, *Graph-Based Synthesis for Skin Micro Wrinkles*, 2023) and its supplementary material.
 
-**手順**（層ごと。粗い層から細かい層へ、3 層が既定）:
-1. **グラフ**: 毛穴を節点として、Poisson ディスクでサンプリングする（平均距離 `spacing`。細かい層は、粗い層の節点を残して、間に足す）。各節点を、近い 5 つの節点と辺で結ぶ。辺が、皮溝の候補。
-2. **シミュレーション**（歩行者がけもの道を作る様子を模す）: 節点を 1 つ選び、その辺の 1 本を、確率 P(h) ∝ (1 − a_dist (d/d_min − 1) + p_cont + p_pref − a_cross p_cross) で選んで、掘る（W ← W + Δt a_deposit (1 − W)）。毎回、全体を減衰させる（W ← W (1 − Δt a_decay)）。p_pref は主方向を好む項、p_cont は「反対側の強い辺の続き」を報い、並走する辺を罰する項、p_cross は強い辺との交差を罰する項。何度も選ばれる辺が、深い皮溝になる。
-3. **描画**: 辺を、重みに比例した幅の溝にする（中心線を、ノイズでゆらす。両端は毛穴で動かない）。溝の断面は、谷と、その脇の小さなふくらみ（論文の形状関数）。節点は毛穴（皮溝が集まるほど深い）。重なりは、滑らかな最大値（論文の MellowMax）で混ぜる。
+**Procedure** (per level, from coarse to fine levels; 3 levels by default):
+1. **Graph**: pores are the nodes, sampled with Poisson-disk sampling (average distance `spacing`; a finer level keeps the nodes of the coarser level and adds nodes between them). Each node is joined by edges to its 5 nearest nodes. The edges are candidates for furrows.
+2. **Simulation** (imitating pedestrians making a desire path): choose a node, choose one of its edges with probability P(h) ∝ (1 − a_dist (d/d_min − 1) + p_cont + p_pref − a_cross p_cross), and dig it (W ← W + Δt a_deposit (1 − W)). Every time, decay everything (W ← W (1 − Δt a_decay)). p_pref is a term that prefers the primary direction, p_cont rewards the continuation of a strong edge on the opposite side and penalises parallel edges, and p_cross penalises crossing a strong edge. Edges chosen many times become deep furrows.
+3. **Drawing**: each edge becomes a groove whose width is proportional to its weight (the centre line is made to wobble with noise; the two ends are fixed at the pores). The cross-section of a groove is a valley with a small bulge beside it (the paper's shape function). A node is a pore (deeper where more furrows meet). Overlaps are blended with a smooth maximum (the paper's MellowMax).
 
-**このエンジンへの載せ方。**
-- 結果は、**1 枚のタイル（24 mm、2048²）の高さマップ**。トーラス（端がつながる）として作るので、繰り返しても継ぎ目が出ない。
-- 物体には、**3 方向の投影の混合（triplanar）**で当てる。UV が要らず、球でも円柱でも使える。法線は、高さの勾配から（これまでの `SkinRelief` と同じ）。毛穴の暗さ（色素）にも、同じ場の毛穴を使う。
-- 層の既定値（頬のように、主方向が弱い部位）: 間隔 1.0 / 0.55 / 0.3 mm、深さ 40 / 28 / 24 µm、主方向 0° / 60° / 120°、主方向の強さ `base` 0.35 / 0.5 / 1.0（最後は等方）。最初は、額のように主方向の強い設定（0.1〜0.8、深さ 40 / 18 / 7 µm）だったが、細かい層が浅く細くて、画素（0.04 mm）に埋もれた。
-- 作成は、約 9 秒（3 層、毛穴 8000 個、辺 2 万本）。JSON は `"relief": { "wrinkles": { ... } }`。`RAYT_WRINKLE_DUMP=ファイル.png` で高さマップ、`RAYT_WRINKLE_DUMP_PORES=ファイル.png` で毛穴のマスクを書き出せる。
+**How it is used in this engine.**
+- The result is **the height map of one tile (24 mm, 2048²)**. It is made as a torus (the edges are connected), so repeating it shows no seam.
+- It is applied to objects by **a mixture of three projections (triplanar)**. No UV is needed, and it works on spheres and cylinders. The normal comes from the gradient of the height (as in the earlier `SkinRelief`). The darkness of the pores (pigment) also uses the pores of the same field.
+- Default values of the levels (for a body part such as the cheek, where the primary direction is weak): spacing 1.0 / 0.55 / 0.3 mm, depth 40 / 28 / 24 µm, primary direction 0° / 60° / 120°, strength of the primary direction `base` 0.35 / 0.5 / 1.0 (the last is isotropic). The first setting was one for a strongly directional part such as the forehead (0.1 to 0.8, depth 40 / 18 / 7 µm), but the fine level was shallow and thin and was lost in the pixels (0.04 mm).
+- Building takes about 9 seconds (3 levels, 8000 pores, 20 000 edges). In JSON: `"relief": { "wrinkles": { ... } }`. `RAYT_WRINKLE_DUMP=file.png` writes the height map, and `RAYT_WRINKLE_DUMP_PORES=file.png` writes the pore mask.
 
-**論文との違い**:
-- UV マップも CUDA も使わない（平らなタイルを CPU で）。
-- 選択確率の式は、テキスト抽出で一部の記号が欠けていたので、上の形（距離の項は、節点の最短の辺に対する相対値）で実装した。
-- 主方向の好み（`preference` = 2）と、選択の鋭さ（`selectivity` = 2.5）の 2 つの係数を足した。足さないと、ほとんどの辺が同じ強さに掘れて、網目が一様になった。
-- 重みは、層の最大値で正規化してから描く。
-- 層の値（間隔 1.2 / 0.6 / 0.3 mm、深さ 40 / 18 / 7 µm、主方向 0° と副方向 50°）は、論文の範囲（主線 20〜100 µm、副線 5〜40 µm）を参考にした。
+**Differences from the paper**:
+- No UV map and no CUDA (a flat tile on the CPU).
+- Some symbols of the selection-probability formula were missing in the text extraction, so it was implemented in the form above (the distance term is relative to the shortest edge of the node).
+- Two coefficients were added: the preference for the primary direction (`preference` = 2) and the sharpness of the selection (`selectivity` = 2.5). Without them, most edges were dug equally deep and the network became uniform.
+- The weights are normalised by the maximum of the level before drawing.
+- The values of the first version of the levels (spacing 1.2 / 0.6 / 0.3 mm, depth 40 / 18 / 7 µm, primary direction 0° and secondary direction 50°) were chosen with the paper's ranges (primary lines 20 to 100 µm, secondary lines 5 to 40 µm) as a reference; the current defaults are the ones above.
 
-**結果。** 高さマップ（暗い = 谷）で、Worley の網目と比べて、主線が x 方向にそろい、途中で途切れ、副線が斜めに交差する、皮膚らしい線になった。
+**Result.** In the height map (dark = valley), compared with the Worley network, the primary lines line up in the x direction and break off midway, and the secondary lines cross diagonally: lines like those of skin.
 
-## 2.45 光沢の揺らぎ（皮脂）
+## 2.45 Variation of the gloss (sebum)
 
-皮膚の艶は、一様ではない。皮脂の多い所（鼻、額）は、強く鋭いハイライトを持ち、乾いた所は鈍い。皮膚の接写で「艶がない」と感じた原因の一つは、コートの強さと粗さが**どこでも同じ**だったことだった。
+The shine of skin is not uniform. Places rich in sebum (nose, forehead) have strong, sharp highlights, and dry places have dull ones. One reason skin looked "not shiny" in the close-up was that the strength and roughness of the coat were **the same everywhere**.
 
-`gloss: { "variation": 0.65, "frequency": 70 }`: 低周波のノイズ g ∈ [−1, 1]（1 cm 台の斑。`frequency` は 1 m あたりの数）で、コートの強さを (1 + variation · g) 倍、粗さを (1 − 0.6 variation · g) 倍にする。皮脂の多い所（g > 0）は、強く、粗さが低い。ヒットごとに 1 回だけ計算し、`SurfaceInteraction` に入れる（`CoatedDiffuse` の評価・標本抽出・確率密度が同じ値を使う）。表面下散乱の出射ローブのコートの重みは、固定のまま（変化の範囲が小さいので、エネルギーの食い違いは小さい）。
+`gloss: { "variation": 0.65, "frequency": 70 }`: with low-frequency noise g ∈ [−1, 1] (patches of the order of 1 cm; `frequency` is the number per metre), the strength of the coat is multiplied by (1 + variation · g) and the roughness by (1 − 0.6 variation · g). Places with much sebum (g > 0) are stronger and less rough. It is computed once per hit and stored in `SurfaceInteraction` (the evaluation, sampling and probability density of `CoatedDiffuse` use the same value). The weight of the coat in the exit lobe of subsurface scattering stays fixed (the range of the variation is small, so the energy mismatch is small).
 
-## 2.5 色素の揺らぎ（そばかす、シミ、赤み、毛穴の暗さ）
+## 2.5 Pigment variation (freckles, blotches, redness, dark pores)
 
-**動機。** 皮膚が不自然に見える最大の原因は、**色が一様なこと**（そばかす、シミ、赤み、毛穴がない）と考えた。ゲームや映画では、実在の人物のスキャンから作ったテクスチャに、手描きと手続き的な合成を足すことが多いようだが（Web 検索の要約に基づく。論文は全文を読んでいない。参考文献の節を参照）、ここでは、**世界座標の手続き的な場**で作る。UV もスキャンも要らない。
+**Motivation.** I took the largest cause of skin looking unnatural to be **its uniform colour** (no freckles, blotches, redness or pores). Games and films seem to add hand painting and procedural synthesis to textures made from scans of real people (based on summaries of a web search; the papers were not read in full; see section 7), but here it is made with a **procedural field in world coordinates**. No UV and no scan are needed.
 
-**色の係数 F(p)**（RGB、(0, 1]）を、皮膚の反射率に掛ける。
+**The colour factor F(p)** (RGB, (0, 1]) is multiplied onto the reflectance of the skin.
 
-- **そばかす**: 3 次元の格子（2.5 mm）の、ずらした点に、斑点を置く。斑点は、大きさ（半径の 0.5〜1.5 倍）も、濃さ（最大の 0.4〜1 倍）も、1 つずつ違う。縁は、位置を小さなノイズでゆがめて（**ドメインワープ**）、不規則にする。斑点の出やすさは、低周波のノイズで変わる（**群れる**。日に当たる所に多い）。重なりは 1 − Π(1 − s g)。形は g = exp(−(d / r)³)（柔らかいが、縁がある）。濃い斑点で、周りの皮膚の 0.58 / 0.48 / 0.42 倍（R/G/B）。
-- **うっすらしたシミ**: 大きく柔らかい斑（フラクタルノイズ）。最大で 15% 暗く、青ほど強く効く。
-- **赤み**: 非常に低周波の、顔の紅潮のようなむら。緑と青だけを下げる（血液は、そこで吸収する）。
-- **毛穴の暗さ**: 毛穴（`poreMask`）の位置が、皮膚より暗く、少し赤い（影になった点）。係数は (0.30, 0.42, 0.45) × `poreDarkness`。
-- **毛穴のばらつき**: 毛穴の半径と深さは、1 つずつ ±50% 違う。毛穴の密度は、低周波のノイズで、平均の 0.4〜1.6 倍に変わる（毛穴の多い所と少ない所）。
+- **Freckles**: spots are placed at jittered points of a 3D grid (2.5 mm). Each spot differs in size (0.5 to 1.5 times the radius) and in strength (0.4 to 1 times the maximum). The edge is made irregular by distorting the position with small noise (**domain warping**). How likely spots are changes with low-frequency noise (they **cluster**; more where the sun reaches). Overlaps combine as 1 − Π(1 − s g). The shape is g = exp(−(d / r)³) (soft, but with an edge). A strong spot is 0.58 / 0.48 / 0.42 times (R/G/B) the surrounding skin.
+- **Faint blotches**: large soft patches (fractal noise). At most 15% darker, stronger towards blue.
+- **Redness**: a very low-frequency unevenness like a flush of the face. It lowers only green and blue (blood absorbs there).
+- **Dark pores**: the position of a pore (`poreMask`) is darker than the skin and a little red (a point in shadow). The factor is (0.30, 0.42, 0.45) × `poreDarkness`.
+- **Pore variation**: the radius and depth of each pore differ by ±50%. The density of the pores changes with low-frequency noise between 0.4 and 1.6 times the mean (places with many and few pores).
 
-**表面下散乱との組み合わせ。** 色素は、散乱する層（真皮）の上の**表皮**にあるので、光は、**入るときと出るときの 2 回**、色素を通る。入射点のアルベドだけに掛けると、色素の模様が散乱距離（赤で 3.7 mm）にぼやける。そこで、**入射点で √F、出射点で √F**を掛ける（`subsurfaceExitTint`）。一様な色素なら、合わせて F になる。
+**Combination with subsurface scattering.** The pigment lies in the **epidermis**, above the scattering layer (the dermis), so light passes through the pigment **twice, on the way in and on the way out**. If it is multiplied onto the albedo at the entry point only, the pigment pattern is blurred over the scattering distance (3.7 mm for red). So **√F is multiplied at the entry point and √F at the exit point** (`subsurfaceExitTint`). For a uniform pigment the two together give F.
 
-**費用。** 色素と毛穴の暗さで、描画時間が約 2 倍（600 × 338、48 spp、表面下散乱あり: 凹凸のみ 12 秒、毛穴の暗さを足して 19 秒、色素を足して 26 秒）。
+**Cost.** Pigment and dark pores make rendering about 2 times slower (600 × 338, 48 spp, with subsurface scattering: 12 seconds with relief only, 19 seconds with dark pores added, 26 seconds with pigment added).
 
-## 3. 逆光の指
+## 3. Backlit fingers
 
-**条件**（`scenes/skin_fingers.json`）: 同じ形の指 3 本（幅 1.6 cm、高さ 6 cm、先端は半楕円。`lathe`）。それぞれの真後ろに、小さな光（8 mm × 4 cm）がある。前からは弱い補助光だけ。
+**Conditions** (`scenes/skin_fingers.json`): three fingers of the same shape (width 1.6 cm, height 6 cm, a half-ellipse tip; `lathe`). Right behind each one is a small light (8 mm × 4 cm). Only a weak fill light from the front.
 
-| 指 | 材質 |
+| Finger | Material |
 |---|---|
-| 左 | 表面下散乱なし（拡散 + 皮脂のコート） |
-| 中 | **BSSRDF**（Burley のプロファイル。散乱距離 3.67 / 1.37 / 0.68 mm（R/G/B）、アルベド 0.80 / 0.52 / 0.42） |
-| 右 | 指の内側を**散乱媒質**で満たして、光を体積のランダムウォークで追う。σₜ = 1 / 散乱距離 = 272 / 730 / 1470 /m、等方。単一散乱アルベド 0.9906 / 0.921 / 0.8652（拡散反射率 0.80 / 0.52 / 0.42 から、Christensen–Burley のアルベド逆変換で求めた） |
+| Left | no subsurface scattering (diffuse + coat of sebum) |
+| Middle | **BSSRDF** (Burley's profile. Scattering distance 3.67 / 1.37 / 0.68 mm (R/G/B), albedo 0.80 / 0.52 / 0.42) |
+| Right | the inside of the finger is filled with a **scattering medium** and the light is followed by a volume random walk. σₜ = 1 / scattering distance = 272 / 730 / 1470 /m, isotropic. Single-scattering albedo 0.9906 / 0.921 / 0.8652 (from the diffuse reflectance 0.80 / 0.52 / 0.42 by the albedo inversion of Christensen and Burley) |
 
-![逆光の指 3 本: 表面下散乱なし、BSSRDF、体積のランダムウォーク](img/skin_fingers.png)
+![Three backlit fingers: no subsurface scattering, BSSRDF, volume random walk](img/skin_fingers.png)
 
-（1000 × 563、768 spp、デノイズあり。4.7 分。）
+(1000 × 563, 768 spp, denoised. 4.7 minutes.)
 
-**数値**（800 × 450、1024 spp、デノイズなしの線形値。指の中央 1.2% × 16% の平均。補助光の反射も含む）:
+**Numbers** (800 × 450, 1024 spp, linear values without denoising. Mean over 1.2% × 16% at the centre of the finger. Includes the reflection of the fill light):
 
-| 指 | R | G | B | R / G |
+| Finger | R | G | B | R / G |
 |---|---|---|---|---|
-| 表面下散乱なし | 0.117 | 0.076 | 0.062 | 1.5 |
+| No subsurface scattering | 0.117 | 0.076 | 0.062 | 1.5 |
 | BSSRDF | 0.365 | 0.082 | 0.059 | 4.4 |
-| 体積のランダムウォーク | **0.835** | 0.066 | 0.032 | 12.6 |
+| Volume random walk | **0.835** | 0.066 | 0.032 | 12.6 |
 
-- 指は、赤い光（散乱距離 3.7 mm）ほど透ける。幅 16 mm は、赤の散乱距離の約 4.4 倍。緑・青はほとんど透けず、体積のほうが、むしろ暗い（吸収が強いため）。
-- **BSSRDF の赤は、体積の 0.44 倍**（0.365 / 0.835。補助光の反射 0.117 を引くと 0.35 倍）。`docs/SSS.md` 9.2 の測定（厚さ 4ℓ 以上で、BSSRDF の透過は 0.2〜0.4 倍）と同じ向きで、近い大きさ。**この誤差は、研究の刺激（半透明の物体）に近い条件で、効く。**
-- 表面下散乱なしの指は、暗い灰褐色の影になる（透けない）。
+- The finger is more transparent to red light (scattering distance 3.7 mm). The width of 16 mm is about 4.4 times the scattering distance of red. Green and blue hardly pass, and the volume is even darker (strong absorption).
+- **The red of the BSSRDF is 0.44 times that of the volume** (0.365 / 0.835; 0.35 times after subtracting the reflection of the fill light, 0.117). This is in the same direction and of similar size as the measurement of `docs/SSS.md` 9.2 (for thicknesses of 4ℓ and more, the transmission of the BSSRDF is 0.2 to 0.4 times). **This error matters under conditions close to the stimuli of the research (translucent objects).**
+- The finger without subsurface scattering is a dark grey-brown shadow (nothing passes through).
 
-## 4. 皮膚の接写（凹凸、色素、光沢）
+## 4. Close-up of skin (relief, pigment, gloss)
 
-![皮膚の接写（4.3 cm 幅）: 皮溝の網目、毛穴、そばかす、やわらかい艶](img/skin_macro.png)
+![Close-up of skin (4.3 cm wide): network of furrows, pores, freckles, soft shine](img/skin_macro.png)
 
-（`scenes/skin_macro.json`。1000 × 563、384 spp、デノイズなし。6.6 分。凹凸はグラフ合成（2.4 節）、光沢の揺らぎ（2.45 節）、色は色素（2.5 節）。）
+(`scenes/skin_macro.json`. 1000 × 563, 384 spp, no denoising. 6.6 minutes. The relief is the graph synthesis (section 2.4), the gloss variation is section 2.45, and the colour is the pigment (section 2.5).)
 
-**Worley の網目（2 節）との比較**（同じ構図、同じ色素、同じ光と光沢。左が Worley、右がグラフ合成。どちらも 6〜7 分）:
+**Comparison with the Worley network (section 2)** (same composition, same pigment, same light and gloss. Left: Worley; right: graph synthesis. Both took 6 to 7 minutes):
 
-![Worley の皮溝（左）とグラフ合成（右）](img/skin_relief_compare.png)
+![Worley furrows (left) and graph synthesis (right)](img/skin_relief_compare.png)
 
-**調整の経過と分かったこと**
-- 最初のグラフ合成（主方向の強い設定、小さな光源）は、「網目が画面の中心にしかない」「艶がない」と感じた。`--scene relief` の 9 で、法線の曲がりを測ると、**平均の傾きは Worley とほぼ同じ（6.4° と 6.6°）だが、中央値が半分（1.9° と 4.2°）**だった。つまり、グラフ合成は、大半が平らで、細い線と毛穴だけが急に傾いていた。艶は、傾いた小さな面がハイライトを拾う**きらめきの広がり**として見えるので、平らな部分が多いと、のっぺりして見える。細かい層（幅 0.04 mm、深さ 7 µm）は、画素（0.043 mm）より細くて、画面では平均されて消えた。
-- 直し方: (1) 細かい層を、深く、太くした（深さ 7 → 24 µm、幅 0.14 → 0.3）。(2) 主方向を弱めた（頬のような、力が一様な部位は、論文のとおり、等方的な網目になる）。(3) 毛穴を、深く、大きくした。結果、法線の傾きの中央値が 1.9° → 13.6°、10° 超の割合が 24% → 58% になった（Worley は 4.2°、25%）。
-- **光源を大きく**した。凹凸は、ハイライトの中でしか見えない。小さな光源では、ハイライトが中央だけになる。大きな光源（0.3 × 0.3 m）で、艶（ハイライト）が画面全体に広がり、網目が全体に見える。一様に大きな光源では凹凸が見えない、という前の結論は、凹凸が**十分に急**なら緩む（法線の傾きが大きいと、光源の縁の外まで反射が届く）。
-- **光沢の揺らぎ**（皮脂の多い所と少ない所）を足した。コートの強さを 0.75 にし、粗さを 0.15 にして、斑状に ±65% 変える。
-- 右（グラフ合成）は、網目が全体に見え、やわらかい艶、そばかす、赤みが重なる。左（Worley）は、毛穴の黒い点がはっきり出るが、網目は、隅のひび割れ（右下）にしか見えない。
+**Course of the adjustment and what was learned**
+- The first graph synthesis (a strongly directional setting, a small light source) felt like "the network is only in the centre of the picture" and "not shiny". Measuring the bend of the normal with 9 of `--scene relief` showed that **the mean slope is almost the same as Worley's (6.4° and 6.6°), but the median is half (1.9° and 4.2°)**. That is, most of the graph synthesis was flat and only the thin lines and pores were steeply inclined. Shine is seen as a **spread of glints**, where small inclined facets catch the highlight, so a surface with many flat parts looks flat and dull. The fine level (width 0.04 mm, depth 7 µm) was thinner than a pixel (0.043 mm) and was averaged away in the picture.
+- The fix: (1) the fine level was made deeper and thicker (depth 7 → 24 µm, width 0.14 → 0.3). (2) The primary direction was weakened (a part with uniform tension, such as the cheek, has an isotropic network, as in the paper). (3) The pores were made deeper and larger. As a result, the median of the slope of the normal rose from 1.9° to 13.6° and the fraction above 10° from 24% to 58% (Worley: 4.2°, 25%).
+- **A larger light source** was used. The relief is visible only inside the highlight. With a small light source the highlight is only in the centre. With a large light source (0.3 × 0.3 m) the shine (highlight) spreads over the whole picture and the network is visible everywhere. The earlier conclusion that relief is invisible under a uniformly large light source relaxes if the relief is **steep enough** (when the normal slope is large, the reflection reaches beyond the edge of the light source).
+- **Gloss variation** (places with much and little sebum) was added. The strength of the coat is 0.75, the roughness 0.15, and they change by ±65% in patches.
+- On the right (graph synthesis), the network is visible everywhere, with a soft shine, freckles and redness on top. On the left (Worley), the black dots of the pores are clear, but the network is visible only in the cracks at the corner (bottom right).
 
-**出来の評価**: 右は、皮膚の接写に近い。
+**Assessment**: the right image is close to a close-up of skin.
 
-## 5. 確かめたこと（`--scene relief`、RGB・スペクトルとも PASS）
+## 5. What was checked (`--scene relief`, PASS in both RGB and spectral)
 
-| 検査 | 結果 |
+| Check | Result |
 |---|---|
-| 高さ場: 0 以下、最深が溝 + 毛穴の和以内、平均は負、同じ点で同じ値 | 最小 −100 µm、最大 0、平均 −14.6 µm |
-| 曲げた法線: 単位長、平面での平均が元の法線（勾配の平均は 0） | 平均 (−3 × 10⁻⁵, 3.5 × 10⁻⁴, 0.974)、標準誤差 7 × 10⁻⁴。平均の傾き 9.5°、最大 72.6° |
-| 中心差分の刻みを半分にしても、勾配が一致 | 2000 点中 1971 点（残りは、F1 の折れ目の近く） |
-| **白色炉**: 凹凸のある皮膚の球が、なめらかな球と同じエネルギーを返す | 滑らか (0.802, 0.527, 0.429)、凹凸 (0.793, 0.521, 0.424)。**凹凸のほうが約 1.1% 暗い**（バンプマップの通常の損失。許容は 3%） |
-| 色素の場: 係数が (0, 1]、同じ点で同じ値、斑が皮膚の一部を覆う、赤が最も吸収されない | 係数の平均 (0.972, 0.919, 0.930)、最小 0.50。青で 0.9 未満の点が約 11% |
-| **白色炉（色素）**: 色素つきの皮膚の球は、一様な皮膚より暗く、明るくならない（表面下散乱の入射・出射の係数も通る） | 表面下散乱なし: (0.803, 0.527, 0.429) → (0.782, 0.480, 0.398)。あり: (0.796, 0.530, 0.435) → (0.782, 0.478, 0.396) |
-| 毛穴の場: 0〜1、最大が毛穴の中心付近、密度が領域でばらつく | 最大 0.99、2 cm の区画ごとの毛穴の被覆が 3 から 22（6400 点中） |
-| **グラフ合成**（1 層、12 mm のタイル）: 同じ種で同じ結果、種が違えば違う結果。周期的（1 タイル離れた点が同じ高さ）。高さ ≤ 最大の深さ。毛穴のマスクが 0〜1。主線が主方向に走る（勾配のエネルギーが、線を横切る向きに 4.3 倍） | 高さ −24.7 .. 1.8 µm、平均 −1.1 µm、勾配のエネルギー比 4.3 |
-| グラフ合成から曲げた法線: 単位長、平均が元の法線 | 平均 (−1 × 10⁻⁴, 1 × 10⁻⁴)、標準誤差 2〜4 × 10⁻⁴。平均の傾き 2.7° |
+| Height field: at most 0, deepest within the sum of furrow + pore, mean negative, same value at the same point | min −100 µm, max 0, mean −14.6 µm |
+| Bent normal: unit length, mean on a plane equal to the original normal (the mean of the gradient is 0) | mean (−3 × 10⁻⁵, 3.5 × 10⁻⁴, 0.974), standard error 7 × 10⁻⁴. Mean slope 9.5°, maximum 72.6° |
+| The gradient agrees when the step of the central difference is halved | 1971 of 2000 points (the rest are near the creases of F1) |
+| **White furnace**: a skin sphere with relief returns the same energy as a smooth sphere | smooth (0.802, 0.527, 0.429), relief (0.793, 0.521, 0.424). **The relief is about 1.1% darker** (the usual loss of bump mapping; the tolerance is 3%) |
+| Pigment field: factor in (0, 1], same value at the same point, spots cover part of the skin, red is absorbed least | mean factor (0.972, 0.919, 0.930), minimum 0.50. About 11% of the points are below 0.9 in blue |
+| **White furnace (pigment)**: a skin sphere with pigment is darker than uniform skin and never brighter (also passes through the entry and exit factors of subsurface scattering) | without subsurface scattering: (0.803, 0.527, 0.429) → (0.782, 0.480, 0.398). With: (0.796, 0.530, 0.435) → (0.782, 0.478, 0.396) |
+| Pore field: 0 to 1, maximum near the centre of a pore, density varies between regions | maximum 0.99, pore coverage per 2 cm block from 3 to 22 (of 6400 points) |
+| **Graph synthesis** (1 level, 12 mm tile): same result for the same seed, different for a different seed. Periodic (points one tile apart have the same height). Height ≤ maximum depth. Pore mask 0 to 1. Primary lines run along the primary direction (the energy of the gradient across the lines is 4.3 times) | height −24.7 .. 1.8 µm, mean −1.1 µm, gradient energy ratio 4.3 |
+| Normal bent from the graph synthesis: unit length, mean equal to the original normal | mean (−1 × 10⁻⁴, 1 × 10⁻⁴), standard error 2 to 4 × 10⁻⁴. Mean slope 2.7° |
 
-**情報**（`--scene relief` の 9。合否には使わない）: 接写の設定での、法線の曲がり（平らな面で、2 cm 角、乱数 5 万点）。
+**Information** (9 of `--scene relief`; not used for pass/fail): the bend of the normal with the close-up settings (on a flat surface, 2 cm square, 50 000 random points).
 
-| 凹凸 | 平均 | 中央値 | 90 パーセンタイル | 10° 超 |
+| Relief | Mean | Median | 90th percentile | Above 10° |
 |---|---|---|---|---|
-| Worley の皮溝と毛穴 | 6.6° | 4.2° | 16.6° | 24.7% |
-| グラフ合成（既定の層、`depthScale` 1.6） | 14.5° | 13.6° | 30.8° | 58.0% |
+| Worley furrows and pores | 6.6° | 4.2° | 16.6° | 24.7% |
+| Graph synthesis (default levels, `depthScale` 1.6) | 14.5° | 13.6° | 30.8° | 58.0% |
 
-既存の検査（lights、volume、layered、sss、aniso、ocean、hair）は、変更後も PASS。
+The existing checks (lights, volume, layered, sss, aniso, ocean, hair) still PASS after the change.
 
-## 6. 曲げた法線のエネルギー
+## 6. Energy of the bent normal
 
-**曲げた法線のまわりのローブ（鏡面、拡散、鱗屑）は、幾何的な表面の下に向いた標本を捨てて正規化し直さないので、既定の凹凸で約 1.2% のエネルギーを失う**（5 節の白色炉。バンプマップに共通の近似）。**表面下散乱の出口ローブは滑らかな法線を使うので失わない。** この非対称のため、光を出口ローブから別のローブへ移す白い層（鱗屑、乳液）は、移した割合 × 1.2% だけ暗く見える（`out/studies/flakes_sss`、2026-11-13。赤は白い層の利得が +0.7% と小さく、入口と出口が別の斑に落ちる分で相殺されて 0 付近に来る）。
+**The lobes around the bent normal (specular, diffuse, flakes) discard samples that point below the geometric surface and do not renormalise, so they lose about 1.2% of the energy with the default relief** (the white furnace of section 5; an approximation common to bump mapping). **The exit lobe of subsurface scattering uses the smooth normal, so it does not lose.** Because of this asymmetry, a white layer that moves light from the exit lobe to another lobe (flakes, emulsion) looks darker by the moved fraction × 1.2% (`out/studies/flakes_sss`, 2026-11-13). For red, the gain of the white layer is small, +0.7%, and it cancels to near 0 because the entry and exit fall on different patches.
 
-## 7. 参考文献
+## 7. References
 
-**書誌は、2026-11-09 に、Web 検索で確認した**（著者、題名、誌名、巻号、年、ページ）。Haro ら、Graham ら、Weiss ら、Barros と Walter は、検索の要約で確認した（論文の全文は、Weiss らだけ読んだ）。
+**The bibliographic data were checked by web search on 2026-11-09** (authors, title, journal, volume and issue, year, pages). Haro et al., Graham et al., Weiss et al., and Barros and Walter were checked from search summaries (of the papers, only Weiss et al. was read in full).
 
-- S. Worley. *A Cellular Texture Basis Function.* SIGGRAPH 1996, 291-294.（Worley ノイズ）
-- A. Haro, B. Guenter, I. Essa. *Real-time, Photo-realistic, Physically Based Rendering of Fine Scale Human Skin Structure.* Eurographics Workshop on Rendering, 53-62, 2001.（型取りから作った法線マップをテクスチャ合成で広げる）
-- P. Graham, B. Tunwattanapong, J. Busch, X. Yu, A. Jones, P. Debevec, A. Ghosh. *Measurement-Based Synthesis of Facial Microgeometry.* Computer Graphics Forum (Eurographics) 32(2), 335-344, 2013.（測定した接写パッチの合成）
-- S. Weiss, J. Moulin, P. Chandran, G. Zoss, P. Gotardo, D. Bradley. *Graph-Based Synthesis for Skin Micro Wrinkles.* Computer Graphics Forum 42(5) (Eurographics Symposium on Geometry Processing), 2023.（毛穴を点にしたグラフで皮溝を作る。2.4 節で実装）
-- R. S. Barros, M. Walter. *Synthesis of Human Skin Pigmentation Disorders.* Computer Graphics Forum 36(1), 330-344, 2017.（反応拡散による色素の斑。ここでは使っていない）
-- P. Christensen, B. Burley. *Approximate Reflectance Profiles for Efficient Subsurface Scattering.* Pixar Technical Memo 15-04, 2015.（プロファイル、アルベド逆変換）
+- S. Worley. *A Cellular Texture Basis Function.* SIGGRAPH 1996, 291-294. (Worley noise)
+- A. Haro, B. Guenter, I. Essa. *Real-time, Photo-realistic, Physically Based Rendering of Fine Scale Human Skin Structure.* Eurographics Workshop on Rendering, 53-62, 2001. (Normal maps made from a mould, extended by texture synthesis)
+- P. Graham, B. Tunwattanapong, J. Busch, X. Yu, A. Jones, P. Debevec, A. Ghosh. *Measurement-Based Synthesis of Facial Microgeometry.* Computer Graphics Forum (Eurographics) 32(2), 335-344, 2013. (Synthesis of measured close-up patches)
+- S. Weiss, J. Moulin, P. Chandran, G. Zoss, P. Gotardo, D. Bradley. *Graph-Based Synthesis for Skin Micro Wrinkles.* Computer Graphics Forum 42(5) (Eurographics Symposium on Geometry Processing), 2023. (Furrows from a graph with pores as points. Implemented in section 2.4)
+- R. S. Barros, M. Walter. *Synthesis of Human Skin Pigmentation Disorders.* Computer Graphics Forum 36(1), 330-344, 2017. (Pigment patches by reaction-diffusion. Not used here)
+- P. Christensen, B. Burley. *Approximate Reflectance Profiles for Efficient Subsurface Scattering.* Pixar Technical Memo 15-04, 2015. (Profile, albedo inversion)

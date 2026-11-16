@@ -1,83 +1,83 @@
-# 金属の色: スペクトル計算と RGB 近似の差（金・銅・銀）
+# Metal color: the difference between spectral calculation and the RGB approximation (gold, copper, silver)
 
-「スペクトルレンダリングは RGB より正確か」を、数値で答えるための解析です（このプロジェクトの最初の検証項目）。
-再現手順は[末尾](#7-再現手順)にあります。計算の全出力は [metal_accuracy_results.txt](data/metal_accuracy_results.txt)、スクリプトは `tools/studies/metal_accuracy.py` です。
+This is an analysis that answers "is spectral rendering more accurate than RGB?" with numbers (the first thing this project set out to verify).
+Reproduction steps are at the [end](#7-reproduction). The full output of the calculation is [metal_accuracy_results.txt](data/metal_accuracy_results.txt); the script is `tools/studies/metal_accuracy.py`.
 
-- [1. 結論](#1-結論)
-- [2. 何を比べたか](#2-何を比べたか)
-- [3. 結果](#3-結果)
-- [4. なぜ差が出るか](#4-なぜ差が出るか)
-- [5. エンジンでの実測との照合](#5-エンジンでの実測との照合)
-- [6. 粗い金属（多重散乱）](#6-粗い金属多重散乱)
-- [7. 再現手順](#7-再現手順)
+- [1. Conclusions](#1-conclusions)
+- [2. What was compared](#2-what-was-compared)
+- [3. Results](#3-results)
+- [4. Why the difference appears](#4-why-the-difference-appears)
+- [5. Check against measurements in the engine](#5-check-against-measurements-in-the-engine)
+- [6. Rough metals (multiple scattering)](#6-rough-metals-multiple-scattering)
+- [7. Reproduction](#7-reproduction)
 
 ---
 
-## 1. 結論
+## 1. Conclusions
 
-| 条件 | 金 (Au) | 銅 (Cu) | 銀 (Ag) |
+| Condition | Gold (Au) | Copper (Cu) | Silver (Ag) |
 |---|---|---|---|
-| D65 の光、1 回反射、全角度 | ΔE00 0.2〜**2.1**（垂直入射で最大） | 0.0〜0.3 | 0.00 |
-| D65 以外の光（タングステン A、ろうそく、LED）、1 回反射 | **2〜6** | 1.8〜2.8 | ≤ 0.07 |
-| D65、金属同士の多重反射（3 回 / 4 回 / 6 回） | **3.7 / 6.9 / 12.7** | 1.4 / 2.3 / 4.4 | ≤ 0.01 |
+| D65 light, one reflection, all angles | ΔE00 0.2 to **2.1** (largest at normal incidence) | 0.0 to 0.3 | 0.00 |
+| Light other than D65 (tungsten A, candle, LED), one reflection | **2 to 6** | 1.8 to 2.8 | ≤ 0.07 |
+| D65, metal-to-metal inter-reflection (3 / 4 / 6 bounces) | **3.7 / 6.9 / 12.7** | 1.4 / 2.3 / 4.4 | ≤ 0.01 |
 
-（ΔE00 = CIEDE2000。1 前後が「並べて比べてやっと分かる」、2〜3 が「一目で違う」目安。白は D65、光の輝度は 1。）
+(ΔE00 = CIEDE2000. As a rule of thumb, about 1 is "only noticeable side by side" and 2 to 3 is "different at a glance". White is D65 and the light's luminance is 1.)
 
-1. **銀は、RGB 近似でもスペクトルとほぼ同じです。** 反射率が可視域でほぼ平らなので、RGB の 3 数に縮約しても何も失われません。
-2. **銅は、D65 の光での 1 回反射なら RGB 近似で十分です**（ΔE00 0.3 以下）。差が出るのは、D65 以外の光（約 2）と、多重反射（4 回で約 2）です。
-3. **金は、RGB 近似と最も差が出る金属です。** D65 の垂直入射でも、赤チャンネルが約 6% 低い（ΔE00 2.1）。表示用にクリップした後でも 0.9 です。光源が D65 から外れる、反射が重なる、のどちらでも差が広がります。
-4. **角度（Fresnel の入射角依存）は、主因ではありません。** `(eta, k)` の RGB 縮約は、D65 の下では斜めの入射でも反射率をよく再現します（金の誤差は、垂直入射の誤差がそのまま斜めで縮むだけ）。事前に「差が出そうな条件」として挙げていたもののうち、角度は外れでした。
-5. **以前の観察「金の球でスペクトルと RGB の差は約 2.5/255（スペクトルのほうが暖色）」は、項目 3 の赤チャンネルの頭打ちと整合します**（赤が約 6% 違えば、sRGB の 8bit で数/255 になる。下の 4.1）。その画像を同じ手法で分解したわけではないので、「同じ原因だと考えられる」という意味です。
+1. **For silver, the RGB approximation is almost the same as spectral.** The reflectance is nearly flat over the visible range, so reducing it to three RGB numbers loses nothing.
+2. **For copper, the RGB approximation is sufficient for one reflection under D65 light** (ΔE00 0.3 or less). Differences appear for light other than D65 (about 2) and for inter-reflection (about 2 at 4 bounces).
+3. **Gold is the metal where the RGB approximation differs most.** Even at normal incidence under D65, the red channel is about 6% low (ΔE00 2.1); after clipping for display it is 0.9. The difference grows when the light departs from D65 and when reflections stack up.
+4. **Angle (the incidence-angle dependence of Fresnel) is not the main cause.** Under D65 the RGB reduction of `(eta, k)` reproduces the reflectance well even at oblique incidence (the error for gold is just the normal-incidence error shrinking toward grazing angles). Of the conditions that had been listed in advance as likely to show a difference, angle was a miss.
+5. **The earlier observation "on a gold sphere, spectral and RGB differ by about 2.5/255 (spectral is warmer)" is consistent with the red-channel cap of item 3** (a red difference of about 6% becomes a few /255 in 8-bit sRGB; see 4.1 below). That image was not decomposed with the same method, so this only means "probably the same cause".
 
-6. **表示する色域で、見える差が変わります。** ろうそくの金は sRGB の外にあり、sRGB の画面では差が消えます（器・像で ΔE00 約 0.9）が、Display P3 では 4〜5 になります（3.5 章）。差は細かいひだの模様ではなく、物体全体の色の移りで、目の空間フィルタを通しても消えません（3.6 章）。
+6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6).
 
-**スペクトル側が「正確」と言える範囲:** スペクトルレンダラーは、`Fresnel(λ, θ)^n × 光源(λ) × フィルムのセンサー` の 1 nm 積分に収束します。エンジンで実測した値は、この積分と 0.5% 以内で一致しました（[5 章](#5-エンジンでの実測との照合)）。その積分自体の誤差は、フィルムの CMF の近似（Wyman 2013）が ΔE00 0.01〜0.18（表示される sRGB の 8bit 値は同一）、光学定数は Johnson の表のとおりです。
+**Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013) gives ΔE00 0.01 to 0.18 (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
 
 ---
 
-## 2. 何を比べたか
+## 2. What was compared
 
-**参照解（スペクトル）**: 1 nm 刻みで 360〜830 nm を積分します。
+**Reference solution (spectral)**: integrate 360 to 830 nm in 1 nm steps.
 
 ```
-RGB_ref(c) = Integral F(λ, θ)^n · L(λ) · s_c(λ) dλ          （c = R, G, B）
+RGB_ref(c) = Integral F(λ, θ)^n · L(λ) · s_c(λ) dλ          (c = R, G, B)
 ```
 
-- `F`: Johnson の n, k から、エンジンと同じ非偏光の導体 Fresnel（`Core/Fresnel.hpp` の移植）。表は `ComplexIorTable` と同じく、n と k の波長の和集合上で線形補間します。
-- `L`: 光源の SPD。輝度 Y = 1 に正規化（エンジンの `EmissionSpectrum::FromCurve` と同じ）。
-- `s_c`: フィルムのセンサー感度（Wyman の CMF × sRGB 行列、D65 で (1,1,1) になるよう正規化）。**エンジンのフィルムと同じものを使う**ので、この解析で見えるのは「RGB 近似の誤差」だけで、CMF 近似の誤差は混ざりません（CMF の誤差は別に測りました。1 章）。
+- `F`: unpolarized conductor Fresnel from Johnson's n, k, the same as in the engine (a port of `Core/Fresnel.hpp`). As in `ComplexIorTable`, the table is interpolated linearly over the union of the wavelengths of n and k.
+- `L`: the light's SPD, normalized to luminance Y = 1 (the same as the engine's `EmissionSpectrum::FromCurve`).
+- `s_c`: the film's sensor sensitivity (Wyman's CMF times the sRGB matrix, normalized to give (1, 1, 1) for D65). **The same sensor as the engine's film is used**, so what this analysis shows is only the "error of the RGB approximation"; the error of the CMF approximation is not mixed in (the CMF error was measured separately; see section 1).
 
-**RGB 近似**: エンジンの RGB ビルドそのものを移植しました。
+**RGB approximation**: the engine's RGB build itself was ported.
 
-1. 表を `integrateIorToRgb_CMF` で RGB の `(eta, k)` に縮約（F0 を D65 の下の色に合わせる。F0 が最大の分光反射率を超える場合は、そこで頭打ち）。
-2. 光源は SPD を RGB に縮約（`L_c = ∫ L s_c`）。
-3. `RGB_c = L_c × F_c(θ; eta_c, k_c)^n`。
+1. Reduce the table to RGB `(eta, k)` with `integrateIorToRgb_CMF` (F0 is matched to the color under D65; if F0 exceeds the largest spectral reflectance it is capped there).
+2. Reduce the light's SPD to RGB (`L_c = ∫ L s_c`).
+3. `RGB_c = L_c × F_c(θ; eta_c, k_c)^n`.
 
-**指標**: CIEDE2000（白 = D65）。sRGB の範囲外の値は、そのまま XYZ を経由して測った「生の ΔE00」と、両方を [0,1] にクリップしてから測った「表示 ΔE00」（`clip` 列）の両方を出します。光源に合わせたホワイトバランス（`--wb`、`wb` 列）後の ΔE は、光の白から D65 の白への CAT16 色順応（完全順応 D = 1、輝度は保存）の後で測ります。以前は RGB の各チャンネルを光の RGB で割っていましたが、青が負になるろうそくでは意味を持たなかったためです。ろうそくの金（垂直入射、1 回反射）は、順応後も ΔE00 24 と大きいままです（割り算では 59）。色順応で青（S 錐体）の利得が約 7 倍になり、RGB 版とスペクトル版の青の小さな差が拡大されるためです。
+**Metric**: CIEDE2000 (white = D65). For values outside the sRGB range, both the "raw ΔE00", measured by passing the values straight through XYZ, and the "display ΔE00" (`clip` column), measured after clipping both to [0, 1], are given. ΔE after white balance for the light (`--wb`, `wb` column) is measured after a CAT16 chromatic adaptation (full adaptation, D = 1, luminance preserved) from the light's white to the D65 white. Previously each RGB channel was divided by the light's RGB, but that was meaningless for the candle, where blue is negative. Candle-lit gold (normal incidence, one reflection) stays large after adaptation, at ΔE00 24 (59 with the division). The chromatic adaptation raises the gain of blue (the S cones) by about 7 times, which magnifies the small difference in blue between the RGB and spectral versions.
 
-**条件**: 金属 Au・Ag・Cu、入射角 0〜85°、光源（D65、タングステン A 2856 K、ろうそく 1850 K、合成 LED、黒体 1500〜10000 K）、反射回数 1〜8。
+**Conditions**: metals Au, Ag, Cu; incidence angles 0 to 85°; lights (D65, tungsten A 2856 K, candle 1850 K, synthetic LED, blackbody 1500 to 10000 K); 1 to 8 reflections.
 
 ---
 
-## 3. 結果
+## 3. Results
 
-![反射率スペクトルと RGB 近似](img/metal_reflectance_spectra.png)
+![Reflectance spectra and the RGB approximation](img/metal_reflectance_spectra.png)
 
-*実線: 表の垂直入射の反射率。破線: RGB 近似が各チャンネルで使う反射率（波長によらない一定値）。薄い塗り: フィルムのセンサー感度の正の部分。*
+*Solid lines: the normal-incidence reflectance from the table. Dashed lines: the reflectance the RGB approximation uses for each channel (a constant independent of wavelength). Light fill: the positive part of the film's sensor sensitivity.*
 
-### 3.1 RGB への縮約（垂直入射の F0、D65 の下）
+### 3.1 Reduction to RGB (normal-incidence F0, under D65)
 
-| 金属 | スペクトルの F0（RGB） | RGB 近似の F0 | 備考 |
+| Metal | Spectral F0 (RGB) | RGB-approximation F0 | Note |
 |---|---|---|---|
-| Au | (1.036, 0.730, 0.364) | (0.975, 0.730, 0.364) | **赤が 1 を超え、頭打ちされる** |
-| Cu | (0.929, 0.624, 0.522) | 同じ | 一致 |
-| Ag | (0.989, 0.984, 0.978) | 同じ | 一致 |
+| Au | (1.036, 0.730, 0.364) | (0.975, 0.730, 0.364) | **Red exceeds 1 and is capped** |
+| Cu | (0.929, 0.624, 0.522) | same | match |
+| Ag | (0.989, 0.984, 0.978) | same | match |
 
-参考として、`approxIorToRgb_3Wavelengths`（450 / 550 / 650 nm の 3 点だけを使う縮約）では、金の F0 が (0.957, 0.792, 0.408) になります。緑 +8.5%、青 +12%、赤 −7.6% で、CMF 積分の縮約よりずっと悪いです（銅 (0.935, 0.624, 0.538)、銀はほぼ同じ）。
+For reference, with `approxIorToRgb_3Wavelengths` (a reduction using only the three points 450 / 550 / 650 nm) the F0 of gold becomes (0.957, 0.792, 0.408): green +8.5%, blue +12%, red −7.6%, much worse than the CMF-integral reduction (copper (0.935, 0.624, 0.538); silver almost the same).
 
-### 3.2 D65 の光、1 回反射（角度依存）
+### 3.2 D65 light, one reflection (angle dependence)
 
-| 入射角 | 金: スペクトル | 金: RGB | ΔE00（クリップ後） | 銅 ΔE00 | 銀 ΔE00 |
+| Incidence angle | Gold: spectral | Gold: RGB | ΔE00 (after clipping) | Copper ΔE00 | Silver ΔE00 |
 |---|---|---|---|---|---|
 | 0° | (1.036, 0.730, 0.364) | (0.975, 0.730, 0.364) | 2.05 (0.86) | 0.00 | 0.00 |
 | 30° | (1.035, 0.730, 0.366) | (0.975, 0.729, 0.366) | 2.02 (0.86) | 0.01 | 0.00 |
@@ -86,28 +86,28 @@ RGB_ref(c) = Integral F(λ, θ)^n · L(λ) · s_c(λ) dλ          （c = R, G, 
 | 70° | (1.003, 0.764, 0.456) | (0.974, 0.763, 0.458) | 1.06 (0.95) | 0.30 | 0.00 |
 | 80° | (0.990, 0.836, 0.601) | (0.980, 0.837, 0.602) | 0.49 (0.49) | 0.34 | 0.01 |
 
-緑・青はどの角度でも 0.5% 以内で一致します。差は赤だけで、垂直入射の −5.8% から、斜めになるほど縮みます（Fresnel で反射率が 1 に近づくため）。
+Green and blue agree within 0.5% at every angle. The difference is only in red, from −5.8% at normal incidence, shrinking toward oblique angles (because Fresnel reflectance approaches 1).
 
-### 3.3 光源が D65 でないとき（1 回反射、θ = 0° / 60°）
+### 3.3 When the light is not D65 (one reflection, θ = 0° / 60°)
 
-| 金属 | 光源 | スペクトル（0°） | RGB（0°） | ΔE00 0° / 60° | クリップ後 0° |
+| Metal | Light | Spectral (0°) | RGB (0°) | ΔE00 0° / 60° | After clipping, 0° |
 |---|---|---|---|---|---|
-| Au | タングステン A | (1.764, 0.615, 0.046) | (1.782, 0.607, 0.085) | 2.96 / 2.84 | 2.42 |
-| Au | ろうそく | (2.502, 0.457, **−0.056**) | (2.586, 0.446, −0.004) | 5.83 / 5.38 | 0.72 |
+| Au | Tungsten A | (1.764, 0.615, 0.046) | (1.782, 0.607, 0.085) | 2.96 / 2.84 | 2.42 |
+| Au | Candle | (2.502, 0.457, **−0.056**) | (2.586, 0.446, −0.004) | 5.83 / 5.38 | 0.72 |
 | Au | LED | (1.043, 0.791, 0.089) | (1.027, 0.767, 0.125) | 1.95 / 1.87 | 2.07 |
-| Cu | タングステン A | (1.623, 0.516, 0.107) | (1.699, 0.519, 0.121) | 1.75 / 1.81 | 0.83 |
-| Cu | ろうそく | (2.334, 0.371, −0.028) | (2.465, 0.381, −0.006) | 2.80 / 2.75 | 0.70 |
+| Cu | Tungsten A | (1.623, 0.516, 0.107) | (1.699, 0.519, 0.121) | 1.75 / 1.81 | 0.83 |
+| Cu | Candle | (2.334, 0.371, −0.028) | (2.465, 0.381, −0.006) | 2.80 / 2.75 | 0.70 |
 | Cu | LED | (0.928, 0.665, 0.168) | (0.979, 0.655, 0.178) | 2.31 / 2.43 | 2.31 |
-| Ag | 全部 | — | — | ≤ 0.07 | ≤ 0.02 |
+| Ag | all | — | — | ≤ 0.07 | ≤ 0.02 |
 
-- 黒体の温度を振ると（図の右）、金の誤差は **5000 K 付近で最小（0.85）**、そこから暖色側でも寒色側でも増えます（2856 K で 3.0、1500 K で 7.4、10000 K で 3.5）。D65（6500 K 付近）で縮約しているので、ずれるほど外れます。
-- ろうそく（1850 K）の青は、金のスペクトルでは負（sRGB の範囲外）になります。表示用にクリップすると差は小さい（0.7）ですが、HDR のまま後処理に回すなら残ります。
+- Varying the blackbody temperature (right of the figure), the error for gold is **smallest near 5000 K (0.85)** and grows toward both warmer and cooler (3.0 at 2856 K, 7.4 at 1500 K, 3.5 at 10000 K). The reduction is done at D65 (near 6500 K), so the further away, the worse.
+- The blue of the candle (1850 K) is negative (outside sRGB) in the spectral gold. After clipping for display the difference is small (0.7), but it remains if the result goes to post-processing as HDR.
 
-![反射回数と光の色温度に対する誤差](img/metal_rgb_error.png)
+![Error against number of reflections and color temperature of the light](img/metal_rgb_error.png)
 
-### 3.4 多重反射（同じ金属で n 回、θ = 0°、D65）
+### 3.4 Inter-reflection (n reflections off the same metal, θ = 0°, D65)
 
-| n | 金 スペクトル | 金 RGB | 金 ΔE00 | 銅 ΔE00 | 銀 ΔE00 |
+| n | Gold spectral | Gold RGB | Gold ΔE00 | Copper ΔE00 | Silver ΔE00 |
 |---|---|---|---|---|---|
 | 1 | (1.036, 0.730, 0.364) | (0.975, 0.730, 0.364) | 2.05 | 0.00 | 0.00 |
 | 2 | (1.018, 0.542, 0.112) | (0.951, 0.532, 0.133) | 1.77 | 0.62 | 0.00 |
@@ -115,187 +115,187 @@ RGB_ref(c) = Integral F(λ, θ)^n · L(λ) · s_c(λ) dλ          （c = R, G, 
 | 4 | (0.920, 0.314, **−0.021**) | (0.905, 0.283, 0.018) | 6.91 | 2.28 | 0.00 |
 | 6 | (0.802, 0.191, −0.033) | (0.860, 0.151, 0.002) | 12.69 | 4.43 | 0.01 |
 
-金は 3 回反射で ΔE00 が 3.7、6 回で 12.7（RGB のほうが赤は 7% 明るく、緑は 21% 暗い）。金の指輪の内側、杯、向かい合う金の板のような、金属が金属を映す場面で差が出ます。スペクトルの青は 4 回以上で負（sRGB の範囲外）になり、RGB 近似はそれを表せません。
+For gold, ΔE00 is 3.7 at 3 reflections and 12.7 at 6 (in the RGB version red is 7% brighter and green 21% darker). The difference shows in scenes where metal reflects metal: the inside of a gold ring, a cup, facing gold plates. The spectral blue becomes negative (outside sRGB) at 4 or more reflections, which the RGB approximation cannot represent.
 
-![表示色の比較](img/metal_swatches.png)
+![Displayed color comparison](img/metal_swatches.png)
 
-*上段: スペクトル、下段: RGB 近似（表示用にクリップして sRGB へ）。光源の輝度は 1 なので白っぽく見える。*
+*Top row: spectral. Bottom row: RGB approximation (clipped for display to sRGB). The light's luminance is 1, so the swatches look whitish.*
 
 ---
 
-### 3.5 表示する色域で、見える差が変わる（器と像、描画での確認）
+### 3.5 The gamut you display in changes the visible difference (bowl and statue, checked by rendering)
 
-器（`--scene goldbowl`）と像（`scenes/erato_gold.json`）を RGB 版とスペクトル版で描き、**表示した画像**の ΔE00 を、表示する色域ごとに測りました（`--gamut` の出力と同じ処理: 原色の変換、負の値を 0、Reinhard、sRGB カーブ、8 bit）。ΔE00 の平均と、ΔE00 > 1 の画素の割合です（ΔE00 の「ちょうど見える差」の目安は約 1 で、比べ方や観察条件によって変わります。ΔE\*ab の目安 2.3 とは別の値です）。
+The bowl (`--scene goldbowl`) and the statue (`scenes/erato_gold.json`) were rendered with the RGB build and the spectral build, and the ΔE00 of the **displayed image** was measured for each display gamut (the same processing as the `--gamut` output: primaries conversion, negative values set to 0, Reinhard, sRGB curve, 8 bit). The table gives the mean ΔE00 and the fraction of pixels with ΔE00 > 1 (about 1 is a rough guide for a "just visible difference" in ΔE00; it varies with the comparison method and viewing conditions. It is a different value from the guide of 2.3 for ΔE\*ab).
 
-| 光源 | 対象 | sRGB 表示 | Display P3 表示 |
+| Light | Object | sRGB display | Display P3 display |
 |---|---|---|---|
-| D65 | 器 | 1.32（65 %） | 1.32（67 %） |
-| タングステン | 器 | 2.65（80 %） | 2.88（80 %）、95 パーセンタイル 4.9 → 6.6 |
-| ろうそく | 器 | **0.92（36 %）** | **5.16（87 %）** |
-| ろうそく | 像 | **0.96（36 %）** | **4.40（65 %）** |
+| D65 | bowl | 1.32 (65 %) | 1.32 (67 %) |
+| Tungsten | bowl | 2.65 (80 %) | 2.88 (80 %), 95th percentile 4.9 → 6.6 |
+| Candle | bowl | **0.92 (36 %)** | **5.16 (87 %)** |
+| Candle | statue | **0.96 (36 %)** | **4.40 (65 %)** |
 
-- ろうそくの金は、sRGB の外にあります（スペクトル版の青が負）。sRGB では、2 つの画像が同じ境界の色に切られて差が消えます。P3 では切られず、差がそのまま見えます。Rec.2020 でも同じ傾向です。
-- D65 は、色域によらず同じです。タングステンは、平均はあまり変わりませんが、差の大きい画素（95 パーセンタイル）が sRGB では隠れていました。
-- ノイズの下限（同じ版を 2 回描いた差）は、器で 0.4〜0.75、像で 0.8〜1.1（平均画像の比較では約 0.7 倍）。ろうそく（P3）とタングステンの差は、これを大きく上回ります。D65 の差（1.2〜1.3）は、ノイズの下限が 1 に近いので、ノイズと区別しにくい小さな差です。
-- **デノイザ（OIDN）は負の値を 0 に切ります**。ろうそくの像では、生の描画の青が平均 −0.04、デノイズ後は 0 でした。デノイズ後の像では、sRGB の外の色が残らず、P3 でも差が出ません（ΔE00 1.43）。色域を扱う測定は、デノイズなしの描画で行います。
-- 表示は Reinhard（チャンネルごと）で、露出 0 です。強いトーンマップは差を縮めるので、値は表示の処理に依存します。
+- Candle-lit gold lies outside sRGB (the spectral blue is negative). In sRGB the two images are cut to the same boundary color and the difference vanishes. In P3 nothing is cut and the difference is visible as it is. Rec.2020 shows the same tendency.
+- D65 is the same regardless of gamut. For tungsten the mean changes little, but the pixels with large differences (95th percentile) were hidden in sRGB.
+- The noise floor (the difference between two renders of the same version) is 0.4 to 0.75 for the bowl and 0.8 to 1.1 for the statue (about 0.7 times that when comparing averaged images). The candle (P3) and tungsten differences are well above this. The D65 difference (1.2 to 1.3) is a small difference that is hard to tell from noise, because the noise floor is close to 1.
+- **The denoiser (OIDN) clips negative values to 0.** In the candle statue, blue in the raw render was −0.04 on average and 0 after denoising. In the denoised image no color outside sRGB remains, and no difference appears even in P3 (ΔE00 1.43). Gamut measurements are therefore made on renders without denoising.
+- The display uses Reinhard (per channel) at exposure 0. A strong tone map reduces the difference, so the values depend on the display processing.
 
-数値の全体は `docs/data/gold_compare_gamut_results.txt`、`docs/data/erato_compare_gamut_results.txt`。スクリプトは `tools/studies/gold_compare_gamut.py`、`erato_compare_gamut.py`。
+The full numbers are in `docs/data/gold_compare_gamut_results.txt` and `docs/data/erato_compare_gamut_results.txt`. The scripts are `tools/studies/gold_compare_gamut.py` and `erato_compare_gamut.py`.
 
-### 3.6 S-CIELAB: 目の空間フィルタを通しても、差は残るか（像）
+### 3.6 S-CIELAB: does the difference remain through the eye's spatial filter? (statue)
 
-像の色差マップは、ひだの奥で大きく、平らな部分で小さく見えますが、全体としてはスペクトル版のほうが鮮やかに見えます。色の空間フィルタ（S-CIELAB: 色の面を、目のように荒くぼかしてから差をとる）を通すと、ひだの細かい色が周りに混ざって、差が消えるのかを調べました（生の描画の 2 回平均、画素あたり 20 / 40 / 80 の視角。40 は画素 0.25 mm を 60 cm で見る距離）。
+The color-difference map of the statue looks large deep in the folds and small on flat areas, but overall the spectral version looks more vivid. Using a spatial filter for color (S-CIELAB: blur the color areas coarsely, as the eye does, then take the difference), it was examined whether the fine color of the folds mixes into its surroundings and the difference disappears (two-render average of raw renders; 20 / 40 / 80 pixels per degree of visual angle; 40 corresponds to 0.25 mm pixels viewed from 60 cm).
 
-| 光源・表示 | 画素ごとの ΔE00（平均） | S-CIELAB（40 px/度） | S-CIELAB（80 px/度） | 物体の平均色の差 |
+| Light, display | Per-pixel ΔE00 (mean) | S-CIELAB (40 px/deg) | S-CIELAB (80 px/deg) | Difference of the object's mean color |
 |---|---|---|---|---|
-| D65・sRGB | 1.24 | 1.14 | 0.83（ノイズ 0.5） | 0.66 |
-| タングステン・sRGB | 2.42 | 2.55 | 2.34 | **2.84** |
-| ろうそく・P3 | 4.40 | 4.26 | 4.08 | **6.00** |
+| D65, sRGB | 1.24 | 1.14 | 0.83 (noise 0.5) | 0.66 |
+| Tungsten, sRGB | 2.42 | 2.55 | 2.34 | **2.84** |
+| Candle, P3 | 4.40 | 4.26 | 4.08 | **6.00** |
 
-- **タングステンとろうそく（P3）の差は、フィルタで消えません**。視距離を 4 倍変えても、ほぼ同じです。差は細かいひだの模様ではなく、物体全体にわたる色の移り（低い空間周波数）です。物体の平均色の差は、画素ごとの平均以上です。
-- **平らな部分の差も小さくありません**。タングステンでは、画素の 53〜56 % が ΔE00 > 2.3 です（ちょうど見える差の目安の約 1 の 2 倍以上）。0〜10 のカラーマップでは、ΔE 2〜3 が暗く見えて、小さいように見えていました。「ひだの色が全体の印象を決める」という説明は、このデータでは必要ありません。
-- **D65 の差は、細かい模様の差**で、遠くから見ると混ざって消えます（0.83、ノイズの 0.5 に近い）。
-- フィルタの幅は、論文の表から写したものです。視距離を 4 倍変えても結論が変わらないので、表の誤りには強い結果です。
-- 計算: `tools/studies/erato_scielab.py`、`tools/lib/scielab.py`。全体は `docs/data/erato_scielab_results.txt`。
+- **The tungsten and candle (P3) differences do not vanish through the filter.** They are nearly the same even when the viewing distance changes by a factor of 4. The difference is not a fine pattern in the folds but a shift in color over the whole object (low spatial frequency). The difference of the object's mean color is at least as large as the per-pixel mean.
+- **The difference on flat areas is not small either.** For tungsten, 53 to 56 % of pixels have ΔE00 > 2.3 (more than twice the guide of about 1 for a just-visible difference). On a 0 to 10 color map, ΔE 2 to 3 looked dark and seemed small. The explanation "the color of the folds decides the overall impression" is not needed for this data.
+- **The D65 difference is a difference in fine patterns** and mixes away when seen from a distance (0.83, close to the noise of 0.5).
+- The filter widths were copied from the table in the paper. Since the conclusion does not change when the viewing distance changes by a factor of 4, the result is robust to an error in the table.
+- Calculation: `tools/studies/erato_scielab.py`, `tools/lib/scielab.py`. The full output is in `docs/data/erato_scielab_results.txt`.
 
-## 4. なぜ差が出るか
+## 4. Why the difference appears
 
-### 4.1 金の赤チャンネルは 1 を超える（物理的な上限との衝突）
+### 4.1 The red channel of gold exceeds 1 (a collision with the physical upper limit)
 
-金の反射率は 500〜600 nm で 0.45 から 0.9 へ急に立ち上がり（上の図）、赤（600 nm 付近）はほぼ 0.975 で平らです。ところが、sRGB の赤チャンネルのセンサー感度は、青緑（440〜520 nm）に**負の裾**を持っています。金は青緑の反射率が低い（0.4）ので、その負の寄与が白より小さくなり、結果として赤チャンネルの値が **1.036** と、1 を超えます。
+The reflectance of gold rises steeply from 0.45 to 0.9 between 500 and 600 nm (figure above), and red (near 600 nm) is nearly flat at 0.975. However, the sensor sensitivity of the sRGB red channel has a **negative lobe** in the blue-green (440 to 520 nm). Gold has low reflectance there (0.4), so the negative contribution is smaller than for white, and as a result the value of the red channel is **1.036**, above 1.
 
-RGB 近似は、反射率を Fresnel の式（`eta`, `k`）で表すので、`F ≤ 1` に縛られます。そこで `integrateIorToRgb_CMF` は、F0 を「可視域の最大の分光反射率」（金で 0.975）に頭打ちします（F0 > 1 では `k²` が負になって解けないための、意図した措置）。その結果、赤が約 6% 低くなります。
+The RGB approximation expresses reflectance with the Fresnel formula (`eta`, `k`), so it is bound by `F ≤ 1`. `integrateIorToRgb_CMF` therefore caps F0 at "the largest spectral reflectance in the visible range" (0.975 for gold); this is intended, because with F0 > 1, `k²` would be negative and unsolvable. As a result red is about 6% low.
 
-以前の観察「金の球でスペクトルと RGB の差が約 2.5/255」は、この赤の差と同じ向き（スペクトルのほうが赤い）・同じ大きさです（赤の 6% は、0.975 と 1.0 なら sRGB の 252 と 255、中間の明るさなら数/255）。
+The earlier observation of about 2.5/255 on a gold sphere (item 5 of section 1) is in the same direction as this red difference (spectral is redder) and of the same size (6% in red is 252 against 255 in sRGB for 0.975 against 1.0, and a few /255 at middle brightness).
 
-### 4.2 光源が D65 でないと、各チャンネルの実効反射率が変わる
+### 4.2 When the light is not D65, the effective reflectance of each channel changes
 
-RGB 近似は、反射率を「D65 の下で 1 回だけ」決めた一定値にします。しかし実際には、チャンネル c が見る反射率は `∫ F L s_c / ∫ L s_c` で、光源 L の重みが変わるたびに動きます。金は 480〜560 nm で反射率が急変するので、光源の傾きに敏感です。
+The RGB approximation fixes the reflectance at a constant determined "once, under D65". In reality, the reflectance that channel c sees is `∫ F L s_c / ∫ L s_c`, which moves whenever the weighting by the light L changes. Gold's reflectance changes sharply between 480 and 560 nm, so it is sensitive to the slope of the light.
 
-例（金、垂直入射、θ = 0°）: 青チャンネルの実効反射率は、D65 で 0.364、タングステン A では **0.197** です（RGB 近似は 0.364 のまま）。青チャンネルは「440〜480 nm の正の山」と「500〜650 nm の負の裾」の差で、暖色の光は後者を強く照らします。負の裾の側の金の反射率（0.5〜0.95）は青の山の側（0.4）より高いので、負の寄与が増えて青が大きく下がります。銀と銅は、反射率が平らか、緩やかなので影響が小さいです。
+Example (gold, normal incidence, θ = 0°): the effective reflectance of the blue channel is 0.364 under D65 and **0.197** under tungsten A (the RGB approximation stays at 0.364). The blue channel is the difference between "a positive peak at 440 to 480 nm" and "a negative tail at 500 to 650 nm", and warm light illuminates the latter strongly. Gold's reflectance on the negative-tail side (0.5 to 0.95) is higher than on the side of the blue peak (0.4), so the negative contribution grows and blue drops considerably. Silver and copper are affected little, because their reflectance is flat or gentle.
 
-### 4.3 多重反射は、スペクトルを尖らせる
+### 4.3 Multiple reflections sharpen the spectrum
 
-n 回反射した反射率は `F(λ)^n` です。金の `F(λ)` は赤で 0.975、青で 0.4 なので、n が増えると赤と青の比が `(0.975/0.4)^n` に広がり、スペクトルは長波長側へ尖ります。スペクトル計算はこれを波長ごとに正しく計算しますが、RGB 近似は「各チャンネルの定数の n 乗」です。チャンネルの内側のスペクトルの形（例えば緑チャンネルの中の、500 nm の立ち上がり）が n 乗で変わる分を、表せません。
+The reflectance after n reflections is `F(λ)^n`. Gold's `F(λ)` is 0.975 in red and 0.4 in blue, so as n grows the ratio of red to blue widens as `(0.975/0.4)^n` and the spectrum sharpens toward long wavelengths. The spectral calculation does this correctly per wavelength, but the RGB approximation is "the n-th power of a constant per channel". It cannot represent the change, under the n-th power, of the shape of the spectrum inside a channel (for example the rise at 500 nm inside the green channel).
 
-D65 の垂直入射で、スペクトルの「1 回あたりの実効反射率」`(RGB値)^(1/n)` は、金の赤で n = 1 → 6 に 1.036 → 0.964、緑で 0.730 → 0.759 と動きます（RGB 近似は 0.975 と 0.730 で固定。詳細は結果ファイルの E8）。RGB 近似の赤（0.975）が合うのは、n = 4〜5 前後です。
+For normal incidence under D65, the spectral "effective reflectance per reflection" `(RGB value)^(1/n)` moves for gold from 1.036 to 0.964 in red and from 0.730 to 0.759 in green as n goes from 1 to 6 (the RGB approximation is fixed at 0.975 and 0.730; details are E8 in the results file). The red of the RGB approximation (0.975) matches at about n = 4 to 5.
 
-### 4.4 角度依存は、ほぼ問題ない
+### 4.4 Angle dependence is almost not a problem
 
-D65 の下では、縮約した `(eta, k)` で計算した `F(θ)` が、スペクトルの `F(θ)` と、緑・青で 0.5% 以内、銅の赤でも 1% 以内で一致します（3.2 章）。「斜めの入射で RGB が外れる」という予想は、今回のデータ（Johnson の Au・Ag・Cu）では当たっていませんでした。
+Under D65, `F(θ)` calculated with the reduced `(eta, k)` agrees with the spectral `F(θ)` within 0.5% in green and blue, and within 1% even in the red of copper (section 3.2). The expectation that "RGB goes wrong at oblique incidence" was not borne out by this data (Johnson's Au, Ag, Cu).
 
 ---
 
-## 5. エンジンでの実測との照合
+## 5. Check against measurements in the engine
 
-Python の移植が、実際のエンジンと同じ値を出しているかを確かめるため、`--scene metalprobe` を追加しました（`main_cli.cpp`）。滑らかな金属の球（半径 1）を、光源の SPD を持つ大きな発光殻の中に置き、遠くから（ほぼ正射影で）撮ります。球面上のリング半径が `sin θ` なので、1 枚の画像で入射角 0〜85° が得られ、反射は 1 回だけです。入射角ごとの平均色を表示します。RGB ビルドとスペクトルビルド（別々）で実行し、Python の予測と比べます。
+To check that the Python port gives the same values as the real engine, `--scene metalprobe` is provided (`src/Cli/Scenes/MetalScenes.cpp`). A smooth metal sphere (radius 1) is placed inside a large emissive shell that has the light's SPD, and photographed from far away (nearly orthographic). The ring radius on the sphere is `sin θ`, so one image gives incidence angles 0 to 85°, and there is only one reflection. The mean color per incidence angle is printed. Run it with the RGB build and the spectral build (built separately) and compare with the Python prediction.
 
-**結果（3 金属 × 4 光源 × 2 モード、480 px、512 spp、全角度の表は [metal_probe_compare.txt](data/metal_probe_compare.txt)）**
+**Results (3 metals × 4 lights × 2 modes, 480 px, 512 spp; the table for all angles is [metal_probe_compare.txt](data/metal_probe_compare.txt))**
 
-- **エンジンの RGB ビルドは、Python の RGB 近似と一致**: 入射角 80° 未満の全ビンで ΔE00 ≤ 0.07。
-- **エンジンのスペクトルビルドは、Python の 1 nm 積分と一致**: 同じく ΔE00 ≤ 0.12（銀・D65 の 0° ビンだけ 0.45。そのビンは 32 画素しかなく、白に近い色の ΔE が色ノイズに敏感なため）。80° 以上のビンは、±1.5° の幅で急峻な `F(θ)` を平均するので、点の値との比較にならず除外しました。
-- したがって、**エンジンの RGB 版とスペクトル版の差は、この解析の数値そのもの**です（実測 ΔE00、θ = 0° 付近 / 60°）:
+- **The engine's RGB build agrees with the Python RGB approximation**: ΔE00 ≤ 0.07 in every bin below 80° incidence.
+- **The engine's spectral build agrees with the Python 1 nm integral**: likewise ΔE00 ≤ 0.12 (only the 0° bin for silver under D65 gives 0.45; that bin has only 32 pixels, and the ΔE of a near-white color is sensitive to color noise). Bins at 80° and above were excluded, because they average the steep `F(θ)` over a ±1.5° width and are not comparable with a point value.
+- Therefore **the difference between the engine's RGB and spectral versions is the number of this analysis itself** (measured ΔE00, near θ = 0° / 60°):
 
-| 金属 | D65 | タングステン A | ろうそく | LED |
+| Metal | D65 | Tungsten A | Candle | LED |
 |---|---|---|---|---|
 | Au | 2.10 / 1.51 | 2.97 / 2.86 | 5.86 / 5.37 | 1.94 / 1.87 |
 | Cu | 0.11 / 0.18 | 1.81 / 1.80 | 2.81 / 2.74 | 2.25 / 2.44 |
 | Ag | ≤ 0.1 | ≤ 0.1 | ≤ 0.1 | ≤ 0.1 |
 
-（3.2・3.3 章の Python の値は 2.05 / 1.52、2.96 / 2.84、5.83 / 5.38、1.95 / 1.87、銅 0.00 / 0.17、1.75 / 1.81、2.80 / 2.75、2.31 / 2.43。銅・D65 の 0° だけ 0.11 と 0.00 で食い違うのは、上の 32 画素のビンのノイズです。）
+(The Python values of sections 3.2 and 3.3 are 2.05 / 1.52, 2.96 / 2.84, 5.83 / 5.38, 1.95 / 1.87, and for copper 0.00 / 0.17, 1.75 / 1.81, 2.80 / 2.75, 2.31 / 2.43. Only the 0° value for copper under D65 disagrees, 0.11 against 0.00; this is the noise of the 32-pixel bin above.)
 
-多重反射（3.4 章）は、1 回反射の一致から、n 回は `F^n` の積になるだけなので、Python の値を使っています。
+For inter-reflection (section 3.4), the Python values are used: from the agreement for one reflection, n reflections are just the product of `F^n`.
 
 ---
 
-## 6. 粗い金属（多重散乱）
+## 6. Rough metals (multiple scattering)
 
-粗い金属は、微小面どうしの反射（多重散乱）が増えます。エンジンは Kulla-Conty の補正項 `f_ms = F_ms (1−E(μo))(1−E(μi)) / (π(1−E_avg))`、`F_ms = F_avg² E_avg / (1 − F_avg(1−E_avg))` で、単一散乱 GGX が失うエネルギーを戻します。`F_ms` は反射率の 2 乗に近い量なので、3.4 章の「2 回反射」と同じ種類の差が出ると予想し、`metalprobe --roughness r`（RGB・スペクトル各 512 spp）で測りました。全角度の表は [metal_probe_rough_compare.txt](data/metal_probe_rough_compare.txt) です。
+Rough metals have more reflection between microfacets (multiple scattering). The engine returns the energy that single-scattering GGX loses using the Kulla-Conty correction term `f_ms = F_ms (1−E(μo))(1−E(μi)) / (π(1−E_avg))`, `F_ms = F_avg² E_avg / (1 − F_avg(1−E_avg))`. `F_ms` is a quantity close to the square of the reflectance, so a difference of the same kind as the "two reflections" of section 3.4 was expected, and it was measured with `metalprobe --roughness r` (RGB and spectral, 512 spp each). The table for all angles is [metal_probe_rough_compare.txt](data/metal_probe_rough_compare.txt).
 
-### 6.1 結果: 「拡大する」のは光源が D65 でないときと、銅
+### 6.1 Result: the difference "grows" when the light is not D65, and for copper
 
-RGB 版とスペクトル版の ΔE00（入射角 0〜45° 付近の値）:
+ΔE00 between the RGB and spectral versions (values near 0 to 45° incidence):
 
-| 条件 | r = 0.01 | 0.3 | 0.5 | 0.7 | 1.0 |
+| Condition | r = 0.01 | 0.3 | 0.5 | 0.7 | 1.0 |
 |---|---|---|---|---|---|
-| 金・D65 | 2.0 | 2.0 | 1.9 | 1.5 | 1.4〜1.6 |
-| 金・タングステン A | 3.0 | 3.0 | 3.2 | 4.0 | **6.3** |
-| 銅・D65 | 0.0 | — | 0.1 | — | **1.1** |
+| Gold, D65 | 2.0 | 2.0 | 1.9 | 1.5 | 1.4 to 1.6 |
+| Gold, tungsten A | 3.0 | 3.0 | 3.2 | 4.0 | **6.3** |
+| Copper, D65 | 0.0 | — | 0.1 | — | **1.1** |
 
-- **金・D65: ほぼ拡大しません**（微減）。ただし中身が入れ替わります。滑らかな金は「赤が 6% 低い」（頭打ち）が差の全部でしたが、粗い金（r = 1.0、45°）では RGB (0.939, 0.526, 0.193) とスペクトル (0.969, 0.537, 0.176) で、赤 −3%、緑 −2%、**青 +10%** になります。粗いほど赤の差が縮み（多重散乱側の実効反射率が下がり、頭打ちの影響が薄れる）、代わりに多重散乱項の青が RGB では明るすぎます。
-- **金・タングステン: 拡大します**（3.0 → 6.3、約 2 倍）。粗さ 1.0 では RGB (1.716, 0.437, 0.045)、スペクトル (1.608, 0.456, −0.001)（45°）で、赤が RGB で 7% 明るく、青は RGB が正でスペクトルは 0 以下です。光源による実効反射率のずれ（4.2 章）が、多重散乱項で 2 乗になって効きます。
-- **銅・D65: 拡大します**（0.1 → 1.1）。滑らかな銅は D65 で 1 回なら一致していましたが、粗さ 1.0 では多重散乱の寄与が大きくなり、3.4 章の 2〜3 回反射に近い差（0.6〜1.4）が出ます。
+- **Gold, D65: it hardly grows** (a slight decrease). But the content is swapped. For smooth gold, "red is 6% low" (the cap) was the whole difference, but for rough gold (r = 1.0, 45°) the RGB (0.939, 0.526, 0.193) against the spectral (0.969, 0.537, 0.176) gives red −3%, green −2% and **blue +10%**. The rougher it is, the smaller the red difference becomes (the effective reflectance on the multiple-scattering side drops and the effect of the cap thins out), and instead the blue of the multiple-scattering term is too bright in RGB.
+- **Gold, tungsten: it grows** (3.0 → 6.3, about 2 times). At roughness 1.0 the RGB (1.716, 0.437, 0.045) against the spectral (1.608, 0.456, −0.001) (45°) gives red 7% brighter in RGB, and blue positive in RGB but 0 or below in spectral. The shift of the effective reflectance caused by the light (section 4.2) acts squared in the multiple-scattering term.
+- **Copper, D65: it grows** (0.1 → 1.1). Smooth copper agreed for one reflection under D65, but at roughness 1.0 the contribution of multiple scattering is large, and a difference close to the 2 to 3 reflections of section 3.4 (0.6 to 1.4) appears.
 
-### 6.2 なぜか
+### 6.2 Why
 
-多重散乱項 `F_ms` の色が RGB とスペクトルで違うためです。RGB 版は `F_avg`（半球平均の Fresnel）を縮約した `(eta, k)` から作り、頭打ちの影響も引き継ぎます。スペクトル版は波長ごとに `F_ms(λ)` を作って最後にセンサーで RGB にします（`F_ms` は `F_avg` の非線形関数なので、「平均してから関数」と「関数してから平均」は一致しません）。D65 の下で `F_ms` の色を比べると（Python の見積もり、`E_avg` はエネルギーの 95% / 60% / 40% を単一散乱が受け持つ場合）:
+The color of the multiple-scattering term `F_ms` differs between RGB and spectral. The RGB version builds it from `F_avg` (the hemispherical average of Fresnel) computed from the reduced `(eta, k)`, and inherits the effect of the cap. The spectral version builds `F_ms(λ)` per wavelength and converts to RGB with the sensor at the end (`F_ms` is a nonlinear function of `F_avg`, so "average then function" and "function then average" do not agree). Comparing the color of `F_ms` under D65 (Python estimate, with `E_avg` for the cases where single scattering carries 95% / 60% / 40% of the energy):
 
-| 金属 | E_avg | RGB 版の F_ms | スペクトル→RGB の F_ms | 差（R, G, B） |
+| Metal | E_avg | RGB version F_ms | Spectral → RGB F_ms | Difference (R, G, B) |
 |---|---|---|---|---|
 | Au | 0.95 | (0.949, 0.544, 0.156) | (1.002, 0.553, 0.137) | −5%, −2%, **+14%** |
 | Au | 0.60 | (0.935, 0.471, 0.115) | (0.972, 0.485, 0.091) | −4%, −3%, **+27%** |
 | Au | 0.40 | (0.916, 0.398, 0.085) | (0.929, 0.417, 0.058) | −1%, −5%, **+48%** |
 | Cu | 0.60 | (0.824, 0.322, 0.223) | (0.782, 0.320, 0.219) | +5%, +1%, +2% |
 
-粗いほど（E_avg が小さいほど）、多重散乱項の割合が増え、金の青の誤差が大きくなります。
+The rougher the metal (the smaller E_avg), the larger the share of the multiple-scattering term, and the larger the blue error for gold.
 
-### 6.3 解決策の提案
+### 6.3 Proposed solutions
 
-**案 A（試作で検証済み）: RGB 版の `F_ms` の色を、スペクトルから作る。**
-`RoughConductor` の RGB ビルドで、`F_ms` を「縮約した `(eta, k)` の F_avg から作る」のをやめ、`F_ms(λ)` を表から波長ごとに作り、D65 のセンサーで RGB に投影した値（`color::spectrumToRGB_D65`）にします。事前計算だけで、描画時のコストは変わりません。試作して同じ測定をしたところ（試作は測定後に元へ戻しました）:
+**Option A (verified with a prototype): make the color of the RGB version's `F_ms` from the spectrum.**
+In the RGB build of `RoughConductor`, stop making `F_ms` from the F_avg of the reduced `(eta, k)`; instead make `F_ms(λ)` per wavelength from the table and project it to RGB with the D65 sensor (`color::spectrumToRGB_D65`). It needs only precomputation, and the cost at render time does not change. Making a prototype and repeating the same measurement gave the following (the prototype was reverted after the measurement):
 
-| 条件 | 現状 | 案 A |
+| Condition | Current | Option A |
 |---|---|---|
-| 銅・D65・r = 1.0 | 1.09 | **0.11** |
-| 金・D65・r = 1.0 | 1.55 | **0.53** |
-| 金・D65・r = 0.5 | 1.90 | 1.84（残りは単一散乱側の赤の頭打ち） |
-| 金・タングステン・r = 1.0 | 6.30 | 5.65（光源のずれは直らない） |
+| Copper, D65, r = 1.0 | 1.09 | **0.11** |
+| Gold, D65, r = 1.0 | 1.55 | **0.53** |
+| Gold, D65, r = 0.5 | 1.90 | 1.84 (the rest is the red cap on the single-scattering side) |
+| Gold, tungsten, r = 1.0 | 6.30 | 5.65 (the shift from the light is not fixed) |
 
-D65 の下の誤差は大きく減りますが、**光源が D65 でないときの差は直りません**。RGB は光源を知らないためで、案 A でも原理的に直せません。`setRoughness()` でも `F_ms` を作り直すので、実装するときは表を保持して、そこも差し替える必要があります。
+The error under D65 drops considerably, but **the difference when the light is not D65 is not fixed**. This is because RGB does not know the light, and even Option A cannot fix it in principle. `setRoughness()` also rebuilds `F_ms`, so an implementation must keep the table and replace that as well.
 
-**案 B: 光源が D65 でない場面や、金属の見た目が主題の最終レンダリングは、スペクトルビルドを使う。**
-Release では、スペクトル版は RGB 版とほぼ同じ速さです。この解析の差（光源違いの 2〜6、粗い金・タングステンの 6.3、多重反射の 3.7〜）は、スペクトル版では出ません。RGB 版は、プレビューと D65 の場面に使う、という使い分けです。最も確実で、追加の実装が要りません。
+**Option B: for scenes whose light is not D65, and for final renders where the look of the metal is the subject, use the spectral build.**
+In Release, the spectral version is almost as fast as the RGB version. The differences of this analysis (2 to 6 for other lights, 6.3 for rough gold under tungsten, 3.7 and up for inter-reflection) do not appear in the spectral version. The split is: the RGB version for previews and D65 scenes. It is the most reliable and needs no additional implementation.
 
-**案 C: 金の赤の頭打ちを外す（単一散乱側）。**
-金の F0 の赤が 1 を超える分（1.036）が、滑らかな金・粗い金・D65 の誤差の残りです（案 A の後の金・D65・r = 0.5 の 1.84 など）。F0 に 1 を超える値を許す縮約は、1 回反射では一致しますが、多重反射で R^n が 1 を超えて増え、エネルギー保存を破るので、そのままは勧めません。
+**Option C: remove the cap on the red of gold (single-scattering side).**
+The part where the red of gold's F0 exceeds 1 (1.036) is the remainder of the error for smooth gold, rough gold and D65 (for example 1.84 for gold, D65, r = 0.5 after Option A). A reduction that allows F0 above 1 agrees for one reflection, but with multiple reflections R^n grows above 1 and breaks energy conservation, so it is not recommended as it is.
 
-**案 D（より根本的）: 微小面の多重散乱を補正項でなく直接計算し、その上で比べる。**
-Kulla-Conty は近似です。微小面の高さ相関ランダムウォーク（Heitz 2016）で波長ごとに真の色を出せば、RGB 版とスペクトル版の「どちらが真に近いか」まで言えます。
+**Option D (more fundamental): compute the multiple scattering of microfacets directly instead of with a correction term, and compare on that basis.**
+Kulla-Conty is an approximation. If the true color per wavelength is obtained with a height-correlated random walk over microfacets (Heitz 2016), one can say even "which of the RGB and spectral versions is closer to the truth".
 
-**推奨**: まず案 A（小さな変更で、銅と D65 の金の粗い面が直る）を実装し、光源違いの精度が要る場面は案 B（スペクトルビルド）で、と使い分けます。
+**Recommendation**: implement Option A first (a small change that fixes copper and the rough surfaces of gold under D65), and use Option B (the spectral build) for scenes that need accuracy for other lights.
 
 ---
 
-## 7. 再現手順
+## 7. Reproduction
 
-**解析（Python、数秒）** — 必要なもの: `numpy`、`colour-science`、`matplotlib`
+**Analysis (Python, a few seconds)** — requires `numpy`, `colour-science`, `matplotlib`
 
 ```bash
 python tools/studies/metal_accuracy.py --true-cmf --figs docs/img > docs/data/metal_accuracy_results.txt
 ```
 
-**エンジン実測** — RGB ビルドとスペクトルビルドを別々に作り（`tools/build_cli.ps1` と、`-Spectral` を付けた同じスクリプト。スペクトル版は `CL=/DRAYT_SPECTRAL_MODE`）、プロジェクトのフォルダ（`GoLD_rayt/GoLD_rayt/`）で:
+**Engine measurement** — build the RGB build and the spectral build separately (`tools/build_cli.ps1`, and the same script with `-Spectral`; the spectral version uses `CL=/DRAYT_SPECTRAL_MODE`), and in the project folder (`GoLD_rayt/GoLD_rayt/`):
 
 ```bash
 GoLD_rayt.exe --scene metalprobe --metal Au --light tungsten --width 480 --spp 512 > probe_Au_tungsten_rgb.log
 python tools/studies/metal_accuracy.py --compare probe_Au_tungsten_rgb.log probe_Au_tungsten_spectral.log
 ```
 
-`--metal` は Au | Ag | Cu、`--light` は d65 | tungsten | candle | led、`--roughness r` は粗さ（既定 0.01）。1 回 約 8 秒（Release、8 スレッド）。粗さ付きのログは、予測との比較を省いて RGB 版とスペクトル版の直接比較だけを出します。
+`--metal` is Au | Ag | Cu, `--light` is d65 | tungsten | candle | led, and `--roughness r` is the roughness (default 0.01). One run takes about 8 seconds (Release, 8 threads). A log with roughness omits the comparison with the prediction and gives only the direct RGB-against-spectral comparison.
 
-**色域と見える差（3.5、3.6 章）** — 描画は、RGB ビルドとスペクトルビルドで、同じ設定を 2 回ずつ（`a`、`b`）行い、`--out x.pfm` で保存します（`.pfm` は負の値を保つ。デノイズなしの生データを使う）。
+**Gamut and visible differences (sections 3.5 and 3.6)** — render the same settings twice (`a`, `b`) with the RGB build and with the spectral build, and save with `--out x.pfm` (`.pfm` keeps negative values; use the raw data without denoising).
 
 ```powershell
-# 器: 光源ごとに、4 枚（rgb / spectral × a / b）。800x450、256 spp、1 枚 約 1.5 分
+# Bowl: 4 images per light (rgb / spectral x a / b). 800x450, 256 spp, about 1.5 minutes each
 GoLD_rayt.exe --scene goldbowl --light candle --width 800 --spp 256 --out goldbowl_candle_rgb_a.pfm
-python tools/studies/gold_compare_gamut.py <描画のフォルダ> docs/data/gold_compare_gamut_results.txt d65 tungsten candle
+python tools/studies/gold_compare_gamut.py <folder of renders> docs/data/gold_compare_gamut_results.txt d65 tungsten candle
 
-# 像: scenes/erato_gold.json の "spectrum"（3 か所）を d65 / tungsten / candle に替えた版で、同じく 4 枚（--denoise 付きでも、生の .pfm も保存される）
-python tools/studies/erato_compare_gamut.py <フォルダ> docs/data/erato_compare_gamut_results.txt d65 tungsten candle
-python tools/studies/erato_scielab.py <フォルダ> docs/data/erato_scielab_results.txt d65 tungsten candle --fig <図のフォルダ>
+# Statue: a version of scenes/erato_gold.json with its "spectrum" (3 places) replaced by d65 / tungsten / candle, again 4 images (the raw .pfm is saved even with --denoise)
+python tools/studies/erato_compare_gamut.py <folder> docs/data/erato_compare_gamut_results.txt d65 tungsten candle
+python tools/studies/erato_scielab.py <folder> docs/data/erato_scielab_results.txt d65 tungsten candle --fig <folder for figures>
 
-# 色域の出力の検証（行列、cICP、16bit PNG、.pfm）
+# Check of the gamut output (matrices, cICP, 16-bit PNG, .pfm)
 python tools/test/gamut_check.py matrices
 ```
 
-ファイル名は `goldbowl_<光源>_<rgb|spectral>_<a|b>.pfm`、`erato_<光源>_<rgb|spectral>_<a|b>.pfm`。写真の見た目ではなく、2 つの描画の差を測る。
+File names are `goldbowl_<light>_<rgb|spectral>_<a|b>.pfm` and `erato_<light>_<rgb|spectral>_<a|b>.pfm`. What is measured is not the look of a photograph but the difference between two renders.

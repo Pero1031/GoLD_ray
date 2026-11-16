@@ -1,69 +1,69 @@
-# 濡れて見えること: 画像の統計と、描画（2026-11-09）
+# How wet things look: image statistics, and renders (2026-11-09)
 
-**状態:** 論文の統計で、今ある描画を測った。肌の濡れのモデルは `docs/SKIN_MOISTURE.md`。再現: `tools/studies/wetness_stats.py`。
+**Status:** the existing renders were measured with the statistics of the paper. The model of wet skin is in `docs/SKIN_MOISTURE.md`. Reproduce with `tools/studies/wetness_stats.py`.
 
-## 1. もとにした論文
+## 1. The paper
 
-Sawayama, Adelson, Nishida, "Visual wetness perception based on image color statistics", *Journal of Vision* 17(5):7, 2017（全文と図を読んだ）。
+Sawayama, Adelson, Nishida, "Visual wetness perception based on image color statistics", *Journal of Vision* 17(5):7, 2017 (full text and figures read).
 
-**濡れると見た目が変わる仕組み**（論文の図 1 の整理）:
+**Why wetting changes the appearance** (a summary of the paper's figure 1):
 
-1. 乾いた粗い面は、表面のフレネル反射が白い霞になる。水の膜は滑らかなので、それが鋭いハイライトに替わる。
-2. 水は、空気より素材の屈折率に近い。光が中に入りやすく、出やすくなる。
-3. 水面の内側で全反射した光が、もう一度素材に入り直す。通る距離が伸びて、暗く、鮮やかになる。
-4. 多孔質（布、砂、紙）では、水が隙間を満たして、光が粒子をいくつも通り抜ける。
+1. On a dry rough surface, the Fresnel reflection at the surface is a white haze. A water film is smooth, so the haze is replaced by sharp highlights.
+2. Water has a refractive index closer to the material's than air has. Light enters the material more easily and leaves it more easily.
+3. Light that is totally reflected inside the water surface enters the material again. The path through the material gets longer, and the surface becomes darker and more saturated.
+4. In porous materials (cloth, sand, paper), water fills the gaps, and light passes through several particles.
 
-**32 素材（粘土、土、布、木、野菜）の乾湿の写真**（図 3 から読んだ範囲）:
+**Dry and wet photographs of 32 materials (clay, soil, cloth, wood, vegetables)** (as far as read from figure 3):
 
-| 統計 | 乾いた写真 | 濡れた写真 |
+| Statistic | Dry photograph | Wet photograph |
 |---|---|---|
-| 彩度（u′v′）の平均 | 0.1〜0.4（多くは 0.1〜0.2） | 0.15〜0.6（平均で 1.43 倍。素材ごとに約 1〜3 倍） |
-| 色相 | — | ほぼ変わらない |
-| 輝度の平均 | 0.4〜0.7 | 0.2〜0.5 |
-| 輝度の標準偏差 | 0.04〜0.1 | 0.04〜0.1（系統的な変化なし） |
-| 輝度の歪度 | −1〜+0.5 | −1〜+4 |
+| Mean saturation (u′v′) | 0.1 to 0.4 (mostly 0.1 to 0.2) | 0.15 to 0.6 (1.43 times on average; about 1 to 3 times depending on the material) |
+| Hue | - | almost unchanged |
+| Mean luminance | 0.4 to 0.7 | 0.2 to 0.5 |
+| Standard deviation of luminance | 0.04 to 0.1 | 0.04 to 0.1 (no systematic change) |
+| Skew of luminance | -1 to +0.5 | -1 to +4 |
 
-鏡面反射を外して撮ると、暗くなるだけで、**物理的に濡れていても、濡れて見えない**。
+If a wet surface is photographed with the specular reflection removed, it only becomes darker: **it is physically wet but does not look wet.**
 
-**知覚の実験:** 輝度を Y^γ（γ = 3）にし、彩度を上げる画像処理（WET 演算子）で、乾いた写真が濡れて見える。彩度と歪度は別々に効き、平均の輝度を下げるだけでは濡れて見えない。色相の種類が多い画像ほど、よく効く。
+**Perception experiment:** an image operation (the WET operator) that sets the luminance to Y^γ (γ = 3) and raises the saturation makes dry photographs look wet. Saturation and skew act separately, and lowering the mean luminance alone does not make a picture look wet. The operator works better on images with more hues.
 
-**論文が扱っていないもの:** 水滴、水たまり、形の変化。また、実験の刺激は、写真のテクスチャと、正面から見た四角い板の重なり（「3 次元のモンドリアン」と呼ばれているが、面は平らで、丸みによる陰影はない）で、滑らかな曲面の立体はない。
+**What the paper does not cover:** water drops, puddles, changes of shape. The stimuli of the experiments are a photographic texture and an overlap of square plates seen from the front (called a "3D Mondrian", but the faces are flat and have no shading from curvature); there is no solid with a smooth curved surface.
 
-## 2. 測ったもの
+## 2. What was measured
 
-- **統計:** u′v′ 彩度 s_uv = 13 √((u′ − u′ₙ)² + (v′ − v′ₙ)²)（白色点は D65）、色相（u′v′ 平面の角度）、輝度の平均・標準偏差・歪度・尖度、色相のエントロピー（512 区間、ビット）。
-- **露出:** 乾いた絵の輝度の 99.5 パーセンタイルの 1.25 倍を白とし、乾・濡の組で同じ露出を使い、白を超えた値は切る（写真と同じ扱い）。描画のノイズが標準偏差と彩度に乗らないよう、2 × 2 画素を平均してから測る。
-- **シーン:** 灰色の地面に半分埋まった球 240 個（小石）。上に大きな弱い光と、直径 30 cm の球の光源（約 1 m）。表面は、拡散だけ（`lambert`）、屈折率 1.5・粗さ 0.6 の透明な層 + 拡散（`rough`）、屈折率 1.33・粗さ 0.03 の層 + 拡散（`wet`。水の膜）。配色は、色相が全周（`many`）、1 色相（`one`）、明るく淡い暖色（`natural`）。1024 px、128 spp。
+- **Statistics:** the u′v′ saturation s_uv = 13 √((u′ − u′ₙ)² + (v′ − v′ₙ)²) (white point D65), the hue (the angle in the u′v′ plane), the mean, standard deviation, skew and kurtosis of the luminance, and the hue entropy (512 bins, in bits).
+- **Exposure:** white is 1.25 times the 99.5th percentile of the luminance of the dry picture. The dry and wet pictures of a pair share one exposure, and values above white are clipped (as in a photograph). So that render noise does not add to the standard deviation and the saturation, 2 × 2 pixels are averaged before measuring.
+- **Scene:** 240 spheres (pebbles) half sunk into a grey ground. A large dim light overhead and a spherical light source of 30 cm diameter (at about 1 m). The surface is diffuse only (`lambert`), a transparent layer of index 1.5 and roughness 0.6 over a diffuse body (`rough`), or a layer of index 1.33 and roughness 0.03 over a diffuse body (`wet`, a water film). The palettes are hues all around the circle (`many`), a single hue (`one`), and bright, pale, warm colours (`natural`). 1024 px, 128 spp.
 
-## 3. 結果（乾 → 濡の変化）
+## 3. Results (change from dry to wet)
 
-| 比べた組 | 彩度 | 色相 | 平均輝度 | 歪度 | 彩度 C\*uv |
+| Pair | Saturation | Hue | Mean luminance | Skew | Chroma C\*uv |
 |---|---|---|---|---|---|
-| 論文（32 素材） | 平均 ×1.43 | 変わらず | 下がる | 上がる | — |
-| 小石 `many`: lambert → wet | ×1.08 | −0.3° | ×0.65 | +1.2 | ×0.89 |
-| 小石 `one`: lambert → wet | ×1.07 | −1.6° | ×0.64 | +1.2 | ×0.88 |
-| 小石 `natural`: lambert → wet | ×1.26 | −1.7° | ×0.73 | +0.6 | ×1.10 |
-| 小石 `many`: rough → wet | ×1.14 | −1.0° | **×1.29** | +0.05 | ×1.28 |
-| 肌、小さい光源、水の膜 5 µm（`SKIN_MOISTURE.md` 5.7） | ×1.11 | +0.6° | ×0.98 | +2.1 | ×1.10 |
-| 肌、面光源、化粧水の直後（同 5.5） | ×1.07 | +0.4° | ×1.00 | −0.2 | ×1.07 |
+| Paper (32 materials) | ×1.43 on average | unchanged | lower | higher | - |
+| Pebbles `many`: lambert → wet | ×1.08 | −0.3° | ×0.65 | +1.2 | ×0.89 |
+| Pebbles `one`: lambert → wet | ×1.07 | −1.6° | ×0.64 | +1.2 | ×0.88 |
+| Pebbles `natural`: lambert → wet | ×1.26 | −1.7° | ×0.73 | +0.6 | ×1.10 |
+| Pebbles `many`: rough → wet | ×1.14 | −1.0° | **×1.29** | +0.05 | ×1.28 |
+| Skin, small light source, water film 5 µm (`SKIN_MOISTURE.md` 5.7) | ×1.11 | +0.6° | ×0.98 | +2.1 | ×1.10 |
+| Skin, area light, just after lotion (same, 5.5) | ×1.07 | +0.4° | ×1.00 | −0.2 | ×1.07 |
 
-- **拡散だけの面に水の膜を載せると、4 項目とも論文の写真と同じ向きに動く。** 大きさは、下地の明るさで変わる: 暗く色の濃い小石で彩度 1.08 倍、明るく淡い小石で 1.26 倍。水の膜のモデルは、膜の内側で反射した光が下地に入り直すので（仕組み 3）、下地が明るいほど彩度が上がる。
-- **最初に「彩度の上昇が足りない。仕組みが欠けている」と結論したのは、誤りだった。** 最初の小石（`many`）は、彩度 0.32、平均輝度 0.31、標準偏差 0.16 で、論文の乾いた写真より暗く、色が濃く、明暗の差が大きかった。配色を写真に近づけた `natural` は、論文の範囲（素材ごとに約 1〜3 倍）の中に入る。
-- **乾いた面を「粗い透明な層」で表すと、濡らしたほうが明るくなる**（×1.29。現実と逆）。屈折率 1.5 の層は、水（1.33）より内側の反射が強い。乾いた面のモデルとして不適。
-- **色相の種類を 1 つに減らしても、比はほぼ同じ**（色相のエントロピーは 8.7 対 4.8 ビット）。物理的な変化は色数によらない、という論文の記述どおり。
-- **面光源の肌は、彩度だけが動き、歪度は増えない。** 論文の「ハイライトがないと、濡れていても濡れて見えない」条件にあたる。
+- **A water film on a purely diffuse surface moves all four statistics in the same direction as the paper's photographs.** The size depends on the brightness of the base: saturation rises 1.08 times for dark, strongly coloured pebbles and 1.26 times for bright, pale ones. In the model of the water film, light reflected inside the film enters the base again (mechanism 3), so the brighter the base, the more the saturation rises.
+- **My first conclusion, "the saturation rise is too small; a mechanism is missing", was wrong.** The first pebbles (`many`) had saturation 0.32, mean luminance 0.31 and standard deviation 0.16: darker, more colourful and more contrasty than the paper's dry photographs. `natural`, with colours closer to the photographs, falls inside the paper's range (about 1 to 3 times depending on the material).
+- **If the dry surface is represented by a "rough transparent layer", wetting makes it brighter** (×1.29, the opposite of reality). A layer of index 1.5 reflects more light internally than water (1.33) does. It is not suitable as a model of a dry surface.
+- **Reducing the hues to one leaves the ratios almost unchanged** (hue entropy 8.7 against 4.8 bits), as the paper says: the physical change does not depend on the number of colours.
+- **For skin under an area light, only the saturation moves and the skew does not rise.** This corresponds to the paper's condition that without highlights a surface does not look wet even if it is wet.
 
-## 4. 画像処理だけでは、立体は濡れて見えない
+## 4. Image processing alone does not make a solid look wet
 
-乾いた小石の絵に WET 演算子（γ = 3、彩度 +0.26。論文の値のまま）を掛けた絵は、統計では、物理的に濡らした絵より「濡れた側」にある（`natural`: 彩度 0.46 対 0.26、歪度 1.95 対 0.77）。それでも、見た目は**照明を暗くしただけ**で、濡れて見えない。
+A picture of dry pebbles processed with the WET operator (γ = 3, saturation +0.26, the paper's values) lies, in the statistics, further on the "wet" side than the physically wetted picture (`natural`: saturation 0.46 against 0.26, skew 1.95 against 0.77). Yet it looks like **the lighting was only made darker**, not wet.
 
-- 全体に同じ変換を掛ける処理は、「光源が映るはずの位置」を知らない。滑らかな球では、いちばん明るいのは光の当たる側の広い面で、階調を持ち上げても陰影が強くなるだけになる。
-- 論文で変換が効いたのは、細かい明るい点が全面にある平らなテクスチャで、強調された点が、どこにあっても細かいハイライトとして読める。論文の回帰分析でも、輝度の細かい空間的な変化が大きい画像ほど、よく効いている。
-- したがって、**形から陰影とハイライトの位置が決まる刺激では、濡れは物理的に作る必要がある**。統計は、作った絵が「人が濡れと読む手がかり」を持つかを確かめる物差しとして使う（十分条件ではない）。
+- A transformation applied to the whole picture does not know "where the light source should be reflected". On a smooth sphere, the brightest part is the broad lit side; raising the tone curve only strengthens the shading.
+- In the paper the transformation worked on flat textures with fine bright points all over, where the emphasised points read as small highlights wherever they are. In the paper's regression analysis too, the more a picture varied in luminance at fine spatial scales, the better the transformation worked.
+- Therefore, **for stimuli where the shape determines the positions of shading and highlights, wetness has to be made physically**. The statistics are used as a yardstick of whether the picture has "the cues people read as wetness" (not as a sufficient condition).
 
-## 5. 参考文献
+## 5. References
 
-- M. Sawayama, E. H. Adelson, S. Nishida, "Visual wetness perception based on image color statistics", *Journal of Vision* 17(5):7, 2017.（全文を読んだ）
-- J. Lekner, M. C. Dorf, "Why some things are darker when wet", *Applied Optics* 27(7), 1988.（上の論文からの孫引き。未読）
-- S. A. Twomey, C. F. Bohren, J. L. Mergenthaler, "Reflectance and albedo differences between wet and dry surfaces", *Applied Optics* 25(3), 1986.（同。未読）
-- H. W. Jensen, J. Legakis, J. Dorsey, "Rendering of wet materials", *Rendering Techniques '99*, 1999.（同。未読）
+- M. Sawayama, E. H. Adelson, S. Nishida, "Visual wetness perception based on image color statistics", *Journal of Vision* 17(5):7, 2017. (Full text read.)
+- J. Lekner, M. C. Dorf, "Why some things are darker when wet", *Applied Optics* 27(7), 1988. (Cited second-hand from the paper above. Not read.)
+- S. A. Twomey, C. F. Bohren, J. L. Mergenthaler, "Reflectance and albedo differences between wet and dry surfaces", *Applied Optics* 25(3), 1986. (Same. Not read.)
+- H. W. Jensen, J. Legakis, J. Dorsey, "Rendering of wet materials", *Rendering Techniques '99*, 1999. (Same. Not read.)

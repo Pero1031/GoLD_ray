@@ -1,165 +1,165 @@
-# 髪: 1 本の毛の散乱と、毛束・頭髪
+# Hair: scattering of a single fiber, locks and head hair
 
-髪の毛を、**1 本ずつの円柱**として追跡し、毛の中の光の振る舞いを、**散乱関数（BSDF）**に畳み込んだ。結論: 毛の色は、**メラニンの量だけ**で決まる。ハイライトの色づく位置や、光が毛を透かして出る様子は、材質のパラメータを足さなくても、**3 つの光の道筋**（反射、透過、内部反射）から自然に出る。
+Hair is traced as **individual cylinders**, and the behavior of light inside a fiber is folded into a **scattering function (BSDF)**. Conclusion: the color of a hair is decided by **the amount of melanin alone**. Where the highlights get their color and how light passes through a fiber come out of the **three light paths** (reflection, transmission, internal reflection) without adding any material parameter.
 
-## 1. 何を足したか
+## 1. What was added
 
-| 物 | 場所 |
+| Item | Where |
 |---|---|
-| 髪 1 本の散乱関数 `Hair`（Marschner 2003 の 3 ローブを、エネルギー保存の形に直した Chiang 2016 の式。重点サンプリングつき） | `include/Materials/Hair.hpp` |
-| 毛を円柱の連なりとして交差判定する形状 `HairCurves`（専用の BVH つき） | `include/Geometry/HairCurves.hpp` |
-| 毛束（`MakeLock`）と、頭を流れる髪（`MakeHeadHair`）の手続き的な生成 | `include/Geometry/HairGenerator.hpp` |
-| 光線の出発点のずらし量をヒットごとに持たせた（細い毛のため。既定は従来と同じ） | `include/Core/Interaction.hpp`（`rayOffset`） |
-| シーンファイルの `"type": "hair"`（材質）、`"shape": "hair"`（形状） | `src/Cli/SceneFile.cpp`、`docs/SCENE_FILE.md` |
-| 自己チェック `--scene hair` | `src/Cli/Checks/HairChecks.cpp` |
-| 作例 | `scenes/hair_lock.json`（毛束）、`hair_colors.json`（5 色）、`hair_head.json`（頭髪） |
+| The scattering function `Hair` of a single hair (the three lobes of Marschner 2003, in the energy-conserving form of Chiang 2016; with importance sampling) | `include/Materials/Hair.hpp` |
+| The shape `HairCurves`, which intersects a hair as a chain of cylinders (with its own BVH) | `include/Geometry/HairCurves.hpp` |
+| Procedural generation of a lock (`MakeLock`) and of hair flowing over a head (`MakeHeadHair`) | `include/Geometry/HairGenerator.hpp` |
+| The offset of a ray's origin is stored per hit (for thin hairs; the default is the same as before) | `include/Core/Interaction.hpp` (`rayOffset`) |
+| `"type": "hair"` (material) and `"shape": "hair"` (shape) in the scene file | `src/Cli/SceneFileMaterials.cpp` (material), `src/Cli/SceneFile.cpp` (shape), `docs/SCENE_FILE.md` |
+| Self-check `--scene hair` | `src/Cli/Checks/HairChecks.cpp` |
+| Examples | `scenes/hair_lock.json` (lock), `hair_colors.json` (5 colors), `hair_head.json` (head hair) |
 
-## 2. 理論
+## 2. Theory
 
-### 2.1 髪の毛は何か
+### 2.1 What a hair is
 
-毛は、**屈折率 約 1.55 の半透明の円柱**（直径 約 0.1 mm）。内部に**メラニン**（黒〜茶の真性メラニン eumelanin、赤〜黄の亜性メラニン pheomelanin）があって、光を吸収する。表面は、うろこ状のキューティクルで覆われ、わずかに傾いている。
+A hair is a **translucent cylinder of refractive index about 1.55** (diameter about 0.1 mm). Inside there is **melanin** (eumelanin, black to brown, and pheomelanin, red to yellow), which absorbs light. The surface is covered with scale-like cuticles, slightly tilted.
 
-毛に当たった光は、次の道筋のどれかで出ていく（Marschner ら 2003）。
+Light that hits a hair leaves by one of the following paths (Marschner et al. 2003).
 
-| 記号 | 道筋 | 見え方 |
+| Symbol | Path | Appearance |
 |---|---|---|
-| **R** | 表面で反射 | 白い（毛の色がつかない）鋭いハイライト |
-| **TT** | 入って、通り抜けて出る（transmission を 2 回） | 逆光で毛が光る。毛の色がつく |
-| **TRT** | 入って、裏側で 1 回反射して、出る | 色のついた、もう 1 本のハイライト（キューティクルの傾きで、R とずれる） |
-| 残り | 内部反射を 2 回以上 | 弱い。方位には無関係（拡散）として足す |
+| **R** | Reflection at the surface | A sharp white highlight (it does not take the hair color) |
+| **TT** | Goes in, passes through and comes out (two transmissions) | The hair glows in backlight. It takes the hair color |
+| **TRT** | Goes in, is reflected once at the back and comes out | A colored second highlight (shifted from R by the tilt of the cuticle) |
+| rest | Two or more internal reflections | Weak. Added as independent of the azimuth (diffuse) |
 
-### 2.2 座標と角度
+### 2.2 Coordinates and angles
 
-毛の軸を x、毛の断面の面内を y、z とする（z = 表面の法線）。向き w は 2 つの角度で表す。
+Let x be the axis of the hair, and y, z the directions in the plane of the cross-section (z = surface normal). A direction w is given by two angles.
 
-- **θ**（縦の角度）: 軸に垂直な面からの傾き。sin θ = w · x。
-- **φ**（方位の角度）: 断面の中で、y 軸から測った角度。
-- **h** ∈ [−1, 1]: 毛の幅を横切る、当たった位置（視線に垂直な方向に測る）。h = sin γₒ で、γₒ は、断面で、視線と法線がなす角。
+- **θ** (longitudinal angle): the inclination from the plane perpendicular to the axis. sin θ = w · x.
+- **φ** (azimuthal angle): the angle in the cross-section, measured from the y axis.
+- **h** ∈ [−1, 1]: the position of the hit across the width of the hair (measured perpendicular to the viewing direction). h = sin γₒ, where γₒ is the angle between the viewing direction and the normal in the cross-section.
 
-円柱への当たりでは、**h は出射方向から決まる**（h = −wₒ,y / cos θₒ）ので、材質に渡さない。
+For a hit on a cylinder, **h is determined by the outgoing direction** (h = −wₒ,y / cos θₒ), so it is not passed to the material.
 
-### 2.3 道筋の幾何
+### 2.3 Geometry of the paths
 
-毛の中で光は、断面の面内では**屈折率 η′ = √(η² − sin²θₒ) / cos θₒ**（Bravais の屈折率）の円の中を進む。屈折角は sin γₜ = h / η′。道筋 p（内部の線分の数）が毛から出るときの方位は、
+Inside the hair, in the plane of the cross-section, light travels in a circle of **refractive index η′ = √(η² − sin²θₒ) / cos θₒ** (Bravais index). The refraction angle is sin γₜ = h / η′. The azimuth at which a path p (the number of internal segments) leaves the hair is
 
 　**Φ(p, h) = 2p γₜ − 2 γₒ + p π**
 
-p = 0（R）は、法線について鏡像（φ = −2 γₒ）。p = 1（TT）は、ほぼ前方（π からのずれ）。
+p = 0 (R) is the mirror image about the normal (φ = −2 γₒ). p = 1 (TT) is nearly forward (the deviation from π).
 
-### 2.4 散乱関数
+### 2.4 The scattering function
 
-道筋ごとに分けて、掛け合わせる（Chiang ら 2016、d'Eon ら 2011）。
+It is divided by path and multiplied together (Chiang et al. 2016, d'Eon et al. 2011).
 
 　**f(wₒ, wᵢ) = Σₚ Mₚ(θᵢ, θₒ) · Aₚ(h) · Nₚ(φ) / |cos θᵢ|**
 
-- **Mₚ**（縦の広がり）: Mₚ = I₀(cos θᵢ cos θₒ / vₚ) · exp(−sin θᵢ sin θₒ / vₚ) / (2 vₚ sinh(1/vₚ))。I₀ は第 1 種変形ベッセル関数。vₚ は分散で、縦の粗さ βₘ から決まる: v₀ = (0.726 βₘ + 0.812 βₘ² + 3.7 βₘ²⁰)²、v₁ = v₀ / 4（TT は鋭い）、v₂ = 4 v₀（TRT は広い）。
-- **Aₚ**（減衰）: R は表面のフレネル反射 F。TT は (1 − F)² T。それ以降は、1 回内部で反射するたびに T F を掛ける。T = exp(−σₐ · 2 cos γₜ / cos θₜ) は、毛の中を 1 回通る透過率（σₐ は吸収。毛の半径を単位にした長さで測る）。p ≥ 3 は等比級数で閉じた式にして、1 項で足す: A₃ = A₂ F T / (1 − F T)。
-- **Nₚ**（方位の広がり）: Φ(p, h) を中心にしたロジスティック分布（−π〜π で切って、正規化）。幅 s は方位の粗さ βₙ から決まる: s = √(π/8) (0.265 βₙ + 1.194 βₙ² + 5.372 βₙ²²)。p ≥ 3 は一様（1 / 2π）。
-- **キューティクルの傾き α**（既定 2°）: R、TT、TRT の縦の中心を、−2α、α、4α だけずらす。R と TRT のハイライトが、毛の軸の方向にずれて見えるのは、この傾きによる。
+- **Mₚ** (longitudinal spread): Mₚ = I₀(cos θᵢ cos θₒ / vₚ) · exp(−sin θᵢ sin θₒ / vₚ) / (2 vₚ sinh(1/vₚ)). I₀ is the modified Bessel function of the first kind. vₚ is the variance, set by the longitudinal roughness βₘ: v₀ = (0.726 βₘ + 0.812 βₘ² + 3.7 βₘ²⁰)², v₁ = v₀ / 4 (TT is sharp), v₂ = 4 v₀ (TRT is wide).
+- **Aₚ** (attenuation): R is the Fresnel reflection F at the surface. TT is (1 − F)² T. After that, every internal reflection multiplies by T F. T = exp(−σₐ · 2 cos γₜ / cos θₜ) is the transmittance of one pass through the hair (σₐ is the absorption, measured in lengths with the hair radius as the unit). p ≥ 3 is summed in one term, in closed form as a geometric series: A₃ = A₂ F T / (1 − F T).
+- **Nₚ** (azimuthal spread): a logistic distribution centered on Φ(p, h) (cut at −π to π and normalized). The width s is set by the azimuthal roughness βₙ: s = √(π/8) (0.265 βₙ + 1.194 βₙ² + 5.372 βₙ²²). p ≥ 3 is uniform (1 / 2π).
+- **Cuticle tilt α** (default 2°): shifts the longitudinal centers of R, TT and TRT by −2α, α and 4α. This tilt is why the highlights of R and TRT appear shifted along the axis of the hair.
 
-**エネルギー保存。** 吸収がない（T = 1）ときは、Σₚ Aₚ = 1 になる（上の閉じた式のため）。Mₚ と Nₚ はそれぞれ規格化されているので、毛 1 本が受けた光は、すべて出ていく。
+**Energy conservation.** Without absorption (T = 1), Σₚ Aₚ = 1 (because of the closed form above). Mₚ and Nₚ are each normalized, so all the light that a hair receives leaves again.
 
-**cos の扱い。** 分母の |cos θᵢ|（= 毛の法線との cos）は、積分器が掛ける cos を打ち消す。毛は、断面の**投影幅**が方位によらない、ということを使った定義のため。
+**Handling of cos.** The |cos θᵢ| in the denominator (= cos with the normal of the hair) cancels the cos that the integrator multiplies. This is because the hair is defined using the fact that the **projected width** of the cross-section does not depend on the azimuth.
 
-### 2.5 色
+### 2.5 Color
 
-吸収 σₐ（RGB）は、3 通りに指定できる。
+The absorption σₐ (RGB) can be given in three ways.
 
-1. **メラニン**（`"melanin": [真性, 亜性]`）: σₐ = 真性 × (0.419, 0.697, 1.37) + 亜性 × (0.187, 0.4, 1.05)（pbrt-v4 の `HairMaterial` にある値）。目安: 黒 [8, 0]、茶 [1.3, 0.1]、赤 [0.4, 1.4]、金髪 [0.25, 0.15]、白髪 [0, 0]。
-2. **見た目の色**（`"color": [r, g, b]`）: 内部で何回も反射したあとの見かけの色が、その値になるような σₐ（d'Eon ら 2011 の近似。方位の粗さに依存）。
-3. **直接**（`"sigmaA": [r, g, b]`）。
+1. **Melanin** (`"melanin": [eumelanin, pheomelanin]`): σₐ = eumelanin × (0.419, 0.697, 1.37) + pheomelanin × (0.187, 0.4, 1.05) (the values in the `HairMaterial` of pbrt-v4). Guide values: black [8, 0], brown [1.3, 0.1], red [0.4, 1.4], blond [0.25, 0.15], white (gray) hair [0, 0].
+2. **Apparent color** (`"color": [r, g, b]`): the σₐ for which the apparent color after many internal reflections is that value (an approximation of d'Eon et al. 2011; it depends on the azimuthal roughness).
+3. **Direct** (`"sigmaA": [r, g, b]`).
 
-**スペクトルモード。** 上の RGB の値を、R = 610 nm、G = 545 nm、B = 465 nm での値とみなして、**対数 − 対数で補間**する（端は外挿）。メラニンの吸収スペクトルは、波長が短いほど急に強くなる、なだらかな曲線なので、3 点で近似した。
+**Spectral mode.** The RGB values above are taken as the values at R = 610 nm, G = 545 nm and B = 465 nm and **interpolated in log-log** (extrapolated at the ends). The absorption spectrum of melanin is a smooth curve that becomes steeply stronger toward short wavelengths, so three points were used to approximate it.
 
-### 2.6 重点サンプリング
+### 2.6 Importance sampling
 
-向き wᵢ を、散乱関数の形に合わせて引く。
+The direction wᵢ is drawn to match the shape of the scattering function.
 
-1. 道筋 p を、Aₚ の（波長平均の）大きさに比例して選ぶ。
-2. θᵢ を、Mₚ の累積分布の逆関数で引く。
-3. φᵢ を、Nₚ（切ったロジスティック）の逆関数で引く（p ≥ 3 は一様）。
+1. The path p is chosen in proportion to the size of Aₚ (averaged over wavelength).
+2. θᵢ is drawn by the inverse of the cumulative distribution of Mₚ.
+3. φᵢ is drawn by the inverse of Nₚ (the cut logistic) (uniform for p ≥ 3).
 
-確率密度は、3 つの道筋すべての寄与の和（`pdf()`）で、`sample()` と `eval()` と矛盾しない。
+The probability density is the sum of the contributions of all three paths (`pdf()`), consistent with `sample()` and `eval()`.
 
-## 3. 実装
+## 3. Implementation
 
-### 3.1 1 回のヒットで、毛 1 本の中を全部済ませる
+### 3.1 One hit does everything inside one hair
 
-毛の中の光は**追わない**。光線が毛の円柱に当たったら、そこで、R、TT、TRT、…のすべてを、散乱関数が一度に扱う。出る向きと位置（実際には、同じ点から出るとみなす）を決めて、次の光線を飛ばす。毛の中を通る間の位置のずれ（TT の出口は、入口の反対側）は無視する近似。毛の直径（約 0.16 mm）が、描画の 1 画素（作例で約 0.4 mm）より小さいので、見た目には影響しない。
+The light inside a hair is **not followed**. When a ray hits the cylinder of a hair, the scattering function handles R, TT, TRT, … all at once at that point. It decides the outgoing direction and position (in practice the light is taken to leave from the same point) and the next ray is shot. The shift of position while passing through the hair (the exit of TT is on the opposite side of the entrance) is ignored, as an approximation. The diameter of the hair (about 0.16 mm) is smaller than one pixel of the render (about 0.4 mm in the examples), so it does not affect the appearance.
 
-### 3.2 形状と交差
+### 3.2 Shape and intersection
 
-`HairCurves` は、毛（折れ線）の**線分 1 つ = 有限の円柱 1 つ**として扱う（半径は両端の平均）。
+`HairCurves` treats **one segment of a hair (a polyline) = one finite cylinder** (the radius is the average of the two ends).
 
-- 交差は、円柱の側面との 2 次方程式を 1 本ずつ解く。蓋はない（毛先は細くなって消える）。
-- **外側からの当たりだけを数える**。内側から出る光線（TT で毛を通り抜けるもの）は、その毛自身の向こう側の壁には当たらない。散乱関数が、すでに毛の中を済ませたため。このとき、光線の出発点は、毛の内側へ `rayOffset`（半径の 1000 分の 1）だけずらす。
-- 継ぎ目では、隣の線分と少し重ねる（外側に曲がるところで、針の穴のような隙間ができないように）。
-- 法線は、頂点の接線を線分の中で補間したものに直交させる（折れ線のカクつきを、見た目に出さない）。接線 `dpdu` と法線 `n` が、`Hair` に渡る。
-- 毛 10 万本 × 数十線分になるので、線分を 1 つずつ `Hittable` にせず、**専用の BVH**（線分は頂点の番号 4 バイト）を持つ。
+- The intersection solves the quadratic equation with the side of each cylinder, one at a time. There are no caps (the tip becomes thinner and vanishes).
+- **Only hits from the outside are counted.** A ray leaving from the inside (one that passed through the hair with TT) does not hit the far wall of the same hair, because the scattering function has already handled the inside. In this case the origin of the ray is shifted to the inside of the hair by `rayOffset` (1/1000 of the radius).
+- At the joints, a segment overlaps its neighbor a little (so that no pinhole-like gaps appear where the hair bends outward).
+- The normal is made orthogonal to the tangent of the vertices interpolated within the segment (so that the polyline does not show its corners). The tangent `dpdu` and the normal `n` are passed to `Hair`.
+- With 100,000 hairs × several tens of segments, the segments are not made one by one into a `Hittable`; there is a **dedicated BVH** (a segment is a 4-byte vertex index).
 
-### 3.3 毛の生成
+### 3.3 Generation of hair
 
-- **毛 1 本**: 重力に向かって曲がり（`droop`）、滑らかな波でうねる。波の位相は、根元の位置で決まるので、近い毛は同じように動く。
-- **房**（clump）: 毛は、最も近い**ガイド**の経路に、先端ほど強く引き寄せられる。房の間に隙間ができ、房の中の毛は寄り添う。
-- **毛束**（`style: lock`）: 房が、共通の中心線のまわりで、それぞれ別々に揺れ、先端へ向かって広がる。毛先は不揃い。一部の毛（`flyaway`）は、束から外れる。
-- **頭髪**（`style: head`）: 球の上に根元を置き、頭皮から出て、重力で落ちる。頭に入る毛は、表面に押し戻す。顔の近くの毛は、後ろと左右へ流す（`sweep`）。
+- **One hair**: it bends toward gravity (`droop`) and undulates in a smooth wave. The phase of the wave is decided by the position of the root, so nearby hairs move in the same way.
+- **Clump**: a hair is pulled toward the path of the nearest **guide**, more strongly toward the tip. Gaps open between clumps, and the hairs in a clump stay close together.
+- **Lock** (`style: lock`): the clumps sway separately around a common center line and spread out toward the tip. The tips are uneven. Some hairs (`flyaway`) leave the lock.
+- **Head hair** (`style: head`): the roots are placed on a sphere, the hairs leave the scalp and fall by gravity. A hair that would enter the head is pushed back onto the surface. Hair near the face is combed to the back and to the sides (`sweep`).
 
-毛の半径は、実物（約 0.05 mm）より太く描く（0.08 mm）。細くすると、画素より細い線になり、ノイズが増える。
+The radius of the hair is drawn thicker (0.08 mm) than the real one (about 0.05 mm). If it is made thinner, the line becomes thinner than a pixel and the noise increases.
 
-## 4. 確かめたこと（`--scene hair`、RGB・スペクトルとも PASS）
+## 4. What was checked (`--scene hair`, PASS in both RGB and spectral)
 
-| 検査 | 結果 |
+| Check | Result |
 |---|---|
-| 吸収のない毛のエネルギー（∫ f \|cos\| dω = 1。一様な方向抽出で。βₘ = βₙ = 0.3、0.6、入射 3 通り） | 0.997〜1.003（誤差 0.2〜0.6%） |
-| `pdf()` の積分が 1。`sample()` の標本平均が、pdf から求めた期待値と一致 | 1.007、0.994。標本平均と期待値の各成分の差は 0.007 以内 |
-| `sample()` の重み f cos / pdf の平均 = 1（吸収なし）、= ΣAₚ（吸収あり） | 1、0.1906、0.2071（期待値と同じ） |
-| ローブの向き（吸収の強い毛は R だけ残る。ハイライトの位置が、法線についての鏡像か） | 鏡像の方向で、方位が 40° ずれた方向の 約 5.6 × 10⁵ 倍 |
-| ローブの向き（透明な毛を正面から見て、TT が真っ直ぐ抜けるか） | 真っ直ぐ抜ける方向で、横の 1.1 × 10⁵ 倍 |
-| 円柱の交差（側面から、外側から出発、外れ） | t = 1.95（期待値と同じ）、内側からは当たらない、0.01 外れると外れ |
-| BVH と全探索の一致（150 本 × 8 線分、光線 4000 本） | 4000 / 4000 一致、`occluded()` の食い違いなし |
-| **白色炉**: 吸収のない毛 1 本が、一様な白い空の中で、空の明るさ 1 を返すか（4 方向） | RGB・スペクトルとも 0.998〜1.002（誤差 0.15〜0.4%。実行ごとに少し変わる） |
-| 白色炉: 吸収のない毛束（150 本、3 方向。毛同士の多重散乱を含む） | RGB 0.997〜0.999（誤差 0.3〜0.4%）、スペクトル 1.000〜1.009 |
+| Energy of a non-absorbing hair (∫ f \|cos\| dω = 1, with uniform direction sampling; βₘ = βₙ = 0.3, 0.6, three incident directions) | 0.997 to 1.003 (error 0.2 to 0.6%) |
+| The integral of `pdf()` is 1. The sample mean of `sample()` agrees with the expected value from the pdf | 1.007, 0.994. Every component of the sample mean and the expected value differ by at most 0.007 |
+| The mean of the weight f cos / pdf of `sample()` = 1 (no absorption), = ΣAₚ (with absorption) | 1, 0.1906, 0.2071 (the same as the expected values) |
+| Direction of the lobes (a strongly absorbing hair keeps only R; is the highlight at the mirror image about the normal?) | About 5.6 × 10⁵ times the value in the direction 40° away in azimuth, at the mirror direction |
+| Direction of the lobes (a transparent hair seen from the front; does TT go straight through?) | 1.1 × 10⁵ times the sideways value, in the straight-through direction |
+| Intersection of a cylinder (from the side, starting outside, a miss) | t = 1.95 (the same as expected), no hit from the inside, a miss when 0.01 off |
+| BVH against brute force (150 hairs × 8 segments, 4000 rays) | 4000 / 4000 agree, no mismatch in `occluded()` |
+| **White furnace**: does one non-absorbing hair in a uniform white sky return the sky brightness 1 (4 directions) | 0.998 to 1.002 in both RGB and spectral (error 0.15 to 0.4%; it changes a little from run to run) |
+| White furnace: a non-absorbing lock (150 hairs, 3 directions; includes multiple scattering between hairs) | RGB 0.997 to 0.999 (error 0.3 to 0.4%), spectral 1.000 to 1.009 |
 
-**途中で見つけたこと**
-- **BVH の包みの余白が足りなかった**（継ぎ目の重なり分が、箱の外に出ていた）。全探索との比較で、4000 本中 1 本が合わなかった。余白を広げて一致。
-- 白色炉の毛束を、毛を詰めすぎた設定（幅 12 mm に 600 本。充填率 2.7 倍）にすると、平均が 0.88 になり、失敗に見えた。原因は、散乱関数でも交差でもなく、**反射率 1 の厚い束では経路が数百回の散乱になり、ロシアンルーレットの重みの分布が重い裾を持つ**ため（平均が下に偏り、誤差の見積もりも小さすぎる）。毛 100〜300 本では 0.993〜1.000。試験の設定のほうを、現実の密度に直した。
+**Found along the way**
+- **The margin of the BVH bounds was too small** (the overlap at the joints stuck out of the box). In the comparison with brute force, 1 of 4000 rays did not agree. The margin was widened and they agreed.
+- When the white-furnace lock was set with too many hairs (600 hairs in a width of 12 mm; a packing of 2.7 times), the mean became 0.88, which looked like a failure. The cause was neither the scattering function nor the intersection: **in a thick lock of reflectance 1, a path has hundreds of scatterings, and the distribution of the Russian-roulette weights has a heavy tail** (the mean is biased downward, and the error estimate is too small). With 100 to 300 hairs it is 0.993 to 1.000. The test setting was corrected to a realistic density.
 
-## 5. 作例
+## 5. Examples
 
-描画時間は、この PC（8 スレッド、Release）の実測。細い毛は、サンプル数が要るので、時間がかかる。
+The render times are measured on this PC (8 threads, Release). Thin hairs need many samples, so they take time.
 
-**毛束**（`scenes/hair_lock.json`。5000 本、900 × 506、192 spp、デノイズあり。2.5 分）: 右から白い主光源、左奥から逆光。細い毛が束から外れ、逆光で金色に光る。
+**Lock** (`scenes/hair_lock.json`. 5000 hairs, 900 × 506, 192 spp, with denoising. 2.5 minutes; the options in the file itself are 1000 px and 256 spp): a white key light from the right and a backlight from the back left. Thin hairs leave the lock and glow gold in the backlight.
 
-![毛束](img/hair_lock.png)
+![Lock](img/hair_lock.png)
 
-**3 つのローブ**（同じ毛束を、材質の `"lobes"` で 1 つずつに分けて描いた。各 2 分。図は `tools/figures/hair_figures.py lobes`）:
+**The three lobes** (the same lock, drawn one lobe at a time with `"lobes"` of the material. 2 minutes each. The figure is made by `tools/figures/hair_figures.py lobes`):
 
-![R、TT、TRT、全部](img/hair_lobes.png)
+![R, TT, TRT, all](img/hair_lobes.png)
 
-- **R**: 毛の色がつかない、白い反射。毛の流れに沿った細い筋になる。
-- **TT**: 毛を通り抜けた光。毛の色（ここでは金茶）がつく。逆光で、束の縁の細い毛が光る。
-- **TRT**: この茶色の毛では**ごく弱い**（光源を 6 倍にして、やっと見える）。2 回通るので、吸収の強い毛ほど弱い。
-- 3 つを足し、残りの項を加えると、右端の毛束になる。
+- **R**: a white reflection that does not take the hair color. It becomes thin streaks along the flow of the hair.
+- **TT**: light that passed through the hair. It takes the hair color (golden brown here). In backlight, the thin hairs at the edge of the lock glow.
+- **TRT**: **very weak** for this brown hair (it becomes visible only with the light made 6 times stronger). The light passes through twice, so the more absorbing the hair, the weaker it is.
+- Adding the three and then the remaining terms gives the lock on the far right.
 
-**メラニンだけで変わる色**（`scenes/hair_colors.json`。同じ形の毛束 5 本。色以外は同じ。1400 × 788、256 spp、デノイズあり。23 分）:
+**Colors that change with melanin alone** (`scenes/hair_colors.json`. Five locks of the same shape. Everything except the color is the same. 1400 × 788, 256 spp, with denoising. 23 minutes):
 
-![黒、茶、赤、金、白](img/hair_colors.png)
+![Black, brown, red, blond, white](img/hair_colors.png)
 
-数値は `[真性メラニン, 亜性メラニン]`。真性が多いほど黒く、亜性が多いと赤みが出る。白髪（0, 0）は、吸収がなく、内部を何度も反射して白く光る。
+The numbers are `[eumelanin, pheomelanin]`. The more eumelanin, the blacker; pheomelanin gives a reddish tint. White hair (0, 0) has no absorption, and glows white through many internal reflections.
 
-**頭を流れる髪**（`scenes/hair_head.json`。40000 本、約 500 の房、900 × 506、512 spp、デノイズなし。18 分）:
+**Hair flowing over a head** (`scenes/hair_head.json`. 40000 hairs, about 500 clumps, 900 × 506, 512 spp, without denoising. 18 minutes; the options in the file itself have `denoise` on, and the picture was rendered without it):
 
-![頭髪](img/hair_head.png)
+![Head hair](img/hair_head.png)
 
-頭は球で、後ろから見ている。上と左後ろの面光源が、頭の丸みに沿った明るい帯を作る。デノイズをかけると、毛の 1 本ずつの細部が消えて滑らかな面になる（作例には使っていない）。
+The head is a sphere seen from behind. The area lights above and at the back left make a bright band that follows the roundness of the head. With the denoiser, the detail of each hair disappears and it becomes a smooth surface (it is not used for the example).
 
-## 6. 参考文献
+## 6. References
 
-**書誌は、2026-11-09 に、Web 検索で確認した**（著者、題名、誌名、巻号、年、ページ）。
+**The bibliographic data were checked by web search on 2026-11-09** (authors, title, journal, volume and number, year, pages).
 
-- Marschner, Jensen, Cammarano, Worley, Hanrahan. *Light Scattering from Human Hair Fibers.* ACM Transactions on Graphics (SIGGRAPH) 22(3), 780-791, 2003.（R、TT、TRT の 3 ローブ）
-- d'Eon, Francois, Hill, Letteri, Aubry. *An Energy-Conserving Hair Reflectance Model.* Computer Graphics Forum (EGSR) 30(4), 1181-1187, 2011.（エネルギー保存、Mₚ の式、見た目の色から σₐ を決める近似）
-- Chiang, Bitterli, Tappan, Burley. *A Practical and Controllable Hair and Fur Model for Production Path Tracing.* Computer Graphics Forum (Eurographics) 35(2), 275-283, 2016.（Nₚ のロジスティック分布、粗さの式、重点サンプリング）
-- Pharr, Jakob, Humphreys. *Physically Based Rendering: From Theory to Implementation*, 4th ed. 2023.（`HairBxDF` の実装。メラニンの σₐ の値）
+- Marschner, Jensen, Cammarano, Worley, Hanrahan. *Light Scattering from Human Hair Fibers.* ACM Transactions on Graphics (SIGGRAPH) 22(3), 780-791, 2003. (the three lobes R, TT, TRT)
+- d'Eon, Francois, Hill, Letteri, Aubry. *An Energy-Conserving Hair Reflectance Model.* Computer Graphics Forum (EGSR) 30(4), 1181-1187, 2011. (energy conservation, the equation of Mₚ, the approximation that sets σₐ from the apparent color)
+- Chiang, Bitterli, Tappan, Burley. *A Practical and Controllable Hair and Fur Model for Production Path Tracing.* Computer Graphics Forum (Eurographics) 35(2), 275-283, 2016. (the logistic distribution of Nₚ, the roughness equations, importance sampling)
+- Pharr, Jakob, Humphreys. *Physically Based Rendering: From Theory to Implementation*, 4th ed. 2023. (the implementation of `HairBxDF`; the σₐ values of melanin)
 - Zinke, Yuksel, Weber, Keyser. *Dual Scattering Approximation for Fast Multiple Scattering in Hair.* ACM Transactions on Graphics (SIGGRAPH) 27(3), Article 32, 2008.

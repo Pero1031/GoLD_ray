@@ -18,7 +18,7 @@ color difference between RGB and spectral rendering was quantified with Mitsuba.
 own code and aims at a **perceptually based renderer**. Besides metals it has dispersion and caustics, thin-film interference,
 layered coats and anisotropic metal, scattering media (fog, clouds with Mie scattering), a wave-spectrum sea with sun glitter,
 hair fibers, skin with subsurface scattering (a procedural micro-relief, uneven color, a film of water or lotion), translucent
-materials, captured objects (scans, 3D Gaussian Splatting), and a photographic lens (depth of field, aberrations, vignetting).
+materials, captured objects (scans, 3D Gaussian Splatting), measured BRDF tables, polarization (Stokes vectors through glass, water, metals and thin films), and a photographic lens (depth of field, aberrations, vignetting, motion blur).
 
 > Windows / Visual Studio 2022 / x64 / CPU only. Readability and tests are preferred over raw speed.
 
@@ -82,7 +82,7 @@ renders and on the displayed images (sRGB, clipped to the display range).
   sRGB gamut and the display clips it. Written as Display P3 (`--gamut p3`) the same two images differ by 5.2 instead of 0.9
   ([numbers](docs/data/gold_compare_gamut_results.txt)).
 
-Write-up with all tables and the reasons (Japanese): [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Numbers:
+Write-up with all tables and the reasons: [`docs/METAL_ACCURACY.md`](docs/METAL_ACCURACY.md). Numbers:
 [`metal_accuracy_results.txt`](docs/data/metal_accuracy_results.txt), [`gold_compare_linear_results.txt`](docs/data/gold_compare_linear_results.txt).
 Scripts: [`metal_accuracy.py`](tools/studies/metal_accuracy.py), [`gold_compare_linear.py`](tools/studies/gold_compare_linear.py).
 
@@ -128,14 +128,14 @@ of a scene file). 1200 x 800, 256 spp, OIDN-denoised, 4 minutes. The scene is wr
 
 **A clear coat over a base** (`scenes/layered_gloss.json`, `scenes/layered_lacquer.json`): lacquer on gold, car paint. The coat is a
 rough dielectric over a diffuse or metal base, and the light that bounces between the two layers is summed by a random walk
-([details](docs/GLOSS.md), Japanese; checked against a closed form and against two independent estimators, `--scene layered`).
+([details](docs/GLOSS.md); checked against a closed form and against two independent estimators, `--scene layered`).
 Gloss has two independent axes: the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
 base, columns). 1280 x 720, 192 spp, OIDN-denoised.
 
 ![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
 
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
-surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md), Japanese), and the color comes from melanin alone.
+surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md)), and the color comes from melanin alone.
 Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
 a head (a plain sphere); 900 x 506, 512 spp, not denoised (the denoiser smooths single fibers away), 18 minutes. The fibers are drawn 1.6 times
 thicker than real ones to keep the noise down. Checked in white furnaces and against sampling (`--scene hair`).
@@ -148,7 +148,7 @@ thicker than real ones to keep the noise down. Checked in white furnaces and aga
 Dry skin has whitish flaky patches and a broad glint that the furrows break up. Water pools in the furrows and fills the gaps of the flakes:
 the patches go and the glint gets a sharp core. Below: a lotion alone, and a lotion followed by an emulsion one minute later, over an hour.
 The emulsion is milky at first and leaves a film of oil, which keeps the patches away after the lotion has dried
-([details](docs/SKIN_MOISTURE.md), Japanese).
+([details](docs/SKIN_MOISTURE.md)).
 
 <img src="docs/img/skin_wet.png" alt="Dry skin and wet skin under a small lamp, each with a close-up of the glint" width="620">
 
@@ -177,7 +177,7 @@ which is checked against path tracing and the photon map (`--scene lvc`, [detail
 
 ## Captured objects and 3D Gaussian Splatting
 
-The renderer reads what photograph-based methods produce, in two ways ([details](docs/CAPTURE.md), Japanese). A mesh from a scan, or from a method that extracts a surface (PLY, OBJ), is an ordinary object: it can be shown as photographed or given any material of the renderer, under the same lights. A 3D Gaussian Splatting point cloud (the `point_cloud.ply` of the training) is ray-traced directly, as particles that emit what the photographs saw and also block light, so a mirror or a glass ball placed in it reflects and refracts the captured room.
+The renderer reads what photograph-based methods produce, in two ways ([details](docs/CAPTURE.md)). A mesh from a scan, or from a method that extracts a surface (PLY, OBJ), is an ordinary object: it can be shown as photographed or given any material of the renderer, under the same lights. A 3D Gaussian Splatting point cloud (the `point_cloud.ply` of the training) is ray-traced directly, as particles that emit what the photographs saw and also block light, so a mirror or a glass ball placed in it reflects and refracts the captured room.
 
 **Lighting a reconstruction with new lights.** A statue was rendered here twice, as an opaque glossy material and as thin wax, under one light, and a relightable 3D Gaussian Splatting model (Relightable 3D Gaussians) was trained on each set. Then both were lit by three other lights and compared with a render of the statue under the same new light. The wax is off already under the training light: the reconstruction brings back shading with 2.4 to 3.7 times the contrast of the smooth, pale truth under all four lights (the opaque statue: 1.0 to 1.6 times). This agrees with what Dihlmann et al. report for subsurface scattering (*Subsurface Scattering for 3D Gaussian Splatting*, NeurIPS 2024), here with the renderer as the source of the truth images. 256 px renders, 120 training views and 8 test views per light, one training each; the second training stage was shortened to a fifth of its default.
 
@@ -268,8 +268,8 @@ GoLD_rayt.exe scenes\gold_bowl_tungsten.json --spp 64
 ```
 
 A file either names a built-in scene with options (`scenes/presets/`) or describes the scene as data: materials (diffuse,
-conductor with `"metal": "Au"`, dielectric, layered coat, thin film, hair, skin, emission), spheres, quads, OBJ meshes, surfaces of revolution, an ocean, hair strands, point lights, camera and
-environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.exe --list-scenes` lists the built-in scenes.
+conductor with `"metal": "Au"`, dielectric, layered coat, thin film, hair, skin, a measured BRDF table, emission), spheres, quads, OBJ meshes, surfaces of revolution, an ocean, hair strands, point lights, camera and
+environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-scenes` lists the built-in scenes.
 
 **Command line** (`GoLD_rayt.exe [scene.json] [options]`)
 
@@ -286,6 +286,8 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese). `GoLD_rayt.e
 | `--accel own\|embree` | own SAH BVH or Embree, for single-material triangle meshes only |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |
+| `--stokes`, `--polarizer A,B,..` | also write the Stokes images and the polarization degree and angle; images behind a polarizing filter at the given angles |
+| `--shutter T`, `--cam-velocity`, `--pan` | motion blur (see `--help`) |
 
 Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 256 spp, depth 16 takes about 2 minutes.
 
@@ -294,22 +296,23 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 ## The renderer in general
 
 - **Path tracing** with next-event estimation, multiple importance sampling, Russian roulette.
-- **Camera**: a photographic lens: focal length (35 mm film), f-number, focus point, polygonal aperture (out-of-focus highlights take the shape of the blades), radial distortion, lateral and axial chromatic aberration (spectral build), and vignetting (a lens barrel that darkens the corners and turns the highlights there into cat's eyes, and the cos^4 law). `--focal-length`, `--fstop`, `--blades`, `--distortion`, `--lateral-ca`, `--axial-ca`, `--vignette`, `--natural-vignette`, or the `camera` of a scene file ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md), Japanese).
+- **Camera**: a photographic lens: focal length (35 mm film), f-number, focus point, polygonal aperture (out-of-focus highlights take the shape of the blades), radial distortion, lateral and axial chromatic aberration (spectral build), and vignetting (a lens barrel that darkens the corners and turns the highlights there into cat's eyes, and the cos^4 law). `--focal-length`, `--fstop`, `--blades`, `--distortion`, `--lateral-ca`, `--axial-ca`, `--vignette`, `--natural-vignette`, or the `camera` of a scene file ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)).
 - **Lights**: point, sphere, rectangle, emissive triangle meshes, HDR environment map (importance sampled). Selection:
   uniform, power, spatial importance (PBRT-style bounds), or all lights.
 - **Materials**: Lambertian (textures, alpha cut-outs, translucent layers), `CoatedDiffuse` (diffuse under a GGX coat, with an optional metal blend and subsurface scattering; used for skin, with a procedural
-  micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md), Japanese; and with a film of water, lotion or emulsion on it:
-  [details](docs/SKIN_MOISTURE.md), Japanese), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
+  micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md); and with a film of water, lotion or emulsion on it:
+  [details](docs/SKIN_MOISTURE.md)), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
-  `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `DiffuseLight`.
-- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, PMX; a captured object from a scan or from 3D Gaussian Splatting can be brought in and given a physical material, and a 3DGS point cloud itself can be ray-traced as emissive particles around the physical objects: [details](docs/CAPTURE.md), Japanese), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md), Japanese), and
+  `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `MeasuredHpBRDF` (a measured, PCA-compressed hpBRDF table, one BRDF per wavelength), `DiffuseLight`. On skin there are also a foundation layer and a primer (Kubelka-Munk and random-walk layers: [details](docs/COSMETICS.md)), and a diffuse reflectance can fade with the hours of light exposure, from a measured series or from an RGB color alone, varying over the surface.
+- **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, STL, PMX; a captured object from a scan or from 3D Gaussian Splatting can be brought in and given a physical material, and a 3DGS point cloud itself can be ray-traced as emissive particles around the physical objects: [details](docs/CAPTURE.md)), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md)), and
   hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
+- **Polarization** (`--stokes`, `--polarizer`): the Stokes vector of the light that reaches the camera through smooth glass and water, metals and thin films (Mueller matrices; anything rougher depolarizes). Writes the degree and angle of linear polarization, or the image behind a polarizing filter ([details](docs/POLARIZATION.md)).
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
-  (Mie scattering of cloud droplets; [details](docs/CLOUD.md), Japanese), a single-scattering sky with a sun (`tools/data/make_sky.py`).
+  (Mie scattering of cloud droplets; [details](docs/CLOUD.md)), a single-scattering sky with a sun (`tools/data/make_sky.py`).
 - **Bidirectional path tracing** (`--lvc`): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
   glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
-  Details: [docs/LVC_BPT.md](docs/LVC_BPT.md) (Japanese).
+  Details: [docs/LVC_BPT.md](docs/LVC_BPT.md).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
   230-420 raw samples.
 - **GUI** (Release build): a Dear ImGui viewer with progressive accumulation. Choose the scene (gold or glass spheres),
@@ -338,21 +341,21 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Next-event estimation** picks one light with the `LightSampler`, samples it, and combines it with BSDF sampling through
   the power heuristic.
 - **Subsurface scattering** is a path event: the integrator finds an exit point with probe rays
-  (`Render/SubsurfaceProbe.hpp`) and continues from there ([details](docs/SSS.md), Japanese).
+  (`Render/SubsurfaceProbe.hpp`) and continues from there ([details](docs/SSS.md)).
 - **Precision**: `Real` is `double`; Embree finds hits in float and the hit record is rebuilt in double.
 
 **Source layout** (`GoLD_rayt/include`; `src` has the entry points)
 
 | Folder | Contents |
 |---|---|
-| `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, `RenderMode.hpp` |
+| `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, polarization (Stokes, Mueller), `RenderMode.hpp` |
 | `Color/` | spectral curves, CIE functions, illuminants, emission spectra, complex IOR tables, `R(λ)`-to-`(n,k)` |
-| `Materials/` | Lambertian, CoatedDiffuse (with the skin relief, wrinkle simulation and pigment), LayeredCoat, RoughConductor, Dielectric, ThinFilm, Hair, DiffuseLight, Subsurface, media |
+| `Materials/` | Lambertian, CoatedDiffuse (with the skin relief, wrinkle simulation, pigment and cosmetic layers), LayeredCoat, RoughConductor, Dielectric, ThinFilm, Hair, MeasuredHpBRDF, fading dyes, DiffuseLight, Subsurface, media |
 | `Microfacet/` | GGX and the directional-albedo table for the multiple-scattering compensation |
 | `Geometry/`, `Scene/`, `Accelerators/` | shapes (also hair curves and the ocean mesh), aggregate, SAH BVH, Embree wrapper |
 | `Lights/` | point / area / environment lights, light samplers |
 | `Render/` | camera, film, integrator, denoiser, subsurface probe |
-| `IO/` | CSV, metal-data, HDR / image / OBJ / PMX / VPD loaders |
+| `IO/` | CSV, metal-data, HDR / image / OBJ / PLY / STL / PMX / VPD loaders |
 | `Application/`, `src/UI/` | the Dear ImGui viewer |
 | `Cli/`, `src/Cli/` | the command-line renderer: options, scene files, one builder per scene, self-checks, tools, the common render steps |
 
@@ -368,7 +371,7 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene furnace` | white-furnace energy: glass and white diffuse return 1.0, rough conductors match an independent integration |
 | `--scene metals` | table units, reflectance-to-`(n,k)`, edge tint against Johnson, multiple scattering, `CoatedDiffuse` reciprocity |
 | `--scene lights` | each light type against a closed form or numerical integral; light-selection strategies agree |
-| `--scene mesh` | triangle geometry, OBJ round trip, BVH and Embree vs brute force, emissive triangles |
+| `--scene mesh` | triangle geometry, OBJ and STL round trips, BVH and Embree vs brute force, emissive triangles |
 | `--scene aov` | the albedo / normal features of a camera path |
 | `--scene dispersion` | the Sellmeier presets against the published d-line index and Abbe number, a diamond ball in a white furnace |
 | `--scene thinfilm` | Airy's formula against closed forms (no film, a quarter-wave coating, a free film), the sampling weights, a white furnace |
@@ -380,6 +383,8 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene relief` | the skin micro-relief and pigment: the height field, the bent normals, the pores, a skin sphere in a white furnace with and without them; the liquid film, the scatter of dry skin, and the time course of a lotion and an emulsion |
 | `--scene hair` | hair: the fiber scattering function (energy, `sample()` against `pdf()` and `eval()`, lobe directions), the cylinder intersector against brute force, white furnaces around a fiber and a lock |
 | `--scene ocean` | the ocean: the wave set against its spectrum, Pierson-Moskowitz closed form, dispersion, directional spreading |
+| `--scene polarization` | polarization: Fresnel closed forms, a chain of Mueller matrices against a direct 3D field calculation, the Stokes vector of glass, metal and thin-film reflections |
+| `--scene cosmetic` | the foundation layer: energy, a closed form for single scattering, reciprocity, and the layer on skin (against the bare skin, a white furnace) |
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
 

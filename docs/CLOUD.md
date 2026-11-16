@@ -1,66 +1,66 @@
-# 雲（Mie 散乱の位相関数）
+# Cloud (the Mie scattering phase function)
 
-雲の見た目の第一歩として、**水滴の Mie 散乱**を位相関数に入れた。結論: 雲の粒（半径 10 µm）は、Henyey-Greenstein（HG）が表せない鋭い前方ピークを持ち、逆光の雲の明暗が変わる。
+As a first step toward the appearance of clouds, the **Mie scattering of water drops** was put in as the phase function. Result: cloud droplets (radius 10 µm) have a sharp forward peak that Henyey-Greenstein (HG) cannot represent, and it changes the light and dark of a backlit cloud.
 
-## 1. 何を足したか
+## 1. What was added
 
-| 物 | 場所 |
+| Item | Where |
 |---|---|
-| Mie 散乱の計算（Bohren & Huffman）、水滴の粒径分布の平均、位相関数の表の出力、自己チェック | `tools/studies/mie_phase.py` |
-| 表の位相関数（密度と標本抽出が厳密に一致する） | `include/Materials/TabulatedPhase.hpp`、`PhaseFunction` が使う |
-| シーンファイルの `medium.phaseTable`（CSV のパス。`g`/`g2`/`weight` の代わり） | `docs/SCENE_FILE.md` |
-| `--media-nee`（媒質の衝突ごとに光源を標本抽出。境界が屈折率 1 のとき素通り）。シーンファイルで、太陽のような小さい光源を使うために要る | `src/Cli/RenderPipeline.cpp` |
-| 作例 | `scenes/cloud_mie.json`（`--media-nee` はファイル内の `options`） |
-| 表（生成物） | `assets/Cloud/mie_reff10.csv`（有効半径 10 µm、有効分散 0.1。可視光 6 波長の平均） |
+| Mie scattering calculation (Bohren & Huffman), averaging over the droplet size distribution, output of a phase function table, self-check | `tools/studies/mie_phase.py` |
+| Tabulated phase function (density and sampling agree exactly), used by `PhaseFunction` | `include/Materials/TabulatedPhase.hpp` |
+| `medium.phaseTable` of the scene file (path of a CSV; used instead of `g` / `g2` / `weight`) | `docs/SCENE_FILE.md` |
+| `--media-nee` (samples a light source at every collision in the medium; the boundary is passed through when its refractive index is 1). Needed in scene files to use a small light such as the sun | `src/Cli/RenderPipeline.cpp` |
+| Example | `scenes/cloud_mie.json` (`--media-nee` is in the `options` of the file) |
+| Table (generated) | `assets/Cloud/mie_reff10.csv` (effective radius 10 µm, effective variance 0.1; average over 6 visible wavelengths) |
 
-## 2. Mie の位相関数（雲の水滴、有効半径 10 µm）
+## 2. The Mie phase function (cloud droplets, effective radius 10 µm)
 
-- 平均コサイン g = 0.865（文献の 0.85〜0.88 の範囲）。
-- 前方（0°）は、同じ g の HG の約 80 倍。散乱された光の約 48% が 5° の円錐の中に入る（HG は 13%）。回折の山で、幅は 1° ほど。
-- 約 140° に虹（rainbow）の山、180° に glory（後方の小さな山）。HG にも 2 ローブにもない。
-- 水滴の粒の大きさの分布で山はなだらかになる。可視光の波長で平均したので、色の縞（霧虹、glory の色）は消えて、形だけが残る。
+- Mean cosine g = 0.865 (within the literature's range of 0.85-0.88).
+- Forward (0°) it is about 80 times the HG with the same g. About 48% of the scattered light falls inside a 5° cone (HG: 13%). It is a diffraction peak about 1° wide.
+- A rainbow peak at about 140° and a glory (a small backward peak) at 180°. Neither HG nor the two-lobe function has them.
+- The size distribution of the droplets smooths the peaks. Because the average is taken over visible wavelengths, the color fringes (fogbow (霧虹), the colors of the glory) vanish and only the shape remains.
 
-図は `python tools/studies/mie_phase.py --plot out/mie_reff10.png`。
+The figure comes from `python tools/studies/mie_phase.py --plot out/mie_reff10.png`.
 
-雲の濃さは、液水量（LWC）から決まる。有効半径 10 µm の水滴では、消散係数 = 0.157 m²/g × LWC。LWC 0.3 g/m³ で 0.047 /m（積雲で 0.05〜0.1 /m）。
+The density of a cloud is set by the liquid water content (LWC). For droplets of effective radius 10 µm, extinction coefficient = 0.157 m²/g × LWC. LWC 0.3 g/m³ gives 0.047 /m (cumulus: 0.05-0.1 /m).
 
-## 3. 確かめたこと
+## 3. What was checked
 
-`python -I tools/studies/mie_phase.py --check`（8 項目、すべて PASS）:
-- 粒が小さい極限（x = 0.01）で Rayleigh の 3/(16π)(1 + cos²θ) に一致（最大の差がピークの 4e-5）。
-- 吸収のない球で Q_ext = Q_sca（差 2e-16）、x = 400 で Q_ext = 2.02（消光のパラドックス）。
-- 位相関数の積分が 1。雲の水滴の平均コサインが 0.86。単一の水滴で、虹が 140.7° 付近、後方の山がある。
+`python -I tools/studies/mie_phase.py --check` (8 items, all PASS):
+- In the small-particle limit (x = 0.01) it agrees with Rayleigh's 3/(16π)(1 + cos²θ) (maximum difference 4e-5 of the peak).
+- For a non-absorbing sphere Q_ext = Q_sca (difference 2e-16), and at x = 400 Q_ext = 2.02 (extinction paradox).
+- The phase function integrates to 1. The mean cosine of cloud droplets is 0.86. For a single droplet there is a rainbow near 140.7° and a backward peak.
 
-`--scene volume`（RGB・スペクトルの両方、PASS）の新しい項目:
-- HG の表が、HG の式に 0.002% で一致。
-- 表の `eval()` と `sample()` が同じ密度: 円錐（5°、60°、120°）に入る標本の割合が、`eval()` の積分と、標準誤差の 4 倍以内で一致（HG の表と Mie の表の両方）。
-- Mie の表で、吸収のない厚い板が、空の明るさをそのまま返す（白炉）。HG の表の板が、HG の式の板と一致する。
+New items of `--scene volume` (both RGB and spectral, PASS):
+- The HG table agrees with the HG formula to 0.002%.
+- `eval()` and `sample()` of the table have the same density: the fraction of samples falling in cones (5°, 60°, 120°) agrees with the integral of `eval()` within 4 standard errors (both for the HG table and the Mie table).
+- With the Mie table, a thick non-absorbing slab returns the brightness of the sky unchanged (white furnace). A slab with an HG table agrees with a slab with the HG formula.
 
-## 4. 描画の比較（逆光、同じ雲・同じ太陽、位相関数だけが違う）
+## 4. Rendering comparison (backlit, same cloud and same sun, only the phase function differs)
 
-![左: HG（g = 0.865）、右: Mie](img/cloud_hg_vs_mie.png)
+![Left: HG (g = 0.865), right: Mie](img/cloud_hg_vs_mie.png)
 
-`scenes/cloud_mie.json`（640×360、128 spp、デノイズあり、RGB ビルド）。左は `phaseTable` を `"g": 0.865` に替えた物。時間は Mie 251 秒、HG 228 秒（スペクトル版のビルドと並行した値）。
+`scenes/cloud_mie.json` (640×360, 128 spp, denoised, RGB build). The left image is the same scene with `phaseTable` replaced by `"g": 0.865`. Times: Mie 251 s, HG 228 s (values measured while the spectral build was running in parallel).
 
-- HG: 縁が全体に明るく、太陽の方向に特別な場所がない。
-- Mie: 太陽に近い左上の縁に、明るい集中した領域ができ、本体は暗い。前方ピークが、太陽の近くの薄い部分で、光を強く通す。
-- **ノイズ:** Mie の方が、デノイズ後も明るい斑点が多い。前方ピークは鋭く、太陽の方向に合った経路がまれに大きな値を出すため、と考えている。
+- HG: the rim is bright all around, and there is no special place in the direction of the sun.
+- Mie: a bright, concentrated region appears on the upper-left rim near the sun, and the body is dark. The forward peak lets a lot of light through the thin parts near the sun.
+- **Noise:** Mie has more bright speckles even after denoising. The forward peak is sharp, and the rare paths that match the sun's direction give large values; this is the current explanation.
 
-## 5. 空と太陽
+## 5. Sky and sun
 
-`tools/data/make_sky.py` が、晴れた空の環境マップ（緯度経度の `.hdr`）と、太陽の色と位置を出す。作例は `scenes/cloud_sky.json`（空は `assets/env/sky_el12.hdr`、太陽の高さ 12°）。
+`tools/data/make_sky.py` produces an environment map of a clear sky (`.hdr`, latitude-longitude) and the color and position of the sun. The example is `scenes/cloud_sky.json` (the sky is `assets/env/sky_el12.hdr`, sun elevation 12°).
 
-- 大気は、分子の Rayleigh 散乱（青が強い、高さ 8 km のスケール）と、エアロゾルの Mie 散乱（太陽の周りが白く光る、g = 0.76、高さ 1.2 km）。光が 1 回だけ散乱される経路を、視線に沿って足し合わせる（Nishita ら 1993 と同じ考え方）。波長は 400〜700 nm の 16 点で計算し、レンダラーと同じ等色関数の近似で sRGB にする。
-- 太陽の円盤は、地図に入れない（2 画素に 4 万を超える値が入るため）。小さな球の光源として、シーンに置く。色は、大気を通った後の太陽光（低い太陽ほど赤い）。
-- 単散乱だけなので、空は実際より暗い（天頂で数分の 1）。シーンの `environment.scale` で補っている。
-- 太陽が雲の後ろにあるので、雲の縁が銀色に光る（Mie の前方ピーク）。雲の内部は、前方ピークが鋭いために、明るい斑点のノイズが残りやすい。
+- The atmosphere has Rayleigh scattering by molecules (strong in blue, scale height 8 km) and Mie scattering by aerosols (a white glow around the sun, g = 0.76, scale height 1.2 km). The paths on which light is scattered only once are summed along the line of sight (the same idea as Nishita et al. 1993). The wavelengths are computed at 16 points over 400-700 nm and converted to sRGB with the same color matching function approximation as the renderer.
+- The solar disc is not put in the map (two pixels would hold values above 40,000). It is placed in the scene as a small spherical light. Its color is that of sunlight after passing through the atmosphere (the lower the sun, the redder).
+- Because only single scattering is computed, the sky is darker than a real one (a fraction at the zenith). `environment.scale` of the scene compensates for it.
+- The sun is behind the cloud, so the cloud's rim glows silver (the Mie forward peak). Inside the cloud, bright-speckle noise tends to remain because the forward peak is sharp.
 
-使い方: `python tools/data/make_sky.py --sun-el 12 --sun-dir -0.15 -0.97 --out GoLD_rayt/assets/env/sky_el12.hdr`。表示される太陽の色・半径・位置を、シーンファイルに書く。
+Usage: `python tools/data/make_sky.py --sun-el 12 --sun-dir -0.15 -0.97 --out GoLD_rayt/assets/env/sky_el12.hdr`. Write the printed sun color, radius and position into the scene file.
 
-## 参考文献
+## References
 
-- Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, Wiley, 1983（BHMIE）。
+- Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, Wiley, 1983 (BHMIE).
 - Nishita, Sirai, Tadamura, Nakamae, "Display of the Earth taking into account atmospheric scattering", SIGGRAPH 1993, 175-182.
-- Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 527-610, 1974（粒径分布）。
+- Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 527-610, 1974 (size distribution).
 
-（書誌は、2026-11-09 に、Web 検索で確認した。）
+(The bibliographic details were checked by web search on 2026-11-09.)

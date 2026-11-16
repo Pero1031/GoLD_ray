@@ -1,145 +1,145 @@
-# 肌の保湿（化粧水・乳液）: 設計（2026-11-09）
+# Skin moisturizing (lotion and emulsion): design (2026-11-09)
 
-**状態:** 段階 A（膜の形と鏡面の法線の分離、5.1 節）、段階 B（表面の散乱層、5.2 節）、段階 C（時間軸、5.3 節）、段階 D（薄い所を抜ける光への寄与、5.4 節）、段階 E（乳液、5.5 節）、段階 F（化粧水の後に乳液を重ねる、5.6 節）を実施済み。水で濡れる前と後の接写（小さく強い光源）は 5.7 節。濡れの画像統計（肌以外も）は `docs/WETNESS.md`。文献値は `docs/SKIN_MOISTURE_REFS.md`（確度の記号つき）。式の中の**推論は、そう書いた**。
+**Status:** Stage A (film shape and separation of the specular normal, section 5.1), stage B (surface scattering layer, section 5.2), stage C (time axis, section 5.3), stage D (contribution to light passing through thin parts, section 5.4), stage E (emulsion, section 5.5) and stage F (an emulsion applied after a lotion, section 5.6) are done. Close-ups before and after wetting with water (small, strong light source) are in section 5.7. Image statistics of wetness (also for non-skin objects) are in `docs/WETNESS.md`. Literature values are in `docs/SKIN_MOISTURE_REFS.md` (with confidence marks). **Inferences inside the formulas are marked as such.**
 
-**言葉の注意（2026-11-10）:** この文書の「グロー」は、薄い所を**実際に抜ける光**（透け感）です。肌の「透明感」（正面から見た肌の、感性的な質。肌が実際に透明なわけではない）とは、別のものです。逆光の円錐（5.4〜5.6 節）は、仕組みの寄与を分けるための**計算上の診断**で、人の肌では測れず、肌の質感の実験で使われる条件でもありません。以前の版は、これを「半透明感」「研究の本題」と書いていました。なお、5.4 節の「2 つの描画を掛け合わせる」方法は、肌の材質の `randomWalk`（`docs/SSS.md` 12 節）で 1 回の描画に置き換えられます。
+**A note on words (2026-11-10):** In this document "glow" is light that actually **passes through** a thin part (the see-through look: light seen through a thin part). It is a different thing from the toumeikan of skin (a clear, fresh look of skin seen from the front; a kansei quality, not physical transparency). The back-lit cone (sections 5.4 to 5.6) is a **computational diagnostic** for separating the contributions of the mechanisms. It cannot be measured on human skin, and it is not a condition used in experiments on the material appearance (shitsukan) of skin. An earlier version called it "perceived translucency" and "the core of the research". The method of section 5.4 that multiplies two renderings can now be replaced by a single rendering with the `randomWalk` of the skin material (`docs/SSS.md` section 12).
 
-## 1. なぜ作り直すか（最初の試作で分かったこと）
+## 1. Why rebuild (what the first prototype showed)
 
-既存のつまみ（粗さ、`specular`、凹凸の深さ、アルベド）だけで「乾燥 / 塗った直後 / 乾いたあと」を描いたところ（`scenes/skin_moist_*.json`）、**塗った直後に皮溝の網目がくっきり出た**。現実の水膜は皮溝を埋めて表面を滑らかにするので、逆の向き。
+When "dry / just applied / dried afterwards" were rendered with the existing knobs alone (roughness, `specular`, relief depth, albedo), **the network of skin furrows became sharper right after application**. A real water film fills the furrows and smooths the surface, so this is the wrong direction.
 
-原因: `CoatedDiffuse` は、鏡面（GGX）も、拡散も、表面下散乱の出射も、**同じ法線 `rec.n`（凹凸で曲げたもの）**を使う。滑らかなコートほど、皮溝の法線がそのまま鏡面反射に映る。実際の膜は、**溝の上でも滑らかな別の界面**で、鏡面反射は膜の上面の法線で決まり、皮溝の形（膜の下）は拡散の暗さにだけ効くはず。
+Cause: `CoatedDiffuse` uses **the same normal `rec.n` (the one bent by the relief)** for the specular lobe (GGX), the diffuse lobe and the exit of subsurface scattering. The smoother the coat, the more the normals of the furrows show up directly in the specular reflection. A real film is **a separate interface that stays smooth above the furrows**: the specular reflection is determined by the normal of the top of the film, and the shape of the skin furrows (below the film) should affect only the darkness of the diffuse light.
 
-## 2. 物理モデル
+## 2. Physical model
 
-肌の上に、上から、(a) 膜（水、保湿成分、油）、(b) 角層の表面（皮溝、鱗屑）、(c) 角層の薄い散乱、(d) 表皮・真皮（既存の表面下散乱）。
+On the skin, from the top: (a) the film (water, humectant, oil), (b) the surface of the stratum corneum (skin furrows, scales (flakes of the stratum corneum)), (c) thin scattering in the stratum corneum, (d) the epidermis and dermis (the existing subsurface scattering).
 
-### 2.1 膜の形: 溝にたまる（puddle）モデル
-皮膚表面の高さを h_s(p)（既存の `SkinRelief::heightAt`。負 = くぼみ）、膜の上面を z_f(p) とする。
+### 2.1 Film shape: the puddle model (liquid collects in the furrows)
+Let h_s(p) be the height of the skin surface (the existing `SkinRelief::heightAt`; negative = a dent) and z_f(p) the top of the film.
 
-    z_f(p) = smoothmax( h_s(p), L )        （L は「満たす高さ」。smoothmax は、折れ目を丸める滑らかな最大値）
-    t(p)   = z_f(p) − h_s(p) ≥ 0            （膜の厚さ。溝の底で厚く、山で 0）
+    z_f(p) = smoothmax( h_s(p), L )        (L is the "filling height"; smoothmax is a smooth maximum that rounds the kink)
+    t(p)   = z_f(p) − h_s(p) ≥ 0            (film thickness: thick at the bottom of a furrow, 0 on a ridge)
 
-- **L は、塗った量から決める。** 平均の厚さ h̄ = ⟨t⟩ = 量 / 密度。h_s のタイル（グラフ合成の高さマップ、または Worley のサンプル）の分布から、二分法で L を求める。少ない量では、最も深い毛穴と溝だけが満たされる（たまる）。
-- 膜の上面の法線は、バンプと同じ式 n_f = normalize(n − ∇z_f)。満たされた溝の上では、ほぼ平ら（≈ 幾何法線）。山では、皮膚の法線に等しい。
+- **L is determined by the amount applied.** The mean thickness h̄ = ⟨t⟩ = amount / density. L is found by bisection from the distribution of h_s over a tile (the height map of the graph synthesis, or Worley samples). With a small amount, only the deepest pores and furrows are filled (the liquid collects there).
+- The normal of the top of the film uses the same formula as bump mapping: n_f = normalize(n − ∇z_f). Over a filled furrow it is almost flat (≈ the geometric normal). On a ridge it equals the skin normal.
 
-### 2.2 鏡面反射: 膜の上面
-- 鏡面（GGX）は、**n_f の座標系**で評価する。粗さは、膜のある所では膜の粗さ（水は非常に滑らか）、山（t ≈ 0）では皮膚の粗さ。被覆率 c(p) = 1 − exp(−t/t₀) で、粗さと係数を混ぜる（t₀ は、約 1 µm。画素内の混合の近似）。
-- フレネル: 空気 → 膜の反射 R₁(θ, n_f)、膜 → 角層の反射 R₂（n_s = 1.55）。厚さが波長より十分大きいので**干渉は無視して、非干渉の和**: R ≈ R₁ + (1 − R₁)² R₂。
-  - 水膜（1.33）: R₁(0°) = 0.020、R₂ = 0.0058。合計 約 0.026。乾いた角層（1.5 の既存のコート）の 約 0.04 より**低い**。つまり、濡れて「ぎらつく」のは、反射の量が増えるのではなく、**ハイライトが鋭く集中する**ため（既存の GGX の粗さの違いが出る）。
-  - 保湿成分の膜（グリセリン 1.47）: R₁(0°) = 0.036、R₂ ≈ 0。
+### 2.2 Specular reflection: the top of the film
+- The specular lobe (GGX) is evaluated **in the frame of n_f**. The roughness is that of the film where there is a film (water is very smooth) and that of the skin on a ridge (t ≈ 0). Roughness and weight are blended with the coverage c(p) = 1 − exp(−t/t₀) (t₀ is about 1 µm; an approximation of the mixing inside a pixel).
+- Fresnel: reflection air → film R₁(θ, n_f), and film → stratum corneum R₂ (n_s = 1.55). The thickness is much larger than the wavelength, so **interference is ignored and the two are added incoherently**: R ≈ R₁ + (1 − R₁)² R₂.
+  - Water film (1.33): R₁(0°) = 0.020, R₂ = 0.0058. The total is about 0.026, **lower** than about 0.04 of the existing coat on dry stratum corneum (1.5). So skin looks "shiny" when wet not because the amount of reflection increases but because **the highlight becomes sharply concentrated** (the effect of the roughness difference in the existing GGX).
+  - Humectant film (glycerin 1.47): R₁(0°) = 0.036, R₂ ≈ 0.
 
-### 2.3 表面の散乱層（鱗屑と、角層の薄い散乱）
-乾燥した肌が白っぽく見えるのは、はがれかけた層の**空気の隙間**が白色光を拡散反射するため（文献: 乾燥肌の鱗屑の画像解析。検索の要約）。肌の**局所の拡散反射**として、第 3 のローブを足す:
+### 2.3 Surface scattering layer (scales, and thin scattering in the stratum corneum)
+Dry skin looks whitish because the **air gaps** in the peeling layer diffusely reflect white light (literature: image analysis of the scales of dry skin; from a search summary). A third lobe is added as the **local diffuse reflection** of the skin:
 
     ρ_s(p) = ρ₀ · σ(p) · f_match · f_hyd
 
-- ρ₀: 乾いた肌の表面散乱の反射率（自由なパラメータとして変化させる）。σ(p) ∈ [0, 1]: 鱗屑の分布（低周波の斑。ノイズで作る）。
-- **f_match（屈折率の整合）**: 空気の隙間が、屈折率 n_f の液体で満たされると、界面の反射が減る。**界面ごとのフレネル反射の比**で見積もる: f_match = [ ((n_s − n_f)/(n_s + n_f)) / ((n_s − 1)/(n_s + 1)) ]²。水 → **0.125**、グリセリン → **0.015**、乾燥（n_f = 1）→ 1。
-- **f_hyd（角層の水和）**: 角層の内部の屈折率のばらつきが、水和で減る（in vivo で散乱係数は減る方向。H ∈ [0, 1]、f_hyd = 1 − κ_H H。κ_H を変化させる）。
-- 局所の拡散反射が取る分は、表面下散乱に入る光から引く（エネルギー保存）: 入る光は (1 − ρ_s) 倍。
+- ρ₀: reflectance of the surface scattering of dry skin (varied as a free parameter). σ(p) ∈ [0, 1]: distribution of the scales (low-frequency patches, made with noise).
+- **f_match (index matching)**: when the air gaps are filled with a liquid of index n_f, the reflection at the interfaces decreases. It is estimated by **the ratio of the Fresnel reflections per interface**: f_match = [ ((n_s − n_f)/(n_s + n_f)) / ((n_s − 1)/(n_s + 1)) ]². Water → **0.125**, glycerin → **0.015**, dry (n_f = 1) → 1.
+- **f_hyd (hydration of the stratum corneum)**: the variation of the refractive index inside the stratum corneum decreases with hydration (in vivo, the scattering coefficient tends to decrease; H ∈ [0, 1], f_hyd = 1 − κ_H H; κ_H is varied).
+- What the local diffuse reflection takes is subtracted from the light entering subsurface scattering (energy conservation): the entering light is multiplied by (1 − ρ_s).
 
-**時間に対して下の量を使う。**
+**Quantities used over time:**
 
-    h_w(t) = h_w0 · exp(−t/τ_w)       （水の分。蒸発。τ_w は数分のはず）
-    h_g    = h_w0 · (φ_g / (1 − φ_g)) × 密度比   （保湿成分の分。残る）
-    n_f(t) = 体積で重みづけた平均（水 1.33、グリセリン 1.47）
+    h_w(t) = h_w0 · exp(−t/τ_w)       (water part: evaporates; τ_w should be a few minutes)
+    h_g    = h_w0 · (φ_g / (1 − φ_g)) × density ratio   (humectant part: stays)
+    n_f(t) = volume-weighted mean (water 1.33, glycerin 1.47)
     H(t)   = H∞ + (H₀ − H∞) exp(−t/τ_H)
 
-h̄(t) = h_w(t) + h_g。時間は、「乾燥（膜なし）」「塗った直後（t = 0）」「乾いたあと（t ≫ τ_w）」の 3 点を、まず見る。
+h̄(t) = h_w(t) + h_g. For the time axis, three points are looked at first: "dry (no film)", "just applied (t = 0)" and "dried afterwards (t ≫ τ_w)".
 
-### 2.4 変えないもの（意図的）
-- 表面下散乱（散乱距離、アルベド）は、そのまま。角層は 10〜20 µm と薄く、散乱の長さ（数百 µm〜mm）より 1〜2 桁薄いので、**角層の水和の効果は、真皮までを含む散乱ではなく、表面の薄い散乱（2.3）として表す**（`SKIN_MOISTURE_REFS.md` 6 節）。
-- 色素（そばかすなど）、光沢の揺らぎ（皮脂の斑）は、そのまま重ねる。
+### 2.4 What is not changed (on purpose)
+- Subsurface scattering (scattering distance, albedo) is left as it is. The stratum corneum is thin (10 to 20 µm), 1 to 2 orders of magnitude thinner than the scattering length (hundreds of µm to mm), so **the effect of hydration of the stratum corneum is expressed as a thin surface scattering (2.3), not as scattering that includes the dermis** (`SKIN_MOISTURE_REFS.md` section 6).
+- Pigment (freckles etc.) and gloss variation (patches of sebum) are layered on as before.
 
-## 3. エンジンの変更
+## 3. Engine changes
 
-| 場所 | 変更 |
+| Place | Change |
 |---|---|
-| `Core/Interaction.hpp` | `SurfaceInteraction` に、膜の上面の法線 `ns`（0 なら `n` と同じ）、被覆率 `filmCover`、膜の屈折率 `filmIor`、表面散乱の反射率 `surfScatter` を足す（既存の `glossScale` と同じ作法で、ヒットごとに 1 回だけ） |
-| `Materials/SkinFilm.hpp`（新） | 状態（h̄、n_f、H、ρ₀ など）、満たす高さ L の計算、点 p での {t, ns, c, ρ_s}。`SkinRelief` の高さを使う |
-| `Materials/CoatedDiffuse.hpp/.cpp` | `setFilm()`。`perturbShading` で上の値を詰める。**鏡面（eval / sample / pdf）は `ns` の座標系**、拡散と表面下散乱は `n`。第 3 のローブ（局所の拡散）を、`lobeProbability`、`sample`、`pdf`、`eval` に足す。膜のフレネルは 2.2 |
-| `src/Cli/SceneFile.cpp` | skin の `"film"`: `{ "doseMgCm2", "glycerin", "waterTauS", "scatter": { "rho0", "hydration", "kappaH" }, "timeS" }` ほか |
-| `src/Cli/Checks/ReliefChecks.cpp` | 4 節の検査 |
+| `Core/Interaction.hpp` | Add to `SurfaceInteraction` the normal of the top of the film `ns` (0 = the same as `n`), the coverage `filmCover`, and the reflectance of the surface scattering `surfScatter` (same convention as the existing `glossScale`: once per hit). The film's refractive index is a parameter of the film (`SkinFilm`), not a field of the hit. |
+| `Materials/SkinFilm.hpp` (new) | State (h̄, n_f, ...), computation of the filling height L, and {t, ns, c} at a point p. Uses the height of `SkinRelief`. |
+| `Materials/CoatedDiffuse.hpp/.cpp` | `setFilm()`. `perturbShading` fills in the values above. **The specular lobe (eval / sample / pdf) works in the frame of `ns`**; the diffuse lobe and subsurface scattering use `n`. The third lobe (local diffuse) is added to `lobeProbability`, `sample`, `pdf` and `eval`. Film Fresnel is in 2.2. |
+| `src/Cli/SceneFileMaterials.cpp` | The skin keys `"film"`: `{ "thicknessUm", "ior", "roughness", "softnessUm" }`, `"scatter"`: `{ "rho0", "frequency", "threshold", "softness", "hydration", "kappaH", "gapUm", "seed" }` and `"lotion"` (section 5.3 and later). |
+| `src/Cli/Checks/ReliefChecks.cpp` | The checks of section 4 (results in sections 5.1 to 5.6). |
 
-**変えない:** `Integrator`（`perturbShading` の呼び出しは、そのまま）、LVC-BPT とフォトンマップ（凹凸と同じく、通らない）。`aovAlbedo` と、デノイザの法線は `n` のまま。
+**Not changed:** `Integrator` (the call of `perturbShading` stays as it is), LVC-BPT and the photon map (like the relief, they do not go through it). `aovAlbedo` and the denoiser normal stay `n`.
 
-## 4. 確かめること（`--scene relief` に足す）
+## 4. What to check (added to `--scene relief`)
 
-1. **回帰**: 膜なし（量 0、ρ₀ = 0）で、これまでの描画・数値と同じ（白色炉、`--scene relief` の既存の項目）。
-2. **膜の厚さ**: 平均の厚さが、与えた量に一致（L の二分法）。量 0 → 厚さ 0、十分大きい量 → 全面が平ら（z_f = 一定）。
-3. **法線**: 満たされた溝の上で、膜の法線が幾何法線にほぼ等しい。山の上で、皮膚の法線に等しい。
-4. **エネルギー**: 白色炉で、膜・表面散乱ありでも、なしより明るくならない。
-5. **ローブの整合**: `eval`、`sample`、`pdf` が、3 つのローブで一致（既存の検査と同じ作法）。相反性。
-6. **屈折率の整合**: f_match が、n_f = 1 で 1、n_f = n_s で 0、水で 0.125。
-7. **挙動**（情報）: 膜の量を増やすと、ハイライト内の皮溝のコントラストが**減る**（今回の誤りの逆）。
+1. **Regression**: with no film (amount 0, ρ₀ = 0), the same rendering and numbers as before (white furnace, the existing items of `--scene relief`).
+2. **Film thickness**: the mean thickness matches the amount given (bisection for L). Amount 0 → thickness 0; a large enough amount → the whole surface is flat (z_f = constant).
+3. **Normal**: over a filled furrow the film normal is almost equal to the geometric normal. On a ridge it equals the skin normal.
+4. **Energy**: in the white furnace, with the film and surface scattering, it is no brighter than without.
+5. **Lobe consistency**: `eval`, `sample` and `pdf` agree for the three lobes (same convention as the existing checks). Reciprocity.
+6. **Index matching**: f_match is 1 at n_f = 1, 0 at n_f = n_s, and 0.125 for water.
+7. **Behavior** (informational): increasing the film amount **reduces** the contrast of the skin furrows inside the highlight (the opposite of the present error).
 
-## 5. 実装の順序
+## 5. Implementation order
 
-| 段階 | 内容 | 見えること |
+| Stage | Content | What it shows |
 |---|---|---|
-| A | 膜の形（puddle）+ 鏡面の法線の分離 + 膜のフレネル | 「塗った直後」に皮溝が埋まって、艶が滑らかになる（今回の誤りが直るか） |
-| B | 表面の散乱層（鱗屑、f_match、f_hyd） | 乾燥肌の白さ、水・保湿成分での減少 |
-| C | 時間軸（蒸発、保湿成分の残り）と JSON、3 状態のシーン | 乾燥 / 直後 / 乾燥後の接写。膜の量の掃引 |
-| D | 薄い形を抜ける光の測定（逆光の透過） | 計算上の診断: どの機構が、透過をどれだけ変えるか |
-| E | 乳液: 油膜（n 約 1.45、蒸発しない）+ 油滴の散乱（膜自体が局所の散乱層） | 化粧（ファンデ）への橋 |
-| F | 重ね塗り: 製品ごとの層と塗った時刻、油膜の閉塞 | 化粧水の後の乳液が、何を足すか |
+| A | Film shape (puddle) + separation of the specular normal + film Fresnel | The furrows fill up and the gloss becomes smooth "just after application" (is the present error fixed?) |
+| B | Surface scattering layer (scales, f_match, f_hyd) | Whiteness of dry skin, and its decrease with water and humectant |
+| C | Time axis (evaporation, humectant remaining) and JSON, scenes of 3 states | Close-ups of dry / just applied / dried afterwards. A sweep of the film amount |
+| D | Measurement of light passing through a thin shape (back-lit transmission) | A computational diagnostic: which mechanism changes the transmission, and by how much |
+| E | Emulsion: oil film (n about 1.45, does not evaporate) + scattering by oil droplets (the film itself is a local scattering layer) | A bridge to make-up (foundation) |
+| F | Layering: a layer and an application time per product, occlusion by the oil film | What an emulsion after a lotion adds |
 
-A だけで、描画できる。A の結果で、方向を確認してから B へ。
+A alone can be rendered. Check the direction with the result of A, then go to B.
 
-## 5.1 段階 A の結果（実装済み。2026-11-09）
+## 5.1 Result of stage A (implemented, 2026-11-09)
 
-**実装:** `Materials/SkinFilm.hpp`（満たす高さ L の二分法、膜の厚さ・被覆・上面の法線、膜のフレネル）、`CoatedDiffuse` の鏡面の法線の分離（`SurfaceInteraction::ns`、`filmCover`）、JSON の `film`、`SkinRelief::surface`。設計との違い: (1) 積分器は `|cos(rec.n, wi)|` で重みづけるので、膜の法線まわりの鏡面ローブは、`eval` の中で cos(ns, wi) / cos(n, wi) を掛けて、積分器の重みと打ち消した（`ns` がないときは、このコードは通らず、以前と同じ）。(2) 膜の被覆は、鏡面の粗さと反射率の混合にだけ使った（拡散・表面下散乱の出射のフレネルは、膜なしのまま。段階 B 以降）。
+**Implementation:** `Materials/SkinFilm.hpp` (bisection for the filling height L, film thickness / coverage / top normal, film Fresnel), separation of the specular normal in `CoatedDiffuse` (`SurfaceInteraction::ns`, `filmCover`), the JSON `film`, and `SkinRelief::surface`. Differences from the design: (1) the integrator weights by `|cos(rec.n, wi)|`, so the specular lobe around the film normal is multiplied by cos(ns, wi) / cos(n, wi) inside `eval` to cancel the integrator's weight (when there is no `ns` this code is not entered and the result is the same as before). (2) The film coverage is used only to blend the specular roughness and reflectance (the Fresnel of the diffuse and subsurface-scattering exit stays as without a film; stage B and later).
 
-**検査**（`--scene relief` の 10。RGB・スペクトルとも PASS。既存の `sss`、`lights` も PASS）:
-- 10a 平均の厚さが、頼んだ量に一致（1 / 5 / 20 µm で 0.998 / 4.97 / 19.96 µm）。**稀な点（毛穴）だけに膜がたまるので、L を決める標本が少ないと、1 µm と 5 µm で 4〜7% ずれた**（標本を 2 万点から 30 万点にして解決）。
-- 10b 膜の上面の法線の傾き: 皮膚 9.8°、膜 0.5 µm で 8.6°、5 µm で 4.0°、40 µm で 0.003°。**膜が厚いほど平ら**になる。
-- 10c 膜のフレネル反射: 水 0.0257（設計の予想どおり）、屈折率 1.55 で 0.0467。
-- 10d `eval` と `sample` が同じアルベドを返す（拡散あり・表面下散乱あり）。
-- 10e 白色炉（膜 10 µm）: 膜なしと 1〜2% 以内、1 を超えない。
+**Checks** (10 of `--scene relief`; PASS in both RGB and spectral. The existing `sss` and `lights` also PASS):
+- 10a The mean thickness matches the amount asked for (1 / 5 / 20 µm give 0.998 / 4.97 / 19.96 µm). **Because the film collects only at rare points (pores), with few samples for determining L it was off by 4 to 7% at 1 µm and 5 µm** (solved by going from 20 thousand to 300 thousand samples).
+- 10b Tilt of the film's top normal: skin 9.8°, film of 0.5 µm 8.6°, 5 µm 4.0°, 40 µm 0.003°. **The thicker the film, the flatter.**
+- 10c Film Fresnel reflection: water 0.0257 (as the design predicted), index 1.55 0.0467.
+- 10d `eval` and `sample` return the same albedo (with diffuse, with subsurface scattering).
+- 10e White furnace (film 10 µm): within 1 to 2% of no film, and does not exceed 1.
 
-**描画**（`skin_macro.json` に水の膜（屈折率 1.33、粗さ 0.02）だけを足した。600 px、160 spp、デノイズなし）: 膜の量 0 / 3 / 10 / 40 µm で、皮溝の網目が見えにくくなる。皮溝の線構造の指標（高域成分の隣接画素の相関。ノイズは 0 に近く、線は正）: 0.098 → 0.036 → 0.029 → 0.029。つまり、**前回の誤り（塗ると皮溝が目立つ）が逆向きに直った**。3 µm で大半が消え、10 µm で飽和する（皮溝が埋まりきる）。
-- 平均の輝度は +1.7%（0 → 3 µm）。膜が、鏡面の反射率（0.04 → 0.026）を下げて、中に入る光が増えるため。
+**Rendering** (only a water film (index 1.33, roughness 0.02) added to `skin_macro.json`; 600 px, 160 spp, no denoising): with film amounts of 0 / 3 / 10 / 40 µm, the network of skin furrows becomes harder to see. Index of the line structure of the furrows (correlation of neighboring pixels of the high-pass component; noise is near 0, lines are positive): 0.098 → 0.036 → 0.029 → 0.029. So **the earlier error (furrows become more prominent when applied) was fixed in the opposite direction**. At 3 µm most of it disappears, and at 10 µm it saturates (the furrows are completely filled).
+- The mean luminance is +1.7% (0 → 3 µm). The film lowers the specular reflectance (0.04 → 0.026), so more light enters.
 
-## 5.2 段階 B の結果（実装済み。2026-11-09）
+## 5.2 Result of stage B (implemented, 2026-11-09)
 
-**実装:** `Materials/SkinScatter.hpp`（鱗屑の場 σ(p)、屈折率の整合 `match()`、水和 `f_hyd`）、`CoatedDiffuse` の第 3 のローブ（コートの下の白い Lambertian 反射。入る光の ρ_s を取り、残り (1 − ρ_s) を拡散ローブ・表面下散乱に回す。表面下散乱の枝は、確率 (1 − pS)(1 − ρ_s)・重み (1 − F)(1 − ρ_s) なので、比は変わらず (1 − F)/(1 − pS)）、`SurfaceInteraction::surfScatter`、JSON `"scatter": { rho0, frequency, threshold, softness, hydration, kappaH, gapUm, seed }`。膜があるとき、鱗屑の隙間が液体で満たされる割合は W = 1 − exp(−平均の厚さ / gap)（gap = 1 µm）で、f_match = 1 − W (1 − match)。
+**Implementation:** `Materials/SkinScatter.hpp` (field of scales σ(p), index matching `match()`, hydration `f_hyd`), the third lobe in `CoatedDiffuse` (white Lambertian reflection under the coat. It takes ρ_s of the entering light and sends the remaining (1 − ρ_s) to the diffuse lobe and subsurface scattering. The subsurface-scattering branch has probability (1 − pS)(1 − ρ_s) and weight (1 − F)(1 − ρ_s), so the ratio stays (1 − F)/(1 − pS)), `SurfaceInteraction::surfScatter`, and the JSON `"scatter": { rho0, frequency, threshold, softness, hydration, kappaH, gapUm, seed }`. When there is a film, the fraction of the gaps between scales filled by the liquid is W = 1 − exp(−mean thickness / gap) (gap = 1 µm), and f_match = 1 − W (1 − match).
 
-**検査**（`--scene relief` の 11。RGB・スペクトルとも PASS。`sss`、`lights` も PASS）:
-- 11a 屈折率の整合: 空気 1、屈折率 1.55 で 0、水 **0.1254**、グリセリン **0.0151**（設計の値）。
-- 11b 鱗屑の場: 0 から ρ₀、斑状（0.5 ρ₀ 超が 45%）。水和 1 で 0.6 倍（κ_H = 0.4）、水膜 10 µm で 0.1255 倍、グリセリンで 0.0151 倍。
-- 10d `eval` と `sample` が、鱗屑ありでも一致（拡散あり・表面下散乱あり）。
-- 11c 白色炉（**2026-11-13 に作り直した**。固定の比率では、赤が揺れで落ちていた）: 3 本に分け、どれも対にした推定（同じ光線を両方の場面に撃つ）の差を 4 標準誤差で判定する。(1) **帳簿**: 滑らかな球・白い下地（A = 1）で鱗屑を載せても変わらない（表面下散乱ありは、鱗屑の割合 ρ の光が表面下の経路を通らなくなるので、その経路の損失 × ρ を許す）。(2) **局所モデル**: 肌の下地で、利得 = K × 平均[ρ(1 − A)² / (1 − ρA)]（K は同じ凹凸の白い下地から測るコートの係数）。表面下散乱なしでは厳密に一致する（実測 0.0074 / 0.0371 / 0.0523、予測 0.0070 / 0.0368 / 0.0521）。(3) 表面下散乱ありでは、入口と出口が別の斑に落ちるので、利得は局所モデル以下、下限は −ρ × 地平線の損失（曲げた法線のローブが幾何的な表面の下に捨てる約 1.2%。同じ実行で白い球の滑らか / 凹凸から測る）。水膜で戻り、1 を超えない。**（2026-11-11）表面下散乱なしの拡散ローブも、層の式（ρ + (1 − ρ)² R / (1 − ρ R)）にそろえた。以前は ρ + (1 − ρ) R で、足す明るさが 2〜4 倍に出ていた。** 以前「表面下散乱のある肌では、白い層で赤が約 1〜2% 暗くなる原因が未特定」と書いた現象の正体は `docs/SKIN.md` 6 節（検査の揺れ + 赤の利得の小ささ + 法線の損失の非対称）。
-- 11d **濡れたときの向き**（白色炉の CIELAB。ρ₀ = 0.3、水膜 10 µm）: **L\* 84.0 → 80.8（暗く）、C\* 13.8 → 17.1（鮮やかに）**（表面下散乱あり: 84.1 → 81.2、13.9 → 17.4。スペクトル版も同じ向き）。鱗屑のない肌を同じ膜の下に置いたとき（L\* 80.4、C\* 17.7）とほぼ同じ所へ落ち着く。つまり、**暗く、彩度が上がるのは、白い散乱が消えたため**。Sawayama ら（2017）は、写真の統計と心理物理で、濡れた面が暗く、鮮やかに見える向きを示している（全文を読んだ。論文の内容と、その統計で描画を測った結果は `docs/WETNESS.md`）。この向きと一致する。
+**Checks** (11 of `--scene relief`; PASS in both RGB and spectral. `sss` and `lights` also PASS):
+- 11a Index matching: air 1, index 1.55 0, water **0.1254**, glycerin **0.0151** (the design values).
+- 11b Field of scales: from 0 to ρ₀, patchy (45% above 0.5 ρ₀). Hydration 1 gives 0.6 times (κ_H = 0.4), a 10 µm water film 0.1255 times, glycerin 0.0151 times.
+- 10d `eval` and `sample` agree also with scales (with diffuse, with subsurface scattering).
+- 11c White furnace (**rebuilt on 2026-11-13**; with a fixed ratio, red dropped because of the fluctuation): split into three tests, each judged by the difference of paired estimates (the same rays are shot in both scenes) at 4 standard errors. (1) **Bookkeeping**: on a smooth sphere with a white base (A = 1), adding scales changes nothing (with subsurface scattering, the fraction ρ of the light no longer takes the subsurface path, so a loss of that path × ρ is allowed). (2) **Local model**: on a skin base, gain = K × mean[ρ(1 − A)² / (1 − ρA)] (K is the coat's factor measured from a white base with the same relief). Without subsurface scattering it matches exactly (measured 0.0074 / 0.0371 / 0.0523, predicted 0.0070 / 0.0368 / 0.0521). (3) With subsurface scattering, the entrance and the exit fall on different patches, so the gain is at most the local model, and the lower bound is −ρ × the horizon loss (about 1.2% that the lobe of the bent normal throws below the geometric surface; measured in the same run from a white sphere, smooth / with relief). It returns with a water film, and does not exceed 1. **(2026-11-11) The diffuse lobe without subsurface scattering was also aligned with the layer formula (ρ + (1 − ρ)² R / (1 − ρ R)). Before, it was ρ + (1 − ρ) R, and the added brightness came out 2 to 4 times too large.** The phenomenon earlier described as "with skin that has subsurface scattering, red is about 1 to 2% darker under a white layer, cause unidentified" turned out to be `docs/SKIN.md` section 6 (fluctuation of the check + the small gain of red + the asymmetry of the normal loss).
+- 11d **Direction when wet** (CIELAB of the white furnace. ρ₀ = 0.3, water film 10 µm): **L\* 84.0 → 80.8 (darker), C\* 13.8 → 17.1 (more vivid)** (with subsurface scattering: 84.1 → 81.2, 13.9 → 17.4. The spectral version goes the same way). It settles almost where skin without scales ends up under the same film (L\* 80.4, C\* 17.7). So **the darkening and the rise of chroma come from the disappearance of the white scattering**. Sawayama et al. (2017) showed, with photo statistics and psychophysics, that wet surfaces look darker and more vivid (the full text was read; the content of the paper and the result of measuring renderings with its statistics are in `docs/WETNESS.md`). This agrees with that direction.
 
-**描画**（`skin_macro.json` に鱗屑を足した。600 px、160 spp、デノイズなし。乾燥: ρ₀ = 0.12、膜なし / 塗った直後: 水 8 µm、水和 0.3 / 乾いたあと: グリセリン 0.6 µm、水和 1.0）: 乾燥では、白っぽい斑（鱗屑）が見え、塗った直後、乾いたあとでは斑が消えて、均一で桃色に寄る。画像全体（表示の sRGB → CIELAB）の平均:
+**Rendering** (scales added to `skin_macro.json`. 600 px, 160 spp, no denoising. Dry: ρ₀ = 0.12, no film / just applied: water 8 µm, hydration 0.3 / dried afterwards: glycerin 0.6 µm, hydration 1.0): in the dry state whitish patches (scales) are visible; just applied and dried afterwards, the patches vanish and the skin becomes uniform and leans pink. Means over the whole image (displayed sRGB → CIELAB):
 
-| 状態 | L\* | C\* | HSV の S |
+| State | L\* | C\* | HSV S |
 |---|---|---|---|
-| 乾燥 | 64.77 | 9.45 | 0.1626 |
-| 塗った直後 | 64.69（−0.08） | 9.93（+0.48） | 0.1702（+0.0076） |
-| 乾いたあと | 64.53（−0.25） | 9.84（+0.38） | 0.1690（+0.0064） |
+| Dry | 64.77 | 9.45 | 0.1626 |
+| Just applied | 64.69 (−0.08) | 9.93 (+0.48) | 0.1702 (+0.0076) |
+| Dried afterwards | 64.53 (−0.25) | 9.84 (+0.38) | 0.1690 (+0.0064) |
 
-- **彩度は、期待の向きに上がった（C\* +5%）。暗くはほとんどならなかった**（L\* −0.1〜−0.25）。白色炉（11d）の −3 に比べて小さいのは、(1) ρ₀ = 0.12 と小さく（炉は 0.3）、被覆は半分、(2) 膜が鏡面の反射率を下げて（0.04 → 0.026）、拡散側を明るくするため。
-- **暗さの大きさは ρ₀ で決まる**。炉の比例から、ρ₀ が 0.1 増えるごとに L\* が約 1 下がる見積もり。
-- 論文の「暗くなる」を、**肌の接写では再現できていない**（彩度の上昇だけ）。肌は色相が少ないので、論文の効果が弱い対象かもしれない（論文の主張は、色相の多様な画像ほど効果が大きい）。
+- **Chroma rose in the expected direction (C\* +5%). Darkening hardly happened** (L\* −0.1 to −0.25). It is smaller than the −3 of the white furnace (11d) because (1) ρ₀ = 0.12 is small (the furnace used 0.3) and the coverage is half, and (2) the film lowers the specular reflectance (0.04 → 0.026) and so brightens the diffuse side.
+- **The size of the darkening is set by ρ₀.** From the furnace proportions, the estimate is that L\* drops by about 1 for every 0.1 increase of ρ₀.
+- The paper's "gets darker" is **not reproduced in close-ups of skin** (only the chroma increase). Skin has few hues, so it may be a target on which the paper's effect is weak (the paper's claim is that the effect is larger for images with a variety of hues).
 
-## 5.3 段階 C の結果（実装済み。2026-11-09）
+## 5.3 Result of stage C (implemented, 2026-11-09)
 
-**実装:** `Materials/SkinLotion.hpp`（塗ってから t 秒後の状態: 水の分の蒸発、保湿成分の残り、膜の屈折率と粗さ（体積平均）、角層の水和（吸収と損失の差の形。t = 0 で 0、最大値 `hydrationPeak` が 1 回））。JSON の skin の `"lotion": { doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness }`。**`film` の代わりに書く**（膜の厚さ・屈折率・粗さと、`scatter` の水和を、時刻の状態で上書きする）。実行すると、選ばれた状態が `[Lotion] ...` の行で出る。時間の掃引は、`timeS` だけを変えたシーンを描く（`out/` の外から、スクリプトで生成）。
+**Implementation:** `Materials/SkinLotion.hpp` (the state `t` seconds after application: evaporation of the water part, humectant remaining, film index and roughness (volume mean), hydration of the stratum corneum (a form of difference between absorption and loss: 0 at t = 0, one maximum `hydrationPeak`)). The JSON skin key `"lotion": { doseUm, glycerin, timeS, waterTauS, hydrationPeak, hydrationRiseS, hydrationDecayS, waterIor, humectantIor, waterRoughness, residueRoughness }`. **It is written instead of `film`** (it overrides the film thickness, index and roughness, and the hydration of `scatter`, with the state at that time). When run, the selected state is printed as a `[Lotion] ...` line. A time sweep renders scenes in which only `timeS` is changed (generated by a script, outside `out/`).
 
-    d(t) = dose (1 − φ) e^(−t/τw)  （水）  +  dose φ  （保湿成分。残る）
+    d(t) = dose (1 − φ) e^(−t/τw)  (water)  +  dose φ  (humectant; remains)
     H(t) = peak (e^(−t/τd) − e^(−t/τr)) / max
 
-**既定値:** dose 10 µm、φ = 5%、τw = 120 s、水和は、立ち上がり 60 s、ピーク 0.8（約 211 s）、減衰 1800 s。
+**Defaults:** dose 10 µm, φ = 5%, τw = 120 s; hydration: rise 60 s, peak 0.8 (at about 211 s), decay 1800 s.
 
-**検査**（`--scene relief` の 12。RGB・スペクトルとも PASS）: 0 s で厚さ = dose、指数 1.337、水和 0。1 時定数で水が 1/e。10 時間で保湿成分だけ（0.5 µm、屈折率 1.47、粗さ 0.08）。厚さは単調に減り、屈折率は単調に増える。水和は、ピーク 0.8 が公式の時刻（211 s）にある。
+**Checks** (12 of `--scene relief`; PASS in both RGB and spectral): at 0 s the thickness = dose, the index 1.337, hydration 0. After one time constant the water is at 1/e. After 10 hours only the humectant is left (0.5 µm, index 1.47, roughness 0.08). The thickness decreases monotonically and the index increases monotonically. Hydration has its peak of 0.8 at the time given by the formula (211 s).
 
-**時間経過の描画**（`skin_macro.json` + `scatter`（κ_H = 0.3）+ `lotion`（既定）、450 px、96 spp、デノイズなし、各 約 35 秒）。乾燥に対する、画像全体の CIELAB（表示の sRGB）の差:
+**Time-course rendering** (`skin_macro.json` + `scatter` (κ_H = 0.3) + `lotion` (defaults), 450 px, 96 spp, no denoising, about 35 s each). Difference from dry in CIELAB of the whole image (displayed sRGB):
 
-| 時間 | ρ₀ = 0.12: ΔL\* / ΔC\* | ρ₀ = 0.30: ΔL\* / ΔC\* |
+| Time | ρ₀ = 0.12: ΔL\* / ΔC\* | ρ₀ = 0.30: ΔL\* / ΔC\* |
 |---|---|---|
-| 乾燥（基準） | 64.73 / 9.53 | 65.57 / 8.61 |
+| Dry (reference) | 64.73 / 9.53 | 65.57 / 8.61 |
 | 0 s | −0.11 / +0.51 | −0.84 / +1.28 |
 | 30 s | −0.10 / +0.49 | −0.83 / +1.28 |
 | 120 s | −0.15 / +0.51 | −0.90 / +1.31 |
@@ -148,177 +148,177 @@ A だけで、描画できる。A の結果で、方向を確認してから B �
 | 1800 s | −0.19 / +0.28 | −0.52 / +0.60 |
 | 3600 s | −0.17 / +0.24 | −0.47 / +0.55 |
 
-- **塗った直後から数分は、暗く（−）、鮮やか（+）で、水が蒸発する 300〜900 s にかけて戻り始める。** 保湿成分の膜（0.5 µm）が残るので、**1 時間後も、乾燥より少し暗く、鮮やかなまま**（ρ₀ = 0.30 で ΔC\* +0.55）。
-- 画像では、乾燥時の白っぽい鱗屑の斑が、塗った直後に消え、900 s、3600 s で部分的に戻る（モンタージュ。保湿成分の膜が、隙間を水ほど満たさない: W = 1 − exp(−厚さ / gapUm) が薄い膜で小さいため）。
-- **暗さは小さい**（ρ₀ = 0.12 で −0.1〜−0.3、0.30 で −0.5〜−0.9）。彩度の変化のほうが、相対的に大きい。段階 B と同じ結論（暗さの大きさは ρ₀ に比例）。
-- 皮溝の線構造（隣接画素の相関）は、膜がある間は消え（0.034 → 0.00 前後）、保湿成分だけの膜（0.5 µm）でも戻らなかった。
+- **Right after application, and for a few minutes, the image is darker (−) and more vivid (+), and it starts to return from 300 to 900 s as the water evaporates.** Because the humectant film (0.5 µm) remains, **even after 1 hour it is still a little darker and more vivid than dry** (ΔC\* +0.55 at ρ₀ = 0.30).
+- In the images, the whitish patches of scales seen when dry vanish right after application and partly come back at 900 s and 3600 s (montage. The humectant film fills the gaps less than water does: W = 1 − exp(−thickness / gapUm) is small for a thin film).
+- **The darkening is small** (−0.1 to −0.3 at ρ₀ = 0.12, −0.5 to −0.9 at 0.30). The change in chroma is relatively larger. The same conclusion as stage B (the size of the darkening is proportional to ρ₀).
+- The line structure of the furrows (correlation of neighboring pixels) vanishes while there is a film (0.034 → about 0.00) and did not come back even with a humectant-only film (0.5 µm).
 
-## 5.4 段階 D の結果: 薄い所を抜ける光に、どの機構が、どれだけ効くか（2026-11-09）
+## 5.4 Result of stage D: which mechanism affects light passing through a thin part, and by how much (2026-11-09)
 
-**問い:** 化粧水の 3 つの機構（M1 鱗屑の白いベール、M2 膜の光学、M3 水和による内部散乱の減少）の、薄い所の透過への寄与。物体は、厚さが連続して変わる**肌の円錐**（直径 20 mm → 3 mm）。後ろの細い光（グロー）と、前の面光源（ベール）を、別々に描いた。再現: `tools/studies/skin_moisture_cone.py`（シーンの生成と集計。描画は 1 枚 約 40 秒）。
+**Question:** the contribution of the three mechanisms of a lotion (M1 white veil of scales, M2 optics of the film, M3 decrease of internal scattering by hydration) to the transmission of a thin part. The object is a **skin cone** whose thickness varies continuously (diameter 20 mm → 3 mm). A thin light behind (glow) and an area light in front (veil) were rendered separately. Reproduction: `tools/studies/skin_moisture_cone.py` (scene generation and aggregation; rendering takes about 40 s per image).
 
-### 検証で分かったこと: BSSRDF は、厚さ依存の透過に使えない
-当初は、BSSRDF の描画で、状態どうしの比を取れば、薄い所の誤差は打ち消し合うと考えた。**確かめたら、打ち消し合わなかった。** 同じ光学定数の、体積のランダムウォークと比べた（円錐の中心軸、後ろから光を当てた透過、RGB の比）:
+### What the verification showed: the BSSRDF cannot be used for thickness-dependent transmission
+At first it was thought that taking ratios between states in BSSRDF renderings would cancel the errors in thin parts. **When checked, they did not cancel.** The comparison is with a volumetric random walk with the same optical constants (central axis of the cone, transmission with light from behind, ratio of RGB):
 
-| 直径 | ランダムウォーク / BSSRDF（赤 / 緑 / 青） | 散乱距離を 1.3 倍にしたときの増え方: BSSRDF（赤 / 緑 / 青） | 同: ランダムウォーク |
+| Diameter | Random walk / BSSRDF (red / green / blue) | Increase when the scattering distance is multiplied by 1.3: BSSRDF (red / green / blue) | Same: random walk |
 |---|---|---|---|
 | 4 mm | 23 / 12 / 6.3 | 0.97 / 1.2 / 1.8 | 1.3 / 1.9 / 3.1 |
 | 8 mm | 13 / 5.5 / 3.6 | 1.1 / 1.6 / 3.9 | 1.6 / 2.2 / 4.5 |
 | 12 mm | 6.9 / 3.6 / 0.8 | 1.1 / 2.2 / 8.1 | 1.8 / 2.6 / 32 |
 
-BSSRDF の赤の透過は、厚さ 4〜16 mm でほぼ一定（0.11〜0.20）で、**厚さ依存を表せない**（プロファイルは、表面の 2 点間の距離だけを見る）。また、散乱距離の変化への感度が、ランダムウォークの 1/2 以下。したがって、**M3（内部散乱）の感度は、BSSRDF では測れない**。以前の「指で 0.44 倍」（`docs/SSS.md`）は、この条件では、もっと大きなずれ（円錐の薄い所で 5〜20 倍）だった。
+The red transmission of the BSSRDF is almost constant (0.11 to 0.20) for thicknesses of 4 to 16 mm, so it **cannot express the dependence on thickness** (the profile sees only the distance between two points on the surface). Its sensitivity to a change in scattering distance is also less than half that of the random walk. Therefore **the sensitivity of M3 (internal scattering) cannot be measured with the BSSRDF**. The earlier "0.44 times on a finger" (`docs/SKIN.md` section 3) was, under this condition, a larger deviation (5 to 20 times in the thin part of the cone).
 
-### 方法（変更後）
-- **内部散乱**は、ランダムウォークで描く（`walk_*`。散乱距離 1.0 / 1.038 / 1.24 / 1.3 倍）。
-- **表面の層**（M1、M2）は、入口と出口にかかる係数なので、BSSRDF の描画の比（層あり / 層なし。散乱距離は同じ）をそのまま使える。
-- グロー = ランダムウォーク(散乱距離) × 表面の係数。ベール = 前から照らしたときの BSSRDF の反射（厚い所で妥当）。
-- 実装: 鱗屑の層を、透けて出る光にも効かせた（`subsurfaceExitTint` に (1 − ρ) / (1 − ρ A)。A はアルベド。層の間の往復を含む）。`lotion` に `bulk`（水和 H のとき、散乱距離を 1 + bulk · H 倍）。
+### Method (after the change)
+- **Internal scattering** is rendered with the random walk (`walk_*`; scattering distances 1.0 / 1.038 / 1.24 / 1.3 times).
+- **Surface layers** (M1, M2) are factors applied at the entrance and the exit, so the ratio of BSSRDF renderings (with layer / without layer; same scattering distance) can be used as it is.
+- Glow = random walk (scattering distance) × surface factor. Veil = BSSRDF reflection when lit from the front (valid in thick parts).
+- Implementation: the layer of scales was made to act also on the light that passes through (`subsurfaceExitTint` gets (1 − ρ) / (1 − ρ A), where A is the albedo; this includes the round trips between layers). `lotion` gets `bulk` (at hydration H, the scattering distance is multiplied by 1 + bulk · H).
 
-### 結果（グロー・ベールとも、状態ごと、乾燥に対する比。ρ₀ = 0.2、水の膜 8 µm、κ_H = 0.3、bulk = 0.3）
+### Result (glow and veil, per state, ratio to dry. ρ₀ = 0.2, water film 8 µm, κ_H = 0.3, bulk = 0.3)
 
-| 状態 | グロー（4〜16 mm） | ベール（前から） | 合成の ΔE\*ab（8 mm） |
+| State | Glow (4 to 16 mm) | Veil (from the front) | Combined ΔE\*ab (8 mm) |
 |---|---|---|---|
-| M1 鱗屑を消す | ×1.2〜1.3 | ×0.85〜0.94 | 6.6 |
-| M2 膜の光学 | ×1.0 | ×1.14〜1.17 | 3.6 |
-| M3 散乱距離 1.3 倍 | **×1.8〜2.5** | ×0.94〜0.97 | **26.5** |
-| 塗って 200 秒後（すべて、散乱距離 1.24 倍） | ×1.6〜2.2 | ×0.86〜0.97 | 23.0 |
-| 塗って 1 時間後（すべて、散乱距離 1.038 倍） | ×1.1〜1.2 | ×0.94〜0.99 | 8.3 |
+| M1 scales removed | ×1.2 to 1.3 | ×0.85 to 0.94 | 6.6 |
+| M2 optics of the film | ×1.0 | ×1.14 to 1.17 | 3.6 |
+| M3 scattering distance 1.3 times | **×1.8 to 2.5** | ×0.94 to 0.97 | **26.5** |
+| 200 s after application (all; scattering distance 1.24 times) | ×1.6 to 2.2 | ×0.86 to 0.97 | 23.0 |
+| 1 hour after application (all; scattering distance 1.038 times) | ×1.1 to 1.2 | ×0.94 to 0.99 | 8.3 |
 
-- **M3（内部散乱の減少）が、最大の寄与**。散乱距離が 1.3 倍で、グローが約 2 倍。**グローは、散乱距離のべき乗（約 2.6〜3.4 乗）に比例する**ので、散乱が 10% 減ると、グローが 30〜40% 増える。
-- **M1（鱗屑）は、グローを 20〜30% 増やし、ベールを 6〜15% 減らす**。符号と桁が出る寄与で、ρ₀ に比例する。
-- **M2（膜の光学）は、グローにほぼ効かない**（±3%）。ベールは +14%（膜が鏡面の反射率を下げて、内部に入る光が増える）。膜は、透過ではなく、見た目の艶と、表面の反射に効く。
-- **グローの色**: 水和すると、薄い所の赤み log(R/G) が下がる（4 mm で 1.63 → 1.29）。緑が増えて、赤みが薄れる（M3）。ただし、合成の彩度 C\* は上がる（グローが増えるため）。
-- 時間経過: 200 秒後（水和のピーク）が最大で、1 時間後は、水和が引いて、鱗屑の効果（M1）だけが少し残る。
+- **M3 (decrease of internal scattering) is the largest contribution.** A scattering distance of 1.3 times gives about 2 times the glow. **The glow is proportional to a power of the scattering distance (about the 2.6th to 3.4th power)**, so a 10% decrease in scattering raises the glow by 30 to 40%.
+- **M1 (scales) raises the glow by 20 to 30% and lowers the veil by 6 to 15%.** Its sign and order of magnitude are visible, and it is proportional to ρ₀.
+- **M2 (optics of the film) hardly affects the glow** (±3%). The veil is +14% (the film lowers the specular reflectance, so more light enters). The film affects not the transmission but the visible gloss and the surface reflection.
+- **Color of the glow**: with hydration, the redness log(R/G) of the thin part decreases (1.63 → 1.29 at 4 mm). Green increases and the redness fades (M3). However, the combined chroma C\* rises (because the glow increases).
+- Over time: 200 s (the hydration peak) is the largest; after 1 hour the hydration has receded and only the effect of the scales (M1) remains a little.
 
-**合成の ΔE\*ab は、グローとベールの重み（8 mm で等しい明るさ）と白の取り方に依存する**ので、順位の目安にだけ使う。
+**The combined ΔE\*ab depends on the weights of glow and veil (equal brightness at 8 mm) and on the choice of white**, so use it only as a guide to the ranking.
 
-## 5.5 段階 E の結果: 乳液（油滴を含む液）（2026-11-09）
+## 5.5 Result of stage E: emulsion (a liquid containing oil droplets) (2026-11-09)
 
-**乳液の見方。** 水の中に油の滴（直径 約 1 µm）が散らばった液。(1) 塗った直後は、油滴が白い光を散乱して、**乳白色の層**になる。(2) 水が蒸発すると、油滴の周りが保湿成分（屈折率 1.47）になり、油（1.45）との屈折率が**整合して、散乱が消える**。油滴は合体もする。(3) 最後に、蒸発しない油と保湿成分の**透明な膜**が残る。
+**How to see an emulsion.** A liquid with oil droplets (diameter about 1 µm) dispersed in water. (1) Right after application the oil droplets scatter white light and form a **milky white layer**. (2) When the water evaporates, the surroundings of the droplets become humectant (index 1.47), so the index **matches** that of the oil (1.45) and **the scattering disappears**. The droplets also merge. (3) Finally a **transparent film** of non-evaporating oil and humectant remains.
 
-**実装:**
-- `SkinLotion` に、油の量 `oil`、`oilIor`（1.45）、油滴の直径 `dropletUm`（1）、合体の時定数 `coalesceTauS`（600 s）、非対称性 `dropletG`（0.9）。状態の `emulsionTau` = 膜全体の**輸送光学厚** (1 − g) τ、τ = 1.5 Q h_oil / d × exp(−t / 合体の時定数)。Q は油滴 1 個の消光効率（**異常回折近似**、van de Hulst: Q = 2 − (4/ρ) sin ρ + (4/ρ²)(1 − cos ρ)、ρ = 2x(m − 1)、m = 油 / 周りの液体の屈折率、x = π d n / λ、λ = 550 nm）。**周りの液体は、水と保湿成分の混合**なので、水が減ると m → 1 となり、Q が下がる（屈折率の整合）。
-- `CoatedDiffuse::setEmulsion`: 乳液の層を、**鱗屑の上の白い層**として足す（二流束 R = 0.75 τ' / (1 + 0.75 τ')。τ' は膜の局所の厚さに比例するので、**皮溝にたまった所ほど白い**）。上の層 R_e と下の層（鱗屑）R_f は、非吸収の 2 層として合成（R = R_e + (1 − R_e)² R_f / (1 − R_e R_f)）。入口と出口の両方にかかる。
-- JSON: `lotion` に `oil`、`oilIor`、`dropletUm`、`coalesceTauS`、`dropletG`（`docs/SCENE_FILE.md`）。
-- **検査**（`--scene relief` の 13。RGB・スペクトルとも PASS）: 13a 消光効率（m = 1 で 0、最大 3.17 が ρ = 4.085）、13b 時間経過（0 秒の輸送光学厚 0.090、600 秒で 8 × 10⁻⁵、10 時間後は 0。10 時間後の膜は、油 + 保湿成分の 1.3 µm、屈折率 1.458。初めの値を超えない）、13c 白色炉（**2026-11-13 に作り直した**: 11c と同じ 3 本。帳簿は膜が凹凸を要るので凹凸の下の白い球で（表面下散乱なしでは全ローブが同じ割合を失うので変化なし）、局所モデルは乳液の ρ = 0.75τ / (1 + 0.75τ) を膜の局所の厚さから点ごとに計算（表面下散乱なしで厳密に一致: 0.0112 / 0.0551 / 0.0766 対 0.0113 / 0.0559 / 0.0777）、青は表面下散乱なしで 4σ 以上明るく、ありでは暗くならない）。10d に乳液の層を加えた（`eval` と `sample` が一致）。
+**Implementation:**
+- `SkinLotion` gets the oil amount `oil`, `oilIor` (1.45), the droplet diameter `dropletUm` (1), the merging time constant `coalesceTauS` (600 s) and the asymmetry `dropletG` (0.9). The state's `emulsionTau` = the **transport optical depth** (1 − g) τ of the whole film, with τ = 1.5 Q h_oil / d × exp(−t / merging time constant). Q is the extinction efficiency of one droplet (**anomalous diffraction approximation**, van de Hulst: Q = 2 − (4/ρ) sin ρ + (4/ρ²)(1 − cos ρ), ρ = 2x(m − 1), m = index of oil / index of the surrounding liquid, x = π d n / λ, λ = 550 nm). **The surrounding liquid is a mix of water and humectant**, so as the water decreases m → 1 and Q falls (index matching).
+- `CoatedDiffuse::setEmulsion`: the emulsion layer is added as **a white layer on top of the scales** (two-flux R = 0.75 τ' / (1 + 0.75 τ'); τ' is proportional to the local film thickness, so **it is whiter where it has collected in furrows**). The upper layer R_e and the lower layer (scales) R_f are combined as two non-absorbing layers (R = R_e + (1 − R_e)² R_f / (1 − R_e R_f)). It acts on both the entrance and the exit.
+- JSON: `lotion` gets `oil`, `oilIor`, `dropletUm`, `coalesceTauS`, `dropletG` (`docs/SCENE_FILE.md`).
+- **Checks** (13 of `--scene relief`; PASS in both RGB and spectral): 13a extinction efficiency (0 at m = 1, maximum 3.17 at ρ = 4.085), 13b time course (transport optical depth 0.090 at 0 s, 8 × 10⁻⁵ at 600 s, 0 after 10 hours. The film after 10 hours is oil + humectant of 1.3 µm, index 1.458. It does not exceed the initial value), 13c white furnace (**rebuilt on 2026-11-13**: the same three tests as 11c: bookkeeping uses a white sphere under a relief because the film needs a relief (without subsurface scattering all lobes lose the same fraction, so no change); the local model computes the emulsion's ρ = 0.75τ / (1 + 0.75τ) point by point from the local film thickness (exact match without subsurface scattering: 0.0112 / 0.0551 / 0.0766 versus 0.0113 / 0.0559 / 0.0777); blue is brighter by 4σ or more without subsurface scattering and does not darken with it). The emulsion layer was added to 10d (`eval` and `sample` agree).
 
-**接写の時間経過**（`skin_macro` + 鱗屑（ρ₀ = 0.2、κ_H = 0.3）+ 液。450 px、96 spp、デノイズなし）。乾燥に対する画像全体の ΔL\* / ΔC\*:
+**Close-up time course** (`skin_macro` + scales (ρ₀ = 0.2, κ_H = 0.3) + liquid. 450 px, 96 spp, no denoising). ΔL\* / ΔC\* of the whole image relative to dry:
 
-| 液 | 0 s | 60 s | 120 s | 300 s | 1800 s |
+| Liquid | 0 s | 60 s | 120 s | 300 s | 1800 s |
 |---|---|---|---|---|---|
-| 水の化粧水（10 µm） | −0.05 / +0.66 | −0.02 / +0.64 | −0.09 / +0.66 | −0.23 / +0.62 | −0.16 / +0.37 |
-| 軽い乳液（10 µm、油 8%） | +0.43 / −0.14 | +0.36 / 0.00 | +0.22 / +0.16 | −0.12 / +0.52 | −0.18 / **+0.56** |
-| こってりした乳液（20 µm、油 15%） | **+1.59 / −1.85** | +1.30 / −1.46 | +1.02 / −1.02 | +0.37 / +0.08 | +0.03 / **+0.58** |
+| Water lotion (10 µm) | −0.05 / +0.66 | −0.02 / +0.64 | −0.09 / +0.66 | −0.23 / +0.62 | −0.16 / +0.37 |
+| Light emulsion (10 µm, oil 8%) | +0.43 / −0.14 | +0.36 / 0.00 | +0.22 / +0.16 | −0.12 / +0.52 | −0.18 / **+0.56** |
+| Rich emulsion (20 µm, oil 15%) | **+1.59 / −1.85** | +1.30 / −1.46 | +1.02 / −1.02 | +0.37 / +0.08 | +0.03 / **+0.58** |
 
-- 乳液は、**塗った直後は明るく、彩度が下がる**（乳白色の層が、鱗屑の斑を隠し、全体を白くする）。水の化粧水は、逆（暗く、鮮やか）。数分で、乳白色は消え、**1800 秒後は、乳液のほうが、水の化粧水より、少し鮮やかなまま**（+0.56 〜 +0.58 対 +0.37）。残った油膜が、鱗屑との屈折率の差を小さいまま保つため（油 1.45 は、水 1.33 より、角層 1.55 に近い）。
-- 白さの強さは、液の量と油の量に比例（こってりした乳液で、軽い乳液の約 4 倍）。
+- An emulsion is **brighter and less chromatic right after application** (the milky layer hides the patches of scales and whitens everything). A water lotion is the opposite (darker, more vivid). Within a few minutes the milkiness disappears, and **at 1800 s the emulsion is still a little more vivid than the water lotion** (+0.56 to +0.58 versus +0.37). This is because the remaining oil film keeps the index difference from the scales small (oil 1.45 is closer to the stratum corneum 1.55 than water 1.33 is).
+- The strength of the whiteness is proportional to the liquid amount and the oil amount (the rich emulsion is about 4 times the light emulsion).
 
-**薄い所を抜ける光への影響**（段階 D の円錐。こってりした乳液を、塗った直後（0 秒）と 1 時間後。グローは、ランダムウォークの散乱距離 × 表面の係数の比。ベールは前からの反射。乾燥に対する比）:
+**Effect on light passing through thin parts** (the cone of stage D. The rich emulsion, right after application (0 s) and after 1 hour. Glow is the ratio of random-walk scattering distance × surface factor. Veil is the reflection from the front. Ratios to dry):
 
-| 状態 | グロー（4〜16 mm） | ベール | 合成の ΔE\*ab（8 mm） |
+| State | Glow (4 to 16 mm) | Veil | Combined ΔE\*ab (8 mm) |
 |---|---|---|---|
-| 塗った直後（0 秒） | **×0.85〜0.95** | **×1.14〜1.23** | 9.3（C\* 55.8 → 46.7、L\* 76.1 → 77.2） |
-| 1 時間後 | ×1.23〜1.37 | ×0.95〜1.05 | 8.1（C\* 55.8 → 62.8） |
+| Right after application (0 s) | **×0.85 to 0.95** | **×1.14 to 1.23** | 9.3 (C\* 55.8 → 46.7, L\* 76.1 → 77.2) |
+| 1 hour later | ×1.23 to 1.37 | ×0.95 to 1.05 | 8.1 (C\* 55.8 → 62.8) |
 
-- **塗った直後は、透けた光が 5〜15% 減り、表面の反射が 14〜23% 増える**。つまり、**乳白色の層が、透けた赤い光を隠す**（彩度 C\* が下がる）。水の化粧水（0 秒で、鱗屑が消えて、グローが約 1.2 倍）と、逆の向き。
-- **1 時間後は、グローが 1.2〜1.4 倍**で、水の化粧水（1.1〜1.2 倍）より大きい。残った油膜が、鱗屑を整合した状態に保つため。
-- **この節の数値は、閉塞（5.6 節）を入れる前のもの**（乳液の水和は、水の化粧水と同じとしていた）。閉塞 0.3 を入れた測り直しでは、1 時間後のグローは 1.34〜1.45 倍、合成の ΔE\*ab は 11.1（C\* 55.8 → 65.2）。塗った直後は変わらない（×0.86〜0.97、ベール ×1.14〜1.22）。
+- **Right after application, the light seen through decreases by 5 to 15% and the surface reflection increases by 14 to 23%.** That is, **the milky layer hides the red light seen through** (chroma C\* decreases). This is the opposite direction of the water lotion (at 0 s the scales vanish and the glow is about 1.2 times).
+- **After 1 hour the glow is 1.2 to 1.4 times**, larger than the water lotion (1.1 to 1.2 times), because the remaining oil film keeps the scales index-matched.
+- **The numbers of this section are from before occlusion (section 5.6) was added** (the hydration of the emulsion was taken to be the same as that of a water lotion). In a re-measurement with an occlusion of 0.3, the glow after 1 hour is 1.34 to 1.45 times and the combined ΔE\*ab is 11.1 (C\* 55.8 → 65.2). Right after application it is unchanged (×0.86 to 0.97, veil ×1.14 to 1.22).
 
-## 5.6 段階 F の結果: 化粧水の後に乳液を重ねる（2026-11-09）
+## 5.6 Result of stage F: an emulsion applied after a lotion (2026-11-09)
 
-**問い:** 普通の順序（化粧水 → 乳液）で、乳液は何を足すか。塗る間隔（化粧水が乾く前か、乾いた後か）は効くか。
+**Question:** in the usual order (lotion → emulsion), what does the emulsion add? Does the interval between applications (before the lotion dries, or after) matter?
 
-**文献:** 重ね塗りを、化粧水だけと比べた経時測定は、見つからなかった。使えたのは、油膜の閉塞の桁（鉱油・シリコーンで 2〜3 割、o/w 乳液は処方しだいで 0〜3 割、効くのは水が蒸発した後）と、塗った水が 30 分以内に蒸発する、という値（`SKIN_MOISTURE_REFS.md` 3.1）。
+**Literature:** no time-course measurement comparing layering with a lotion alone was found. What could be used was the order of magnitude of occlusion by an oil film (20 to 30% for mineral oil and silicone; 0 to 30% for an o/w emulsion depending on the formulation; it acts after the water has evaporated), and the value that applied water evaporates within 30 minutes (`SKIN_MOISTURE_REFS.md` 3.1).
 
-### モデル（推論を含む）
-- **膜は 1 つに混ざる。** 化粧水も o/w 乳液も、水が連続相なので、重ねたら 1 つの液になるとした（推論）。水、保湿成分、油を、層ごとに足す。油滴の白さは、混ざった液の屈折率で決まる。
-- **水和。** 5.3 節の式は、「表面の水のたまり S が角層にしみ込み、角層の水和 H が失われる」2 段の線形モデルの解と同じ形。重ね塗りでは、塗るたびに S に足す（その製品だけなら `hydrationPeak` に達する量）。H は 1 を超えない。
+### Model (includes inference)
+- **The films mix into one.** Both a lotion and an o/w emulsion have water as the continuous phase, so when layered they were taken to become one liquid (inference). Water, humectant and oil are added layer by layer. The whiteness of the droplets is determined by the refractive index of the mixed liquid.
+- **Hydration.** The formula of section 5.3 has the same form as the solution of a two-stage linear model: "the puddle of water S on the surface soaks into the stratum corneum, and the hydration H of the stratum corneum is lost". With layering, each application adds to S (an amount that, for that product alone, reaches `hydrationPeak`). H does not exceed 1.
 
       dS/dt = −S / τr
       dH/dt = k S − H (1 − occ) / τd
-      occ(t) = occlusion × (1 − exp(−合体した油の厚さ / occlusionOil))
+      occ(t) = occlusion × (1 − exp(−thickness of merged oil / occlusionOil))
 
-- **閉塞。** 油膜は、角層の水の損失を遅くする。数えるのは、**合体して膜になった油だけ**（水の中の油滴は、障壁にならない。文献の「水が蒸発した後に効く」に合わせた）。膜の水の蒸発は、遅くしない。つまみは `occlusion`（既定 0.3）、`occlusionOil`（1 µm）。
+- **Occlusion.** An oil film slows the loss of water from the stratum corneum. Only **oil that has merged into a film** is counted (oil droplets in water are not a barrier; chosen to agree with the literature's "acts after the water has evaporated"). It does not slow the evaporation of the water in the film. The knobs are `occlusion` (default 0.3) and `occlusionOil` (1 µm).
 
-### 実装
-`SkinLotion::Layer`（製品 1 つと、塗った時刻）、`SkinLotion::at(共通の値, 層のリスト, 時刻)`、`hydrationAt`（0.5 秒刻みの積分）。JSON は `lotion` の `layers`、`occlusion`、`occlusionOilUm`（`docs/SCENE_FILE.md`）。描画側（`CoatedDiffuse` など）は変えていない: 受け取るのは、その時刻の状態だけ。**1 層で油がなければ、これまでと同じ値**（閉塞がないとき、モデルは線形で、層の和が厳密）。**乳液 1 回だけの場合は、閉塞の分、水和が長持ちする側へ変わった**（5.5 節の注）。
+### Implementation
+`SkinLotion::Layer` (one product and its application time), `SkinLotion::at(shared values, list of layers, time)`, and `hydrationAt` (integration in steps of 0.5 s). The JSON is `layers`, `occlusion` and `occlusionOilUm` of `lotion` (`docs/SCENE_FILE.md`). The rendering side (`CoatedDiffuse` etc.) is unchanged: it receives only the state at that time. **With one layer and no oil, the values are the same as before** (without occlusion the model is linear and the sum over layers is exact). **For an emulsion applied alone, the hydration changed to the longer-lasting side because of occlusion** (the note of section 5.5).
 
-**検査**（`--scene relief` の 14。RGB・スペクトルとも PASS）: 14a 1 層・閉塞なしで、積分が 5.3 節の式に一致（差 2 × 10⁻⁷）。14b 化粧水の 180 秒後に乳液: 直前は化粧水だけの膜（2.6 µm）、直後は 12.6 µm、10 時間後は保湿成分と油の 1.8 µm（体積が保存する）。14c 乳液（軽いもの: 10 µm、油 8%）の 1 時間後の水和は、閉塞 0 / 0.3 / 0.6 で 0.157 / 0.207 / 0.275（油がなければ、閉塞の値によらない）。水和は 1 を超えない。14d は水和の時間経過の表（情報）。
+**Checks** (14 of `--scene relief`; PASS in both RGB and spectral): 14a with one layer and no occlusion, the integral matches the formula of section 5.3 (difference 2 × 10⁻⁷). 14b emulsion 180 s after the lotion: just before, a film of the lotion alone (2.6 µm); just after, 12.6 µm; after 10 hours, 1.8 µm of humectant and oil (the volume is conserved). 14c the hydration 1 hour after an emulsion (light: 10 µm, oil 8%) is 0.157 / 0.207 / 0.275 for an occlusion of 0 / 0.3 / 0.6 (without oil, it does not depend on the occlusion value). Hydration does not exceed 1. 14d is a table of the time course of hydration (informational).
 
-### 測定
-段階 D の円錐（グロー = 後ろからの光、ベール = 前からの光。乾燥に対する比）。液は、水の化粧水（10 µm、保湿成分 5%）と、こってりした乳液（20 µm、油 15%）。**時間は、最後に塗ってから**。再現: `tools/studies/skin_moisture_layers.py`（シーン 50 個、開発用ビルドで 1 枚 約 30 秒、全部で約 27 分）。
+### Measurement
+The cone of stage D (glow = light from behind, veil = light from the front; ratios to dry). The liquids are a water lotion (10 µm, humectant 5%) and a rich emulsion (20 µm, oil 15%). **Time is measured from the last application.** Reproduction: `tools/studies/skin_moisture_layers.py` (50 scenes, about 30 s per image with the development build, about 27 minutes in total).
 
-グロー（直径 4〜16 mm の範囲）と、角層の水和 H:
+Glow (over diameters 4 to 16 mm) and hydration H of the stratum corneum:
 
-| 手入れ | 直後 | 200 秒後 | 30 分後 | 1 時間後 |
+| Care | Right after | After 200 s | After 30 min | After 1 hour |
 |---|---|---|---|---|
-| 化粧水だけ | ×1.14〜1.23（H 0） | ×1.58〜2.15（0.80） | ×1.21〜1.52（0.34） | ×1.08〜1.21（0.13） |
-| 乳液だけ | **×0.86〜0.97**（0） | ×1.46〜1.94（0.81） | ×1.40〜1.74（0.44） | ×1.34〜1.45（0.21） |
-| 化粧水、60 秒後に乳液 | ×1.12〜1.41（0.56） | ×1.57〜2.17（1.00） | ×1.50〜1.90（0.54） | **×1.34〜1.51**（0.26） |
-| 化粧水、600 秒後に乳液 | ×1.21〜1.52（0.67） | ×1.59〜2.17（1.00） | ×1.48〜1.83（0.54） | ×1.33〜1.50（0.26） |
+| Lotion only | ×1.14 to 1.23 (H 0) | ×1.58 to 2.15 (0.80) | ×1.21 to 1.52 (0.34) | ×1.08 to 1.21 (0.13) |
+| Emulsion only | **×0.86 to 0.97** (0) | ×1.46 to 1.94 (0.81) | ×1.40 to 1.74 (0.44) | ×1.34 to 1.45 (0.21) |
+| Lotion, emulsion after 60 s | ×1.12 to 1.41 (0.56) | ×1.57 to 2.17 (1.00) | ×1.50 to 1.90 (0.54) | **×1.34 to 1.51** (0.26) |
+| Lotion, emulsion after 600 s | ×1.21 to 1.52 (0.67) | ×1.59 to 2.17 (1.00) | ×1.48 to 1.83 (0.54) | ×1.33 to 1.50 (0.26) |
 
-ベール（前からの反射）:
+Veil (reflection from the front):
 
-| 手入れ | 直後 | 200 秒後 | 30 分後 | 1 時間後 |
+| Care | Right after | After 200 s | After 30 min | After 1 hour |
 |---|---|---|---|---|
-| 化粧水だけ | ×1.02〜1.12 | ×0.85〜0.97 | ×0.92〜0.98 | ×0.94〜0.98 |
-| 乳液だけ | ×1.14〜1.22 | ×1.02〜1.12 | ×0.92〜1.04 | ×0.94〜1.06 |
-| 化粧水、60 秒後に乳液 | ×1.14〜1.21 | ×1.05〜1.14 | ×0.92〜1.05 | ×0.94〜1.06 |
-| 化粧水、600 秒後に乳液 | ×1.12〜1.21 | ×1.01〜1.12 | ×0.93〜1.05 | ×0.94〜1.07 |
+| Lotion only | ×1.02 to 1.12 | ×0.85 to 0.97 | ×0.92 to 0.98 | ×0.94 to 0.98 |
+| Emulsion only | ×1.14 to 1.22 | ×1.02 to 1.12 | ×0.92 to 1.04 | ×0.94 to 1.06 |
+| Lotion, emulsion after 60 s | ×1.14 to 1.21 | ×1.05 to 1.14 | ×0.92 to 1.05 | ×0.94 to 1.06 |
+| Lotion, emulsion after 600 s | ×1.12 to 1.21 | ×1.01 to 1.12 | ×0.93 to 1.05 | ×0.94 to 1.07 |
 
-閉塞の強さ（化粧水、60 秒後に乳液。乳液の 1 時間後）:
+Strength of occlusion (lotion, emulsion after 60 s. 1 hour after the emulsion):
 
-| `occlusion` | 水和 H | グロー（4〜16 mm） | 合成の ΔE\*ab（8 mm） |
+| `occlusion` | Hydration H | Glow (4 to 16 mm) | Combined ΔE\*ab (8 mm) |
 |---|---|---|---|
-| 0 | 0.16 | ×1.25〜1.38 | 9.4 |
-| 0.3（既定） | 0.26 | ×1.34〜1.51 | 13.0 |
-| 0.6 | 0.44 | ×1.43〜1.74 | 14.5 |
+| 0 | 0.16 | ×1.25 to 1.38 | 9.4 |
+| 0.3 (default) | 0.26 | ×1.34 to 1.51 | 13.0 |
+| 0.6 | 0.44 | ×1.43 to 1.74 | 14.5 |
 
-- **乳液を重ねると、1 時間後のグローは、化粧水だけの 1.1〜1.2 倍から、1.3〜1.5 倍になる。** 油膜が、鱗屑を屈折率の整合した状態に保ち（閉塞 0 でも ×1.25〜1.38）、水の損失を遅くする（閉塞 0.3 で、さらに +0.1 前後）。
-- **ただし、乳液だけ（×1.34〜1.45）と、ほぼ同じ。** 下の化粧水の寄与は、方法の誤差（下の「精度」）に埋もれる大きさ。乳液自身が水を運び（液の 8 割が水）、角層の水和が上限に達するため。
-- **塗る間隔（60 秒と 600 秒）は、効かなかった**（1 時間後の H は 0.264 と 0.262）。理由は同じ。
-- **先に化粧水があると、乳液を塗った直後のグローの落ち込みがなくなる。** 乳液だけでは、乳白色の層が透けた光を隠して ×0.86〜0.97。化粧水の後なら、角層がすでに水和しているので ×1.1〜1.5。表面の白さ（ベール ×1.14〜1.21）は、どちらも同じ。
-- **閉塞の強さが、1 時間後を決める**（0 → 0.6 で、H が 0.16 → 0.44、グローが 8 mm で 1.29 → 1.52 倍）。この値は、文献の桁（0〜3 割）の中でも、結論の大きさが変わる。
+- **Layering an emulsion raises the glow after 1 hour from 1.1 to 1.2 times (lotion alone) to 1.3 to 1.5 times.** The oil film keeps the scales index-matched (×1.25 to 1.38 even at occlusion 0) and slows the loss of water (occlusion 0.3 adds about +0.1 more).
+- **However, it is almost the same as the emulsion alone (×1.34 to 1.45).** The contribution of the lotion underneath is of a size buried in the method's error ("Accuracy" below). The emulsion itself carries water (8 tenths of the liquid is water), and the hydration of the stratum corneum reaches its upper limit.
+- **The interval between applications (60 s and 600 s) made no difference** (H after 1 hour is 0.264 and 0.262), for the same reason.
+- **If there is a lotion first, the dip of the glow right after the emulsion is applied disappears.** With the emulsion alone, the milky layer hides the light seen through, giving ×0.86 to 0.97. After a lotion, the stratum corneum is already hydrated, so it is ×1.1 to 1.5. The whiteness of the surface (veil ×1.14 to 1.21) is the same in both.
+- **The strength of occlusion determines the state after 1 hour** (from 0 to 0.6, H goes from 0.16 to 0.44, and the glow at 8 mm from 1.29 to 1.52 times). Even within the literature's order of magnitude (0 to 30%), this value changes the size of the conclusion.
 
-**接写の時間経過**（5.5 節と同じ条件: `skin_macro` + 鱗屑（ρ₀ = 0.2、κ_H = 0.3）、450 px、96 spp、デノイズなし）。乾燥に対する画像全体の ΔL\* / ΔC\*。時間は、化粧水を塗ってから:
+**Close-up time course** (the same conditions as section 5.5: `skin_macro` + scales (ρ₀ = 0.2, κ_H = 0.3), 450 px, 96 spp, no denoising). ΔL\* / ΔC\* of the whole image relative to dry. Time is measured from the application of the lotion:
 
-| 手入れ | 0 s | 60 s | 120 s | 360 s | 960 s | 1860 s | 3660 s |
+| Care | 0 s | 60 s | 120 s | 360 s | 960 s | 1860 s | 3660 s |
 |---|---|---|---|---|---|---|---|
-| 化粧水だけ | −0.05 / +0.66 | — | −0.08 / +0.65 | −0.23 / +0.55 | −0.17 / +0.40 | −0.14 / +0.35 | −0.13 / +0.32 |
-| 60 秒後に乳液 | （同じ） | **+1.62 / −1.86** | +1.34 / −1.46 | +0.40 / +0.07 | +0.10 / +0.52 | +0.10 / +0.53 | +0.10 / **+0.53** |
+| Lotion only | −0.05 / +0.66 | — | −0.08 / +0.65 | −0.23 / +0.55 | −0.17 / +0.40 | −0.14 / +0.35 | −0.13 / +0.32 |
+| Emulsion after 60 s | (same) | **+1.62 / −1.86** | +1.34 / −1.46 | +0.40 / +0.07 | +0.10 / +0.52 | +0.10 / +0.53 | +0.10 / **+0.53** |
 
-- 乳液を重ねた瞬間に、白く、彩度が下がる（乳液だけのとき（+1.59 / −1.85）と同じ大きさ）。6 分で、ほぼ消える。
-- **16 分より後は、化粧水だけより鮮やかなまま**（ΔC\* +0.53 対 +0.32〜0.40）で、1 時間たっても戻らない。化粧水だけでは、乾くにつれて鱗屑の斑が戻る。
-- 化粧水だけの行は、5.5 節の表（0 s で −0.05 / +0.66）を再現した。
+- The moment the emulsion is layered, the image becomes white and less chromatic (the same size as for the emulsion alone (+1.59 / −1.85)). By 6 minutes it has almost vanished.
+- **After 16 minutes it stays more vivid than the lotion alone** (ΔC\* +0.53 versus +0.32 to 0.40) and does not return even after 1 hour. With the lotion alone, the patches of scales come back as it dries.
+- The lotion-only row reproduced the table of section 5.5 (−0.05 / +0.66 at 0 s).
 
-**精度（確かめた範囲）:** グローは、(1) ランダムウォークを、描画した散乱距離（1.0 / 1.038 / 1.12 / 1.24 / 1.3 倍）の間で、べき乗で補間した。1.12 倍を、両隣から補間した値は、描画の 0.93〜1.01 倍。(2) 表面の層の係数を、内部散乱の変化を切った描画（`bulk` なし）から取った。5.4 節の方法（`bulk` あり、同じ散乱距離の参照）との比は 0.96〜1.01。合わせて、**±5% 程度**。
+**Accuracy (the range checked):** for the glow, (1) the random walk was interpolated by a power law between the rendered scattering distances (1.0 / 1.038 / 1.12 / 1.24 / 1.3 times). The value for 1.12 times interpolated from its two neighbors was 0.93 to 1.01 times the rendered one. (2) The factor of the surface layers was taken from a rendering with the change in internal scattering cut off (without `bulk`). The ratio to the method of section 5.4 (with `bulk`, a reference at the same scattering distance) was 0.96 to 1.01. Together, **about ±5%**.
 
-## 5.7 水で濡れる前と後: 小さく強い光源での接写（2026-11-09）
+## 5.7 Before and after wetting with water: close-ups under a small, strong light source (2026-11-09)
 
-**問い:** 5.1〜5.6 節の接写は、面光源（ソフトボックス）で、差が小さかった（画像全体の ΔL\* は 1 未満）。艶の違いが出る照明なら、濡れる前と後は見分けられるか。化粧水ではなく、ただの水。新しいコードはない（`film` と `scatter` だけ）。
+**Question:** the close-ups of sections 5.1 to 5.6 used an area light (softbox), and the differences were small (ΔL\* of the whole image below 1). With lighting that shows gloss differences, can before and after wetting be told apart? Plain water, not a lotion. There is no new code (only `film` and `scatter`).
 
-**条件:** `scenes/skin_macro.json` の主光源を、直径 16 mm の球（距離 25 cm、カメラの鏡面方向の少し横）に替えた。乾いた肌は、鱗屑あり（ρ₀ = 0.2）、膜なし（`scenes/skin_lamp_dry.json`）。濡れた直後は、水の膜（屈折率 1.33、粗さ 0.02）を平均 5 µm（`scenes/skin_lamp_wet.json`）と 20 µm。水和は 0（濡れた直後）。1000 × 563、384 spp、デノイズなし、開発用ビルドで 1 枚 5〜7 分。
+**Conditions:** the main light of `scenes/skin_macro.json` was replaced by a sphere of diameter 16 mm (distance 25 cm, slightly beside the specular direction of the camera). Dry skin has scales (ρ₀ = 0.2) and no film (`scenes/skin_lamp_dry.json`). Just wet: a water film (index 1.33, roughness 0.02) of mean thickness 5 µm (`scenes/skin_lamp_wet.json`) and 20 µm. Hydration is 0 (just wet). 1000 × 563, 384 spp, no denoising, 5 to 7 minutes per image with the development build.
 
-![乾いた肌と、水で濡れた直後の肌。上は全体、下はハイライトの周りの拡大](img/skin_wet.png)
+![Dry skin and skin just wetted with water. Top: whole image; bottom: enlargement around the highlight](img/skin_wet.png)
 
-（左: 乾いた肌。右: 水の膜 5 µm。下段は、ハイライトの周り 320 × 180 画素の拡大。）
+(Left: dry skin. Right: water film of 5 µm. The bottom row is an enlargement of 320 × 180 pixels around the highlight.)
 
-| 状態 | L\* | C\* | 白く飛んだ画素 |
+| State | L\* | C\* | Blown-out (white) pixels |
 |---|---|---|---|
-| 乾いた肌 | 62.97 | 9.59 | 0% |
-| 水の膜 5 µm | 62.38（−0.6） | 10.60（+1.0） | 0.03% |
-| 水の膜 20 µm | 61.80（−1.2） | 10.94（+1.4） | 0.14% |
+| Dry skin | 62.97 | 9.59 | 0% |
+| Water film 5 µm | 62.38 (−0.6) | 10.60 (+1.0) | 0.03% |
+| Water film 20 µm | 61.80 (−1.2) | 10.94 (+1.4) | 0.14% |
 
-- **差は、はっきり見える。** 乾いた肌は、白っぽい斑があり、ハイライトは広く、暗く、皮溝の網目で細かく割れる。濡れると、斑が消え、ハイライトに明るく鋭い芯ができる。見分けの手がかりは、色（少し暗く、鮮やか。向きは 5.2 節と同じ）より、**ハイライトの形と、斑の有無**。
-- **膜の厚さで、絵が変わる。** 5 µm では、芯の周りに皮溝の網目が残る。20 µm では、膜が皮溝を埋めて平らになり、光源が丸くそのまま映る（ガラスを被せたように見える）。
-- 斑の見え方は ρ₀ に比例する。
+- **The difference is clearly visible.** Dry skin has whitish patches, and the highlight is wide, dark and broken up finely by the network of furrows. When wet, the patches vanish and the highlight gets a bright, sharp core. The cue for telling them apart is not the color (a little darker and more vivid; the direction is the same as in section 5.2) but **the shape of the highlight and the presence of patches**.
+- **The picture changes with the film thickness.** At 5 µm the network of furrows remains around the core. At 20 µm the film fills the furrows and becomes flat, and the light source is reflected as a round, undistorted shape (it looks as if covered with glass).
+- How visible the patches are is proportional to ρ₀.
 
-## 6. パラメータの扱い
+## 6. Handling of parameters
 
-| パラメータ | 扱い |
+| Parameter | Handling |
 |---|---|
-| `occlusion`（油膜が水の損失を止める割合）、`occlusionOil` | 掃引（0〜0.6）。1 時間後の水和とグローを決める |
-| ρ₀（乾いた肌の表面散乱） | 掃引（0〜0.1 程度）。**ここが、結論の大きさを決める** |
-| κ_H（水和による散乱の減少） | 掃引（0〜0.5） |
-| 化粧水の量（mg/cm²）、τ_w、グリセリンの割合 | 掃引 |
-| 膜の濡れ広がり t₀（約 1 µm） | 固定。感度を確かめる |
+| `occlusion` (fraction of water loss that the oil film stops), `occlusionOil` | Sweep (0 to 0.6). Determines the hydration and the glow after 1 hour |
+| ρ₀ (surface scattering of dry skin) | Sweep (about 0 to 0.1). **This sets the size of the conclusion** |
+| κ_H (decrease of scattering with hydration) | Sweep (0 to 0.5) |
+| Lotion amount (mg/cm²), τ_w, glycerin fraction | Sweep |
+| Wetting spread of the film t₀ (about 1 µm) | Fixed. Check the sensitivity |

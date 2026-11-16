@@ -1,31 +1,31 @@
-# シーンファイル（JSON）
+# Scene files (JSON)
 
-CLI は、シーンを JSON ファイルで指定できます。**ファイルは、先頭の引数**に置きます。
+The CLI can take a scene as a JSON file. **The file goes in the first argument.**
 
 ```bat
 GoLD_rayt.exe scenes\gold_bowl_tungsten.json
-GoLD_rayt.exe scenes\gold_bowl_tungsten.json --spp 16 --width 400   :: 後ろの指定が、ファイルの値より優先される
-GoLD_rayt.exe --list-scenes                                          :: 組み込みシーンとコマンドの一覧
+GoLD_rayt.exe scenes\gold_bowl_tungsten.json --spp 16 --width 400   :: options given after the file win over the values in the file
+GoLD_rayt.exe --list-scenes                                          :: list of the built-in scenes and commands
 ```
 
-Visual Studio では、「プロジェクトのプロパティ → デバッグ → コマンド引数」に `scenes\gold_bowl_tungsten.json` と書き、シーンを変えるときは、このファイル名だけを変える。作業ディレクトリは `$(ProjectDir)`。
+In Visual Studio, put `scenes\gold_bowl_tungsten.json` in "Project Properties → Debugging → Command Arguments" and change only this file name to switch scenes. The working directory is `$(ProjectDir)`.
 
-## 2 つの形式
+## Two forms
 
-| 形式 | 中身 | 使いどころ |
+| Form | Content | Use |
 |---|---|---|
-| 1. 組み込みシーン＋オプション | `"scene"` と `"options"` | コマンドラインの内容を、ファイルに残す（`scenes/presets/`） |
-| 2. データで書いたシーン | `"objects"` ほか | 球・板・メッシュ・回転体・光源・材質を、再コンパイルなしで書く（`scenes/*.json`） |
+| 1. Built-in scene + options | `"scene"` and `"options"` | Keep the contents of a command line in a file (`scenes/presets/`) |
+| 2. Scene written as data | `"objects"` and the other keys | Write spheres, quads, meshes, lathes, lights and materials without recompiling (`scenes/*.json`) |
 
-形式 2 のファイルは、シーン名 `file` として描画される。`"scene"` と `"objects"` は、同時に書けない。
+A form-2 file is rendered as the scene named `file`. `"scene"` and `"objects"` cannot be given together.
 
 ```jsonc
-// 形式 1
+// Form 1
 { "scene": "goldbowl", "options": { "light": "tungsten", "width": 800, "spp": 256 } }
 ```
 
 ```jsonc
-// 形式 2（抜粋）
+// Form 2 (excerpt)
 {
   "options": { "width": 800, "spp": 256 },
   "camera": { "from": [0.02, 0.27, 0.33], "at": [0.035, 0.035, 0], "fov": 30 },
@@ -40,115 +40,145 @@ Visual Studio では、「プロジェクトのプロパティ → デバッグ 
 }
 ```
 
-## 書き方の約束
+## Writing conventions
 
-- `//` のコメントが使える。キーの綴りの誤りは、**許されるキーの一覧つきのエラー**になる。
-- ファイル内の相対パスは、プログラムを実行するフォルダ（`GoLD_rayt/`）からの相対パス（コマンドラインと同じ）。
-- `"options"`: コマンドラインの名前から `--` を除いたもの。数値・文字列は値、`true` はフラグ。例: `{ "width": 800, "denoise": true, "out": "x.png" }`。出力の色域と PNG のビット数も同じ（`"gamut": "p3"`、`"bits": 16`）。乱数の種も同じ（`"seed": 7`。同じ種なら、ノイズまで同じ絵になる。経路追跡だけで、光子マップと `--lvc` は対象外。書かなければ、実行のたびに新しい種を選び、ログの `[Options]` の行に出す）。
-- 単位はメートル。ベクトルは `[x, y, z]`、色は `[r, g, b]`（数値 1 つなら灰色）。
+- `//` comments are allowed. A misspelled key gives an **error that lists the allowed keys**. A top-level `"comment"` key is accepted and ignored.
+- Relative paths inside the file are relative to the folder the program runs in (`GoLD_rayt/`), the same as on the command line.
+- `"options"`: the command-line names without the `--`. A number or string is the value, `true` is a flag (`false` is left out). Example: `{ "width": 800, "denoise": true, "out": "x.png" }`. The output gamut and the PNG bit depth work the same way (`"gamut": "p3"`, `"bits": 16`), and so does the random seed (`"seed": 7`: the same seed gives the same picture, noise included. It applies to path tracing only, not to the photon map or `--lvc`. If it is not given, a new seed is chosen at every run and printed on the `[Options]` line of the log).
+- Units are metres. Vectors are `[x, y, z]`, colors are `[r, g, b]` (a single number is a gray).
 
-## キーの一覧（形式 2）
+## Key reference (form 2)
 
-| キー | 中身 |
+| Key | Content |
 |---|---|
-| `camera` | `from`、`at`、`up`、`fov`（度）。省略すると、`[0, 0.5, 2.5]` から `[0, 0, -1]` を 35° で見る。レンズ（どちらの書き方でもよい）: `aperture`（レンズの直径、m。0 = ピンホール）、`focus`（ピントの距離、m。省略で `at` まで）。または写真と同じ書き方で、`focalLength`（mm。`fov` の代わり。35 mm フィルムの換算で、画面の長辺がフィルムの 36 mm）、`fStop`（F 値。絞りの直径 = 焦点距離 / F）、`focusDistance`（ピントの面までの、視線方向の距離、m）または `focusAt`（ピントを合わせる点 `[x, y, z]`）、`blades`（絞り羽根の枚数 3〜32。省略か 0 は円形）、`bladeRotation`（度）。収差: `distortion`（放射歪曲。数 k1 か `[k1, k2]`。画像の中心からの半径 r（半対角線を 1 とする）に対し、その画素には理想の絵の r(1 + k1 r² + k2 r⁴) の方向が写る。k1 > 0 が樽型、k1 < 0 が糸巻き型）、`lateralCA`（倍率色収差。絵の大きさが 100 nm あたりこの割合で変わる。0.004 で赤と青の大きさが 0.8 % 違う。赤い絵のほうが小さいのが正）、`axialCA`（軸上色収差。焦点距離が 100 nm あたりこの割合で変わり、波長ごとにピントの面が違う。`fStop` と一緒に使うと、ボケに色が付く。0.01 が単レンズ、0.0005 がアクロマート）。周辺減光: `vignette`（レンズ鏡筒の開口の F 値 N。開口の直径 = 焦点距離 / N。小さいほど開口が大きく、減光が弱い）、`vignetteDist`（その開口が絞りの何 mm 手前にあるか。省略で焦点距離の半分）、`naturalVignette`（cos⁴ 則。0 = なし、1 = そのまま）。鏡筒の開口は、斜めの光線の束を欠き、四隅が暗くなって、そこの玉ボケが猫目（レモン形）になる。絞りを絞って開口より小さくなれば、欠けは消える（`fStop` が要る）。`naturalVignette` は絞りがなくても効く。モーションブラー: `shutter`（シャッターが開いている時間。秒の数、または `"1/60"` のような文字列。0 か省略でブラーなし）、`velocity`（カメラの速度 `[x, y, z]`、m/s）、`pan`（カメラが向きを変える速さ、度/秒。数なら右へ、`[yaw, pitch]` なら右と上へ。0 秒の姿勢が `from`・`at`、ピントの距離は変わらない）。露光の間、物体の `velocity`（下）とカメラの動きが時刻で進み、光線ごとにその時刻のシーンを見る。影も映り込みも一緒に動く。明るさはシャッターの長さに依らない（時間の平均）。`--lvc` と `--caustic-trace` の針穴カメラは時刻 0 のままで、ブラーしない。色収差は波長ごとに光線が違うので、スペクトルビルドだけで効き、1 本の経路が 1 つの波長だけを運ぶ（色のノイズが増える）。`fStop` と `focusDistance`・`focusAt` を書くと、`aperture` と `focus` より優先する。コマンドラインの `--focal-length`・`--fstop`・`--focus-dist`・`--focus-at`・`--blades`・`--blade-rotation`・`--distortion K1[,K2]`・`--lateral-ca`・`--axial-ca`・`--vignette`・`--vignette-dist`・`--natural-vignette`・`--shutter T`（秒、または `1/60`）・`--cam-velocity x,y,z`・`--pan YAW[,PITCH]` は、ファイルの値を上書きする（組み込みのシーンにも使える） |
-| `environment` | `"none"`（既定）、`"hdr"`、`"uniform"`（白）、または `{ "type", "file", "scale" }`。`hdr` の既定のファイルは `--env` |
-| `materials` | 名前 → 材質（下） |
-| `lights` | 点光源の配列 `{ "type": "point", "position", "color", "intensity" }` |
-| `objects` | 物体の配列（下） |
+| `camera` | `from`, `at`, `up`, `fov` (degrees), and the lens, aberration, vignetting and motion-blur keys listed under "Camera keys" below. Default: looks from `[0, 0.5, 2.5]` toward `[0, 0, -1]` at 35° |
+| `environment` | `"none"` (default), `"hdr"`, `"uniform"` (white), or `{ "type", "file", "scale" }`. The default file of `hdr` is `--env` |
+| `materials` | name → material (below) |
+| `lights` | array of point lights `{ "type": "point", "position", "color", "intensity" }` |
+| `objects` | array of objects (below) |
 
-**材質（`type`）**
+**Camera keys**
 
-| type | キー |
+- **Lens** (either style is accepted). `aperture` (lens diameter, m; 0 = pinhole) and `focus` (focus distance, m; default: up to `at`). Or in photographic terms: `focalLength` (mm; replaces `fov`; 35 mm film equivalent, the long side of the picture is the 36 mm of the film), `fStop` (f-number; aperture diameter = focal length / f-number), `focusDistance` (distance to the plane of focus along the view direction, m) or `focusAt` (the point `[x, y, z]` to focus on), `blades` (number of aperture blades, 3 to 32; omitted or 0 = round), `bladeRotation` (degrees). If `fStop` and `focusDistance` / `focusAt` are written, they win over `aperture` and `focus`.
+- **Aberrations.**
+  - `distortion`: radial distortion, a number k1 or `[k1, k2]`. For the radius r from the center of the image (the half diagonal is 1), the pixel shows the direction that the ideal picture has at r(1 + k1 r² + k2 r⁴). k1 > 0 is barrel, k1 < 0 is pincushion.
+  - `lateralCA`: lateral chromatic aberration. The size of the picture changes by this fraction per 100 nm. 0.004 makes red and blue differ in size by 0.8 %. Positive means that the red picture is smaller.
+  - `axialCA`: axial chromatic aberration. The focal length changes by this fraction per 100 nm, so every wavelength has its own plane of focus. Together with `fStop` it colors the bokeh. 0.01 is a single lens, 0.0005 an achromat.
+- **Vignetting.** `vignette` (f-number N of the opening of the lens barrel; the diameter of the opening = focal length / N; the smaller N is, the larger the opening and the weaker the darkening), `vignetteDist` (how many mm in front of the stop that opening is; default: half the focal length), `naturalVignette` (the cos⁴ law; 0 = none, 1 = as it is). The barrel opening clips the bundle of oblique rays, so the corners get darker and the bokeh balls there become cat's-eye (lemon) shaped. If the stop is closed down below the opening, the clipping disappears (`fStop` is required). `naturalVignette` works without a stop.
+- **Motion blur.** `shutter` (time the shutter is open: a number of seconds, or a string such as `"1/60"`; 0 or omitted = no blur), `velocity` (camera velocity `[x, y, z]`, m/s), `pan` (speed at which the camera turns, degrees per second; a number turns to the right, `[yaw, pitch]` turns right and up. The pose at time 0 is `from` and `at`; the focus distance does not change). During the exposure the `velocity` of the objects (below) and the camera motion advance with time, and every ray sees the scene at its own time. Shadows and reflections move with the objects. The brightness does not depend on the length of the shutter (it is a time average). The pinhole cameras of `--lvc` and `--caustic-trace` stay at time 0 and do not blur. The chromatic aberrations need a different ray per wavelength, so they work in the spectral build only, and one path carries a single wavelength (more color noise).
+- **Command line.** `--focal-length`, `--fstop`, `--focus-dist`, `--focus-at`, `--blades`, `--blade-rotation`, `--distortion K1[,K2]`, `--lateral-ca`, `--axial-ca`, `--vignette`, `--vignette-dist`, `--natural-vignette`, `--shutter T` (seconds, or `1/60`), `--cam-velocity x,y,z` and `--pan YAW[,PITCH]` override the values in the file (they also work with built-in scenes).
+
+**Materials (`type`)**
+
+| type | Keys |
 |---|---|
-| `diffuse` | `albedo`（RGB）、`reflectance`（測定した反射率 R(λ) の CSV）、`fading`（露光時間で変わる測定反射率。下の「分光放射計のデータを使う」）、または `reflectanceTexture`（画素ごとに反射率スペクトルを持つ `.sptex`。`tools/data/hsm_texture.py` が 2 次元分光放射計の測定から作る。四角形 `quad` の上に、`edge1` 方向を u、`edge2` 方向を v として貼る）。**どれか 1 つ**。`texture`（PNG / JPG。メッシュの uv に貼り、`albedo` に掛ける。スキャンや 3DGS のメッシュの撮影テクスチャ用: `docs/CAPTURE.md`。`albedo` とだけ組み合わせる） |
-| `conductor` | `metal`（`Au`・`Ag`・`Cu`: Johnson & Christy の表）、`table`（RefractiveIndex.info の n, k の CSV）、`reflectance`（測定した垂直入射の反射率 R(λ) の CSV。Gulbrandsen の方法で n, k にする）の**どれか 1 つ**。ほかに `roughness`、`anisotropy`（−1〜1。> 0: 接線の向きに粗い、< 0: 接線に沿った溝のヘアライン仕上げ）、`rotation`（度。接線を法線の周りに回す）、`multipleScattering` |
-| `dielectric` | `ior`、`exteriorIor`（**面の外側（法線の側）の屈折率**、既定 1 = 空気。入れ子の誘電体を Mitsuba と同じ「屈折率が変わる所で面を分ける」方式で書く: 水滴なら、空気に接する冠は `ior` 1.333、ガラスに接する底の円板は `ior` 1.333・`exteriorIor` 1.5 で、その下のガラスの面は作らない。BSDF は内外の比だけを使い、分散は内側にかかる。`--scene dispersion` の 4 が検査）、`roughness`、`abbe`（分散。0 = なし）、`sellmeier`（分散を Sellmeier の式で与える。ガラスの名前 `"diamond"`・`"sapphire"`・`"bk7"`・`"silica"`、または `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }`（c は µm²）。`abbe` とは両立しない。RGB ビルドは d 線の屈折率）、`distanceRoughness`（`{ "roughness", "start", "end" }`: y 軸からの距離が start から end の間に、粗さがこの値まで増える。メッシュで解像できない遠くの小さな波の傾きを、粗さとして返す。海に使う）、`medium`（内側を散乱媒質で満たす。下） |
-| `thinFilm` | 滑らかな面の上の、薄い透明な膜の干渉（シャボン玉、油膜、コーティングされた金属）。`ior`（膜）、`thickness`（nm の数値、または勾配 `from`/`to`/`axis`/`range`/`exponent`、`warp`、`noise`（`stretch` あり））、`coverage`（膜のある場所のマスク）、`substrate`（`"free"`、`{ "dielectric": n }`、`{ "metal": "Au" }`）。理論と例は `docs/THIN_FILM.md` |
-| `layered` | 透明なコートが、下地の上にある材質（漆を塗った金、車の塗装）。`coat`: `{ "ior", "roughness", "tint", "samples" }`（コートの屈折率、粗さ、法線方向の透過率 RGB（1 = 透明）、1 回の評価での追跡の数）。`base`: `{ "albedo" }`（拡散）または `{ "metal" | "table" | "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }`（金属）のどちらか 1 つ。理論と例は `docs/GLOSS.md` |
-| `skin` | 肌（`CoatedDiffuse`）。`albedo`（既定 0.80, 0.52, 0.42）、`roughness`（既定 0.5）、`specular`（皮脂のコートの重み、既定 0.4）。`scatterDistanceMm`（RGB、mm。例 `[3.67, 1.37, 0.68]`）を書くと**表面下散乱**（Burley のプロファイル、`sssScale` で倍率）。`randomWalk`（省略可。`true`、または `{ "g": 0.8 }`。表面下の光を、プロファイルではなく、**物体の内部を歩かせて**追う。閉じた形が要る。厚い所は同じ色で、薄い所は厚さに応じて透ける。`g` は位相関数の平均コサイン、既定 0。`docs/SSS.md` 12 節）。`relief`（省略可。毛穴と皮溝の凹凸: `cellMm`、`furrowDepthMm`、`furrowWidth`、`stretch`、`coarseScale`、`coarseWeight`、`poreDepthMm`、`poreRadiusMm`、`poreFraction`、`poreSizeVariation`、`poreDensityVariation`、`poreDensityFreq`、`poreDarkness`（毛穴を暗くする、0〜1）、`seed`。法線だけを曲げる）。`relief` の中の `wrinkles`（**皮溝と毛穴をグラフ合成で作る**: `tileMm`（既定 24）、`resolution`（2048）、`steps`（300）、`depthScale`、`seed`、`levels`（省略可。層ごとの `spacingMm`、`angleDeg`、`base`、`distance`、`continuation`、`similarity`、`crossing`、`deposit`、`width`、`poreWidth`、`poreMin`、`poreBlend`、`poreSkew`、`wobble`、`wobbleFreq`、`depthUm`、`bulge`、`darkPores`）。これを書くと、Worley の皮溝と毛穴は使われない）。`gloss`（省略可。皮脂の多い所と少ない所: `variation`（0〜0.95）、`frequency`（1 m あたりの斑の数）、`seed`）。`pigment`（省略可。色の揺らぎ: `freckleCellMm`、`freckleFraction`、`freckleRadiusMm`、`freckleStrength`、`clusterFreq`、`blotchFreq`、`blotchStrength`、`rednessFreq`、`rednessStrength`、`seed`）。`film`（省略可。**皮溝にたまる液体の膜**。`relief` が要る: `thicknessUm`（平均の厚さ、µm。0 = 膜なし）、`ior`（水 1.33、グリセリン 1.47、油 約 1.45）、`roughness`（膜の表面の粗さ、既定 0.02）、`softnessUm`（膜の縁の丸め、既定 1.5）。鏡面は膜の上面の法線に従う）。`scatter`（省略可。**乾いた肌（鱗屑）の白い局所散乱**: `rho0`（鱗屑のある所の反射率）、`frequency`、`threshold`（上げると鱗屑が減る）、`softness`、`hydration`（0〜1）、`kappaH`（水和で散乱が減る割合）、`gapUm`（液体が隙間を満たす深さ）、`seed`。`film` があると、屈折率の整合で散乱が減る）。`lotion`（省略可。**化粧水を塗って `timeS` 秒後**の膜と水和。`relief` が要り、`film` とは併用しない: `doseUm`（塗った液の厚さ、既定 10）、`glycerin`（残る保湿成分の体積比、0.05）、`timeS`、`waterTauS`（水の蒸発、120）、`hydrationPeak`（0.8）、`hydrationRiseS`（60）、`hydrationDecayS`（1800）、`waterIor`、`humectantIor`、`waterRoughness`、`residueRoughness`、`bulk`（水和 H のとき、表面下散乱の散乱距離を 1 + bulk · H 倍にする。既定 0）、`oil`（液に含まれる油の体積比。0 = 水の化粧水。0 より大きいと**乳液**: 油滴の乳白色の層が、時間とともに消え、油膜が残る）、`oilIor`（1.45）、`dropletUm`（油滴の直径、既定 1）、`coalesceTauS`（油滴の合体、600）、`dropletG`（0.9）、`occlusion`（合体した油膜が、角層の水の損失を止める割合。0〜1、既定 0.3。0 = 油は水を保たない）、`occlusionOilUm`（その 63% に達する油膜の厚さ、既定 1）。**重ね塗り**は `layers`（製品のリスト。例 `[{ "atS": 0, "doseUm": 10 }, { "atS": 180, "doseUm": 10, "oil": 0.08 }]` = 化粧水の 180 秒後に乳液）: 層ごとに `atS`（塗った時刻。`timeS` と同じ時計。`timeS` より後の層は、まだ塗られていない）、`doseUm`、`glycerin`、`hydrationPeak`、`oil`、`oilIor`、`dropletUm`、`coalesceTauS`、`dropletG`。`layers` を書いたら、これらを `lotion` の直下には書かない。**bulk について**:ただし、BSSRDF の透過は薄い所で当てにならない: `docs/SKIN_MOISTURE.md` 5.4）。`scatter` があれば、その `hydration` も上書きする）。`foundation`（省略可。**ファンデーションの層**を、いちばん上に載せる: `preset`（`dewy1`・`dewy2`・`matte1`・`matte2`: 論文の 4 製品の値。後に書いたキーが上書きする）、`thickness`（光学的な厚さ。0 = 層なし。0.25〜0.5 で薄塗り、4 でほぼ下が隠れる）、`diffuserFraction`（球の粒子の割合、0〜1。1 に近いほどマット）、`plateletRoughness`（板の粒子の向きのばらつき、0.001〜1。小さいほどハイライトが鋭い）、`plateletTiltDeg`、`diffuserAlbedo`・`plateletAlbedo`（粒子の色 RGB）、`g1`・`g2`・`lobeWeight`（球の散らし方）、`leveling`（層が肌の凹凸をならす度合い、0〜1、既定 1。1 なら皮溝や毛穴は層の光り方に映らない。0 なら層も凹凸に従う。`primer` があるときの既定は 0 で、層の面は下地が決める）。`docs/COSMETICS.md`）。`primer`（省略可。**下地**: 皮溝と毛穴を埋める膜で、ファンデはその上に載る。`relief` が要り、`film`・`lotion` とは併用しない: `thicknessUm`（平均の厚さ、µm。0 = なし。深い所から先に埋まる）、`ior`（既定 1.40、シリコーン）、`roughness`（膜の表面の粗さ、既定 0.15）、`softnessUm`（縁の丸め、既定 3）。ファンデがなければ、肌の艶が膜の上面に従う。`color`（下地の色: 無限に厚い膜の色 RGB。書くと**色つきの下地**になる）、`opacity`（色つきの層の不透明さ = 散乱係数 × 厚さ、既定 0.5。0 = 透明、1 を超えるとほぼ隠す）。`docs/COSMETICS.md` 4.1・4.2 節）。`docs/SKIN.md`、`docs/SKIN_MOISTURE.md` |
-| `hair` | 髪の毛 1 本の散乱（メラニンの色づき、R・TT・TRT のハイライト。`docs/HAIR.md`）。吸収は、`melanin`（`[真性, 亜性]`。黒 `[8, 0]`、茶 `[1.3, 0.1]`、赤 `[0.4, 1.4]`、金髪 `[0.25, 0.15]`、白髪 `[0, 0]`）、`color`（見た目の色 RGB、各 (0, 1]）、`sigmaA`（毛の半径あたりの吸収 RGB）の**どれか 1 つ**（既定は `melanin` [1.3, 0]）。`eta`（既定 1.55）、`betaM`・`betaN`（縦・方位の粗さ、0〜1、既定 0.3）、`tilt`（キューティクルの傾き、度、既定 2）、`lobes`（`["R", "TT", "TRT", "rest"]` の一部だけを描く。説明用） |
-| `measured` | 実測の BRDF（hpBRDF を PCA で圧縮した表）。`file`（`.hpbpca`）、`alphaSample`（重点サンプリングに使う GGX の α。絵は変わらずノイズだけ変わる。既定 0.1）。偏光（`--stokes`）にも対応 |
-| `emission` | `spectrum`、`radiance`、`twoSided` |
+| `diffuse` | `albedo` (RGB), `reflectance` (CSV of a measured reflectance R(λ)), `fading` (measured reflectance that changes with the exposure time; see "Using spectroradiometer data" below), or `reflectanceTexture` (a `.sptex` with a reflectance spectrum per pixel; `tools/data/hsm_texture.py` makes it from a 2D spectroradiometer measurement; it is laid on a `quad`, with the `edge1` direction as u and the `edge2` direction as v). **Exactly one of these.** `texture` (PNG / JPG; laid on the uv of a mesh and multiplied with `albedo`; for the photographed texture of a scan or a 3DGS mesh: `docs/CAPTURE.md`; it combines with `albedo` only) |
+| `conductor` | **Exactly one of** `metal` (`Au`, `Ag`, `Cu`: the Johnson & Christy tables), `table` (CSV of n, k from RefractiveIndex.info), `reflectance` (CSV of a measured normal-incidence reflectance R(λ); turned into n, k by Gulbrandsen's method). Also `roughness`, `anisotropy` (−1 to 1; > 0: rough along the tangent, < 0: hairline finish with grooves along the tangent), `rotation` (degrees; turns the tangent around the normal), `multipleScattering` |
+| `dielectric` | `ior`, `exteriorIor` (**the index on the outside of the surface (the normal side)**, default 1 = air. It writes nested dielectrics in the same way as Mitsuba, by splitting surfaces where the index changes: for a water drop, the cap that touches air has `ior` 1.333, and the bottom disc that touches glass has `ior` 1.333 and `exteriorIor` 1.5, and the glass surface under it is not made. The BSDF uses only the ratio of inside to outside, and the dispersion is applied to the inside. Check 4 of `--scene dispersion` tests it), `roughness`, `abbe` (dispersion; 0 = none), `sellmeier` (gives the dispersion by the Sellmeier equation: a glass name `"diamond"`, `"sapphire"`, `"bk7"`, `"silica"`, or `{ "b": [b1, b2, b3], "c": [c1, c2, c3] }` (c in µm²). It cannot be combined with `abbe`. The RGB build uses the index at the d line), `distanceRoughness` (`{ "roughness", "start", "end" }`: the roughness grows to this value between the distances start and end from the y axis. It returns the slope of small distant waves that the mesh cannot resolve as a roughness. Used for the sea), `medium` (fills the inside with a scattering medium; below) |
+| `thinFilm` | Interference of a thin transparent film on a smooth surface (soap bubble, oil film, coated metal). `ior` (film), `thickness` (a number in nm, or `{ "nm" }`, or a gradient `from` / `to` / `axis` / `range` / `exponent`, plus `warp` and `noise` (with `stretch`)), `coverage` (mask of where the film is), `substrate` (`"free"`, `{ "dielectric": n }`, `{ "metal": "Au" }`, `{ "table": "file.csv" }`). Theory and examples: `docs/THIN_FILM.md` |
+| `layered` | A material with a transparent coat over a base (lacquered gold, car paint). `coat`: `{ "ior", "roughness", "tint", "samples" }` (index of the coat, roughness, transmittance RGB along the normal (1 = clear), number of traces per evaluation). `base`: either `{ "albedo" }` (diffuse) or `{ "metal" \| "table" \| "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }` (metal). Theory and examples: `docs/GLOSS.md` |
+| `skin` | Skin (`CoatedDiffuse`). Keys are listed under "Skin keys" below: `albedo`, `roughness`, `specular`, `scatterDistanceMm`, `sssScale`, `randomWalk`, `relief`, `gloss`, `pigment`, `film`, `scatter`, `lotion`, `foundation`, `primer`. Theory: `docs/SKIN.md`, `docs/SKIN_MOISTURE.md` |
+| `hair` | Scattering of a single hair fiber (melanin coloring, the R, TT and TRT highlights; `docs/HAIR.md`). The absorption is given by **one of** `melanin` (`[eumelanin, pheomelanin]`; black `[8, 0]`, brown `[1.3, 0.1]`, red `[0.4, 1.4]`, blond `[0.25, 0.15]`, white (gray) hair `[0, 0]`), `color` (apparent color RGB, each in (0, 1]), `sigmaA` (absorption RGB per hair radius); the default is `melanin` [1.3, 0]. Also `eta` (default 1.55), `betaM` and `betaN` (longitudinal and azimuthal roughness, 0 to 1, default 0.3), `tilt` (tilt of the cuticle, degrees, default 2), `lobes` (draw only some of `["R", "TT", "TRT", "rest"]`; for explanation) |
+| `measured` | A measured BRDF (an hpBRDF table compressed by PCA). `file` (`.hpbpca`), `alphaSample` (the GGX α used for importance sampling; it changes only the noise, not the picture; default 0.1). Polarization (`--stokes`) is supported |
+| `emission` | `spectrum`, `radiance`, `twoSided` |
 
-`dielectric` の `medium`: 閉じた形（球、向きの正しい OBJ）の内側を、散乱媒質で満たす。ガラスの境界から入った光が、内部で散乱してから出てくる（蝋、ミルク、翡翠）。
+**Skin keys**
+
+- `albedo` (default 0.80, 0.52, 0.42), `roughness` (default 0.5), `specular` (weight of the sebum coat, default 0.4).
+- `scatterDistanceMm` (RGB, mm; e.g. `[3.67, 1.37, 0.68]`): writing it turns on **subsurface scattering** (Burley's profile; `sssScale` is a multiplier).
+- `randomWalk` (optional; `true`, or `{ "g": 0.8 }`): follows the subsurface light by **walking it inside the object** instead of using the profile. It needs a closed shape. Thick places keep the same color, and thin places let light through according to the thickness. `g` is the mean cosine of the phase function, default 0. `docs/SSS.md` section 12.
+- `relief` (optional; bumps of pores and furrows; it bends the normal only): `cellMm`, `furrowDepthMm`, `furrowWidth`, `stretch`, `coarseScale`, `coarseWeight`, `poreDepthMm`, `poreRadiusMm`, `poreFraction`, `poreSizeVariation`, `poreDensityVariation`, `poreDensityFreq`, `poreDarkness` (darkens the pores, 0 to 1), `seed`.
+- `wrinkles` inside `relief` (**furrows and pores made by graph synthesis**): `tileMm` (default 24), `resolution` (2048), `steps` (300), `depthScale`, `seed`, `levels` (optional; per level `spacingMm`, `angleDeg`, `base`, `distance`, `continuation`, `similarity`, `crossing`, `deposit`, `width`, `poreWidth`, `poreMin`, `poreBlend`, `poreSkew`, `wobble`, `wobbleFreq`, `depthUm`, `bulge`, `darkPores`). When it is written, the Worley furrows and pores are not used.
+- `gloss` (optional; oily and dry places): `variation` (0 to 0.95), `frequency` (number of patches per metre), `seed`.
+- `pigment` (optional; color variation): `freckleCellMm`, `freckleFraction`, `freckleRadiusMm`, `freckleStrength`, `clusterFreq`, `blotchFreq`, `blotchStrength`, `rednessFreq`, `rednessStrength`, `seed`.
+- `film` (optional; **a liquid film that collects in the furrows**; needs `relief`): `thicknessUm` (mean thickness, µm; 0 = no film), `ior` (water 1.33, glycerin 1.47, oil about 1.45), `roughness` (roughness of the film surface, default 0.02), `softnessUm` (rounding of the film edge, default 1.5). The specular reflection follows the normal of the top surface of the film.
+- `scatter` (optional; **white local scattering of dry skin (scales)**): `rho0` (reflectance where there are scales), `frequency`, `threshold` (raising it reduces the scales), `softness`, `hydration` (0 to 1), `kappaH` (the fraction by which hydration reduces the scattering), `gapUm` (depth to which a liquid fills the gaps), `seed`. If there is a `film`, the index matching reduces the scattering.
+- `lotion` (optional; **the film and the hydration `timeS` seconds after a lotion was applied**; needs `relief`; not together with `film`):
+  - `doseUm` (thickness of the applied liquid, default 10), `glycerin` (volume fraction of the humectant that remains, 0.05), `timeS`, `waterTauS` (evaporation of water, 120), `hydrationPeak` (0.8), `hydrationRiseS` (60), `hydrationDecayS` (1800), `waterIor`, `humectantIor`, `waterRoughness`, `residueRoughness`.
+  - `bulk`: for the hydration H, multiplies the scatter distance of the subsurface scattering by 1 + bulk · H (default 0). The BSSRDF transmission is not reliable in thin places: `docs/SKIN_MOISTURE.md` section 5.4. If `scatter` is present, the hydration of the lotion also overrides its `hydration`.
+  - `oil` (volume fraction of oil in the liquid; 0 = a watery lotion. Above 0 it is an **emulsion**: the milky layer of oil droplets disappears with time and an oil film remains), `oilIor` (1.45), `dropletUm` (droplet diameter, default 1), `coalesceTauS` (coalescence of the droplets, 600), `dropletG` (0.9), `occlusion` (fraction by which the merged oil film stops the loss of water from the stratum corneum, 0 to 1, default 0.3; 0 = the oil does not keep the water), `occlusionOilUm` (oil film thickness at which 63 % of it is reached, default 1).
+  - **Layering** uses `layers` (a list of products; e.g. `[{ "atS": 0, "doseUm": 10 }, { "atS": 180, "doseUm": 10, "oil": 0.08 }]` = a lotion, then an emulsion 180 s later). Per layer: `atS` (time of application, on the same clock as `timeS`; a layer later than `timeS` is not applied yet), `doseUm`, `glycerin`, `hydrationPeak`, `oil`, `oilIor`, `dropletUm`, `coalesceTauS`, `dropletG`. When `layers` is written, these keys are not written directly under `lotion`.
+- `foundation` (optional; **a layer of foundation** on top): `preset` (`dewy1`, `dewy2`, `matte1`, `matte2`: the values of the four products of the paper; the other keys override the preset), `thickness` (optical thickness; 0 = no layer; 0.25 to 0.5 is a thin coat, 4 nearly hides what is underneath), `diffuserFraction` (fraction of spherical particles, 0 to 1; the closer to 1, the more matte), `plateletRoughness` (spread of the orientation of the platelet particles, 0.001 to 1; the smaller, the sharper the highlight), `plateletTiltDeg`, `diffuserAlbedo` and `plateletAlbedo` (particle colors RGB), `g1`, `g2` and `lobeWeight` (how the spheres scatter), `leveling` (how much the layer levels the skin relief, 0 to 1, default 1. At 1 the furrows and pores do not show in the shine of the layer; at 0 the layer follows the relief. When there is a `primer`, the default is 0 and the surface of the layer is set by the primer). `docs/COSMETICS.md`.
+- `primer` (optional; **the base under the foundation**: a film that fills the furrows and pores, with the foundation on top; needs `relief`; not together with `film` or `lotion`): `thicknessUm` (mean thickness, µm; 0 = none; the deepest places fill first), `ior` (default 1.40, silicone), `roughness` (roughness of the film surface, default 0.15), `softnessUm` (rounding of the edge, default 3). Without a foundation, the gloss of the skin follows the top surface of the film. `color` (color of the primer: the color RGB of an infinitely thick film; writing it makes a **colored primer**), `opacity` (opacity of the colored layer = scattering coefficient × thickness, default 0.5; 0 = transparent, above 1 it nearly hides the skin; needs `color`). `docs/COSMETICS.md` sections 4.1 and 4.2.
+
+`medium` of `dielectric`: fills the inside of a closed shape (a sphere, an OBJ with correct orientation) with a scattering medium. Light that enters through the glass boundary scatters inside and then comes out (wax, milk, jade).
 
 ```jsonc
 "jade": { "type": "dielectric", "roughness": 0.2,
           "medium": { "sigmaT": [250, 150, 250], "albedo": [0.85, 0.998, 0.95], "g": 0.3 } }
 ```
 
-- `sigmaT`: 消散係数（1/m）。大きいほど濃い。`albedo`: 散乱で光が残る割合（1 = 吸収なし）。どちらも、数値 1 つ（灰色）か `[r, g, b]`（色つき）。`g`: 位相関数の非等方性（−1〜1。正で前方散乱）。`g2` と `weight` を足すと、2 ローブ（前方＋後方）の位相関数 `weight·HG(g) + (1−weight)·HG(g2)` になる。平均コサインは `weight·g + (1−weight)·g2`。同じ σs′ = σs(1−平均コサイン) なら、厚い媒質では見た目がほぼ同じで、薄い部分・逆光・表面近くの光で差が出る。
-- `phaseTable`: 位相関数を表で与える（`g`・`g2`・`weight` とは同時に使えない）。CSV は「角度（度）, 値」の行で、0° から 180° まで等間隔、`#` はコメント。値は 1 ステラジアンあたりの密度（大きさは自動で正規化）。雲の水滴の Mie 散乱は `assets/Cloud/mie_reff10.csv`（`tools/studies/mie_phase.py` で作る。`docs/CLOUD.md`）。
-- `--media-nee`（`options` では `"media-nee": true`）: 媒質の衝突ごとに光源を標本抽出し、屈折率 1 の境界を素通りする。太陽のような小さな光源で雲や霧を照らすときに要る（`scenes/cloud_mie.json`）。
-- 色つきの媒質は、1 本の経路で代表の波長（RGB 版は 1 チャンネル）だけで距離を選び、ほかの波長は確率密度の比で重みを付ける（`--scene volume` が白炉と灰色との一致を確認する）。色つきは、灰色より、同じ spp でノイズが多い。
-- `noise`（省略可）を足すと、密度が場所で変わる媒質（雲、霧）になる。`sigmaT` は、密度が最大の場所の値。
+- `sigmaT`: extinction coefficient (1/m). The larger, the denser. `albedo`: the fraction of light that survives scattering (1 = no absorption). Both are a single number (gray) or `[r, g, b]` (colored). `g`: anisotropy of the phase function (−1 to 1; positive = forward scattering). Adding `g2` and `weight` gives a two-lobe (forward + backward) phase function `weight·HG(g) + (1−weight)·HG(g2)`. The mean cosine is `weight·g + (1−weight)·g2`. With the same σs′ = σs(1−mean cosine), a thick medium looks almost the same, and the differences appear in thin parts, in backlight and for light near the surface.
+- `phaseTable`: gives the phase function as a table (not together with `g`, `g2`, `weight`). The CSV has rows "angle (degrees), value", equally spaced from 0° to 180°; `#` is a comment. The values are a density per steradian (the scale is normalized automatically). Mie scattering of cloud droplets is `assets/Cloud/mie_reff10.csv` (made by `tools/studies/mie_phase.py`; `docs/CLOUD.md`).
+- `--media-nee` (`"media-nee": true` in `options`): samples a light at every collision in the medium and passes straight through boundaries of index 1. It is needed when a small light such as the sun lights a cloud or fog (`scenes/cloud_mie.json`).
+- For a colored medium, a single path chooses the distance with one representative wavelength (one channel in the RGB build) and weights the other wavelengths by the ratio of the probability densities (`--scene volume` checks it against a white furnace and against gray). A colored medium has more noise than a gray one at the same spp.
+- Adding `noise` (optional) makes a medium whose density varies in space (cloud, fog). `sigmaT` is the value where the density is maximal.
 
 ```jsonc
-"cloud": { "type": "dielectric", "ior": 1.0,   // ior 1: 境界が見えない
+"cloud": { "type": "dielectric", "ior": 1.0,   // ior 1: the boundary is invisible
            "medium": { "sigmaT": 420, "albedo": 0.9995, "g": 0.6,
                        "noise": { "frequency": 22, "octaves": 5, "lo": 0.42, "hi": 0.62, "seed": 7,
                                   "maskCenter": [0, 0, 0], "maskRadius": 0.1, "maskStart": 0.45 } } }
 ```
 
-  `frequency`: 最初の層の 1 m あたりの模様の数（雲の大きさは約 1/frequency）。`octaves`: 層の数。`lo`/`hi`: ノイズが lo 以下で密度 0、hi 以上で密度 1（幅が狭いと輪郭がはっきり、広いと霞）。`seed`: 別の雲。`maskCenter`/`maskRadius`/`maskStart`: 球の表面に向けて密度を 0 にする（球の中の雲の輪郭を、球から外す）。密度は世界座標で決まる。
-  仕組みは、ヌル衝突（密度の最大値で距離を選び、確率 1−q で何も起こさない）。
-- 経路の長さの上限は、`--volume-cap`。
+  `frequency`: number of patterns per metre in the first layer (the size of a cloud is about 1/frequency). `octaves`: number of layers. `lo` / `hi`: the density is 0 where the noise is below lo and 1 where it is above hi (a narrow width gives a sharp outline, a wide one a haze). `seed`: another cloud. `maskCenter` / `maskRadius` / `maskStart`: sets the density to 0 toward the surface of a sphere (keeps the outline of a cloud inside a sphere away from the sphere). The density is determined in world coordinates.
+  The mechanism is null collisions (the distance is chosen with the maximum density, and with probability 1−q nothing happens).
+- The upper limit of the path length is `--volume-cap`.
 
-分光放射計の測定データは、`tools/data/sr5100.py` で、2 列の CSV（`波長_nm, 値`）に変換できる（下）。
+Spectroradiometer measurement data can be converted with `tools/data/sr5100.py` into two-column CSV files (`wavelength_nm, value`) (below).
 
-`spectrum`: プリセット名 `"d65"`・`"tungsten"`・`"candle"`・`"led"`、または `{ "blackbody": 2856 }`、`{ "rgb": [1, 1, 1] }`、`{ "file": "x.csv" }`（波長と値の表）、`{ "mix": [ { "file": "led1.csv", "weight": 0.4 }, { "file": "led2.csv", "weight": 1 } ] }`（複数の光源を一緒に点けた和。LED キューブの混色など。重みは 0 以上で、比だけが効く。明るさは `radiance` で決まる）。
+`spectrum`: a preset name `"d65"`, `"tungsten"`, `"candle"`, `"led"` (also written `{ "preset": "d65" }`), or `{ "blackbody": 2856 }`, `{ "rgb": [1, 1, 1] }`, `{ "file": "x.csv" }` (a table of wavelength and value), `{ "mix": [ { "file": "led1.csv", "weight": 0.4 }, { "file": "led2.csv", "weight": 1 } ] }` (the sum of several sources lit together, e.g. the color mixing of an LED cube. The weights are 0 or more and only their ratio matters; the brightness is set by `radiance`).
 
-`--wb`（オプションでも `"options": { "wb": true }` でも）は、フィルムを**最初の `emission` の物体の光**に順応させる（CAT16。光の色かぶりを取る）。点光源と環境マップは、順応の対象にならない。
+`--wb` (as an option, or `"options": { "wb": true }`) adapts the film to the **light of the first `emission` object** (CAT16; it removes the color cast of the light). Point lights and the environment map are not used for the adaptation.
 
-**物体（`shape`）**
+**Objects (`shape`)**
 
-| shape | キー |
+| shape | Keys |
 |---|---|
-| `sphere` | `center`、`radius` |
-| `quad` | `corner`、`edge1`、`edge2`（`cross(edge1, edge2)` の向きに面する） |
-| `mesh` | `file`（OBJ、PLY、または STL。拡張子で決まる。PLY は ascii・バイナリとも読め、頂点の法線と uv、MeshLab の面ごとの `texcoord` を使う。頂点の色は読まない。STL は ascii・バイナリとも読み、同じ位置の頂点をつないで、向き（反時計回りが外）から滑らかな法線を作る。ファイルの法線・色・uv は使わない。単位は mm のことが多く Z が上向きなので、`scale` と `rotate` で合わせる）、`cutout`（uv に貼る RGBA 画像。アルファが 1/2 未満の所は、すべての光線が素通りする穴になる。水滴の下のガラス面を抜くのに使う: `docs/WATERDROPS.md`。自前の BVH を使う）、`scale`、`rotate`（`{ "axis", "degrees" }`）、`translate`。順は、拡大 → 回転 → 移動。スキャンや 3DGS のメッシュの整え方は `docs/CAPTURE.md` |
-| `lathe` | `profile`（`[半径, 高さ]` の配列、または `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: 椀の壁）、`segments`、`translate` |
-| `ocean` | 海面（波のスペクトルから作る。`docs/WATER.md`）。原点の周りの円形のメッシュ。`windSpeed`（m/s、1〜40、既定 8）、`windDirection`（度、波が進む向き `atan2(z, x)`）、`spread`（向きの広がり s）、`peakEnhance`（JONSWAP の γ、1 = Pierson–Moskowitz）、`chop`（0〜1、波頭のとがり）、`time`（秒）、`minWavelength`（m）、`seed`、`rInner`・`rOuter`（m）、`rings`・`sectors`（メッシュの細かさ） |
-| `splats` | **3D Gaussian Splatting の点群**（`point_cloud.ply`）を、発光して遮る粒子として描く（`docs/CAPTURE.md` 段階 2）。`file`、`scale`・`rotate`・`translate`（メッシュと同じ。COLMAP の y 下向きは `"rotate": { "axis": [1, 0, 0], "degrees": 180 }`）、`alphaMin`（これ未満の応答は無視、既定 1/255）、`intensity`（放射輝度の倍率）、`linearize`（sRGB の値を線形に戻す、既定 true）、`degree`（使う球面調和の次数 0〜3）、`keep`・`remove`（`{ "min", "max" }` の箱。中心がこの中にある粒子だけ残す / 捨てる。物体を置く場所の粒子を抜くのに使う）。**`material` は書かない**（色は撮影のもの）。1 シーンに 1 つ。経路追跡だけ（光子マップ、多様体 NEE、LVC-BPT は見ない）。粒子は次点光源推定の対象にならない（拡散面は、粒子の光を BSDF の標本だけで受ける） |
-| `hair` | 手続き的に作った毛（`docs/HAIR.md`）。`style`: `"lock"`（上から垂れる毛束）または `"head"`（球の頭に流れる髪）。共通: `strands`、`segments`、`length`（m）、`rootRadius`・`tipRadius`（毛の半径、m。実物は約 0.00005）、`clumps`（房の数）、`seed`。`lock`: `root`（根元の位置）、`width`、`tipWidth`（先端の幅 / 根元の幅）、`waveAmp`・`waveLength`、`twist`、`frizz`、`flyaway`（束から外れる毛の割合）。`head`: `center`、`radius`（頭の球）、`droop`、`outward`、`sway`・`swayFreq`、`headFrizz`、`clumpStrength`、`maxPolar`（度）、`hairline`。材質は `hair` |
+| `sphere` | `center`, `radius` |
+| `quad` | `corner`, `edge1`, `edge2` (faces the direction of `cross(edge1, edge2)`) |
+| `mesh` | `file` (OBJ, PLY or STL, decided by the extension. PLY is read in ascii and binary; vertex normals, uv and the per-face `texcoord` of MeshLab are used; vertex colors are not read. STL is read in ascii and binary; vertices at the same position are joined and smooth normals are made from the orientation (counter-clockwise is outside); normals, colors and uv in the file are not used. STL units are often mm and Z is up, so match them with `scale` and `rotate`), `cutout` (an RGBA image laid on the uv; where the alpha is below 1/2 there is a hole that every ray passes through. Used to cut out the glass surface under a water drop: `docs/WATERDROPS.md`. It uses its own BVH), `scale`, `rotate` (`{ "axis", "degrees" }`), `translate`. The order is scale → rotate → translate. How to prepare a scan or a 3DGS mesh: `docs/CAPTURE.md` |
+| `lathe` | `profile` (an array of `[radius, height]`, or `{ "shell": { "radius", "wall", "endDegrees", "steps" } }`: the wall of a bowl), `segments`, `translate` |
+| `ocean` | A sea surface (made from a wave spectrum; `docs/WATER.md`). A circular mesh around the origin. `windSpeed` (m/s, 1 to 40, default 8), `windDirection` (degrees, the direction the waves travel, `atan2(z, x)`), `spread` (spread s of the direction), `peakEnhance` (γ of JONSWAP, 1 = Pierson–Moskowitz), `chop` (0 to 1, sharpness of the crests), `time` (seconds), `minWavelength` (m), `seed`, `rInner` and `rOuter` (m), `rings` and `sectors` (fineness of the mesh) |
+| `splats` | Draws a **3D Gaussian Splatting point cloud** (`point_cloud.ply`) as emitting and occluding particles (`docs/CAPTURE.md` stage 2). `file`, `scale` / `rotate` / `translate` (as for a mesh; the y-down of COLMAP is `"rotate": { "axis": [1, 0, 0], "degrees": 180 }`), `alphaMin` (responses below this are ignored, default 1/255), `intensity` (multiplier of the radiance), `linearize` (turn the sRGB values back to linear, default true), `degree` (order of the spherical harmonics to use, 0 to 3), `keep` and `remove` (a box `{ "min", "max" }`; keeps only / drops the particles whose center is inside it; used to remove the particles where an object is to be placed). **Do not write `material`** (the color is the capture's). One per scene. Path tracing only (the photon map, manifold NEE and LVC-BPT do not see it). The particles are not a target of next-event estimation (a diffuse surface receives the light of the particles through BSDF samples only) |
+| `hair` | Procedurally made hair (`docs/HAIR.md`). `style`: `"lock"` (a lock hanging from above) or `"head"` (hair flowing over a spherical head). Common: `strands`, `segments`, `length` (m), `rootRadius` and `tipRadius` (radius of the fiber, m; a real one is about 0.00005), `clumps` (number of clumps), `seed`. `lock`: `root` (position of the root), `width`, `tipWidth` (width at the tip / width at the root), `waveAmp` and `waveLength`, `twist`, `frizz`, `flyaway` (fraction of fibers that leave the lock). `head`: `center`, `radius` (the head sphere), `droop`, `outward`, `sway` and `swayFreq`, `headFrizz`, `clumpStrength`, `maxPolar` (degrees), `hairline`. The material is `hair` |
 
-球・板・メッシュ・旋盤（`lathe`）は `velocity`（`[x, y, z]`、m/s）を持てる。カメラの `shutter` の間、物体はこの速度で直線に動く（時刻 0 は書いた位置）。光源（`emission` で `light` が true）は動かせない（光源の標本は時刻 0 の位置だけを知っている）。動く絵だけにするなら `"light": false`。海面・毛・splats は動かせない。
+Spheres, quads, meshes and lathes (`lathe`) can have a `velocity` (`[x, y, z]`, m/s). During the `shutter` of the camera, the object moves in a straight line at this velocity (time 0 is the written position). A light (a sphere or quad with an `emission` material whose `light` is true) cannot be moved (the light sampler knows only the position at time 0). If the light is only for the picture, write `"light": false`. The sea, hair and splats cannot be moved.
 
-すべての物体に `material`（必須）。`emission` の材質を持つ球・板は、既定で**光源**（次点光源推定の対象）になる。`"light": false` なら、光源にしない（全周の淡い光、のような使い方）。
+Every object has a `material` (required), except `splats`. A sphere or quad with an `emission` material is by default a **light** (a target of next-event estimation). With `"light": false` it is not a light (for uses such as a faint light around everything). An `emission` material can be used on a sphere or a quad only.
 
-## 確認したこと
+## What was checked
 
-`scenes/` の 3 つ（`gold_spheres`、`gold_bowl_tungsten`、`studio`）は、コード版の `gold`、`goldbowl --light tungsten`、`studio` を書き起こしたもの。RGB 版・スペクトル版の両方で、4 回ずつ描いた平均色が、コード版と標準誤差の 3 倍以内で一致し、画像も区別がつかない。
+The three files in `scenes/` (`gold_spheres`, `gold_bowl_tungsten`, `studio`) are transcriptions of the code versions `gold`, `goldbowl --light tungsten` and `studio`. In both the RGB and the spectral build, the mean color of four renders agrees with the code version within three standard errors, and the pictures cannot be told apart.
 
-## 材質や形状を足すとき
+## Adding a material or a shape
 
-3 か所を直す。
+Change three places.
 
-1. `include/Cli/SceneDescription.hpp`: 型に項目を足す。
-2. `src/Cli/SceneFile.cpp`: JSON を読んで検証する（キーの一覧に足す）。
-3. `src/Cli/Scenes/FileScene.cpp`: その型から、エンジンの物を作る。
+1. `include/Cli/SceneDescription.hpp`: add the item to the type.
+2. Read and validate the JSON (add the keys to the list of allowed keys): the shapes and the scene in `src/Cli/SceneFile.cpp`, the materials in `src/Cli/SceneFileMaterials.cpp`.
+3. `src/Cli/Scenes/FileScene.cpp`: make the engine object from that type.
 
-## 分光放射計（SR-5100）のデータを使う
+## Using spectroradiometer (SR-5100) data
 
-`tools/data/sr5100.py` が、SR-5100 の CSV の書き出し（スポットと画像の 2 形式）を読んで、このレンダラが読む 2 列の CSV に変換する。
+`tools/data/sr5100.py` reads the CSV exports of the SR-5100 (two formats, spots and images) and converts them to the two-column CSV that this renderer reads.
 
 ```bat
-python tools\data\sr5100.py info 測定.csv                                       :: 中身の一覧（点の数、ピーク、測定距離、積分時間）
-python tools\data\sr5100.py spots 測定.csv --out 出力フォルダ                     :: スポットを 1 点ずつ「波長_nm, radiance」の CSV に
-python tools\data\sr5100.py roi 画像.csv --peak 2 --out 光源.csv                  :: 画像の最も明るい画素の周り（5×5）の平均スペクトル
-python tools\data\sr5100.py reflectance 試料.csv 白.csv --out 反射率.csv          :: 試料 ÷ 白色（白色が弱い波長は出力しない）
-python tools\data\hsm_texture.py 試料.hsm --white 白.hsm --out 布.sptex --preview 布.png   :: .hsm（分光画像）を、画素ごとの反射率スペクトルのテクスチャに（主成分 6 本に圧縮、420〜700 nm）
+python tools\data\sr5100.py info measurement.csv                                :: list of the contents (number of points, peak, measurement distance, integration time)
+python tools\data\sr5100.py spots measurement.csv --out output_folder           :: one "wavelength_nm, radiance" CSV per spot
+python tools\data\sr5100.py roi image.csv --peak 2 --out light.csv              :: mean spectrum around the brightest pixel of the image (5x5)
+python tools\data\sr5100.py reflectance sample.csv white.csv --out reflectance.csv   :: sample / white (wavelengths where the white is weak are not output)
+python tools\data\hsm_texture.py sample.hsm --white white.hsm --out cloth.sptex --preview cloth.png   :: .hsm (spectral image) to a texture of per-pixel reflectance spectra (compressed to 6 principal components, 420 to 700 nm)
 ```
 
-- LED のスペクトルは、`"spectrum": { "file": "光源.csv" }` で指定する（値の単位は何でもよい。明るさは 1 にそろえて使う）。
-- 測定した反射率は、`"type": "conductor", "reflectance": "反射率.csv"` で金属として、`"type": "diffuse", "reflectance": "反射率.csv"` で拡散面（布など）として使える。拡散面では、スペクトル版は曲線をそのまま使い、RGB 版は D65 の下の色に直して使う（測定範囲の外は、端の値で延ばす。1 を超える値は警告）。
-- **露光時間で変わる反射率（退色）**は、`"type": "diffuse", "fading": { "series": "系列のフォルダ", "color": "色", "hours": 45 }` で使う。系列のフォルダは、`hours.csv`（`round,hours`: 各回の露光時間。増える順）と `r1/色.csv`、`r2/色.csv`、…（2 列の反射率 CSV）を持つ。時間が 2 つの回の間なら、2 本の測定曲線を波長ごとに線形に混ぜる（外挿はしない: 最初の回より前、最後の回より後は端の回のまま、警告を出す）。`--fade-hours H` は、ファイルの `hours` を、すべての `fading` 材質について上書きする（時間だけを変えた絵の連続を作るのに使う）。
-  - **場所ごとの露光:** `"unexposedHours"`（何も届かなかった所の時間、既定 0）と `"hours"`（全部届いた所の時間）の間を、**露光の割合 f（0〜1）**で決める。f は次の係数の積（書いたものだけ。書かなければ 1）: `"map"`（グレー画像。白 = 全部届いた。画像の左上が uv = (0, 0)）、`"mat"`（`{ "inset": 0.07 | [左, 右, 下, 上], "soft": 0.003 }`: uv の縁の、覆われていた帯。額のマット。uv は辺の長さを 1 とする）、`"gradient"`（`{ "bright": [x,y,z], "dark": [x,y,z], "exponent": 1 }`: bright で 1、dark で 0、その間は軸に沿って線形。窓の側から奥へ、など。どんな形にも効く）、`"noise"`（`{ "amount": 0〜1, "frequency": 1 m あたりの模様の数, "octaves", "seed" }`: 退色のむら。どんな形にも効く）。`map` と `mat` は物体の uv を使う（`quad`、uv のあるメッシュ、`lathe`）。`tools/data/fading_refangle.py` が研究室の退色実験の表を、この形に変換する。検査は `--scene metals` の 5。
-- **色だけからの退色（染料紙）**: 測定のない色でも、RGB の色（または画像）から退色させる。`"fading": { "rgb": [0.8, 0.2, 0.15], "model": "染料の表.csv", "hours": 90, "fastness": 1 }`、または `"rgb"` の代わりに `"image": "絵.png"`（sRGB の画像。`quad` などの uv に貼る）。
-  - 仕組み: 色を、エンジンの RGB → 分光の変換で滑らかな分光にし、Kubelka–Munk の K/S のうち染料の分（`max(0, K/S(色) − K/S(紙))`）に、濃度 c(t) をかける: `K/S(t) = K/S(紙) + c(t) × 染料の分`。紙より明るい色（白）は変わらない。RGB 版は、各チャンネルを反射率とみなして同じ計算をする近似（分光版との差は、染料紙の 9 色で ΔE00 平均 1.6、最大 4.6）。
-  - `model` は、`hours,c` の表（c(0) = 1。`tools/data/fading_dye_model.py` が、測定した染料紙の系列から、色ごとに当てはめた c の中央値で作る）。測定の範囲の外は端のまま（外挿しない）。表に使った紙の反射率が `paper`（既定 0.9。表と同じ値にする）。`fastness` は時間の倍数（2 = 2 倍の速さで褪せる染料）。`hours`、`unexposedHours`、`map`、`mat`、`gradient`、`noise` は、系列の `fading` と同じ。
-  - **精度（染料紙、色を 1 つ外して予測。研究室の退色実験）:** 新品の RGB だけから予測した色は、測定と ΔE00 で平均 4.9（最後の回で 6〜7）。退色させない場合は 9.5（最後の回 13.8）。黒・青・緑は合いにくい（混色の染料、ほとんど褪せない染料）。**顔料と折り紙の染料には合わない**（顔料は、退色させないほうが近い）。彩度の高い色は、RGB → 分光の変換が負の成分を 0 で切るため、さらに ΔE00 で 2〜4 ずれる。退色の速さは色から推測できない（色相で重みづけしても改善しなかった）ので、全色の中央値を使う。
-- LED キューブの 1 つずつのスペクトルは `tools/data/ledcube_export.py` で、このレンダラの CSV にできる（最大出力の分光放射輝度。重み = 出力設定）。`mix` に重みつきで並べると、キューブの混色になる。
-- 分光画像（`.hsm`）は、`"type": "diffuse", "reflectanceTexture": "布.sptex"` で、画素ごとの反射率スペクトルのテクスチャになる（`quad` に貼る。スペクトル版は画素のスペクトルを、RGB 版は画素ごとの D65 の色を使う。測定した布を測定と同じ光で描くと、測定画像と色度 0.001、画素の相対差の中央値 3% で一致した）。
-- 測定データは実験データなので、リポジトリには入れない（`assets/Metal_measured/` は Git の対象外）。
+- The spectrum of an LED is given with `"spectrum": { "file": "light.csv" }` (the unit of the values does not matter; the brightness is normalized to 1 when it is used).
+- A measured reflectance can be used as a metal with `"type": "conductor", "reflectance": "reflectance.csv"`, and as a diffuse surface (cloth etc.) with `"type": "diffuse", "reflectance": "reflectance.csv"`. For a diffuse surface, the spectral build uses the curve as it is, and the RGB build turns it into its color under D65 (outside the measured range the end values are extended; a value above 1 gives a warning).
+- **Reflectance that changes with the exposure time (fading)** is used with `"type": "diffuse", "fading": { "series": "series folder", "color": "color", "hours": 45 }`. The series folder contains `hours.csv` (`round,hours`: the exposure time of each round, in increasing order) and `r1/color.csv`, `r2/color.csv`, … (two-column reflectance CSV files). If the time is between two rounds, the two measured curves are mixed linearly per wavelength (no extrapolation: before the first round and after the last round the end round is kept, with a warning). `--fade-hours H` overrides the `hours` of the file for all `fading` materials (used to make a sequence of pictures that differ only in time).
+  - **Exposure that depends on the place:** between `"unexposedHours"` (time at places that received nothing, default 0) and `"hours"` (time at places that received everything), the time is set by an **exposure fraction f (0 to 1)**. f is the product of the following factors (only those that are written; the others are 1): `"map"` (a gray image; white = received everything; the top left of the image is uv = (0, 0)), `"mat"` (`{ "inset": 0.07 | [left, right, bottom, top], "soft": 0.003 }`: a band at the edge of the uv that was covered, like the mat of a picture frame; uv takes the length of the edge as 1), `"gradient"` (`{ "bright": [x,y,z], "dark": [x,y,z], "exponent": 1 }`: 1 at bright, 0 at dark, linear along the axis in between; from the window side to the back, etc. It works on any shape), `"noise"` (`{ "amount": 0 to 1, "frequency": number of patterns per metre, "octaves", "seed" }`: unevenness of the fading. It works on any shape). `map` and `mat` use the uv of the object (`quad`, a mesh with uv, `lathe`). `tools/data/fading_refangle.py` converts the table of the lab's fading experiment into this form. The check is 5 of `--scene metals`.
+- **Fading from a color alone (dyed paper)**: a color without a measurement can also be faded, from an RGB color (or an image). `"fading": { "rgb": [0.8, 0.2, 0.15], "model": "dye_table.csv", "hours": 90, "fastness": 1 }`, or `"image": "picture.png"` instead of `"rgb"` (an sRGB image; laid on the uv of a `quad` etc.).
+  - Mechanism: the color is turned into a smooth spectrum by the engine's RGB-to-spectrum conversion, and the dye part of the Kubelka–Munk K/S (`max(0, K/S(color) − K/S(paper))`) is multiplied by the concentration c(t): `K/S(t) = K/S(paper) + c(t) × dye part`. A color brighter than the paper (white) does not change. The RGB build is an approximation that treats each channel as a reflectance and does the same calculation (the difference from the spectral build is ΔE00 1.6 on average and 4.6 at most over the 9 colors of the dyed paper).
+  - `model` is a table of `hours,c` (c(0) = 1; `tools/data/fading_dye_model.py` makes it from the measured series of dyed paper, as the median of the c fitted per color). Outside the measured range the end value is kept (no extrapolation). The reflectance of the paper used for the table is `paper` (default 0.9; use the same value as the table). `fastness` is a multiplier of the time (2 = a dye that fades twice as fast). `hours`, `unexposedHours`, `map`, `mat`, `gradient` and `noise` are the same as in the `fading` of a series.
+  - **Accuracy (dyed paper, predicting one color with that color left out; the lab fading experiment):** the color predicted from the fresh RGB alone is ΔE00 4.9 on average from the measurement (6 to 7 in the last round). Without fading it is 9.5 (13.8 in the last round). Black, blue and green fit badly (mixed dyes, dyes that hardly fade). **It does not fit the dyes of pigments and origami paper** (for pigments, not fading is closer). For saturated colors, the RGB-to-spectrum conversion cuts negative components at 0, which adds another ΔE00 of 2 to 4. The speed of fading cannot be guessed from the color (weighting by hue did not improve it), so the median over all colors is used.
+- The individual spectra of an LED cube can be made into this renderer's CSV files with `tools/data/ledcube_export.py` (spectral radiance at maximum output; weight = output setting). Listing them in a `mix` with weights gives the color mixing of the cube.
+- A spectral image (`.hsm`) becomes a texture of per-pixel reflectance spectra with `"type": "diffuse", "reflectanceTexture": "cloth.sptex"` (laid on a `quad`. The spectral build uses the spectrum of the pixel, and the RGB build the D65 color of each pixel. A measured cloth rendered under the same light as the measurement agreed with the measured image to chromaticity 0.001 and a median relative pixel difference of 3 %).
+- Measurement data are experimental data, so they are not put in the repository (`assets/Metal_measured/` is outside Git).

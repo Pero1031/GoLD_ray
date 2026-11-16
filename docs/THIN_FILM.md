@@ -1,89 +1,89 @@
-# 薄膜干渉: 理論と実装
+# Thin-film interference: theory and implementation
 
-シャボン玉、水たまりの油膜、焼けたチタン、コーティングされた金属の虹色は、**薄い透明な膜の上面と下面で反射した光が干渉する**ために起きます。色は、膜の厚さ・角度・波長で決まります。このプロジェクトのスペクトルビルドは、経路ごとの波長で膜の反射率を計算して、この色を出します。RGB ビルドは、白色光の下での色（波長で積分した値）を使います。**白い光の下では 2 つはほぼ同じに見え、光が白くなくなると、色が違ってきます**（第 6 節）。
+The iridescence of soap bubbles, oil films on puddles, heated titanium and coated metals appears because **light reflected from the top and bottom surfaces of a thin transparent film interferes**. The color is set by the film thickness, the angle and the wavelength. The spectral build of this project computes the reflectance of the film at the wavelength carried by each path and so produces this color. The RGB build uses the color under white light (the value integrated over wavelength). **Under white light the two look almost the same; when the light is not white, the colors differ** (section 6).
 
-- コード: `include/Materials/ThinFilm.hpp`、`src/Materials/ThinFilm.cpp`（材質 `thinFilm`）
-- 自己チェック: `GoLD_rayt.exe --scene thinfilm`（解析式との照合、サンプリングの重み、白色炉。RGB・スペクトルの両方で通る）
-- シーン: `scenes/soap_bubble.json`（黒い背景。`--env` と `environment` を足すと、HDR の背景）、`coated_metal.json`
+- Code: `include/Materials/ThinFilm.hpp`, `src/Materials/ThinFilm.cpp` (material `thinFilm`)
+- Self-check: `GoLD_rayt.exe --scene thinfilm` (comparison with analytic formulas, sampling weights, white furnace; passes in both RGB and spectral builds)
+- Scenes: `scenes/soap_bubble.json` (black background), `scenes/soap_bubble_hdr.json` (the same bubble in front of an HDR environment; `--env` and `environment` can add an HDR background to the first as well), `coated_metal.json`
 
-## 1. 直感: 2 つの反射が足し合わされる
+## 1. Intuition: two reflections add up
 
-空気（屈折率 n₀）の中の、厚さ d、屈折率 n₁ の膜に、光が入ります。膜の上面で反射する波 ①と、膜に入り、下面で反射して戻る波 ②が、重なって見えます。
+Light hits a film of thickness d and index n₁ in air (index n₀). Wave ①, reflected at the top surface of the film, and wave ②, which enters the film, is reflected at the bottom surface and returns, overlap.
 
-- ②は、膜の中を往復する分だけ、①より遅れます。光路差は **2 n₁ d cos θ₁**（θ₁ は膜の中の角度）で、位相の遅れは 2β です。
+- ② is delayed relative to ① by its round trip inside the film. The optical path difference is **2 n₁ d cos θ₁** (θ₁ is the angle inside the film), and the phase delay is 2β.
 
       β = 2π n₁ d cos θ₁ / λ
 
-- 反射のときに、屈折率が低い側から高い側へ入る反射では、位相が π 回ります。空気から膜（シャボン玉）では ①が π 回り、膜から空気では ②は回りません。そのため、**シャボン玉では、2 n₁ d cos θ₁ = (m + ½) λ のときに強め合い**、m λ のときに弱め合います。
-- 例（シャボン玉、n₁ = 1.33、垂直入射）: d = 300 nm なら、強め合う波長は 798/(m + ½) nm で、m = 1 の 532 nm（緑）が強く反射されます。d = 100 nm 以下では、2 つの波がほぼ逆位相で打ち消し合い、膜は黒く見えます。
-- 波長に対する振動の周期は Δλ ≈ λ² / (2 n₁ d cos θ₁) で、d = 1000 nm では約 110 nm、d = 3000 nm では約 40 nm です。**膜が厚いほど、1 つの色チャンネルの中で何度も振動して平均され、色が薄くなります**。RGB で出せないのは、このためです。
+- In a reflection that goes from the lower-index side to the higher-index side, the phase turns by π. Going from air into the film (soap bubble), ① turns by π, and from the film into air, ② does not. Therefore **for a soap bubble, 2 n₁ d cos θ₁ = (m + ½) λ gives constructive interference** and m λ gives destructive interference.
+- Example (soap bubble, n₁ = 1.33, normal incidence): for d = 300 nm, the constructive wavelengths are 798/(m + ½) nm, and m = 1 gives 532 nm (green), which is strongly reflected. At d = 100 nm or less, the two waves are almost in antiphase and cancel, and the film looks black.
+- The period of the oscillation against wavelength is Δλ ≈ λ² / (2 n₁ d cos θ₁): about 110 nm for d = 1000 nm and about 40 nm for d = 3000 nm. **The thicker the film, the more times it oscillates inside one color channel and is averaged out, so the color becomes paler.** This is why RGB cannot reproduce it.
 
-## 2. 1 つの界面: Fresnel の振幅反射係数
+## 2. One interface: the Fresnel amplitude reflection coefficient
 
-屈折率 ñ = n + iκ（複素。金属では κ が消衰係数）の 2 つの媒質の境界を、角度 θᵢ で通るときの、振幅の反射係数は、s 偏光と p 偏光で次の通りです（ñᵢ、ñₜ は、入る側と出る側）。
+For the boundary between two media of index ñ = n + iκ (complex; for metals κ is the extinction coefficient), crossed at angle θᵢ, the amplitude reflection coefficients for s and p polarization are as follows (ñᵢ and ñₜ are the incident and transmitting sides).
 
       r_s = (ñᵢ cos θᵢ − ñₜ cos θₜ) / (ñᵢ cos θᵢ + ñₜ cos θₜ)
       r_p = (ñₜ cos θᵢ − ñᵢ cos θₜ) / (ñₜ cos θᵢ + ñᵢ cos θₜ)
 
-屈折角は、Snell の法則 `ñ sin θ = 一定`（どの層でも同じ）で決まり、`cos θ = √(1 − sin²θ)` は複素数です。これで、**金属の基板が特別扱いなしに入ります**（既存の `fresnelConductor` と同じ値になります。d = 0 での一致を、自己チェックで確認しています）。
+The refraction angle follows from Snell's law `ñ sin θ = constant` (the same in every layer), and `cos θ = √(1 − sin²θ)` is complex. With this, **a metal substrate enters without special treatment** (the values equal those of the existing `fresnelConductor`; the agreement at d = 0 is checked in the self-check).
 
-## 3. 膜全体の反射: 多重反射の和（Airy の式）
+## 3. Reflection of the whole film: sum of multiple reflections (Airy's formula)
 
-上面での反射 r₀₁ と、膜の下面での反射 r₁₂ があります。膜の中の光は、上下の面の間を何度も往復して、そのたびに少しずつ外へ出ます。外へ出る波を足すと、等比級数になります。
+There is a reflection r₀₁ at the top surface and a reflection r₁₂ at the bottom surface of the film. The light inside the film travels back and forth between the two surfaces many times, and a little of it leaves each time. Adding the outgoing waves gives a geometric series.
 
       r = r₀₁ + t₀₁ t₁₀ r₁₂ e^{2iβ} · Σₖ (r₁₀ r₁₂ e^{2iβ})ᵏ
 
-Stokes の関係 `r₁₀ = −r₀₁`、`t₀₁ t₁₀ = 1 − r₀₁²` を使って整理すると、
+Using the Stokes relations `r₁₀ = −r₀₁` and `t₀₁ t₁₀ = 1 − r₀₁²` and simplifying,
 
       r = (r₀₁ + r₁₂ e^{2iβ}) / (1 + r₀₁ r₁₂ e^{2iβ})
 
-強度の反射率は `|r|²` で、偏光していない光は、s と p の平均です。
+The intensity reflectance is `|r|²`, and for unpolarized light it is the mean of s and p.
 
       R = (|r_s|² + |r_p|²) / 2
 
-膜が吸収せず、基板が誘電体なら、**透過率は T = 1 − R** です。金属の基板では、T = 0 です。
+If the film does not absorb and the substrate is a dielectric, **the transmittance is T = 1 − R**. For a metal substrate, T = 0.
 
-**複素平方根の枝**: 膜や基板の中で、波が進むにつれて**増えない**ほうの根を選びます（Im(ñ cos θ) ≥ 0）。全反射の向こう側（エバネッセント波）では cos θ が純虚数になり、符号の選び方で結果が変わります。実装では、`std::sqrt` の主枝に任せず、この条件で選んでいます（零の符号に依存するため）。
+**Branch of the complex square root**: inside the film and the substrate, choose the root for which the wave does **not grow** as it propagates (Im(ñ cos θ) ≥ 0). Beyond total internal reflection (the evanescent wave) cos θ is purely imaginary, and the result depends on how the sign is chosen. The implementation does not leave this to the principal branch of `std::sqrt`; it chooses by this condition (because the principal branch depends on the sign of zero).
 
-## 4. 自己チェックで確かめていること
+## 4. What the self-check verifies
 
-| 確認 | 理由 |
+| Check | Reason |
 |---|---|
-| d = 0 で、通常の Fresnel 反射率（誘電体・金属）に一致 | 式の接続 |
-| 1/4 波長の反射防止膜（n₁ = √n₂、d = λ/(4n₁)）で R = 0 | 位相の符号 |
-| 空気中の自由膜、垂直入射: R = F sin²β / (1 + F sin²β)、F = 4R₀/(1 − R₀)² | 独立な解析式 |
-| 厚い膜（40 µm）で、400〜700 nm の平均が、干渉しない和 2R₀/(1 + R₀) に一致 | 干渉の消え方 |
-| R が 0〜1 に収まる。密な側からの全反射で R = 1 | エバネッセント波の枝 |
-| `sample()` の重みの平均が、波長ごとに R と T に一致（モンテカルロ） | 実装の整合 |
-| 白色炉（均一な白い環境の中の膜の球）で、見える放射輝度が 1 | エネルギー保存 |
+| At d = 0, agrees with the ordinary Fresnel reflectance (dielectric and metal) | connection of the formulas |
+| R = 0 for a quarter-wave antireflection film (n₁ = √n₂, d = λ/(4n₁)) | sign of the phase |
+| Free film in air, normal incidence: R = F sin²β / (1 + F sin²β), F = 4R₀/(1 − R₀)² | independent analytic formula |
+| For a thick film (40 µm), the mean over 400 to 700 nm agrees with the incoherent sum 2R₀/(1 + R₀) | interference washes out |
+| R stays within 0 to 1. Total internal reflection from the denser side gives R = 1 | branch for the evanescent wave |
+| The mean of the `sample()` weights agrees with R and T for each wavelength (Monte Carlo) | consistency of the implementation |
+| White furnace (a sphere of film in a uniform white environment): the visible radiance is 1 | energy conservation |
 
-## 5. 実装
+## 5. Implementation
 
-**材質の形**: 滑らかな面（デルタ関数の反射と透過）です。`ThinFilm`（`Material` の派生）が、反射と透過のどちらかを選びます。
+**Form of the material**: a smooth surface (delta-function reflection and transmission). `ThinFilm` (derived from `Material`) chooses between reflection and transmission.
 
-- **基板は 3 種類**: 自由膜（両側が空気: シャボン玉。透過は、まっすぐ通り抜ける）、誘電体の基板（水の上の油。透過は、基板の屈折率で曲がる）、導体の基板（コーティングされた金属。反射だけ）。
-- **膜の厚さの場**（`FilmThickness`）: 一定の厚さ、または、重力で液が下へ流れる「液だれ」のモデルです。
-  - **勾配**: 軸（上下）に沿って、`from` から `to` へ増えます。形は `t^exponent`（`exponent` > 1 で、上の薄い部分が長く続く）。シャボン玉の上は、薄くなって黒い膜（数十 nm 以下、反射が打ち消し合って黒く見える）になり、下へ向かって厚くなります。
-  - **ずれ（`warp`）**: 位置を、滑らかな変位の場で曲げます（±数 cm）。水平の縞が波打ち、渦巻きます（液が循環する様子）。
-  - **ノイズ（`noise`）**: 値ノイズ（媒質の密度場と同じ）で、±数十 nm の変動を足します。`stretch` を (1, 2.5, 1) にすると、上下に細かく、水平に長い縞になります。
-  - **範囲（`coverage`、任意）**: 別のノイズで、膜がある場所を決めます（膜のない所は、光がそのまま通る。油膜のような不規則なパッチ）。
-- **波長ごとの反射率**: スペクトルビルドは、経路が運ぶ 4 つの波長 λᵢ で `R(λᵢ)` を計算します。方向は波長に依存しない（屈折率が一定）ので、分散ガラスのように、副次の波長を落とす必要はありません。
-- **反射と透過の選択**: 1 回の乱数で、全部の波長について決めます。反射する確率を、4 つの波長の R の平均 pR にとり、重みを、反射なら Rᵢ/pR、透過なら Tᵢ/(1 − pR) にします。期待値は、波長ごとに Rᵢ と Tᵢ になります。
-- **放射輝度の補正**: 透過で屈折率が変わる分、放射輝度モードでは 1/η² を掛けます（`Dielectric` と同じ）。自由膜では 1 です。
-- **RGB ビルド**: 反射率を、フィルムのセンサー（D65 の下で白が (1,1,1) になる重み）で、5 nm 刻みに積分します。つまり「白色光の下での、その膜の色」です。光源のスペクトルを変えたときの色や、反射を重ねたときの色は、再現できません。これが、スペクトル版との比較の意味です。
+- **Three kinds of substrate**: a free film (air on both sides: a soap bubble; transmission passes straight through), a dielectric substrate (oil on water; transmission bends with the index of the substrate) and a conductor substrate (coated metal; reflection only).
+- **Film thickness field** (`FilmThickness`): a constant thickness, or a "dripping" model in which the liquid flows downward under gravity.
+  - **Gradient**: increases along an axis (up-down) from `from` to `to`. The shape is `t^exponent` (with `exponent` > 1 the thin part at the top lasts longer). The top of a soap bubble becomes thin and turns into a black film (a few tens of nm or less; the reflections cancel and it looks black), and it thickens toward the bottom.
+  - **Warp** (`warp`): bends the position with a smooth displacement field (± a few cm). The horizontal stripes undulate and swirl (the liquid circulating).
+  - **Noise** (`noise`): adds a variation of ± several tens of nm with value noise (the same as the density field of media). With `stretch` set to (1, 2.5, 1), the stripes become fine vertically and long horizontally.
+  - **Coverage** (`coverage`, optional): decides where the film exists with a separate noise (where there is no film, light passes straight through; irregular patches such as an oil film).
+- **Reflectance per wavelength**: the spectral build computes `R(λᵢ)` at the 4 wavelengths λᵢ carried by the path. The direction does not depend on wavelength (the index is constant), so, unlike dispersive glass, the secondary wavelengths need not be dropped.
+- **Choosing reflection or transmission**: one random number decides for all wavelengths. The probability of reflection is the mean pR of R over the 4 wavelengths, and the weights are Rᵢ/pR for reflection and Tᵢ/(1 − pR) for transmission. The expected values are Rᵢ and Tᵢ for each wavelength.
+- **Radiance correction**: since the index changes on transmission, 1/η² is multiplied in radiance mode (as in `Dielectric`). For a free film it is 1.
+- **RGB build**: the reflectance is integrated on a 5 nm grid with the film sensor (weights that make white (1,1,1) under D65). That is, "the color of the film under white light". The color when the light spectrum is changed, or the color after stacking reflections, cannot be reproduced. This is the meaning of the comparison with the spectral version.
 
-## 6. RGB との違い: 光が白くないとき
+## 6. Difference from RGB: when the light is not white
 
-RGB ビルドの薄膜は、反射率 R(λ, θ, d) を、D65 のセンサー重みで積分した、白色光の下の色 R_c(θ, d) です（角度 × 膜厚の表。これは、RGB で出せる最善に近い）。
+The thin film of the RGB build is the color under white light R_c(θ, d), the reflectance R(λ, θ, d) integrated with the D65 sensor weights (a table of angle x thickness; close to the best that RGB can do).
 
-1. **白い光の下では、1 回の反射なら、RGB 版とスペクトル版は、ほぼ同じです。** 膜が厚くて R(λ) が 1 つのチャンネルの中で何度も振動しても、積分した色は同じだからです（`scenes/soap_bubble.json` の D65 の面光源: 描画の ΔE00 の平均 2.6、中央値 1.5。ノイズとデノイザの分を含む）。
-2. **光が白くないと、違ってきます。** スペクトル版は ∫ R(λ) L(λ) s_c(λ) dλ ですが、RGB 版は R_c × L_c で、一致しません。R が波長で振動していて、光のスペクトルも傾いているためです。同じシャボン玉を、タングステン（2856 K）の面光源で描くと、ΔE00 の平均が **5.2**（95 パーセンタイル 15）、ろうそく（1850 K）で **7.2**（95 パーセンタイル 27）になります。RGB 版は、青緑が強く、スペクトル版は、黄色と桃色が強く出ます。
-3. **反射を重ねると、差が広がります。** 膜で 2 回反射する場合、R_c² は ∫ R² と違います（金の F(λ)ⁿ と同じ構造）。
-4. **角度の変化は、RGB 版でも表せます**（表を角度で補間している）。縞が角度とともに青へずれる様子は、どちらでも出ます。
+1. **Under white light, for a single reflection, the RGB and spectral versions are almost the same.** Even if the film is thick and R(λ) oscillates many times within one channel, the integrated color is the same (D65 area light in `scenes/soap_bubble.json`: mean ΔE00 of the render 2.6, median 1.5, including noise and the denoiser).
+2. **When the light is not white, they differ.** The spectral version computes ∫ R(λ) L(λ) s_c(λ) dλ, but the RGB version computes R_c × L_c, and the two do not agree, because R oscillates with wavelength and the light spectrum is tilted. The same soap bubble rendered with a tungsten (2856 K) area light has a mean ΔE00 of **5.2** (95th percentile 15), and with a candle (1850 K) **7.2** (95th percentile 27). The RGB version is stronger in blue-green, and the spectral version is stronger in yellow and pink.
+3. **Stacking reflections widens the difference.** For two reflections at the film, R_c² differs from ∫ R² (the same structure as F(λ)ⁿ for gold).
+4. **The change with angle can be represented in the RGB version too** (the table is interpolated over angle). The shift of the stripes toward blue with angle appears in both.
 
-図: `tools/figures/thinfilm_figure.py`（左が RGB 版、右がスペクトル版）。
+Figure: `tools/figures/thinfilm_figure.py` (RGB version on the left, spectral version on the right).
 
-## 7. 使い方
+## 7. Usage
 
 ```json
 { "type": "thinFilm", "ior": 1.33,
@@ -93,16 +93,16 @@ RGB ビルドの薄膜は、反射率 R(λ, θ, d) を、D65 のセンサー重�
   "substrate": "free" }
 ```
 
-- `thickness`: 数値（nm）、または `{ "nm": 450 }`、または勾配（`from` と `to` は nm、`axis` は軸、`range` は軸に沿った位置 [始め, 終わり]（m）、`exponent`）＋ `warp`（`amplitude`（m）、`frequency`、`seed`）＋ `noise`（`amplitude`（±nm）、`frequency`（1 m あたりの模様の数）、`octaves`、`seed`、`stretch`）。`coverage`（`frequency`、`octaves`、`lo`、`hi`、`seed`）は、膜がある場所のマスク。
-- `substrate`: `"free"`（既定）、`{ "dielectric": 1.33 }`、`{ "metal": "Au" }`（`Ag`、`Cu`）、`{ "table": "file.csv" }`。
-- 目安: シャボン液 n ≈ 1.33（厚さ 数十〜1000 nm）、油 ≈ 1.45（水の上、基板 1.33）、ラッカー ≈ 1.5、酸化チタン ≈ 2.3（金・銅の上で、色の変化が大きい）。
+- `thickness`: a number (nm), or `{ "nm": 450 }`, or a gradient (`from` and `to` in nm, `axis` the axis, `range` the position along the axis [start, end] (m), `exponent`) + `warp` (`amplitude` (m), `frequency`, `seed`) + `noise` (`amplitude` (± nm), `frequency` (number of patterns per 1 m), `octaves`, `seed`, `stretch`). `coverage` (`frequency`, `octaves`, `lo`, `hi`, `seed`) is a mask for where the film exists.
+- `substrate`: `"free"` (default), `{ "dielectric": 1.33 }`, `{ "metal": "Au" }` (`Ag`, `Cu`), `{ "table": "file.csv" }`.
+- Guide values: soap solution n ≈ 1.33 (thickness a few tens to 1000 nm), oil ≈ 1.45 (on water, substrate 1.33), lacquer ≈ 1.5, titanium oxide ≈ 2.3 (on gold or copper the color change is large).
 
-## 8. 油膜
+## 8. Oil film
 
-- **油膜（水の上の油、`substrate: dielectric`）は、画像にしてみたが、見映えがせず（背景を黒にしても、色が淡く、泥のようになる）、シーンから外した。**機能は残してあり、`coverage` で、不規則なパッチにもできる。膜の色は、見る角度が深い（斜め 70° 以上）と白くなり、真上から 30〜50° で最も鮮やか。
+- **An oil film (oil on water, `substrate: dielectric`) was rendered, but it did not look good (even with a black background the colors are pale and muddy), so it was removed from the scenes.** The feature remains, and `coverage` can make irregular patches. The color of the film turns white at grazing viewing angles (70° or more oblique) and is most vivid at 30 to 50° from the vertical.
 
-## 参考文献
+## References
 
-- M. Born, E. Wolf, *Principles of Optics*（薄膜、多重反射の和）
-- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", Eurographics Workshop on Photosimulation, Realism and Physics in Computer Graphics, 1990, pp. 185-194（書籍 *Photorealism in Computer Graphics*, Springer, 1992 に収録。干渉の CG への応用の初期の仕事）
-- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", ACM TOG 36(4), Article 65, 2017（SIGGRAPH 2017。粗い面への拡張）
+- M. Born, E. Wolf, *Principles of Optics* (thin films, sum of multiple reflections)
+- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", Eurographics Workshop on Photosimulation, Realism and Physics in Computer Graphics, 1990, pp. 185-194 (reprinted in the book *Photorealism in Computer Graphics*, Springer, 1992; an early work applying interference to computer graphics)
+- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", ACM TOG 36(4), Article 65, 2017 (SIGGRAPH 2017; extension to rough surfaces)
