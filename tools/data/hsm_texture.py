@@ -3,7 +3,8 @@
 
 An .hsm file is a tar archive. Its "spectral.image" holds a small header (int32: id, width, height, 4,
 bands) in a first block, then one block per wavelength (380..780 nm, 1 nm) holding the width x height
-float32 radiance image row by row; blocks are 32768 floats or a multiple of it. This layout was checked
+float32 radiance image row by row; blocks are padded to a multiple of 32768 floats (16384 in small images
+of the SR-5100; the reader takes the length from the file). This layout was checked
 against the instrument's own spot CSV export (agreement within 2 %).
 
 The texture stores a mean spectrum plus K principal-component spectra (default 6) and K coefficients
@@ -36,8 +37,13 @@ def read_hsm(path):
         recipe = tar.extractfile("recipe.xml").read().decode("utf-8", "ignore") if "recipe.xml" in tar.getnames() else ""
     hdr = np.frombuffer(raw[:20], dtype=np.int32)
     w, h, bands = int(hdr[1]), int(hdr[2]), int(hdr[4])
-    stride = ((w * h + BLOCK - 1) // BLOCK) * BLOCK
     a = np.frombuffer(raw, dtype=np.float32)
+    # Block length: the file holds bands + 1 equal blocks. Small images from the SR-5100 (2025) use blocks of a
+    # multiple of 16384 floats, the older ones 32768 (for large images both rules give the same length).
+    if a.size % (bands + 1) == 0 and a.size // (bands + 1) >= w * h:
+        stride = a.size // (bands + 1)
+    else:
+        stride = ((w * h + BLOCK - 1) // BLOCK) * BLOCK
     if a.size < stride * (bands + 1):
         raise ValueError(f"{path}: spectral.image too short for {w}x{h}x{bands}")
     cube = np.stack([a[stride * (k + 1):stride * (k + 1) + w * h].reshape(h, w) for k in range(bands)])
