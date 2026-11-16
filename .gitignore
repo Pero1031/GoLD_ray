@@ -429,3 +429,8 @@ docs/HANDOFF.md
 
 # Picture written by --scene mesh into the working folder
 /GoLD_rayt/result_*.png
+
+# Pictures kept locally, not used by any page
+/docs/img/gallery_prism_caustic.png
+/docs/img/overview.png
+/docs/img/skin_macro_voronoi.png
