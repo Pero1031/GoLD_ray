@@ -57,6 +57,8 @@ void PrintHelp(std::ostream& out) {
         << "  --mask A[,B..]    <out>_mask.png: the share of each pixel that objects of these materials (names in the scene file) cover, as the camera\n"
         << "                    sees them first (edges anti-aliased, through the lens and shutter; linear gray, 16 bit with --bits 16; .pfm if --out is)\n"
         << "  --depth-map       <out>_depth.pfm: distance of the first surface along the view axis through each pixel centre (0 = none)\n"
+        << "  --camera-response FILE   the film as this camera sees (spectral build): its R, G, B sensitivities (CSV of wavelength, R, G, B),\n"
+        << "                    balanced to D65 and mapped to sRGB by a fitted colour matrix, instead of the CIE observer; also <out>_camraw.pfm\n"
         << "  --spectral-image STEP[,FIRST,LAST]   <out>_spectral.img + .hdr (ENVI): the mean spectral radiance of each pixel in bands of STEP nm\n"
         << "                    (default 380..780 nm; spectral build). Each band gets a share of the 4 wavelengths of a path: use more spp\n"
         << "  --stokes          polarization: Stokes images <out>_S0..S3.pfm, degree / angle of linear polarization (smooth glass and water; docs/POLARIZATION.md)\n"

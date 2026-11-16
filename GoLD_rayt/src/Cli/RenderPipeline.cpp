@@ -4,6 +4,7 @@
 #include "Cli/RenderPipeline.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/Tools.hpp"
+#include "Color/CameraResponse.hpp"
 #include "Core/SampledWavelengths.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
@@ -118,6 +119,19 @@ bool ResolveMaskMaterials(const CliOptions& opt, const SceneSetup& setup, std::v
         }
         out.push_back(it->second);
     }
+    return true;
+}
+
+// --camera-response: the film as the camera of this file sees (Color/CameraResponse.hpp), and what the set-up found.
+bool ApplyCameraResponse(const std::string& path) {
+    std::string error;
+    if (!color::setCameraResponse(path, error)) { std::cerr << "[Camera] --camera-response: " << error << "\n"; return false; }
+    const color::CameraResponse& cam = color::cameraResponse();
+    const Vector3 white = cam.whiteRaw / cam.whiteRaw.y;
+    std::cout << "[Camera] response " << cam.name << ": raw of D65 R " << white.x << " G 1 B " << white.z
+        << " (balanced to 1 1 1); colour matrix fitted on " << cam.trainingCount << " reflectances under D65, RMS error " << cam.fitRms << ":\n";
+    for (int r = 0; r < 3; ++r)
+        std::cout << "[Camera]   " << cam.matrix[0][r] << "  " << cam.matrix[1][r] << "  " << cam.matrix[2][r] << "\n";
     return true;
 }
 
@@ -338,6 +352,13 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
     if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
     if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
     if (film.hasSpectral()) film.saveSpectral(outStem);
+    if (color::cameraResponse().active) {   // the camera's raw RGB before its white balance and colour matrix (G of D65 = 1)
+        Film raw(film.width(), film.height());
+        for (int y = 0; y < film.height(); ++y)
+            for (int x = 0; x < film.width(); ++x)
+                raw.setPixel(x, y, color::filmToCameraRaw(film.getData()[static_cast<size_t>(y) * film.width() + x]));
+        raw.save(outStem + "_camraw.pfm");
+    }
     if (opt.aov) {
         const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);
@@ -381,6 +402,7 @@ int RenderScene(CliOptions& opt) {
 
     // ---- the environment and the shared materials, then the scene itself ----
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
+    if (!opt.cameraResponse.empty() && !ApplyCameraResponse(opt.cameraResponse)) return 1;   // before anything turns a spectrum into the film's RGB
     Environment env = MakeEnvironment(opt, def->envKind(opt));
     const StdMaterials mats = MakeStandardMaterials(opt);
     SceneSetup setup;

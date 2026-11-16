@@ -99,6 +99,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Color\CameraResponse.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Render\LensSystem.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -532,6 +536,7 @@
     <ClInclude Include="include\Render\MaskDepth.hpp" />
     <ClInclude Include="include\Render\Diffraction.hpp" />
     <ClInclude Include="include\Render\LensSystem.hpp" />
+    <ClInclude Include="include\Color\CameraResponse.hpp" />
     <ClInclude Include="include\Render\Integrator.hpp" />
     <ClInclude Include="include\Render\SpecularBody.hpp" />
     <ClInclude Include="include\Render\SpecularNee.hpp" />

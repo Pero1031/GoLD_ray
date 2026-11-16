@@ -58,6 +58,25 @@ The mask and the depth come from a separate pass after the render (`Render/MaskD
 picture of a `--seed` run unchanged. Glass, water and mirrors are surfaces; an index-matched boundary (the surface of a fog) is not; a
 translucent layer covers a pixel in proportion to its opacity.
 
+### The camera's spectral sensitivity (`--camera-response FILE`; `Color/CameraResponse`)
+
+The film normally sees as the CIE 1931 observer: an ideal camera that meets the Luther condition. A real camera's R, G, B sensitivities are
+not a linear mix of the colour matching functions, so spectra that match for the eye can differ for the camera (and the other way round),
+and its colours drift from the eye's most under narrow-band light. With `--camera-response` (spectral build) the film does what a camera
+does: raw = the light weighted with its sensitivities, white balance (D65 becomes (1, 1, 1)), and a 3 × 3 colour matrix to sRGB fitted by
+least squares on 216 smooth reflectances under D65, white kept white. The three linear steps make one weight per wavelength in place of the
+CIE one. `<out>_camraw.pfm` holds the camera's raw RGB before white balance and matrix (G of D65 = 1), for comparing with a real camera's
+raw file (both linear; scale them by a white or grey patch).
+
+- **Data:** a CSV of `wavelength_nm,R,G,B`. The 28 cameras of Jiang et al., "What is the Space of Spectral Sensitivity Functions for
+  Digital Color Cameras?" (WACV 2013; 400–720 nm in 10 nm steps) are licensed CC BY-NC-SA 4.0 and so are not in this repository: download
+  `camspec_database.txt` from http://www.gujinwei.org/research/camspec/db.html into `GoLD_rayt/assets/CameraResponse/` (git-ignored) and
+  run `python tools/data/camspec_to_csv.py GoLD_rayt/assets/CameraResponse/camspec_database.txt` (one CSV per camera). A measured camera
+  goes into a CSV of the same form.
+- **Example:** the three SR-5100 cloth swatches under D65 and under the lab's LED, the ideal film against three cameras (CIEDE2000 of
+  the mean colours): under D65 0.1–1.0 (the matrices are fitted there), under the LED 0.5–3.9 on the cloth and 2.4–6.7 on the grey table
+  (the phone camera worst). The grey's error under the LED comes from the white balance, which stays at D65.
+
 ## 3. Verified
 
 `--scene camera` (RGB and spectral builds): `project()` undoes the ray through a pixel centre; with an aperture, the rays of a film position
@@ -81,7 +100,8 @@ estimate's error and the far tail; it is renormalized to 1).
 - Display values: Reinhard and clip against their formulas, 8- and 16-bit PNG read back, `.pfm` unchanged by the display settings, the clip report.
 - Mask and depth against closed forms: a sphere's silhouette area (0.01 %), its depth on the axis, a perpendicular wall at the same depth in every corner, a translucent layer, an index-matched boundary against glass, the files read back.
 - On an Erato view, the mask agrees with an earlier mask made by rendering the statue black on white, once that render's tone curve is applied (area −0.07 %).
-- Spectral image (spectral build): a uniform sky gives 0.5 × the band means of D65 (largest deviation 1.1 %, the sampling noise); weighted with the sensor curves, the bands of a red ball give its RGB picture (0.02 %); the ENVI files read back.
+- Camera response (spectral build): the CIE film's own curves given as a camera give the identity white balance and matrix; Gaussian sensitivities map D65 to (1, 1, 1) and a grey to the same grey, and the raw file's D65 equals the integral of the curves; a light plus a metameric black (no component along the CIE curves) keeps its CIE colour exactly but changes through the camera (by 1 %).
+- Spectral image (spectral build): a uniform sky gives 0.5 × the band means of D65 (largest deviation 0.74 % at a fixed seed, the sampling noise); weighted with the sensor curves, the bands of a red ball give its RGB picture (0.02 %); the ENVI files read back.
 - On measured data: the three cloth swatches of the SR-5100 (spectral reflectance textures) under D65, seen from above with the orthographic camera. Their reflectance recovered from the spectral image (0.3 × swatch / gray table) matches the textures within 0.001 RMS over 420–700 nm in 10 nm bands.
 
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
@@ -90,6 +110,7 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
+- The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65, and the sensor stays ideal: no noise, no colour filter mosaic, no saturation.
 - A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.

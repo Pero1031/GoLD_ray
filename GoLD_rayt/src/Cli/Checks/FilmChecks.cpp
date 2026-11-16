@@ -26,8 +26,8 @@ namespace rayt::cli {
 
 int RunFilmTests() {
     bool allPassed = true;
-    auto report = [&](const std::string& name, bool ok) {
-        std::cout << "[Film]   " << name << "   " << (ok ? "OK" : "FAIL") << "\n";
+    auto report = [&](const std::string& name, bool ok, const std::string& detail = "") {
+        std::cout << "[Film]   " << name << (detail.empty() ? "" : "   (" + detail + ")") << "   " << (ok ? "OK" : "FAIL") << "\n";
         allPassed = allPassed && ok;
     };
     auto near = [](Real a, Real b, Real tol) { return std::fabs(a - b) <= tol; };
@@ -245,7 +245,10 @@ int RunFilmTests() {
 #if defined(RAYT_SPECTRAL_MODE)
     {
         // A uniform sky of RGB 0.5 (as light: 0.5 x D65), alone or around a red ball, seen by a pinhole; 32 x 32 pixels, 256 spp.
-        const int n = 32, spp = 256;
+        // 2048 spp: a 10 nm band then gets about 1e5 wavelength samples (noise near 0.4 %, the band's worst of 40 near 1 %), and a fixed
+        // seed makes the result the same at every run (at 256 spp the worst band wandered between 1 and 3 % from run to run).
+        const int n = 32, spp = 2048;
+        sampling::SetRunSeed(20261117);
         auto camera = std::make_shared<Camera>(Point3(0, 0, 3), Point3(0, 0, 0), Vector3(0, 1, 0), 30.0, 1.0, 0.0, 3.0);
         auto render = [&](bool ball, Real first, Real step, int bands) {
             auto world = std::make_shared<Aggregate>();
@@ -311,8 +314,97 @@ int RunFilmTests() {
             for (const char* ext : { "_spectral.hdr", "_spectral.img" }) std::filesystem::remove(stem + ext, ec);
         }
     }
+
+    // ---- The camera response (--camera-response; Color/CameraResponse.hpp) ----
+    {
+        // Integrals over 380..780 nm with the film's rule (1 nm, trapezoid)
+        auto integrate = [](auto&& weight, auto&& spectrum) {
+            Vector3 sum(0.0);
+            for (int l = 380; l <= 780; ++l) sum += weight(Real(l)) * (spectrum(Real(l)) * ((l == 380 || l == 780) ? Real(0.5) : Real(1)));
+            return sum;
+        };
+        auto cie = [](Real l) { return color::rgbSensorWeights(l); };
+        auto camera = [](Real l) { return color::cameraFilmWeight(color::cameraResponse(), l); };
+        std::string err;
+
+        // (o) A "camera" whose sensitivities are the CIE film's own weights: its white balance and colour matrix are the identity.
+        {
+            std::vector<Real> nm;
+            std::vector<Vector3> rgb;
+            for (int l = 360; l <= 830; ++l) { nm.push_back(Real(l)); rgb.push_back(color::rgbSensorWeights(Real(l))); }
+            const bool set = color::setCameraResponse(nm, rgb, "CIE", err);
+            const color::CameraResponse& cam = color::cameraResponse();
+            double worstWeight = 0, worstMatrix = 0;
+            for (int l = 360; l <= 830; ++l) worstWeight = std::max(worstWeight, double(glm::length(camera(Real(l)) - cie(Real(l)))));
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j) worstMatrix = std::max(worstMatrix, std::fabs(double(cam.matrix[j][i]) - (i == j ? 1.0 : 0.0)));
+            report("o  camera response of the CIE film's own curves: identity white balance and matrix, the same weights",
+                set && worstWeight < 1e-9 && worstMatrix < 1e-9 && cam.fitRms < 1e-9);
+            color::resetCameraResponse();
+        }
+
+        // (p) A camera of three Gaussian sensitivities (R 600, G 535, B 455 nm): D65 becomes (1, 1, 1), a flat grey stays grey, and the raw
+        //     file's value of D65 is the integral of the curves (G = 1).
+        auto gauss = [](Real l, Real mu, Real sigma) { return std::exp(-0.5 * (l - mu) * (l - mu) / (sigma * sigma)); };
+        std::vector<Real> nm;
+        std::vector<Vector3> rgb;
+        for (int l = 380; l <= 780; l += 5) {
+            nm.push_back(Real(l));
+            rgb.push_back(Vector3(gauss(l, 600, 35), 0.9 * gauss(l, 535, 35), 0.7 * gauss(l, 455, 25)));
+        }
+        const bool set = color::setCameraResponse(nm, rgb, "gaussian", err);
+        {
+            const color::CameraResponse& cam = color::cameraResponse();
+            const Vector3 white = integrate(camera, [](Real l) { return color::evaluateD65(l); });
+            const Vector3 grey = integrate(camera, [](Real l) { return Real(0.3) * color::evaluateD65(l); });
+            const Vector3 raw = color::filmToCameraRaw(Vector3(1.0));
+            const Vector3 rawDirect = integrate([&](Real l) { return cam.curves[static_cast<size_t>(int(l) - color::CameraResponse::kFirstNm)]; },
+                [](Real l) { return color::evaluateD65(l); });
+            report("p  camera response of Gaussian curves: D65 -> (1, 1, 1), grey stays grey, the raw of D65 as integrated",
+                set && glm::length(white - Vector3(1.0)) < 1e-9 && glm::length(grey - Vector3(0.3)) < 1e-9
+                && glm::length(raw - rawDirect / rawDirect.y) < 1e-9,
+                "fit RMS " + std::to_string(cam.fitRms) + ", raw of D65 " + std::to_string(raw.x) + " 1 " + std::to_string(raw.z));
+        }
+
+        // (q) Metamerism: a light and the same light plus a "metameric black" (a wave with no component along the three CIE curves) give
+        //     the same CIE film RGB but not the same camera RGB.
+        {
+            std::vector<Vector3> basis;   // the CIE curves, orthonormalized for the film's integral
+            auto dot = [&](auto&& f, auto&& g) {
+                double s = 0;
+                for (int l = 380; l <= 780; ++l) s += double(f(Real(l))) * double(g(Real(l))) * ((l == 380 || l == 780) ? 0.5 : 1.0);
+                return s;
+            };
+            std::vector<std::vector<double>> e;
+            for (int c = 0; c < 3; ++c) {
+                std::vector<double> v(401);
+                for (int l = 380; l <= 780; ++l) v[l - 380] = double(cie(Real(l))[c]);
+                for (const auto& u : e) {
+                    const double p = dot([&](Real l) { return v[int(l) - 380]; }, [&](Real l) { return u[int(l) - 380]; });
+                    for (int k = 0; k < 401; ++k) v[k] -= p * u[k];
+                }
+                const double n = std::sqrt(dot([&](Real l) { return v[int(l) - 380]; }, [&](Real l) { return v[int(l) - 380]; }));
+                for (double& x : v) x /= n;
+                e.push_back(v);
+            }
+            std::vector<double> black(401);
+            for (int l = 380; l <= 780; ++l) black[l - 380] = std::sin(2 * constants::PI * (l - 380) / 60.0);
+            for (const auto& u : e) {
+                const double p = dot([&](Real l) { return black[int(l) - 380]; }, [&](Real l) { return u[int(l) - 380]; });
+                for (int k = 0; k < 401; ++k) black[k] -= p * u[k];
+            }
+            auto light1 = [](Real l) { return color::evaluateD65(l) * color::rgbToReflectance(Vector3(0.5, 0.4, 0.3), l); };
+            auto light2 = [&](Real l) { return light1(l) + Real(25) * Real(black[int(l) - 380]); };   // stays positive
+            const Vector3 cie1 = integrate(cie, light1), cie2 = integrate(cie, light2);
+            const Vector3 cam1 = integrate(camera, light1), cam2 = integrate(camera, light2);
+            const double cieDiff = glm::length(cie1 - cie2) / glm::length(cie1), camDiff = glm::length(cam1 - cam2) / glm::length(cam1);
+            report("q  metamers: equal for the CIE film, different through the camera",
+                cieDiff < 1e-9 && camDiff > 1e-3, "relative differences " + std::to_string(cieDiff) + " and " + std::to_string(camDiff));
+        }
+        color::resetCameraResponse();
+    }
 #else
-    std::cout << "[Film]   l-n  spectral image: needs the spectral build (skipped)\n";
+    std::cout << "[Film]   l-q  spectral image and camera response: need the spectral build (skipped)\n";
 #endif
 
     std::cout << "[Film] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

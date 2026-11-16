@@ -30,6 +30,7 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     else if (a == "--tonemap") o.tonemap = value("--tonemap");
     else if (a == "--mask") o.mask = value("--mask");
     else if (a == "--depth-map") o.depthMap = true;
+    else if (a == "--camera-response") o.cameraResponse = value("--camera-response");
     else if (a == "--spectral-image") {   // STEP or STEP,FIRST,LAST (nm)
         std::vector<double> v;
         std::stringstream list(value("--spectral-image"));
@@ -243,7 +244,10 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.tonemap != "reinhard" && o.tonemap != "clip") throw std::runtime_error("--tonemap must be reinhard or clip");
 #if !defined(RAYT_SPECTRAL_MODE)
         if (o.spectralStep != 0) throw std::runtime_error("--spectral-image needs the spectral build (the RGB build has no wavelengths)");
+        if (!o.cameraResponse.empty()) throw std::runtime_error("--camera-response needs the spectral build (the RGB build has no wavelengths)");
 #endif
+        if (!o.cameraResponse.empty() && o.whiteBalance)
+            throw std::runtime_error("--camera-response balances the camera to D65; it cannot be combined with --wb yet");
         if (o.spectralStep != 0) {
             const double bands = (o.spectralLast - o.spectralFirst) / o.spectralStep;
             if (!(o.spectralStep > 0) || !(o.spectralFirst >= 360) || !(o.spectralLast <= 830) || !(bands >= 1) || std::fabs(bands - std::round(bands)) > 1e-6)

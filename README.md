@@ -299,6 +299,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |
 | `--mask A,B`, `--depth-map` | also write an anti-aliased mask of the objects of these materials, and the depth of the first surface (`.pfm`) |
+| `--camera-response FILE` | spectral build: the film as a given camera sees (its R, G, B sensitivities, white balance and colour matrix) instead of the CIE observer |
 | `--spectral-image STEP` | spectral build: also write the spectral radiance of every pixel in bands of STEP nm (ENVI) |
 | `--stokes`, `--polarizer A,B,..` | also write the Stokes images and the polarization degree and angle; images behind a polarizing filter at the given angles |
 | `--shutter T`, `--cam-velocity`, `--pan` | motion blur (see `--help`) |

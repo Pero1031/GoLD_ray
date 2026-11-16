@@ -35,6 +35,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/SampledWavelengths.hpp"
+#include "Color/CameraResponse.hpp"
 #include "Color/ChromaticAdaptation.hpp"
 #include "Color/ColorSpace.hpp"
 #include "Color/Illuminants.hpp"
@@ -347,10 +348,11 @@ namespace rayt {
     inline Vector3 SpectrumToRGB(const Spectrum& L, const SampledWavelengths& lambda) {
 #if defined(RAYT_SPECTRAL_MODE)
         Vector3 rgb(0.0);
+        const color::CameraResponse& camera = color::cameraResponse();   // --camera-response: a camera's sensitivities instead of the CIE observer
         for (int i = 0; i < kSpectralSamples; ++i) {
             const Real pdf = lambda.pdf[i];
             if (pdf <= Real(0)) continue;
-            rgb += color::rgbSensorWeights(lambda[i]) * (L[i] / pdf);
+            rgb += (camera.active ? color::cameraFilmWeight(camera, lambda[i]) : color::rgbSensorWeights(lambda[i])) * (L[i] / pdf);
         }
         const color::WhiteBalance& wb = color::whiteBalance();
         if (wb.active) rgb = wb.matrix * rgb;
