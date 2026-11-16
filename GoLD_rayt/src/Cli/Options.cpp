@@ -22,12 +22,14 @@ Vector3 ParseRgb(const std::string& text, const char* name) {
     return Vector3(v[0], v[1], v[2]);
 }
 
-// The options of the written pictures (--gamut, --bits, --exposure, --tonemap). Returns false for any other option.
+// The options of the written pictures (--gamut, --bits, --exposure, --tonemap, --mask, --depth-map). Returns false for any other option.
 bool ApplyOutputArg(const std::string& a, const std::function<std::string(const char*)>& value, CliOptions& o) {
     if (a == "--gamut") o.gamut = value("--gamut");
     else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));
     else if (a == "--exposure") o.exposure = std::stod(value("--exposure"));
     else if (a == "--tonemap") o.tonemap = value("--tonemap");
+    else if (a == "--mask") o.mask = value("--mask");
+    else if (a == "--depth-map") o.depthMap = true;
     else return false;
     return true;
 }

@@ -557,6 +557,10 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             << (mask ? "from the mask " + m.mixMask + " (" + std::to_string(mask->width()) + " x " + std::to_string(mask->height()) + ")" : std::to_string(m.mixWeight)) << "\n";
         materials[name] = std::make_shared<MixMaterial>(parts[0], parts[1], mask, Real(m.mixWeight));
     }
+    for (const auto& [name, m] : materials) {   // --mask picks objects by the name of their material
+        out.namedMaterials[name] = m.get();
+        out.keepAlive.push_back(m);             // also the ones no object uses: the pointer must not be reused by another material
+    }
 
     // ---- white balance: --wb adapts the film to the light of the first emission object ----
     if (opt.whiteBalance) {

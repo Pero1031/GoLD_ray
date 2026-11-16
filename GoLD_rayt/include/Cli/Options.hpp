@@ -198,6 +198,8 @@ struct CliOptions {
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
     Real exposure = 0;                     // --exposure EV : the .png / .bmp / .jpg are 2^EV times brighter (.pfm / .hdr stay radiance)
     std::string tonemap = "reinhard";      // --tonemap reinhard|clip : Reinhard's curve, or linear up to white and clipped above it
+    std::string mask;                      // --mask A[,B..] : also write <out>_mask.png, the share of each pixel that objects of these scene-file materials cover
+    bool depthMap = false;                 // --depth-map : also write <out>_depth.pfm, the distance of the first surface along the view axis (Render/MaskDepth.hpp)
     bool cleanAux = false;                // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)

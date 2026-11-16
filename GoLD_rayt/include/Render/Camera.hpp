@@ -225,6 +225,21 @@ namespace rayt {
         }
 
         /**
+         * @brief The ray through the centre of the lens toward film position (s, t), at time 0 and the reference wavelength.
+         *
+         * The pinhole view of the camera (the distortion included, no defocus, no motion): what a pixel sees as geometry, e.g. its depth.
+         */
+        Ray centerRay(Real s, Real t) const {
+            const Point3 target = focalTarget(s, t, kReferenceWavelengthNm);
+            Ray r(m_origin, glm::normalize(target - m_origin), constants::RAY_EPSILON, m_medium);
+            r.time = m_shutterOpen;
+            return r;
+        }
+
+        /// The direction the camera looks in (unit length; at time 0).
+        Vector3 viewAxis() const { return -m_w; }
+
+        /**
          * @brief Projects a world point onto the film of the pinhole view (the lens is ignored): the inverse of generateRay().
          *
          * @param s, t     film coordinates in [0, 1) (as in generateRay)

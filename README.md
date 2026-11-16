@@ -295,6 +295,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--accel own\|embree` | own SAH BVH or Embree, for single-material triangle meshes only |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |
+| `--mask A,B`, `--depth-map` | also write an anti-aliased mask of the objects of these materials, and the depth of the first surface (`.pfm`) |
 | `--stokes`, `--polarizer A,B,..` | also write the Stokes images and the polarization degree and angle; images behind a polarizing filter at the given angles |
 | `--shutter T`, `--cam-velocity`, `--pan` | motion blur (see `--help`) |
 

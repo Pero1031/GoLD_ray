@@ -16,6 +16,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -254,18 +255,18 @@ namespace rayt {
     }
 
     /**
-     * @brief Writes a 16-bit RGB PNG (big-endian samples, 6 bytes per pixel), tagged with cICP unless the gamut is sRGB.
+     * @brief Writes a 16-bit PNG (big-endian samples; RGB, or gray with channels = 1), tagged with cICP unless the gamut is sRGB.
      *
-     * stb_image_write has no 16-bit mode. A row of W pixels at 16 bits is 6 * W bytes: exactly a row of 2 * W pixels at 8 bits. So the data
-     * is encoded as an 8-bit RGB image of twice the width with the PNG filter forced to "none" (the filters work on the bytes of a
+     * stb_image_write has no 16-bit mode. A row of W pixels at 16 bits is 2 * channels * W bytes: exactly a row of 2 * W pixels at 8 bits.
+     * So the data is encoded as an 8-bit image of twice the width with the PNG filter forced to "none" (the filters work on the bytes of a
      * whole pixel, which would be wrong here), and the IHDR is then patched to width W, 16 bits (and its CRC redone).
      */
     static bool writePng16(const std::string& filename, int width, int height,
-        const std::vector<unsigned char>& data16, color::Gamut gamut) {
+        const std::vector<unsigned char>& data16, color::Gamut gamut, int channels = 3) {
         std::vector<unsigned char> png;
         const int savedFilter = stbi_write_force_png_filter;
         stbi_write_force_png_filter = 0;
-        const int ok = stbi_write_png_to_func(pngSink, &png, 2 * width, height, 3, data16.data(), 6 * width);
+        const int ok = stbi_write_png_to_func(pngSink, &png, 2 * width, height, channels, data16.data(), 2 * channels * width);
         stbi_write_force_png_filter = savedFilter;
         if (!ok || png.size() < 33) return false;
         for (int k = 0; k < 4; ++k) png[16 + k] = static_cast<unsigned char>(static_cast<uint32_t>(width) >> (8 * (3 - k)));   // width
@@ -429,10 +430,11 @@ namespace rayt {
 
         if (clip) {
             const WhiteClip wc = whiteClip(scale);
-            std::cout << "[Film] clip at white: " << std::fixed << std::setprecision(2) << Real(100) * wc.share << " % of the pixels have a channel above white";
+            std::ostringstream line;   // its own stream: the format flags must not stay on std::cout
+            line << "[Film] clip at white: " << std::fixed << std::setprecision(2) << Real(100) * wc.share << " % of the pixels have a channel above white";
             if (wc.brightest > Real(0))
-                std::cout << " (the brightest is " << std::showpos << std::log2(wc.brightest) << std::noshowpos << " stops from white)";
-            std::cout << std::defaultfloat << std::endl;
+                line << " (the brightest is " << std::showpos << std::log2(wc.brightest) << " stops from white)";
+            std::cout << line.str() << std::endl;
         }
     }
 
@@ -449,6 +451,48 @@ namespace rayt {
         }
         wc.share = m_pixels.empty() ? Real(0) : Real(over) / Real(m_pixels.size());
         return wc;
+    }
+
+    void Film::saveMask(const std::string& filename) const {
+        if (m_mask.empty()) { std::cerr << "[Film] Error: the mask is not enabled, nothing to save: " << filename << std::endl; return; }
+        std::string ext = filename.substr(filename.find_last_of('.') + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext == "pfm") { savePfmGray(filename, m_mask); return; }
+        if (ext != "png") { std::cerr << "[Film] Error: a mask is written as .png or .pfm: " << filename << std::endl; return; }
+        const size_t n = m_mask.size();
+        bool ok;
+        if (m_png16) {
+            std::vector<unsigned char> data16(n * 2);
+            for (size_t i = 0; i < n; ++i) {
+                const unsigned v = static_cast<unsigned>(Real(65535.0) * rayt::math::saturate(Real(m_mask[i])) + Real(0.5));
+                data16[i * 2] = static_cast<unsigned char>(v >> 8);
+                data16[i * 2 + 1] = static_cast<unsigned char>(v & 255u);
+            }
+            ok = writePng16(filename, m_width, m_height, data16, color::Gamut::SRGB, 1);
+        }
+        else {
+            std::vector<unsigned char> gray(n);
+            for (size_t i = 0; i < n; ++i) gray[i] = toByte(Real(m_mask[i]));
+            ok = stbi_write_png(filename.c_str(), m_width, m_height, 1, gray.data(), m_width) != 0;
+        }
+        if (!ok) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
+        std::cout << "[Film] Saved mask: " << filename << (m_png16 ? " (16 bit)" : "") << std::endl;
+    }
+
+    void Film::saveDepth(const std::string& filename) const {
+        if (m_depth.empty()) { std::cerr << "[Film] Error: the depth is not enabled, nothing to save: " << filename << std::endl; return; }
+        savePfmGray(filename, m_depth);
+    }
+
+    void Film::savePfmGray(const std::string& filename, const std::vector<float>& data) const {
+        std::vector<float> rows(data.size());
+        for (int y = 0; y < m_height; ++y)   // PFM rows go from the bottom up
+            std::copy_n(data.begin() + static_cast<std::ptrdiff_t>(y) * m_width, m_width, rows.begin() + static_cast<std::ptrdiff_t>(m_height - 1 - y) * m_width);
+        std::ofstream f(filename, std::ios::binary);
+        f << "Pf\n" << m_width << " " << m_height << "\n-1.0\n";
+        f.write(reinterpret_cast<const char*>(rows.data()), static_cast<std::streamsize>(rows.size() * sizeof(float)));
+        if (!f) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
+        std::cout << "[Film] Saved PFM (one channel): " << filename << std::endl;
     }
 
     void Film::saveAlbedo(const std::string& filename) const {

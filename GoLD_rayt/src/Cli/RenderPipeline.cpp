@@ -7,6 +7,7 @@
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
 #include "Render/Integrator.hpp"
+#include "Render/MaskDepth.hpp"
 #include "Render/SpecularNee.hpp"
 #include "Render/VolumeBPT.hpp"
 
@@ -111,6 +112,27 @@ int RenderScene(CliOptions& opt) {
     SceneContext ctx{ opt, mats, env };
     if (const std::optional<int> exitCode = def->build(ctx, setup)) return *exitCode;
     const CausticSetup& caustics = setup.caustics;       // what the scene asks of the photon map and the manifold NEE
+
+    // --mask: the materials (by their names in the scene file) whose objects the mask covers; checked before the render starts
+    std::vector<const Material*> maskMaterials;
+    if (!opt.mask.empty()) {
+        if (setup.namedMaterials.empty()) {
+            std::cerr << "[Mask] --mask names materials of a scene file; the built-in scene \"" << opt.scene << "\" has no named materials\n";
+            return 1;
+        }
+        std::stringstream list(opt.mask);
+        for (std::string name; std::getline(list, name, ',');) {
+            if (name.empty()) continue;
+            const auto it = setup.namedMaterials.find(name);
+            if (it == setup.namedMaterials.end()) {
+                std::cerr << "[Mask] --mask: the scene file has no material \"" << name << "\"; it has:";
+                for (const auto& [n, m] : setup.namedMaterials) std::cerr << " " << n;
+                std::cerr << "\n";
+                return 1;
+            }
+            maskMaterials.push_back(it->second);
+        }
+    }
     if (caustics.lightTraceOnly) opt.causticTrace = true;
 
     // ---- the scene: lights, caustics ----
@@ -343,6 +365,15 @@ int RenderScene(CliOptions& opt) {
                 film.setPixel(x, y, (opt.causticTraceOnly ? Vector3(0.0) : film.getData()[i]) + traceSum[i] * inv);
             }
     }
+    // --mask, --depth-map: a pass of camera rays alone, with its own random numbers (Render/MaskDepth.hpp); as many mask samples as the picture's
+    if (!maskMaterials.empty()) film.enableMask();
+    if (opt.depthMap) film.enableDepth();
+    if (film.hasMask() || film.hasDepth()) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const int side = std::clamp(static_cast<int>(std::lround(std::sqrt(double(opt.spp)))), 1, 16);
+        RenderMaskAndDepth(*scene, *camera, film, maskMaterials, side);
+        std::cout << "[MaskDepth] " << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s\n";
+    }
     if (setup.afterRender) setup.afterRender({ *scene, *camera, film, *integrator });
 
     if (specularNee) {
@@ -365,12 +396,13 @@ int RenderScene(CliOptions& opt) {
     film.save(opt.out);
     const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
     const std::string outExt = std::filesystem::path(opt.out).extension().string();
-    {
-        std::string ext = outExt;
-        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if ((ext == ".pfm" || ext == ".hdr") && (opt.exposure != 0 || opt.tonemap != "reinhard"))
-            std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << ext << " holds the radiance as rendered\n";
-    }
+    std::string outExtLower = outExt;
+    std::transform(outExtLower.begin(), outExtLower.end(), outExtLower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const bool floatOut = (outExtLower == ".pfm" || outExtLower == ".hdr");
+    if (floatOut && (opt.exposure != 0 || opt.tonemap != "reinhard"))
+        std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
+    if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
+    if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
     if (opt.aov) {
         const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);

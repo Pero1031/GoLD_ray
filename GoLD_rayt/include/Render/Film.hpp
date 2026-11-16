@@ -113,6 +113,25 @@ namespace rayt {
         /// .hdr: floats in [-1,1]; .png/.bmp/.jpg: remapped to [0,1] (n * 0.5 + 0.5), no encoding.
         void saveNormal(const std::string& filename) const;
 
+        // ---- Mask and depth (--mask, --depth-map; Render/MaskDepth.hpp) ---------------------------------
+        // One value per pixel, off by default. The mask is the share of the pixel the chosen objects cover (0..1, edges anti-aliased);
+        // the depth is the distance of the first surface along the view axis (scene units, 0 = no surface).
+
+        void enableMask() { m_mask.assign(static_cast<size_t>(m_width) * static_cast<size_t>(m_height), 0.0f); }
+        bool hasMask() const { return !m_mask.empty(); }
+        void setMask(int x, int y, Real coverage) { m_mask[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] = static_cast<float>(coverage); }
+        const std::vector<float>& mask() const { return m_mask; }
+
+        void enableDepth() { m_depth.assign(static_cast<size_t>(m_width) * static_cast<size_t>(m_height), 0.0f); }
+        bool hasDepth() const { return !m_depth.empty(); }
+        void setDepth(int x, int y, Real depth) { m_depth[static_cast<size_t>(y) * static_cast<size_t>(m_width) + static_cast<size_t>(x)] = static_cast<float>(depth); }
+        const std::vector<float>& depth() const { return m_depth; }
+
+        /// .png: gray, linear (no sRGB curve: the value is the coverage), 16 bit with setPng16; .pfm: one float channel ("Pf").
+        void saveMask(const std::string& filename) const;
+        /// .pfm only (one float channel, scene units).
+        void saveDepth(const std::string& filename) const;
+
         // ---- Polarization (--stokes, docs/POLARIZATION.md) -----------------------------------------
         // The Stokes vector of every pixel, S0..S3, each an RGB value (linear sRGB, averaged over the pixel's samples). Off by default.
 
@@ -178,6 +197,11 @@ namespace rayt {
         std::vector<Vector3> m_albedo;  ///< empty unless enableAOVs() was called
         std::vector<Vector3> m_normal;
         std::vector<Vector3> m_stokes[4];   ///< empty unless enableStokes() was called
+        std::vector<float> m_mask;          ///< empty unless enableMask() was called
+        std::vector<float> m_depth;         ///< empty unless enableDepth() was called
+
+        /// Writes one float channel as a grayscale PFM ("Pf", rows bottom to top).
+        void savePfmGray(const std::string& filename, const std::vector<float>& data) const;
 
         /// Writes an AOV buffer; `encodeSrgb` for color, `remapSigned` for normals (see saveAlbedo / saveNormal).
         void saveBuffer(const std::string& filename, const std::vector<Vector3>& data,

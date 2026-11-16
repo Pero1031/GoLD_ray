@@ -1,9 +1,18 @@
-// Display pipeline checks (--scene film): the exposure and the tone map of the written pictures (--exposure, --tonemap).
+// Film output checks (--scene film): the exposure and the tone map of the written pictures (--exposure, --tonemap), the mask and the
+// depth map (--mask, --depth-map).
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Color/ColorSpace.hpp"
 #include "Color/ColorTransform.hpp"
+#include "Geometry/Quad.hpp"
+#include "Geometry/Sphere.hpp"
+#include "Materials/Dielectric.hpp"
+#include "Materials/Lambertian.hpp"
+#include "Render/Camera.hpp"
 #include "Render/Film.hpp"
+#include "Render/MaskDepth.hpp"
+#include "Scene/Aggregate.hpp"
+#include "Scene/Scene.hpp"
 
 #include "stb_image.h"
 
@@ -109,6 +118,122 @@ int RunFilmTests() {
 
     std::error_code ec;
     for (const std::string& p : { png8, png16, pfm }) std::filesystem::remove(p, ec);
+
+    // ---- The mask and the depth (--mask, --depth-map; Render/MaskDepth.hpp) ----
+    // A pinhole camera at the origin looks down -z (65 x 65 pixels, so the centre pixel looks exactly along the axis, 40 degrees).
+    // A sphere of radius 1 at 5 m (material "ball") in front of a wall at 10 m (material "wall") that fills the picture.
+    const int size = 65;
+    const Real vfov = 40;
+    const auto ballMat = std::make_shared<Lambertian>(RgbColor(Vector3(0.5)));
+    const auto wallMat = std::make_shared<Lambertian>(RgbColor(Vector3(0.5)));
+    auto makeScene = [&](const std::shared_ptr<Material>& pane, Real paneZ) {
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Sphere>(Point3(0, 0, -5), 1.0, ballMat));
+        world->add(std::make_shared<Quad>(Point3(-20, -20, -10), Vector3(40, 0, 0), Vector3(0, 40, 0), wallMat));
+        if (pane) world->add(std::make_shared<Quad>(Point3(-5, -5, paneZ), Vector3(10, 0, 0), Vector3(0, 10, 0), pane));
+        auto scene = std::make_shared<Scene>(world);
+        scene->finalize("uniform");
+        return scene;
+    };
+    const Camera camera(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), vfov, 1.0, 0.0, 1.0);
+    auto run = [&](const Scene& scene, const std::vector<const Material*>& mats, Film& f) {
+        f.enableMask();
+        f.enableDepth();
+        RenderMaskAndDepth(scene, camera, f, mats, 16);
+    };
+    auto maskSum = [](const Film& f) { double s = 0; for (const float c : f.mask()) s += c; return s; };
+    const int centre = (size / 2) * size + size / 2;   // index of the centre pixel (row-major, top row first)
+
+    // (f) Depth: 4 m at the centre (the sphere's front), 10 m at every corner (the wall: the distance along the axis, not along the ray).
+    {
+        const auto scene = makeScene(nullptr, 0);
+        Film f(size, size);
+        run(*scene, { ballMat.get() }, f);
+        const auto& d = f.depth();
+        const bool ok = near(d[centre], 4, 1e-5) && near(d[0], 10, 1e-5) && near(d[size - 1], 10, 1e-5)
+            && near(d[static_cast<size_t>(size) * size - 1], 10, 1e-5) && near(d[static_cast<size_t>(size - 1) * size], 10, 1e-5);
+        std::cout << "[Film]      depth: centre " << d[centre] << ", corners " << d[0] << " " << d[size - 1] << "\n";
+        report("f  depth: the sphere's front at 4, the wall at 10 in every corner (along the view axis)", ok);
+
+        // (g) Mask of the ball: its silhouette is a circle of radius tan(asin(1/5)) / tan(20 deg) half-heights; the coverage adds up to
+        //     its area in pixels, the centre is covered, the wall is not.
+        const Real rPx = (Real(1) / std::sqrt(Real(24))) / std::tan(vfov * constants::DEG_TO_RAD / 2) * Real(size) / 2;
+        const Real area = constants::PI * rPx * rPx;
+        const double sum = maskSum(f);
+        std::cout << "[Film]      mask of the ball: " << sum << " pixels, the silhouette " << area << "\n";
+        report("g  mask: the coverage adds up to the silhouette's area (0.5 %), 1 at the centre, 0 on the wall",
+            near(Real(sum), area, area * Real(0.005)) && f.mask()[centre] == 1.0f && f.mask()[0] == 0.0f);
+    }
+
+    // (h) Two materials: the ball and the wall together cover the whole picture.
+    {
+        const auto scene = makeScene(nullptr, 0);
+        Film f(size, size);
+        run(*scene, { ballMat.get(), wallMat.get() }, f);
+        report("h  mask of two materials: the union covers every pixel", maskSum(f) == double(size) * size);
+    }
+
+    // (i) A translucent layer in front (opacity 0.25 at 2 m): it covers a quarter of every pixel on average, and the depth looks through it;
+    //     at opacity 0.75 the depth stops at it.
+    {
+        auto layer = std::make_shared<Lambertian>(RgbColor(Vector3(0.5)));
+        layer->setTranslucent(0.25);
+        Film f(size, size);
+        run(*makeScene(layer, -2), { layer.get() }, f);
+        const double mean = maskSum(f) / (double(size) * size);
+        layer->setTranslucent(0.75);
+        Film g(size, size);
+        run(*makeScene(layer, -2), { layer.get() }, g);
+        std::cout << "[Film]      translucent layer: mean coverage " << mean << " (0.25), depth at the centre " << f.depth()[centre] << " (4), then "
+            << g.depth()[centre] << " (2)\n";
+        report("i  translucent layer: coverage 0.25 on average, the depth through it below opacity 1/2 and at it above",
+            near(Real(mean), 0.25, 0.005) && near(f.depth()[centre], 4, 1e-5) && near(g.depth()[centre], 2, 1e-5));
+    }
+
+    // (j) An index-matched boundary (n = 1) is crossed; a glass pane (n = 1.5) is a surface.
+    {
+        Film f(size, size), g(size, size);
+        run(*makeScene(std::make_shared<Dielectric>(1.0, 0.0), -3), { ballMat.get() }, f);
+        run(*makeScene(std::make_shared<Dielectric>(1.5, 0.0), -3), { ballMat.get() }, g);
+        std::cout << "[Film]      depth at the centre: index-matched pane " << f.depth()[centre] << " (4), glass " << g.depth()[centre] << " (3)\n";
+        report("j  index-matched boundary crossed, glass a surface (depth and mask)",
+            near(f.depth()[centre], 4, 1e-5) && f.mask()[centre] == 1.0f && near(g.depth()[centre], 3, 1e-5) && g.mask()[centre] == 0.0f);
+    }
+
+    // (k) The files: the mask as a one-channel 8- and 16-bit PNG, the depth as a one-channel PFM ("Pf"), both read back.
+    {
+        const auto scene = makeScene(nullptr, 0);
+        Film f(size, size);
+        run(*scene, { ballMat.get() }, f);
+        const std::string m8 = (dir / "rayt_mask_check_8.png").string(), m16 = (dir / "rayt_mask_check_16.png").string();
+        const std::string dp = (dir / "rayt_depth_check.pfm").string();
+        f.saveMask(m8);
+        f.setPng16(true);
+        f.saveMask(m16);
+        f.saveDepth(dp);
+        int w = 0, h = 0, n8 = 0, n16 = 0;
+        unsigned char* b8 = stbi_load(m8.c_str(), &w, &h, &n8, 0);
+        unsigned short* b16 = stbi_load_16(m16.c_str(), &w, &h, &n16, 0);
+        bool ok = b8 && b16 && n8 == 1 && n16 == 1 && w == size && h == size;
+        for (size_t i = 0; ok && i < f.mask().size(); ++i)
+            ok = near(Real(b8[i]), Real(f.mask()[i]) * 255, 0.5) && near(Real(b16[i]), Real(f.mask()[i]) * 65535, 0.5);
+        if (b8) stbi_image_free(b8);
+        if (b16) stbi_image_free(b16);
+        std::ifstream in(dp, std::ios::binary);
+        std::string magic;
+        int pw = 0, ph = 0;
+        double scale = 0;
+        in >> magic >> pw >> ph >> scale;
+        in.get();
+        std::vector<float> rows(static_cast<size_t>(size) * size);
+        in.read(reinterpret_cast<char*>(rows.data()), static_cast<std::streamsize>(rows.size() * sizeof(float)));
+        ok = ok && in.good() && magic == "Pf" && pw == size && ph == size;
+        for (int y = 0; ok && y < size; ++y)   // PFM rows bottom to top
+            for (int x = 0; x < size; ++x)
+                ok = ok && rows[static_cast<size_t>(size - 1 - y) * size + x] == f.depth()[static_cast<size_t>(y) * size + x];
+        report("k  files: mask .png (8 / 16 bit, one channel), depth .pfm (one channel), read back", ok);
+        for (const std::string& p : { m8, m16, dp }) std::filesystem::remove(p, ec);
+    }
 
     std::cout << "[Film] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;

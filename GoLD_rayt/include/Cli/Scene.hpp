@@ -10,6 +10,7 @@
 // needs from it (photon counts, the fog's lighting) is in its SceneSetup.
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -116,6 +117,7 @@ struct SceneSetup {
     std::function<bool(const RenderResult&)> afterSave;          // after saving; false = a check failed (exit code 2)
     bool checksPassed = true;                                    // self-checks that run while the scene is built (mesh)
     std::shared_ptr<const GaussianSplats> splats;                // a captured cloud of Gaussians (Geometry/GaussianSplats.hpp), seen by paths as a backdrop
+    std::map<std::string, const Material*> namedMaterials;       // the materials of a scene file by name (--mask); empty for the built-in scenes
 };
 
 // A scene builder returns std::nullopt when the scene was built, or an exit code when the program should stop (an error, or an
