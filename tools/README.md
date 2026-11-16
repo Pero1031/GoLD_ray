@@ -16,6 +16,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `label_render.py` | tone maps a `.pfm` render and writes labels on it |
 | `skin_figures.py` | the figures of `docs/SKIN.md` |
 | `hair_figures.py` | the figures of `docs/HAIR.md`: a strip of the hair lobes, captions on the color comparison |
+| `lvc_figures.py` | the vertex merging of the bidirectional path tracer: the caustic seen through a glass ball with and without merging, and the bias of the radius at a focal spot (`docs/LVC_BPT.md`) |
 | `cosmetic_maps.py` | thick foundation layers as colored patches over the angles of incidence and observation, in the style of Lanza et al. (2024) (`docs/COSMETICS.md`) |
 | **`studies/`** | the analyses that README and the `docs/` pages rest on |
 | `metal_accuracy.py` | reference solution for the color of metals: spectral (1 nm integral) against the RGB approximation |
