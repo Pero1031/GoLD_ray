@@ -160,17 +160,19 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(where + ".anisotropy", "must be between -1 and 1");
     }
-    else if (type == "layered") {   // "coat": { ior, roughness, tint, samples }, "base": { albedo | reflectanceTexture | metal | table | reflectance, roughness, multipleScattering }
+    else if (type == "layered") {   // "coat": { ior, roughness, tint | tintSpectrum, samples }, "base": { albedo | reflectanceTexture | metal | table | reflectance, roughness, multipleScattering }
         CheckKeys(m, { "type", "coat", "base" }, where);
         s.type = MaterialSpec::Type::Layered;
         if (m.contains("coat")) {
             const json& c = m.at("coat");
             const std::string cw = where + ".coat";
-            if (!c.is_object()) Fail(cw, "must be an object (ior, roughness, tint, samples)");
-            CheckKeys(c, { "ior", "roughness", "tint", "samples" }, cw);
+            if (!c.is_object()) Fail(cw, "must be an object (ior, roughness, tint or tintSpectrum, samples)");
+            CheckKeys(c, { "ior", "roughness", "tint", "tintSpectrum", "samples" }, cw);
             Optional<double>(c, "ior", cw, s.coatIor, ReadNumber);
             Optional<double>(c, "roughness", cw, s.coatRoughness, ReadNumber);
             if (c.contains("tint")) s.coatTint = ReadColor(c.at("tint"), cw + ".tint");
+            Optional<std::string>(c, "tintSpectrum", cw, s.coatTintSpectrum, ReadString);   // a CSV of the transmittance along the normal per wavelength
+            if (c.contains("tint") && c.contains("tintSpectrum")) Fail(cw, "takes \"tint\" (RGB) or \"tintSpectrum\" (a CSV of the transmittance per wavelength), not both");
             double smp = s.coatSamples;
             Optional<double>(c, "samples", cw, smp, ReadNumber);
             s.coatSamples = int(smp);

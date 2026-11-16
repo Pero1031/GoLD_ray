@@ -237,20 +237,36 @@ namespace rayt {
             return t;
         }
 
-        Spectrum coatDepth(const Vector3& tint, const SampledWavelengths& lambda) {
-            const Spectrum T = RgbColor(tint).reflectance(lambda);
+        Spectrum coatDepth(const LayeredCoat::Params& p, const SampledWavelengths& lambda) {
+            Spectrum T = RgbColor(p.tint).reflectance(lambda);
+#if defined(RAYT_SPECTRAL_MODE)
+            // a spectral transmittance of the coat (the RGB build has turned it into p.tint in the constructor)
+            if (p.tintCurve)
+                for (int i = 0; i < kN; ++i) T[i] = p.tintCurve->evaluate(lambda[i], color::Extrapolate::Clamp);
+#endif
             Spectrum s;
             for (int i = 0; i < kN; ++i) s[i] = -std::log(std::clamp(T[i], Real(1e-4), Real(1)));
             return s;
         }
 
+        /// The RGB build cannot use a spectral transmittance: it takes the curve's color under D65 as the tint.
+        LayeredCoat::Params prepareParams(LayeredCoat::Params p) {
+#if !defined(RAYT_SPECTRAL_MODE)
+            if (p.tintCurve) {
+                p.tint = glm::clamp(color::reflectanceCurveToRgb(*p.tintCurve), Vector3(0.0), Vector3(1.0));
+                p.tintCurve.reset();
+            }
+#endif
+            return p;
+        }
+
     } // namespace
 
-    LayeredCoat::LayeredCoat(const Params& p, const RgbColor& albedo) : m_p(p), m_albedo(albedo) {
+    LayeredCoat::LayeredCoat(const Params& p, const RgbColor& albedo) : m_p(prepareParams(p)), m_albedo(albedo) {
         m_alpha = MicrofacetDistribution::roughnessToAlpha(std::max(p.roughness, Real(0.02)));
     }
 
-    LayeredCoat::LayeredCoat(const Params& p, std::shared_ptr<const Material> base) : m_p(p), m_base(std::move(base)) {
+    LayeredCoat::LayeredCoat(const Params& p, std::shared_ptr<const Material> base) : m_p(prepareParams(p)), m_base(std::move(base)) {
         m_alpha = MicrofacetDistribution::roughnessToAlpha(std::max(p.roughness, Real(0.02)));
     }
 
@@ -285,7 +301,7 @@ namespace rayt {
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
         const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
-        const Spectrum sigma = coatDepth(m_p.tint, lambda);
+        const Spectrum sigma = coatDepth(m_p, lambda);
         const int N = std::max(m_p.samples, 1);
 
         Spectrum f = Spectrum(top.f(o, i, radiance) * Real(N));    // the coat's own reflection
@@ -353,7 +369,7 @@ namespace rayt {
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
         const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
-        const Spectrum sigma = coatDepth(m_p.tint, lambda);
+        const Spectrum sigma = coatDepth(m_p, lambda);
 
         Vector3 exitDir;
         Spectrum beta;

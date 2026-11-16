@@ -79,6 +79,7 @@ struct MaterialSpec {
     double coatIor = 1.5;
     double coatRoughness = 0.1;
     Vector3 coatTint = Vector3(1.0);               //   transmittance of the coat along the normal (1 = clear)
+    std::string coatTintSpectrum;                  //   ... or a CSV of the transmittance along the normal per wavelength (a varnish)
     int coatSamples = 1;                           //   random walks per evaluation
     bool baseIsConductor = false;
     double farRoughness = -1;                      // dielectric: >= 0: the roughness grows to this (perceptual) between farStart and farEnd (m from the y axis)

@@ -36,6 +36,7 @@
 #include "Geometry/Frame.hpp"
 #include "Materials/Material.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Color/SpectralCurve.hpp"
 
 namespace rayt {
 
@@ -45,6 +46,9 @@ namespace rayt {
             Real ior = Real(1.5);              ///< refractive index of the coat
             Real roughness = Real(0.1);        ///< perceptual roughness of the coat (alpha = roughness^2), clamped to >= 0.02
             Vector3 tint = Vector3(1.0);       ///< transmittance of the coat along the normal (round trip is longer): 1 = clear
+            /// Transmittance of the coat along the normal per wavelength (a varnish with a measured or modelled absorption), instead of `tint`.
+            /// The spectral build reads it at every wavelength; the RGB build uses its color under D65 as the tint.
+            std::shared_ptr<const color::SpectralCurve> tintCurve;
             int samples = 1;                   ///< random walks per eval() (more = less noise, slower)
             int maxDepth = 12;                 ///< interface events per walk
         };

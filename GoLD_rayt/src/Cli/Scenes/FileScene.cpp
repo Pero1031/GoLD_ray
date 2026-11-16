@@ -312,6 +312,16 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             lp.roughness = Real(m.coatRoughness);
             lp.tint = m.coatTint;
             lp.samples = m.coatSamples;
+            if (!m.coatTintSpectrum.empty()) {   // the coat's transmittance per wavelength (a varnish with a modelled or measured absorption)
+                auto curve = std::make_shared<color::SpectralCurve>();
+                std::string err;
+                if (!io::loadReflectanceCsv(m.coatTintSpectrum, *curve, &err)) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": coat tintSpectrum " << m.coatTintSpectrum << ": " << err << "\n";
+                    return 1;
+                }
+                std::cout << "[SceneFile] material \"" << name << "\": coat transmittance from " << m.coatTintSpectrum << " (" << curve->samples().size() << " samples)\n";
+                lp.tintCurve = curve;
+            }
             if (!m.baseIsConductor && !m.reflectanceTexture.empty()) {   // a measured spectral image under the coat (leather, lacquered wood, ...)
                 std::string err;
                 auto tex = SpectralTexture::load(m.reflectanceTexture, &err);

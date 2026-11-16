@@ -261,6 +261,21 @@ int RunLayeredTests(const CliOptions& opt) {
         }
     }
 
+    // ---- 6. A coat transmittance given per wavelength (tintCurve) equals the RGB tint when both describe the same flat filter -----
+    {
+        auto flat = std::make_shared<color::SpectralCurve>();
+        flat->add(Real(360), Real(0.8)); flat->add(Real(830), Real(0.8)); flat->finalize();
+        LayeredCoat::Params pc; pc.ior = Real(1.5); pc.roughness = Real(0.2); pc.tintCurve = flat;
+        LayeredCoat::Params pr; pr.ior = Real(1.5); pr.roughness = Real(0.2); pr.tint = Vector3(0.8);
+        const LayeredCoat byCurve(pc, RgbColor(Real(0.7))), byRgb(pr, RgbColor(Real(0.7)));
+        const Estimate a = albedoBySample(byCurve, outgoing(30)), b = albedoBySample(byRgb, outgoing(30));
+        const double se = std::sqrt(a.se * a.se + b.se * b.se);
+        const bool ok = std::abs(a.mean - b.mean) <= 4 * se + 0.005 * b.mean;
+        std::cout << "[Layered]   coat transmittance 0.8 per wavelength: albedo " << a.mean << " +- " << a.se << "   as the RGB tint 0.8: " << b.mean << " +- " << b.se
+            << (ok ? "   OK" : "   FAIL") << "\n";
+        allPassed = ok && allPassed;
+    }
+
     std::cout << "[Layered] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
 }
