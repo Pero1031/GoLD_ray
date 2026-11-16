@@ -188,9 +188,10 @@ namespace rayt {
             const SampledWavelengths& lambda;
             SurfaceInteraction rec;
 
-            Base(const Material* m, const Spectrum& r, const SampledWavelengths& l) : mat(m), R(r), lambda(l) {
+            Base(const Material* m, const Spectrum& r, const SampledWavelengths& l, const UV& uv) : mat(m), R(r), lambda(l) {
                 rec.n = rec.gn = Vector3(0, 0, 1);
                 rec.dpdu = Vector3(1, 0, 0);   // the local x axis is the tangent of the base's anisotropy
+                rec.uv = uv;                   // a textured base (a measured reflectance image) looks up the hit point's texel
             }
             Spectrum f(const Vector3& wo, const Vector3& wi) const {
                 if (wo.z <= Real(0) || wi.z <= Real(0)) return Spectrum(0.0);
@@ -283,7 +284,7 @@ namespace rayt {
 
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
-        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda);
+        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
         const Spectrum sigma = coatDepth(m_p.tint, lambda);
         const int N = std::max(m_p.samples, 1);
 
@@ -351,7 +352,7 @@ namespace rayt {
 
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
-        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda);
+        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
         const Spectrum sigma = coatDepth(m_p.tint, lambda);
 
         Vector3 exitDir;

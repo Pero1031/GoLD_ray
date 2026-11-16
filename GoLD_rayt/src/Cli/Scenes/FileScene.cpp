@@ -311,6 +311,19 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             lp.roughness = Real(m.coatRoughness);
             lp.tint = m.coatTint;
             lp.samples = m.coatSamples;
+            if (!m.baseIsConductor && !m.reflectanceTexture.empty()) {   // a measured spectral image under the coat (leather, lacquered wood, ...)
+                std::string err;
+                auto tex = SpectralTexture::load(m.reflectanceTexture, &err);
+                if (!tex) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": " << m.reflectanceTexture << ": " << err << "\n";
+                    return 1;
+                }
+                std::cout << "[SceneFile] material \"" << name << "\": coat (ior " << m.coatIor << ", roughness " << m.coatRoughness
+                    << ") over the reflectance texture " << m.reflectanceTexture << " (" << tex->width() << " x " << tex->height() << " texels)\n";
+                auto base = std::make_shared<Lambertian>(std::shared_ptr<const SpectralTexture>(tex));
+                materials[name] = std::make_shared<LayeredCoat>(lp, base);
+                break;
+            }
             if (!m.baseIsConductor) {
                 materials[name] = std::make_shared<LayeredCoat>(lp, RgbColor(m.albedo));
                 break;

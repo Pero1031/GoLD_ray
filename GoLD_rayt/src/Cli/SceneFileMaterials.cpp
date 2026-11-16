@@ -160,7 +160,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(where + ".anisotropy", "must be between -1 and 1");
     }
-    else if (type == "layered") {   // "coat": { ior, roughness, tint, samples }, "base": { albedo | metal | table | reflectance, roughness, multipleScattering }
+    else if (type == "layered") {   // "coat": { ior, roughness, tint, samples }, "base": { albedo | reflectanceTexture | metal | table | reflectance, roughness, multipleScattering }
         CheckKeys(m, { "type", "coat", "base" }, where);
         s.type = MaterialSpec::Type::Layered;
         if (m.contains("coat")) {
@@ -179,18 +179,19 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             for (int k = 0; k < 3; ++k) if (s.coatTint[k] < 0 || s.coatTint[k] > 1) Fail(cw + ".tint", "must be between 0 and 1");
             if (s.coatSamples < 1 || s.coatSamples > 64) Fail(cw + ".samples", "must be between 1 and 64");
         }
-        if (!m.contains("base")) Fail(where, "needs a \"base\" (albedo, or metal / table / reflectance)");
+        if (!m.contains("base")) Fail(where, "needs a \"base\" (albedo or reflectanceTexture, or metal / table / reflectance)");
         const json& b = m.at("base");
         const std::string bw = where + ".base";
-        if (!b.is_object()) Fail(bw, "must be an object (albedo, or metal / table / reflectance, with roughness)");
-        CheckKeys(b, { "albedo", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, bw);
+        if (!b.is_object()) Fail(bw, "must be an object (albedo or reflectanceTexture, or metal / table / reflectance, with roughness)");
+        CheckKeys(b, { "albedo", "reflectanceTexture", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, bw);
         if (b.contains("albedo")) s.albedo = ReadColor(b.at("albedo"), bw + ".albedo");
+        Optional<std::string>(b, "reflectanceTexture", bw, s.reflectanceTexture, ReadString);   // a diffuse base with a measured reflectance per texel (.sptex)
         Optional<std::string>(b, "metal", bw, s.metal, ReadString);
         Optional<std::string>(b, "table", bw, s.table, ReadString);
         Optional<std::string>(b, "reflectance", bw, s.reflectance, ReadString);
-        const int kinds = int(b.contains("albedo")) + int(!s.metal.empty()) + int(!s.table.empty()) + int(!s.reflectance.empty());
-        if (kinds != 1) Fail(bw, "needs exactly one of \"albedo\" (diffuse), \"metal\" (Au, Ag or Cu), \"table\" or \"reflectance\"");
-        s.baseIsConductor = !b.contains("albedo");
+        const int kinds = int(b.contains("albedo")) + int(!s.reflectanceTexture.empty()) + int(!s.metal.empty()) + int(!s.table.empty()) + int(!s.reflectance.empty());
+        if (kinds != 1) Fail(bw, "needs exactly one of \"albedo\" (diffuse), \"reflectanceTexture\" (diffuse, a .sptex spectral image), \"metal\" (Au, Ag or Cu), \"table\" or \"reflectance\"");
+        s.baseIsConductor = !b.contains("albedo") && s.reflectanceTexture.empty();
         if (!s.metal.empty() && s.metal != "Au" && s.metal != "Ag" && s.metal != "Cu") Fail(bw + ".metal", "must be Au, Ag or Cu");
         Optional<double>(b, "roughness", bw, s.roughness, ReadNumber);
         Optional<double>(b, "anisotropy", bw, s.anisotropy, ReadNumber);
