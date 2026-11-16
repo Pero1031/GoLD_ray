@@ -65,6 +65,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -165,6 +166,9 @@ namespace rayt {
             for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) film.setPixel(x, y, total[static_cast<size_t>(y) * static_cast<size_t>(W) + static_cast<size_t>(x)] / Real(K));
 
             const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            if (m_mergeQueries > 0)
+                std::cout << "[VolumeBPT] merging: " << m_mergeQueries.load() << " queries, " << double(m_mergeCandidates.load()) / double(m_mergeQueries.load()) << " candidates and "
+                    << double(m_mergePairs.load()) / double(m_mergeQueries.load()) << " merged pairs per query on average, " << m_mergePairs.load() << " pairs in all\n";
             std::cout << "[VolumeBPT] " << m_N * K << " light paths (up to " << cached << " vertices cached per pass, " << tLight << " s), "
                 << double(W) * H * m_spp * K << " camera samples, " << K << " pass" << (K > 1 ? "es" : "") << ", " << sec << " s in all\n";
         }
@@ -208,6 +212,7 @@ namespace rayt {
         uint32_t m_gridMask = 0;
         std::vector<uint32_t> m_gridStart;   // bucket b holds m_gridItems[m_gridStart[b] .. m_gridStart[b + 1])
         std::vector<uint32_t> m_gridItems;   // indices into m_verts
+        mutable std::atomic<long long> m_mergeQueries{ 0 }, m_mergeCandidates{ 0 }, m_mergePairs{ 0 };   // statistics of the merging
         SampledWavelengths m_passLambda;
         bool m_passLambdaOn = false;
 
@@ -656,12 +661,15 @@ namespace rayt {
                 if (m_mergeR > 0) {
                     const Point3 py = pos(yt);
                     const Real r2 = m_mergeR * m_mergeR;
+                    long long nCand = 0, nPair = 0;
                     queryGrid(py, [&](uint32_t q) {
+                        ++nCand;
                         const Vtx& z = m_verts[q];
                         if (z.surface != yt.surface) return;
                         const Vector3 d = pos(z) - py;
                         if (glm::dot(d, d) >= r2) return;
                         if (z.surface && glm::dot(nrm(z), nrm(yt)) < Real(0.9)) return;   // the same piece of surface (the side is checked by the path)
+                        ++nPair;
                         const int k = z.idx;
                         const size_t first = q - static_cast<size_t>(k - 1);
                         const int n = k - 1 + t;
@@ -674,6 +682,7 @@ namespace rayt {
                         for (int jj = 1; jj <= t; ++jj) T[k - 1 + jj] = Y[t - jj].tIn;
                         acc += I * pathContribution(X.data(), n, T, k);
                     });
+                    ++m_mergeQueries; m_mergeCandidates += nCand; m_mergePairs += nPair;
                 }
             }
             const Vector3 rgb = SpectrumToRGB(acc, lam);
