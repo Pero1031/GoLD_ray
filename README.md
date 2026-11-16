@@ -319,7 +319,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
   (Mie scattering of cloud droplets; [details](docs/CLOUD.md)), a single-scattering sky with a sun (`tools/data/make_sky.py`).
 - **Bidirectional path tracing** (`--lvc`): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,
-  glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time).
+  glass and dispersion; beams and caustics in fog are found far faster than by path tracing (10-60x lower noise variance in the same time). Vertex merging and manifold connections through flat-faced glass add the caustics that are seen through glass.
   Details: [docs/LVC_BPT.md](docs/LVC_BPT.md).
 - **Denoising**: albedo and normal AOVs plus **Intel Open Image Denoise**. At 64 spp the result matches the error of about
   230-420 raw samples.
@@ -384,7 +384,8 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene dispersion` | the Sellmeier presets against the published d-line index and Abbe number, a diamond ball in a white furnace |
 | `--scene thinfilm` | Airy's formula against closed forms (no film, a quarter-wave coating, a free film), the sampling weights, a white furnace |
 | `--scene sss` | the profile, a white furnace over skin, the profile across a shadow edge |
-| `--scene lvc` | the bidirectional path tracer against path tracing (each strategy alone and together; fog, a diffuse floor), and against the caustic photon map (a glass ball, also dispersive) |
+| `--scene lvc` | the bidirectional path tracer against path tracing (each strategy alone and together; fog, a diffuse floor), and against the caustic photon map (a glass ball, also dispersive; a caustic seen through a glass ball, made by vertex merging) |
+| `--scene lvcmanifold` | manifold connections through a prism: the solved chains against the manifold next event estimation and the photon map, and adding the strategies leaves the picture unchanged |
 | `--scene volume` | scattering media: Beer-Lambert, white furnace, similarity relation, null collisions, the tabulated (Mie) phase function against its own density |
 | `--scene layered` | the layered coat: a closed form for a smooth coat, `eval()` against `sample()`, energy, reciprocity |
 | `--scene aniso` | anisotropic metal: the tangent of the shapes, the visible-normal density, rotation of the roughness axes |

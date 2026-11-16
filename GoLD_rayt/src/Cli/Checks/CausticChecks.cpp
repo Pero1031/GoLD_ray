@@ -386,7 +386,9 @@ static bool RunLvcGlassCase(const CliOptions& opt, Real abbe) {
 // the ball, so that both the lamp's and the camera's bundles have crossed before they reach the floor: the caustic is a smooth patch, not a focal
 // spot, and a merging radius of a few millimetres resolves it. Without defocus (--lvc-mask 1016) the floor lies at the focal distance.
 static bool RunLvcSdsCase(const CliOptions& opt, Real abbe, bool throughBall = true, bool defocus = false) {
-    const int W = 48, H = 27;
+    // development pictures (--lvc-mask 1016 and above with an --out of one's own): a --width of at most 384 sets the size (the time grows with it)
+    const bool picture = opt.lvcMask >= 1016 && !opt.out.empty() && opt.out != "result_lvc.png" && opt.width <= 384;
+    const int W = picture ? std::max(48, opt.width / 48 * 48) : 48, H = W * 27 / 48;   // multiples of 48 x 27: the 6 x 3 blocks stay whole
     const int sppSds = std::min(opt.spp, 32);   // the merging of a dense caustic grows faster than the sample count: the case is capped
     const Real rho = 0.5;
     const Real floorY = defocus ? Real(-0.12) : Real(-0.06);
