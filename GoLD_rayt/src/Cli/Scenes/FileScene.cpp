@@ -17,6 +17,7 @@
 #include "Materials/Hair.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/MeasuredHpBRDF.hpp"
+#include "Materials/MixMaterial.hpp"
 #include "Materials/ThinFilm.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Transmittance.hpp"
@@ -508,7 +509,43 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = std::make_shared<DiffuseLight>(spectrum, Real(m.radiance), m.twoSided);
             break;
         }
+        case MaterialSpec::Type::Mix:   // built below, once the materials it mixes exist
+            break;
         }
+    }
+    // A mix of two materials of the file (Materials/MixMaterial.hpp). It cannot mix another mix, a light, a subsurface material or
+    // a medium boundary: the per-hit choice covers eval/sample only.
+    for (const auto& [name, m] : d.materials) {
+        if (m.type != MaterialSpec::Type::Mix) continue;
+        std::shared_ptr<const Material> parts[2];
+        const std::string* partNames[2] = { &m.mixA, &m.mixB };
+        for (int i = 0; i < 2; ++i) {
+            const std::string& part = *partNames[i];
+            const auto spec = d.materials.find(part);
+            const auto built = materials.find(part);
+            if (spec == d.materials.end() || built == materials.end()) {
+                std::cerr << "[SceneFile] material \"" << name << "\": \"" << part << "\" is not a material of the file\n";
+                return 1;
+            }
+            const Material& p = *built->second;
+            const char* why = spec->second.type == MaterialSpec::Type::Mix ? "another mix"
+                : spec->second.type == MaterialSpec::Type::Emission ? "a light"
+                : p.subsurface() ? "a subsurface material"
+                : (p.isMediumBoundary() || p.isNullInterface()) ? "a medium boundary" : nullptr;
+            if (why) {
+                std::cerr << "[SceneFile] material \"" << name << "\": \"" << part << "\" is " << why << ", which a mix cannot hold\n";
+                return 1;
+            }
+            parts[i] = built->second;
+        }
+        std::shared_ptr<const Texture2D> mask;
+        if (!m.mixMask.empty()) {
+            mask = Texture2D::load(m.mixMask);
+            if (!mask) { std::cerr << "[SceneFile] material \"" << name << "\": cannot read the mask " << m.mixMask << "\n"; return 1; }
+        }
+        std::cout << "[SceneFile] material \"" << name << "\": mix of \"" << m.mixA << "\" and \"" << m.mixB << "\", weight of \"" << m.mixA << "\" "
+            << (mask ? "from the mask " + m.mixMask + " (" + std::to_string(mask->width()) + " x " + std::to_string(mask->height()) + ")" : std::to_string(m.mixWeight)) << "\n";
+        materials[name] = std::make_shared<MixMaterial>(parts[0], parts[1], mask, Real(m.mixWeight));
     }
 
     // ---- white balance: --wb adapts the film to the light of the first emission object ----

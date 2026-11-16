@@ -42,8 +42,11 @@ struct WrinkleLevelSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin, Measured };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin, Measured, Mix };
     Type type = Type::Diffuse;
+    std::string mixA, mixB;                        // mix: the names of the two materials (Materials/MixMaterial.hpp)
+    std::string mixMask;                           //   an image on the uv; its red channel is the weight of A (gray 128 = 0.5) ...
+    double mixWeight = 0.5;                        //   ... or a constant weight of A
     std::string measuredFile;                      // measured: a PCA-compressed hpBRDF table (.hpbpca, Materials/MeasuredHpBRDF.hpp)
     double alphaSample = 0.1;                      //   GGX alpha of the sampling lobe (only the noise depends on it)
     Vector3 albedo = Vector3(0.5);                 // diffuse

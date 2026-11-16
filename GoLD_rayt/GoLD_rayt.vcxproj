@@ -480,6 +480,7 @@
     <ClInclude Include="include\Materials\LayeredSkin.hpp" />
     <ClInclude Include="include\Materials\Material.hpp" />
     <ClInclude Include="include\Materials\MeasuredHpBRDF.hpp" />
+    <ClInclude Include="include\Materials\MixMaterial.hpp" />
     <ClInclude Include="include\Materials\Medium.hpp" />
     <ClInclude Include="include\Materials\RoughConductor.hpp" />
     <ClInclude Include="include\Materials\SkinFilm.hpp" />

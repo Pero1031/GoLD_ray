@@ -347,6 +347,9 @@
     <ClInclude Include="include\Materials\MeasuredHpBRDF.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Materials\MixMaterial.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Materials\hpbrdf_pca.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

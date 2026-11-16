@@ -1,4 +1,4 @@
-// Checks of the layered coat material (--scene layered).
+// Checks of the layered coat material and of the mix of two materials (--scene layered).
 #include "pch.h"
 #include "Cli/Checks.hpp"
 #include "Cli/CheckSupport.hpp"
@@ -8,6 +8,7 @@
 #include "IO/ComplexIorLoader.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Materials/LayeredCoat.hpp"
+#include "Materials/MixMaterial.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/CausticPhotonMap.hpp"
 
@@ -170,6 +171,94 @@ int RunLayeredTests(const CliOptions& opt) {
         const bool ok = std::abs(ab.mean - ba.mean) <= 4 * se + 0.01 * ab.mean;
         std::cout << "[Layered]   reciprocity: f(a, b) = " << ab.mean << " +- " << ab.se << "   f(b, a) = " << ba.mean << " +- " << ba.se << (ok ? "   OK" : "   FAIL") << "\n";
         allPassed = ok && allPassed;
+    }
+
+    // ---- 5. Mix of two materials (Materials/MixMaterial.hpp): a per-hit choice that is unbiased on average ---------------
+    {
+        // the hit point changes from sample to sample, so the per-hit choice averages out
+        auto randomHit = [&]() {
+            SurfaceInteraction r = rec;
+            r.p = Point3(sampling::Random(), sampling::Random(), sampling::Random());
+            return r;
+        };
+        auto mixAlbedoBySample = [&](const Material& m, const Vector3& wo) {
+            Estimate e;
+            for (int i = 0; i < n; ++i) {
+                const SurfaceInteraction r = randomHit();
+                const auto bs = m.sample(r, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+                e.add(bs && bs->pdf > 0 ? average(bs->f * (std::max(bs->wi.z, Real(0)) / bs->pdf)) : 0.0);
+            }
+            e.finish();
+            return e;
+        };
+        auto mixAlbedoByEval = [&](const Material& m, const Vector3& wo) {
+            Estimate e;
+            for (int i = 0; i < n; ++i) {
+                const SurfaceInteraction r = randomHit();
+                const Real rr = std::sqrt(sampling::Random()), phi = Real(2) * constants::PI * sampling::Random();
+                const Vector3 wi(rr * std::cos(phi), rr * std::sin(phi), std::sqrt(std::max(Real(0), Real(1) - rr * rr)));
+                e.add(average(m.eval(r, wo, wi, lambda, TransportMode::Radiance)) * constants::PI);
+            }
+            e.finish();
+            return e;
+        };
+
+        // (a) two diffuse materials, weight 0.25: the albedo is 0.25 * 0.8 + 0.75 * 0.2 = 0.35, by sample() and by eval()
+        const MixMaterial diffuseMix(std::make_shared<Lambertian>(RgbColor(Real(0.8))), std::make_shared<Lambertian>(RgbColor(Real(0.2))), nullptr, Real(0.25));
+        for (const bool bySample : { true, false }) {
+            const Estimate e = bySample ? mixAlbedoBySample(diffuseMix, outgoing(30)) : mixAlbedoByEval(diffuseMix, outgoing(30));
+            const bool ok = std::abs(e.mean - 0.35) <= 4 * e.se + 0.002;
+            std::cout << "[Layered]   mix of diffuse 0.8 and 0.2, weight 0.25: albedo by " << (bySample ? "sample()" : "eval()  ") << " expected 0.35   got "
+                << e.mean << " +- " << e.se << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (b) one hit = one material: sample() and eval() at the same hit choose the same side (white 1 against black 0),
+        //     and the share of white hits is the weight
+        const MixMaterial whiteBlack(std::make_shared<Lambertian>(RgbColor(Real(1))), std::make_shared<Lambertian>(RgbColor(Real(0))), nullptr, Real(0.3));
+        {
+            long mismatch = 0, white = 0;
+            const int m = 200000;
+            for (int i = 0; i < m; ++i) {
+                const SurfaceInteraction r = randomHit();
+                const Vector3 wo = outgoing(20 + 50 * sampling::Random());
+                const auto bs = whiteBlack.sample(r, wo, Point2(sampling::Random(), sampling::Random()), lambda, TransportMode::Radiance);
+                const bool sampledWhite = bs && average(bs->f) > 0;
+                const bool evalWhite = average(whiteBlack.eval(r, wo, Vector3(0, 0, 1), lambda, TransportMode::Radiance)) > 0;
+                if (sampledWhite != evalWhite) ++mismatch;
+                if (evalWhite) ++white;
+            }
+            const double share = double(white) / m, se = std::sqrt(0.3 * 0.7 / m);
+            const bool ok = mismatch == 0 && std::abs(share - 0.3) <= 4 * se;
+            std::cout << "[Layered]   mix, one hit = one material: sample() and eval() disagree at " << mismatch << " of " << m << " hits, share of A "
+                << share << " (weight 0.3)" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (c) the mask is read as the value in the file: a gray of 128 is a weight of 128 / 255
+        {
+            auto gray = Texture2D::fromRgba8(1, 1, { 128, 128, 128, 255 });
+            const MixMaterial masked(std::make_shared<Lambertian>(RgbColor(Real(1))), std::make_shared<Lambertian>(RgbColor(Real(0))), gray);
+            const double w = masked.weightA(rec);
+            const bool ok = std::abs(w - 128.0 / 255.0) < 1e-4;
+            std::cout << "[Layered]   mix mask: gray 128 reads as weight " << w << " (expected " << 128.0 / 255.0 << ")" << (ok ? "   OK" : "   FAIL") << "\n";
+            allPassed = ok && allPassed;
+        }
+
+        // (d) gold and a coated diffuse mixed 0.4 / 0.6: albedo by sample() and by eval() agree (the per-hit choice keeps the pairs consistent)
+        {
+            LayeredCoat::Params p; p.ior = Real(1.5); p.roughness = Real(0.3);
+            const MixMaterial goldCoat(std::make_shared<RoughConductor>(goldTable, Real(0.2), Real(0), Real(1)),
+                std::make_shared<LayeredCoat>(p, RgbColor(Real(0.6), Real(0.3), Real(0.1))), nullptr, Real(0.4));
+            for (double deg : { 20.0, 65.0 }) {
+                const Estimate a = mixAlbedoBySample(goldCoat, outgoing(deg)), b = mixAlbedoByEval(goldCoat, outgoing(deg));
+                const double se = std::sqrt(a.se * a.se + b.se * b.se);
+                const bool ok = std::abs(a.mean - b.mean) <= 4 * se + 0.01 * a.mean;
+                std::cout << "[Layered]   mix of gold 0.2 and a coated diffuse, weight 0.4, " << deg << " deg: albedo by sample() " << a.mean << " +- " << a.se
+                    << "   by eval() " << b.mean << " +- " << b.se << (ok ? "   OK" : "   FAIL") << "\n";
+                allPassed = ok && allPassed;
+            }
+        }
     }
 
     std::cout << "[Layered] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

@@ -54,7 +54,7 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 } // namespace
 
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
-    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured or emission)");
+    if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured, mix or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
     MaterialSpec s;
     if (type == "diffuse") {
@@ -728,6 +728,17 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(m, "alphaSample", where, s.alphaSample, ReadNumber);
         if (!(s.alphaSample > 0)) Fail(where + ".alphaSample", "must be above 0");
     }
+    else if (type == "mix") {   // { "type": "mix", "a": "gold", "b": "leather", "mask": "mask.png" } or "weight": 0.3 instead of the mask
+        CheckKeys(m, { "type", "a", "b", "mask", "weight" }, where);
+        s.type = MaterialSpec::Type::Mix;
+        if (!m.contains("a") || !m.contains("b")) Fail(where, "needs \"a\" and \"b\": the names of two materials of the file");
+        s.mixA = ReadString(m.at("a"), where + ".a");
+        s.mixB = ReadString(m.at("b"), where + ".b");
+        Optional<std::string>(m, "mask", where, s.mixMask, ReadString);
+        Optional<double>(m, "weight", where, s.mixWeight, ReadNumber);
+        if (!s.mixMask.empty() && m.contains("weight")) Fail(where, "takes a \"mask\" (an image) or a \"weight\" (a number), not both");
+        if (s.mixWeight < 0 || s.mixWeight > 1) Fail(where + ".weight", "must be between 0 and 1 (the weight of \"a\")");
+    }
     else if (type == "emission") {
         CheckKeys(m, { "type", "spectrum", "radiance", "twoSided" }, where);
         s.type = MaterialSpec::Type::Emission;
@@ -737,7 +748,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "twoSided", where, s.twoSided, ReadBool);
     }
     else {
-        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured or emission");
+        Fail(where + ".type", "is \"" + type + "\", must be diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured, mix or emission");
     }
     return s;
 }
