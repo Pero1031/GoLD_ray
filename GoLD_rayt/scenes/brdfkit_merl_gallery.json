@@ -1,0 +1,313 @@
+// 16 MERL materials (Matusik 2003) compressed by brdfkit (k1 = 3, RGB) and read as "measured" materials.
+// Rows from the back: chrome nickel brass two-layer-gold / gold, blue, green, silver metallic paint / pearl, color-changing paint, red plastic, red phenolic / marble, obsidian, blue fabric, foam.
+{
+ "options": {
+  "width": 1280,
+  "spp": 128
+ },
+ "camera": {
+  "from": [
+   0.0,
+   0.45,
+   0.5
+  ],
+  "at": [
+   0.0,
+   0.02,
+   0.0
+  ],
+  "fov": 38
+ },
+ "materials": {
+  "chrome": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/chrome.hpbpca",
+   "alphaSample": 0.05
+  },
+  "nickel": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/nickel.hpbpca",
+   "alphaSample": 0.1
+  },
+  "brass": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/brass.hpbpca",
+   "alphaSample": 0.1
+  },
+  "two-layer-gold": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/two-layer-gold.hpbpca",
+   "alphaSample": 0.1
+  },
+  "gold-metallic-paint": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/gold-metallic-paint.hpbpca",
+   "alphaSample": 0.2
+  },
+  "blue-metallic-paint": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/blue-metallic-paint.hpbpca",
+   "alphaSample": 0.2
+  },
+  "green-metallic-paint": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/green-metallic-paint.hpbpca",
+   "alphaSample": 0.2
+  },
+  "silver-metallic-paint": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/silver-metallic-paint.hpbpca",
+   "alphaSample": 0.2
+  },
+  "pearl-paint": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/pearl-paint.hpbpca",
+   "alphaSample": 0.2
+  },
+  "color-changing-paint1": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/color-changing-paint1.hpbpca",
+   "alphaSample": 0.2
+  },
+  "red-plastic": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/red-plastic.hpbpca",
+   "alphaSample": 0.15
+  },
+  "specular-red-phenolic": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/specular-red-phenolic.hpbpca",
+   "alphaSample": 0.15
+  },
+  "white-marble": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/white-marble.hpbpca",
+   "alphaSample": 0.3
+  },
+  "black-obsidian": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/black-obsidian.hpbpca",
+   "alphaSample": 0.1
+  },
+  "blue-fabric": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/blue-fabric.hpbpca",
+   "alphaSample": 0.6
+  },
+  "polyurethane-foam": {
+   "type": "measured",
+   "file": "assets/hpbrdf/merl/polyurethane-foam.hpbpca",
+   "alphaSample": 0.7
+  },
+  "floor": {
+   "type": "diffuse",
+   "albedo": 0.4
+  },
+  "bulb": {
+   "type": "emission",
+   "spectrum": "d65",
+   "radiance": 110
+  }
+ },
+ "objects": [
+  {
+   "shape": "sphere",
+   "center": [
+    -0.15000000000000002,
+    0.035,
+    -0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "chrome"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.05,
+    0.035,
+    -0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "nickel"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.05,
+    0.035,
+    -0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "brass"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.15000000000000002,
+    0.035,
+    -0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "two-layer-gold"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.15000000000000002,
+    0.035,
+    -0.05
+   ],
+   "radius": 0.035,
+   "material": "gold-metallic-paint"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.05,
+    0.035,
+    -0.05
+   ],
+   "radius": 0.035,
+   "material": "blue-metallic-paint"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.05,
+    0.035,
+    -0.05
+   ],
+   "radius": 0.035,
+   "material": "green-metallic-paint"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.15000000000000002,
+    0.035,
+    -0.05
+   ],
+   "radius": 0.035,
+   "material": "silver-metallic-paint"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.15000000000000002,
+    0.035,
+    0.05
+   ],
+   "radius": 0.035,
+   "material": "pearl-paint"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.05,
+    0.035,
+    0.05
+   ],
+   "radius": 0.035,
+   "material": "color-changing-paint1"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.05,
+    0.035,
+    0.05
+   ],
+   "radius": 0.035,
+   "material": "red-plastic"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.15000000000000002,
+    0.035,
+    0.05
+   ],
+   "radius": 0.035,
+   "material": "specular-red-phenolic"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.15000000000000002,
+    0.035,
+    0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "white-marble"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.05,
+    0.035,
+    0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "black-obsidian"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.05,
+    0.035,
+    0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "blue-fabric"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.15000000000000002,
+    0.035,
+    0.15000000000000002
+   ],
+   "radius": 0.035,
+   "material": "polyurethane-foam"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    -0.4,
+    0.55,
+    -0.1
+   ],
+   "radius": 0.06,
+   "material": "bulb"
+  },
+  {
+   "shape": "sphere",
+   "center": [
+    0.5,
+    0.5,
+    0.0
+   ],
+   "radius": 0.05,
+   "material": "bulb"
+  },
+  {
+   "shape": "quad",
+   "corner": [
+    -1,
+    0,
+    1
+   ],
+   "edge1": [
+    2,
+    0,
+    0
+   ],
+   "edge2": [
+    0,
+    0,
+    -2
+   ],
+   "material": "floor"
+  }
+ ]
+}

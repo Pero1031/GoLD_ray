@@ -1,7 +1,7 @@
 /**
  * @file Materials/MeasuredHpBRDF.hpp
- * @brief Measured hyperspectral-polarimetric BRDF (hpBRDF, Moon et al., SIGGRAPH Asia 2025) read from a PCA-compressed
- *        table (.hpbpca, made by BRDF_Anly/pca/hpbrdf_pca.py). Header only; the decoder is Materials/hpbrdf_pca.hpp.
+ * @brief Measured hyperspectral-polarimetric BRDF (hpBRDF, Moon et al., SIGGRAPH Asia 2025), or any PCA-compressed
+ *        BRDF table (.hpbpca v2, made by brdfkit: MERL tables are RGB and unpolarized). Header only; the decoder is Materials/hpbrdf_pca.hpp.
  *
  * What the table holds: an isotropic pBRDF as a 4x4 Mueller matrix over the Rusinkiewicz angles (phi_d, theta_d, theta_h)
  * and 68 wavelengths (414-950 nm), compressed to a 40-float latent vector per angular bin (PCA of log m00 and of the
@@ -86,7 +86,7 @@ namespace rayt {
 #if defined(RAYT_SPECTRAL_MODE)
             float c[kMaxCoef];
             m_table.coeffs(g.phi_d, g.theta_d, g.theta_h, c);
-            for (int i = 0; i < kSpectralSamples; ++i) out[i] = std::max(Real(0), Real(m_table.m00(c, float(lambda[i]))));
+            for (int i = 0; i < kSpectralSamples; ++i) out[i] = std::max(Real(0), Real(m_table.m00(c, channelOf(float(lambda[i])))));
 #else
             (void)lambda;
             const std::array<float, 3> rgb = rgbAt(g.phi_d, g.theta_d, g.theta_h);
@@ -143,6 +143,7 @@ namespace rayt {
         /// The measured Mueller matrix (divided by m00) of the scattering wi -> wo, in the renderer's s bases (docs/POLARIZATION.md).
         bool scatterMueller(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi,
             const SampledWavelengths& lambda, pol::ScatterEvent& out) const override {
+            if (!m_table.polarized) return false;                       // an unpolarized table (MERL): depolarizing bounce
             if (glm::dot(rec.gn, wo) <= 0 || glm::dot(rec.gn, wi) <= 0) return false;
             const frame::Frame f(rec.n);
             const Vector3 woL = f.worldToLocal(wo), wiL = f.worldToLocal(wi);
@@ -162,9 +163,9 @@ namespace rayt {
             pol::Mueller Mt;   // the table's matrix / m00, per component
             for (int i = 0; i < pol::kN; ++i) {
 #if defined(RAYT_SPECTRAL_MODE)
-                const float lam = float(lambda[i]);
+                const float lam = channelOf(float(lambda[i]));
 #else
-                const float lam = kRgbLambda[size_t(i)];
+                const float lam = m_table.rgb ? float(i) : kRgbLambda[size_t(i)];
 #endif
                 const hpbrdf::Mueller M = m_table.mueller(c, lam);
                 const float m00 = M.m[0][0];
@@ -194,6 +195,11 @@ namespace rayt {
         std::vector<float> m_rgb;                  // baked [phi][thd][thh][3]
 #endif
 
+        /// channel coordinate for the decoder: the wavelength itself, or the nearest RGB channel of an RGB table (spectral build fallback)
+        float channelOf(float lambda_nm) const {
+            if (!m_table.rgb) return lambda_nm;
+            return lambda_nm < 490.f ? 2.f : (lambda_nm < 580.f ? 1.f : 0.f);
+        }
         static hpbrdf::Vec3 toVec(const Vector3& v) { return hpbrdf::Vec3(float(v.x), float(v.y), float(v.z)); }
         static Vector3 toVector3(const hpbrdf::Vec3& v) { return Vector3(Real(v.x), Real(v.y), Real(v.z)); }
 
@@ -211,7 +217,8 @@ namespace rayt {
         /// m00 over the table's bands -> linear sRGB with the band weights
         std::array<float, 3> rgbOfSpectrum(const float* c) const {
             std::array<float, 3> rgb = { 0.f, 0.f, 0.f };
-            for (uint32_t w = 0; w < m_table.n_wvl; ++w) {
+            if (m_table.rgb) { for (int ch = 0; ch < 3; ++ch) rgb[size_t(ch)] = m_table.m00_band(c, uint32_t(ch)); return rgb; }
+            for (uint32_t w = 0; w < m_table.n_ch; ++w) {
                 const float v = m_table.m00_band(c, w);
                 for (int ch = 0; ch < 3; ++ch) rgb[size_t(ch)] += m_rgbW[size_t(w) * 3 + size_t(ch)] * v;
             }
@@ -219,12 +226,13 @@ namespace rayt {
         }
 
         void init() {
-            // band weights: XYZ -> linear sRGB (D65), normalized per channel so that a flat spectrum is white
-            const uint32_t n = m_table.n_wvl;
+            // band weights: XYZ -> linear sRGB (D65), normalized per channel so that a flat spectrum is white (wavelength tables only)
+            if (!m_table.rgb) {
+            const uint32_t n = m_table.n_ch;
             m_rgbW.assign(size_t(n) * 3, 0.f);
             double sum[3] = { 0, 0, 0 };
             for (uint32_t w = 0; w < n; ++w) {
-                double x, y, z; cmf(double(m_table.wvls[w]), x, y, z);
+                double x, y, z; cmf(double(m_table.channels[w]), x, y, z);
                 const double r = 3.2406 * x - 1.5372 * y - 0.4986 * z;
                 const double g = -0.9689 * x + 1.8758 * y + 0.0415 * z;
                 const double b = 0.0557 * x - 0.2040 * y + 1.0570 * z;
@@ -234,6 +242,7 @@ namespace rayt {
             for (uint32_t w = 0; w < n; ++w)
                 for (int ch = 0; ch < 3; ++ch) m_rgbW[size_t(w) * 3 + size_t(ch)] = float(m_rgbW[size_t(w) * 3 + size_t(ch)] / sum[ch]);
 
+            }
 #if !defined(RAYT_SPECTRAL_MODE)
             // bake the RGB table: one exp per band per bin (about 3 M bins; a few seconds, parallel when OpenMP is on)
             const long long nb = (long long) m_table.n_phi * m_table.n_thd * m_table.n_thh;

@@ -1,0 +1,21 @@
+{
+  // Three aluminums under one sphere light, left to right:
+  //   MERL aluminium (Matusik 2003, RGB, unpolarized), hpBRDF aluminum (Moon 2025, 414-950 nm), analytic silver (for scale).
+  // Both tables are exported by brdfkit (python -m brdfkit export) and read as "measured" materials.
+  "options": { "width": 960, "spp": 64 },
+  "camera": { "from": [0.0, 0.16, 0.42], "at": [0.0, 0.03, 0.0], "fov": 34 },
+  "materials": {
+    "merl": { "type": "measured", "file": "assets/hpbrdf/MERL_aluminium.hpbpca", "alphaSample": 0.1 },
+    "hp": { "type": "measured", "file": "assets/hpbrdf/Aluminum.hpbpca", "alphaSample": 0.1 },
+    "ideal": { "type": "conductor", "metal": "Ag", "roughness": 0.05 },
+    "floor": { "type": "diffuse", "albedo": 0.5 },
+    "bulb": { "type": "emission", "spectrum": "d65", "radiance": 60 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-0.1, 0.04, 0.0], "radius": 0.04, "material": "merl" },
+    { "shape": "sphere", "center": [0.0, 0.04, 0.0], "radius": 0.04, "material": "hp" },
+    { "shape": "sphere", "center": [0.1, 0.04, 0.0], "radius": 0.04, "material": "ideal" },
+    { "shape": "sphere", "center": [-0.2, 0.25, 0.15], "radius": 0.04, "material": "bulb" },
+    { "shape": "quad", "corner": [-1, 0, 1], "edge1": [2, 0, 0], "edge2": [0, 0, -2], "material": "floor" }
+  ]
+}

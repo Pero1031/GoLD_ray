@@ -262,9 +262,11 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 return 1;
             }
             const auto& t = mat->table();
-            std::cout << "[SceneFile] material \"" << name << "\": measured hpBRDF " << m.measuredFile
-                << " (" << t.n_phi << "x" << t.n_thd << "x" << t.n_thh << " bins, " << t.n_wvl << " bands "
-                << t.wvls.front() << "-" << t.wvls.back() << " nm, latent " << t.k1 << "+" << t.k2 << ")\n";
+            std::cout << "[SceneFile] material \"" << name << "\": measured BRDF table " << m.measuredFile
+                << " (" << t.n_phi << "x" << t.n_thd << "x" << t.n_thh << " bins, ";
+            if (t.rgb) std::cout << "RGB";
+            else std::cout << t.n_ch << " bands " << t.channels.front() << "-" << t.channels.back() << " nm";
+            std::cout << (t.polarized ? ", polarized" : ", unpolarized") << ", latent " << t.k1 << "+" << t.k2 << ")\n";
             materials[name] = mat;
             break;
         }

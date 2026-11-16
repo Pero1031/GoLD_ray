@@ -1,30 +1,30 @@
-// hpbrdf_pca.hpp - header-only decoder for PCA-compressed hpBRDF tables (.hpbpca)
+// hpbrdf_pca.hpp - header-only decoder for PCA-compressed BRDF tables (.hpbpca, format v2). No dependencies, C++17.
+// Home: brdfkit/cpp/hpbrdf_pca.hpp (the exporter is brdfkit/export/hpbpca.py; tests/ check both agree).
 //
-//   #define HPBRDF_PCA_IMPLEMENTATION in exactly one translation unit before including, or just
-//   include it (everything is inline / templates - the define is optional and kept for symmetry).
-//
-// File layout (little endian), written by  python pca/hpbrdf_pca.py export OUT.npz OUT.hpbpca
-//   char     magic[8] = "HPBPCA01"
-//   uint32   n_phi, n_thd, n_thh, n_wvl, k1, k2, coef_type (0 = float16, 1 = float32), flags
+// File layout (little endian), written by  python -m brdfkit export OUT.npz OUT.hpbpca
+//   char     magic[8] = "HPBPCA02"
+//   uint32   n_phi, n_thd, n_thh, n_ch, k1, k2, coef_type (0 = float16, 1 = float32), flags
+//            flags bit 0: polarized (Mueller part present);  bit 1: channels are RGB (else wavelengths in nm)
 //   float    eps
 //   float    phi_d[n_phi], theta_d[n_thd], theta_h[n_thh]        // radians, ascending
-//   float    wvls[n_wvl]                                         // nm, ascending
-//   float    mean_logm00[n_wvl],  basis_logm00[n_wvl][k1]
-//   float    mean_ratio[n_wvl*15], basis_ratio[n_wvl*15][k2]     // ratio index = wvl*15 + (e-1), e = row*4+col, e>=1
+//   float    channels[n_ch]                                      // nm, or 0 1 2 for RGB
+//   float    mean_logm00[n_ch],  basis_logm00[n_ch][k1]
+//   float    mean_ratio[n_ch*15], basis_ratio[n_ch*15][k2]       // only when polarized; ratio index = ch*15 + (e-1), e = row*4+col
 //   uint8    valid[n_phi][n_thd][n_thh]                          // 1 where the source table had data
 //   coef_t   coef[n_phi][n_thd][n_thh][k1+k2]                    // latent vector per angular bin
 //
-// Decode:  m00(lambda)   = exp( mean_logm00(lambda) + basis_logm00(lambda).c[0:k1] )
-//          m_e(lambda)   = m00(lambda) . ( mean_ratio(lambda,e) + basis_ratio(lambda,e).c[k1:k1+k2] )
+// Decode:  m00(ch)  = exp( mean_logm00(ch) + basis_logm00(ch) . c[0:k1] )
+//          m_e(ch)  = m00(ch) . ( mean_ratio(ch,e) + basis_ratio(ch,e) . c[k1:k1+k2] )
 //
-// Conventions (identical to Mitsuba 3 `measured_polarized`, see pca/hpbrdf_decoder.py):
+// Conventions (identical to Mitsuba 3 `measured_polarized`, see brdfkit/geometry.py):
 //   * local shading frame, normal = +z, unit vectors
 //   * to_light : surface -> light   (light propagates along -to_light)
 //   * to_view  : surface -> viewer  (light leaves along +to_view)
 //   * returned Mueller matrix / m00 is f_r without the cosine factor
 //   * M is expressed in Stokes frames whose x reference vectors (x_in for the incident beam along -to_light,
-//     x_out for the outgoing beam along +to_view) lie in the plane of reflection.  Use rotate_mueller_basis()
-//     to move it into your renderer's frames.  Sign conventions of rotator()/unit_angle follow Mitsuba 3.
+//     x_out for the outgoing beam along +to_view) lie in the plane of reflection. Use rotate_mueller_basis()
+//     to move it into your renderer's frames. Sign conventions of rotator()/unit_angle follow Mitsuba 3.
+//   * the channel coordinate passed to m00()/mueller() is a wavelength in nm, or 0 / 1 / 2 for RGB tables.
 #pragma once
 #include <cmath>
 #include <cstdint>
@@ -56,7 +56,7 @@ struct Mueller { float m[4][4]; };   // m[row][col]
 // ---------------------------------------------------------------------------- geometry
 struct Geometry {
     float phi_d, theta_d, theta_h;   // Rusinkiewicz parameters as stored in the table
-    Vec3  x_in, x_out;               // Stokes reference vectors of the table's Mueller matrix (world/local frame)
+    Vec3  x_in, x_out;               // Stokes reference vectors of the table's Mueller matrix
 };
 
 // Mitsuba directions_to_rusinkiewicz(i, o): i = to_light (std frame), o = to_view (std frame)
@@ -130,11 +130,12 @@ inline float half_to_float(uint16_t h) {
 // ---------------------------------------------------------------------------- the table
 class PCATable {
 public:
-    uint32_t n_phi = 0, n_thd = 0, n_thh = 0, n_wvl = 0, k1 = 0, k2 = 0;
+    uint32_t n_phi = 0, n_thd = 0, n_thh = 0, n_ch = 0, k1 = 0, k2 = 0;
+    bool polarized = false, rgb = false;
     float eps = 1e-4f;
-    std::vector<float> phi_d, theta_d, theta_h, wvls;
-    std::vector<float> mean_logm00, basis_logm00;   // [wvl], [wvl][k1]
-    std::vector<float> mean_ratio, basis_ratio;     // [wvl*15+e], [wvl*15+e][k2]
+    std::vector<float> phi_d, theta_d, theta_h, channels;
+    std::vector<float> mean_logm00, basis_logm00;   // [ch], [ch][k1]
+    std::vector<float> mean_ratio, basis_ratio;     // [ch*15+e], [ch*15+e][k2]   (empty when !polarized)
     std::vector<uint8_t> valid;                     // [phi][thd][thh]
     std::vector<float> coef;                        // [phi][thd][thh][k]  (converted to float32 on load)
 
@@ -149,14 +150,18 @@ public:
 #endif
         if (!f) { if (err) *err = "cannot open " + path; return false; }
         char magic[8]; uint32_t hdr[8];
-        if (std::fread(magic, 1, 8, f) != 8 || std::memcmp(magic, "HPBPCA01", 8) != 0) { if (err) *err = "bad magic"; std::fclose(f); return false; }
-        std::fread(hdr, 4, 8, f); std::fread(&eps, 4, 1, f);
-        n_phi = hdr[0]; n_thd = hdr[1]; n_thh = hdr[2]; n_wvl = hdr[3]; k1 = hdr[4]; k2 = hdr[5];
-        uint32_t coef_type = hdr[6];
-        auto rd = [&](std::vector<float> &v, size_t n) { v.resize(n); return std::fread(v.data(), 4, n, f) == n; };
-        bool ok = rd(phi_d, n_phi) && rd(theta_d, n_thd) && rd(theta_h, n_thh) && rd(wvls, n_wvl) &&
-                  rd(mean_logm00, n_wvl) && rd(basis_logm00, (size_t) n_wvl * k1) &&
-                  rd(mean_ratio, (size_t) n_wvl * 15) && rd(basis_ratio, (size_t) n_wvl * 15 * k2);
+        if (std::fread(magic, 1, 8, f) != 8 || std::memcmp(magic, "HPBPCA02", 8) != 0) {
+            if (err) *err = std::memcmp(magic, "HPBPCA", 6) == 0 ? "old .hpbpca format: re-export with brdfkit" : "bad magic";
+            std::fclose(f); return false;
+        }
+        bool ok = std::fread(hdr, 4, 8, f) == 8 && std::fread(&eps, 4, 1, f) == 1;
+        n_phi = hdr[0]; n_thd = hdr[1]; n_thh = hdr[2]; n_ch = hdr[3]; k1 = hdr[4]; k2 = hdr[5];
+        uint32_t coef_type = hdr[6], flags = hdr[7];
+        polarized = (flags & 1u) != 0; rgb = (flags & 2u) != 0;
+        auto rd = [&](std::vector<float> &v, size_t n) { v.resize(n); return n == 0 || std::fread(v.data(), 4, n, f) == n; };
+        ok = ok && rd(phi_d, n_phi) && rd(theta_d, n_thd) && rd(theta_h, n_thh) && rd(channels, n_ch) &&
+             rd(mean_logm00, n_ch) && rd(basis_logm00, (size_t) n_ch * k1);
+        if (polarized) ok = ok && rd(mean_ratio, (size_t) n_ch * 15) && rd(basis_ratio, (size_t) n_ch * 15 * k2);
         size_t nb = (size_t) n_phi * n_thd * n_thh;
         valid.resize(nb); ok = ok && std::fread(valid.data(), 1, nb, f) == nb;
         coef.resize(nb * k());
@@ -174,9 +179,10 @@ public:
     // --- axis lookup: index j and fraction t such that x ~ axis[j]*(1-t) + axis[j+1]*t
     static void locate(const std::vector<float> &ax, float x, uint32_t &j, float &t) {
         uint32_t n = (uint32_t) ax.size();
+        if (n < 2) { j = 0; t = 0; return; }
         if (x <= ax[0]) { j = 0; t = 0; return; }
         if (x >= ax[n - 1]) { j = n - 2; t = 1; return; }
-        uint32_t lo = 0, hi = n - 1;                      // binary search: ax[lo] <= x < ax[hi]
+        uint32_t lo = 0, hi = n - 1;
         while (hi - lo > 1) { uint32_t mid = (lo + hi) >> 1; if (ax[mid] <= x) lo = mid; else hi = mid; }
         j = lo; float w = ax[j + 1] - ax[j]; t = w > 0 ? (x - ax[j]) / w : 0.f;
     }
@@ -196,31 +202,37 @@ public:
         }
     }
 
-    // --- wavelength lookup
-    void locate_wvl(float lambda_nm, uint32_t &j, float &t) const { locate(wvls, lambda_nm, j, t); }
+    // --- channel lookup (wavelength in nm, or 0 / 1 / 2 for RGB)
+    void locate_channel(float ch, uint32_t &j, float &t) const {
+        if (n_ch == 1) { j = 0; t = 0; return; }
+        locate(channels, ch, j, t);
+    }
+    const float *mean1_at(uint32_t j) const { return &mean_logm00[j]; }
 
-    // m00 (= unpolarized f_r) at wavelength lambda_nm
-    float m00(const float *c, float lambda_nm) const {
-        uint32_t j; float t; locate_wvl(lambda_nm, j, t);
-        float v = (1 - t) * mean_logm00[j] + t * mean_logm00[j + 1];
-        const float *b0 = &basis_logm00[(size_t) j * k1], *b1 = b0 + k1;
+    // m00 (= unpolarized f_r) at channel coordinate ch
+    float m00(const float *c, float ch) const {
+        uint32_t j; float t; locate_channel(ch, j, t);
+        uint32_t j1 = (n_ch == 1) ? j : j + 1;
+        float v = (1 - t) * mean_logm00[j] + t * mean_logm00[j1];
+        const float *b0 = &basis_logm00[(size_t) j * k1], *b1 = &basis_logm00[(size_t) j1 * k1];
         for (uint32_t q = 0; q < k1; ++q) v += ((1 - t) * b0[q] + t * b1[q]) * c[q];
         return std::exp(v);
     }
-    // m00 at table wavelength index w (no interpolation)
+    // m00 at table channel index w (no interpolation)
     float m00_band(const float *c, uint32_t w) const {
         float v = mean_logm00[w]; const float *b = &basis_logm00[(size_t) w * k1];
         for (uint32_t q = 0; q < k1; ++q) v += b[q] * c[q];
         return std::exp(v);
     }
-    // full Mueller matrix (table frame) at wavelength lambda_nm
-    Mueller mueller(const float *c, float lambda_nm) const {
-        uint32_t j; float t; locate_wvl(lambda_nm, j, t);
-        float i00 = m00(c, lambda_nm);
-        Mueller M; M.m[0][0] = i00;
-        const float *c2 = c + k1;
+    // full Mueller matrix (table frame) at channel coordinate ch; for an unpolarized table only m[0][0] is set
+    Mueller mueller(const float *c, float ch) const {
+        Mueller M{}; M.m[0][0] = m00(c, ch);
+        if (!polarized) return M;
+        uint32_t j; float t; locate_channel(ch, j, t);
+        uint32_t j1 = (n_ch == 1) ? j : j + 1;
+        const float *c2 = c + k1; float i00 = M.m[0][0];
         for (uint32_t e = 1; e < 16; ++e) {
-            size_t r0 = (size_t) j * 15 + (e - 1), r1 = r0 + 15;
+            size_t r0 = (size_t) j * 15 + (e - 1), r1 = (size_t) j1 * 15 + (e - 1);
             float v = (1 - t) * mean_ratio[r0] + t * mean_ratio[r1];
             const float *b0 = &basis_ratio[r0 * k2], *b1 = &basis_ratio[r1 * k2];
             for (uint32_t q = 0; q < k2; ++q) v += ((1 - t) * b0[q] + t * b1[q]) * c2[q];
@@ -231,19 +243,18 @@ public:
 
     // --- convenience: full evaluation from directions
     struct Result { Geometry g; float m00; Mueller M; };
-    Result eval(Vec3 to_light, Vec3 to_view, float lambda_nm, bool polarized = true, float *scratch = nullptr) const {
+    Result eval(Vec3 to_light, Vec3 to_view, float ch, bool want_polarized = true, float *scratch = nullptr) const {
         Result r; r.g = geometry(to_light, to_view);
         std::vector<float> tmp; float *c = scratch;
         if (!c) { tmp.resize(k()); c = tmp.data(); }
         coeffs(r.g.phi_d, r.g.theta_d, r.g.theta_h, c);
-        if (polarized) { r.M = mueller(c, lambda_nm); r.m00 = r.M.m[0][0]; }
-        else { r.m00 = m00(c, lambda_nm); r.M = Mueller{}; r.M.m[0][0] = r.m00; }
+        if (want_polarized && polarized) { r.M = mueller(c, ch); r.m00 = r.M.m[0][0]; }
+        else { r.m00 = m00(c, ch); r.M = Mueller{}; r.M.m[0][0] = r.m00; }
         return r;
     }
     // Mueller matrix rotated into Mitsuba's implicit Stokes frames (default_basis of the propagation directions).
-    // Replace the two target vectors with your renderer's own reference vectors if they differ.
-    Mueller eval_default_frames(Vec3 to_light, Vec3 to_view, float lambda_nm) const {
-        Result r = eval(to_light, to_view, lambda_nm, true);
+    Mueller eval_default_frames(Vec3 to_light, Vec3 to_view, float ch) const {
+        Result r = eval(to_light, to_view, ch, true);
         Vec3 fin = -to_light, fout = to_view;
         return rotate_mueller_basis(r.M, fin, r.g.x_in, default_basis(fin), fout, r.g.x_out, default_basis(fout));
     }
