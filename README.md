@@ -126,14 +126,6 @@ of a scene file). 1200 x 800, 256 spp, OIDN-denoised, 4 minutes. The scene is wr
 <sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
 [Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/); the scan is not part of this repository.</sub>
 
-**A clear coat over a base** (`scenes/layered_gloss.json`, `scenes/layered_lacquer.json`): lacquer on gold, car paint. The coat is a
-rough dielectric over a diffuse or metal base, and the light that bounces between the two layers is summed by a random walk
-([details](docs/GLOSS.md); checked against a closed form and against two independent estimators, `--scene layered`).
-Gloss has two independent axes: the sharpness of the reflections (coat roughness, rows) and their contrast (brightness of the
-base, columns). 1280 x 720, 192 spp, OIDN-denoised.
-
-![A grid of spheres: coat roughness against base brightness](docs/img/gloss_grid.png)
-
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
 surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md)), and the color comes from melanin alone.
 Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
@@ -165,11 +157,19 @@ sheet at its original color, and the cup of rolled paper by the window faded on 
 
 **Measured leather, matte and glossy**: a piece of cowhide measured with a 2D spectroradiometer in the lab (not part of this repository)
 becomes a spectral reflectance texture. Its relief is estimated from the shading in the measurement and built as a mesh, so the grain
-catches the light from any direction. On the right, the same leather under a satin clear coat (`layered` with a `reflectanceTexture` base).
+catches the light from any direction. On the right, the same leather under a satin clear coat (`layered` with a `reflectanceTexture` base:
+a rough dielectric coat over a base, the light between the two layers summed by a random walk; [details](docs/GLOSS.md)).
 Lit by a 3200 K lamp and a narrow-band 475 nm LED whose spectrum was also measured in the lab, rendered spectrally.
 800 x 560 each, 256 spp, OIDN-denoised, about 3 minutes each.
 
 <img src="docs/img/gallery_leather.png" alt="The same measured cowhide twice under a warm lamp and a blue LED: matte on the left, with a satin clear coat on the right" width="820">
+
+**Gilt leather**: the same measured leather with metal leaf on the raised grain and the leather showing in the grooves (`mix`: two
+materials laid by a mask). The left half is gold leaf; the right half is silver leaf under a yellow varnish, the way historical gilt leather
+was made, with the varnish color fitted to gold under daylight. Under daylight (left picture) and a 3200 K lamp (right) the two halves are
+hard to tell apart. Rendered spectrally, 800 x 560 each, 256 spp, OIDN-denoised.
+
+<img src="docs/img/gallery_gilt_leather.png" alt="The same gilt leather under daylight and under a 3200 K lamp; in each, the left half is gold leaf and the right half silver leaf under a yellow varnish, and the two halves look alike" width="820">
 
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`; one wavelength per pass for the dispersion),
@@ -311,7 +311,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
   micro-relief, uneven color and oily / dry patches: [details](docs/SKIN.md); and with a film of water, lotion or emulsion on it:
   [details](docs/SKIN_MOISTURE.md)), `LayeredCoat` (a clear coat over a diffuse or metal base, summed by a random walk
   between the layers), `RoughConductor` (also anisotropic: brushed or turned metal, with the tangent taken from the shape),
-  `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `MeasuredHpBRDF` (a measured, PCA-compressed hpBRDF table, one BRDF per wavelength), `DiffuseLight`. On skin there are also a foundation layer and a primer (Kubelka-Munk and random-walk layers: [details](docs/COSMETICS.md)), and a diffuse reflectance can fade with the hours of light exposure, from a measured series or from an RGB color alone, varying over the surface.
+  `Dielectric` (smooth or rough, dispersive), `Hair` (one fiber: reflection, transmission and internal reflection, colored by melanin), `MeasuredHpBRDF` (a measured, PCA-compressed hpBRDF table, one BRDF per wavelength), `MixMaterial` (two materials laid over the surface by a mask), `DiffuseLight`. On skin there are also a foundation layer and a primer (Kubelka-Munk and random-walk layers: [details](docs/COSMETICS.md)), and a diffuse reflectance can fade with the hours of light exposure, from a measured series or from an RGB color alone, varying over the surface.
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, STL, PMX; a captured object from a scan or from 3D Gaussian Splatting can be brought in and given a physical material, and a 3DGS point cloud itself can be ray-traced as emissive particles around the physical objects: [details](docs/CAPTURE.md)), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md)), and
   hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
@@ -358,7 +358,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 |---|---|
 | `Core/` | types, `Spectrum`, `SampledWavelengths`, sampling, Fresnel, polarization (Stokes, Mueller), `RenderMode.hpp` |
 | `Color/` | spectral curves, CIE functions, illuminants, emission spectra, complex IOR tables, `R(λ)`-to-`(n,k)` |
-| `Materials/` | Lambertian, CoatedDiffuse (with the skin relief, wrinkle simulation, pigment and cosmetic layers), LayeredCoat, RoughConductor, Dielectric, ThinFilm, Hair, MeasuredHpBRDF, fading dyes, DiffuseLight, Subsurface, media |
+| `Materials/` | Lambertian, CoatedDiffuse (with the skin relief, wrinkle simulation, pigment and cosmetic layers), LayeredCoat, RoughConductor, Dielectric, ThinFilm, Hair, MeasuredHpBRDF, MixMaterial, fading dyes, DiffuseLight, Subsurface, media |
 | `Microfacet/` | GGX and the directional-albedo table for the multiple-scattering compensation |
 | `Geometry/`, `Scene/`, `Accelerators/` | shapes (also hair curves and the ocean mesh), aggregate, SAH BVH, Embree wrapper |
 | `Lights/` | point / area / environment lights, light samplers |
