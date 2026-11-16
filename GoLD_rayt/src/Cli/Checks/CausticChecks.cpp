@@ -433,7 +433,7 @@ static bool RunLvcSdsCase(const CliOptions& opt, Real abbe, bool throughBall = t
     for (size_t i = 0; i < refImg.size(); ++i) refImg[i] = ref.getData()[i] + splat[i];
     // development (--lvc-mask 1016 and above, with --out): the pictures as linear .pfm files named after the output
     auto dumpFilm = [&](const Vector3* d, const char* tag) {
-        if (opt.lvcMask < 1016 || opt.out.empty()) return;
+        if (opt.lvcMask < 1016 || opt.out.empty() || opt.out == "result_lvc.png") return;   // only with an --out of one's own (not the default name)
         Film f(W, H);
         for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) f.setPixel(x, y, d[static_cast<size_t>(y) * W + x]);
         f.save(opt.out.substr(0, opt.out.find_last_of('.')) + "_" + tag + ".pfm");
