@@ -59,8 +59,4 @@ Usage: `python tools/data/make_sky.py --sun-el 12 --sun-dir -0.15 -0.97 --out Go
 
 ## References
 
-- Bohren & Huffman, *Absorption and Scattering of Light by Small Particles*, Wiley, 1983 (BHMIE).
-- Nishita, Sirai, Tadamura, Nakamae, "Display of the Earth taking into account atmospheric scattering", SIGGRAPH 1993, 175-182.
-- Hansen & Travis, "Light scattering in planetary atmospheres", Space Science Reviews 16, 527-610, 1974 (size distribution).
-
-(The bibliographic details were checked by web search on 2026-11-09.)
+See [REFERENCES.md](REFERENCES.md), group "Clouds, ocean and sky".

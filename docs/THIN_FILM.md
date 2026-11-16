@@ -103,6 +103,4 @@ Figure: `tools/figures/thinfilm_figure.py` (RGB version on the left, spectral ve
 
 ## References
 
-- M. Born, E. Wolf, *Principles of Optics* (thin films, sum of multiple reflections)
-- B. Smits, G. Meyer, "Newton's Colors: Simulating Interference Phenomena in Realistic Image Synthesis", Eurographics Workshop on Photosimulation, Realism and Physics in Computer Graphics, 1990, pp. 185-194 (reprinted in the book *Photorealism in Computer Graphics*, Springer, 1992; an early work applying interference to computer graphics)
-- L. Belcour, P. Barla, "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", ACM TOG 36(4), Article 65, 2017 (SIGGRAPH 2017; extension to rough surfaces)
+See [REFERENCES.md](REFERENCES.md), group "Dispersion and thin films".

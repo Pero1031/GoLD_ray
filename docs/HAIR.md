@@ -156,10 +156,4 @@ The head is a sphere seen from behind. The area lights above and at the back lef
 
 ## 6. References
 
-**The bibliographic data were checked by web search on 2026-11-09** (authors, title, journal, volume and number, year, pages).
-
-- Marschner, Jensen, Cammarano, Worley, Hanrahan. *Light Scattering from Human Hair Fibers.* ACM Transactions on Graphics (SIGGRAPH) 22(3), 780-791, 2003. (the three lobes R, TT, TRT)
-- d'Eon, Francois, Hill, Letteri, Aubry. *An Energy-Conserving Hair Reflectance Model.* Computer Graphics Forum (EGSR) 30(4), 1181-1187, 2011. (energy conservation, the equation of Mₚ, the approximation that sets σₐ from the apparent color)
-- Chiang, Bitterli, Tappan, Burley. *A Practical and Controllable Hair and Fur Model for Production Path Tracing.* Computer Graphics Forum (Eurographics) 35(2), 275-283, 2016. (the logistic distribution of Nₚ, the roughness equations, importance sampling)
-- Pharr, Jakob, Humphreys. *Physically Based Rendering: From Theory to Implementation*, 4th ed. 2023. (the implementation of `HairBxDF`; the σₐ values of melanin)
-- Zinke, Yuksel, Weber, Keyser. *Dual Scattering Approximation for Fast Multiple Scattering in Hair.* ACM Transactions on Graphics (SIGGRAPH) 27(3), Article 32, 2008.
+See [REFERENCES.md](REFERENCES.md), group "Hair".

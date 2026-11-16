@@ -42,10 +42,4 @@ To draw an ocean under a low sun, the ocean surface is built from a **wave spect
 
 ## References
 
-- Tessendorf, "Simulating Ocean Water", SIGGRAPH course notes, 2001 (depending on the edition of the notes the year differs, 2001 / 2002; the copyright notice is 1999-2001).
-- Pierson & Moskowitz, "A proposed spectral form for fully developed wind seas based on the similarity theory of S. A. Kitaigorodskii", J. Geophys. Res. 69(24), 5181-5190, 1964.
-- Hasselmann et al., "Measurements of wind-wave growth and swell decay during the Joint North Sea Wave Project (JONSWAP)", Deutsche Hydrographische Zeitschrift, Reihe A (8°), Nr. 12, 1973 (16 authors, Hasselmann is the first).
-- Cox & Munk, "Measurement of the roughness of the sea surface from photographs of the sun's glitter", J. Opt. Soc. Am. 44(11), 838-850, 1954.
-- Pope & Fry, "Absorption spectrum (380-700 nm) of pure water. II. Integrating cavity measurements", Applied Optics 36(33), 8710-8723, 1997.
-
-(The bibliographic details were checked by web search on 2026-11-09.)
+See [REFERENCES.md](REFERENCES.md), group "Clouds, ocean and sky".

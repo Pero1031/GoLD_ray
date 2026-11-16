@@ -151,11 +151,4 @@ The existing checks (lights, volume, layered, sss, aniso, ocean, hair) still PAS
 
 ## 7. References
 
-**The bibliographic data were checked by web search on 2026-11-09** (authors, title, journal, volume and issue, year, pages). Haro et al., Graham et al., Weiss et al., and Barros and Walter were checked from search summaries (of the papers, only Weiss et al. was read in full).
-
-- S. Worley. *A Cellular Texture Basis Function.* SIGGRAPH 1996, 291-294. (Worley noise)
-- A. Haro, B. Guenter, I. Essa. *Real-time, Photo-realistic, Physically Based Rendering of Fine Scale Human Skin Structure.* Eurographics Workshop on Rendering, 53-62, 2001. (Normal maps made from a mould, extended by texture synthesis)
-- P. Graham, B. Tunwattanapong, J. Busch, X. Yu, A. Jones, P. Debevec, A. Ghosh. *Measurement-Based Synthesis of Facial Microgeometry.* Computer Graphics Forum (Eurographics) 32(2), 335-344, 2013. (Synthesis of measured close-up patches)
-- S. Weiss, J. Moulin, P. Chandran, G. Zoss, P. Gotardo, D. Bradley. *Graph-Based Synthesis for Skin Micro Wrinkles.* Computer Graphics Forum 42(5) (Eurographics Symposium on Geometry Processing), 2023. (Furrows from a graph with pores as points. Implemented in section 2.4)
-- R. S. Barros, M. Walter. *Synthesis of Human Skin Pigmentation Disorders.* Computer Graphics Forum 36(1), 330-344, 2017. (Pigment patches by reaction-diffusion. Not used here)
-- P. Christensen, B. Burley. *Approximate Reflectance Profiles for Efficient Subsurface Scattering.* Pixar Technical Memo 15-04, 2015. (Profile, albedo inversion)
+See [REFERENCES.md](REFERENCES.md), group "Skin: micro-relief, pigment and wetness".

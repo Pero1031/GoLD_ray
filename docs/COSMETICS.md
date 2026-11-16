@@ -221,11 +221,4 @@ The existing checks related to skin (`relief`, `sss`, `furnace`, `metals`, `aov`
 
 ## 7. References
 
-- D. Lanza et al., "Practical Appearance Model for Foundation Cosmetics", *Computer Graphics Forum* 43(4), 2024. (Text read.)
-- Y. Guo, M. Hašan, S. Zhao, "Position-free Monte Carlo simulation for arbitrary layered BSDFs", *ACM Trans. Graph.* 37(6), 2018. (Cited second-hand from the paper above. Not read.)
-- E. Heitz, J. Dupuy, C. Crassin, C. Dachsbacher, "The SGGX microflake distribution", *ACM Trans. Graph.* 34(4), 2015. (Distribution of platelet normals and its sampling. Implemented from memory and checked by numerical integration.)
-- K. Yoshida, N. Okiyama, "Estimation of reflectance, transmittance, and absorbance of cosmetic foundation layer on skin using translucency of skin", *Optics Express* 29(24), 40038–40050, 2021, doi:10.1364/OE.442219. (Full text read: measures r_F, t_F, a_F of a layer on skin. Formula R = r_F + t_F² r_S/(1 − r_F r_S).)
-- M. Doi, R. Ohtsuki, S. Tominaga, "Spectral Estimation of Skin Color with Foundation Makeup", *SCIA 2005*, LNCS 3540, 95–104. (Full text read: Kubelka-Munk two layers; K and S measured from a thick and a thin layer on a black background.)
-- C.-G. Huang, T.-S. Huang, W.-C. Lin, J.-H. Chuang, "Physically based cosmetic rendering", *Computer Animation and Virtual Worlds* 24(3–4), 275–283, 2013, doi:10.1002/cav.1523. (Full text read.)
-- F. Ikkai, C. Blaksley, R. Hayashi, A. Jaspers, "Cosmetic effects of red-light reflection by ultramarine blue pigment", *Int. J. Cosmet. Sci.*, 2023, doi:10.1111/ics.12849. (Full text read: how to measure the intrinsic colour, artificial skins on black and white, definition of hiding power.)
-- P. Kubelka, "New Contributions to the Optics of Intensely Light-Scattering Materials. Part II: Nonhomogeneous Layers", *J. Opt. Soc. Am.* 44(4), 330–335, 1954. (Cited second-hand from the paper above. Not read.)
+See [REFERENCES.md](REFERENCES.md), group "Foundation make-up".

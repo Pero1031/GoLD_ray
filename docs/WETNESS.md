@@ -63,7 +63,4 @@ A picture of dry pebbles processed with the WET operator (γ = 3, saturation +0.
 
 ## 5. References
 
-- M. Sawayama, E. H. Adelson, S. Nishida, "Visual wetness perception based on image color statistics", *Journal of Vision* 17(5):7, 2017. (Full text read.)
-- J. Lekner, M. C. Dorf, "Why some things are darker when wet", *Applied Optics* 27(7), 1988. (Cited second-hand from the paper above. Not read.)
-- S. A. Twomey, C. F. Bohren, J. L. Mergenthaler, "Reflectance and albedo differences between wet and dry surfaces", *Applied Optics* 25(3), 1986. (Same. Not read.)
-- H. W. Jensen, J. Legakis, J. Dorsey, "Rendering of wet materials", *Rendering Techniques '99*, 1999. (Same. Not read.)
+See [REFERENCES.md](REFERENCES.md), group "Skin: micro-relief, pigment and wetness".

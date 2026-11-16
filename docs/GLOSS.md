@@ -82,7 +82,4 @@ In the first run, the integral of the visible-normal density exceeded 1; that wa
 
 ## References
 
-- Jakob, d'Eon, Jakob, Marschner, "A Comprehensive Framework for Rendering Layered Materials", ACM TOG 33(4), Article 118, 2014 (SIGGRAPH).
-- Pharr, Jakob, Humphreys, *Physically Based Rendering*, 4th ed. (`LayeredBxDF`).
-- Walter, Marschner, Li, Torrance, "Microfacet Models for Refraction through Rough Surfaces", EGSR 2007.
-- Heitz, "Sampling the GGX Distribution of Visible Normals", JCGT 7(4), 2018.
+See [REFERENCES.md](REFERENCES.md), group "Layered materials and gloss".

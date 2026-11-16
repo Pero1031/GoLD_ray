@@ -452,7 +452,4 @@ Implementation: `Materials/SubsurfaceWalk.hpp` (conversion of the coefficients a
 
 ### 12.5 References
 
-- M. J.-Y. Chiang, P. Kutz, B. Burley, "Practical and Controllable Subsurface Scattering for Production Path Tracing", SIGGRAPH 2016 Talks. (read in full)
-- M. Wrenninge, R. Villemin, C. Hery, "Path Traced Subsurface Scattering using Anisotropic Phase Functions and Non-Exponential Free Flights", Pixar Technical Memo 17-07, 2017. (read in full)
-- van de Hulst's formula: learned from the Cycles source (`subsurface_random_walk.h`, which says it cites the formula of d'Eon, "A Hitchhiker's Guide to Multiple Scattering"). The numbers were checked with the H function above.
-- S. Chandrasekhar, *Radiative Transfer*, 1960.
+See [REFERENCES.md](REFERENCES.md), group "Participating media and subsurface scattering".

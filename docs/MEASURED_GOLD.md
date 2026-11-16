@@ -93,7 +93,7 @@ At 60° and above Spectralon departs from Lambertian (toward specular at grazing
 - **The absolute values of the dataset cannot be used as they are** (0.64 times + angle dependence). When using them, take the ratio to Spectralon. This agrees with the absence of a definition of the values and of the calibration method on the distribution page and in the README.
 - Reciprocity (φd against φd + π) is off by a median of 25% inside the specular lobe of the gold, and 16% for Spectralon. The table has measurement noise and unevenness from interpolation.
 
-## 6. Aluminum of the hpBRDF (Moon et al., SIGGRAPH Asia 2025) (`tools/studies/measured_metal.py`)
+## 6. Aluminum of the hpBRDF (Moon et al., 2025) (`tools/studies/measured_metal.py`)
 
 "Aluminum" of the successor dataset from the same laboratory (68 wavelengths, 414 to 950 nm, 8 nm steps, the same table format as the 2020 version, 13 GB per material, published on HuggingFace; there is no pure gold) was compared by the same procedure (`references/kaist_pbrdf/aluminum_unpolarized.npz`, extracted from the original file `Aluminum.hpbrdf`).
 The optical constants are McPeak 2015 and Rakić 1995 (RefractiveIndex.info, CC0; added as `assets/Metal_data/McPeak_Al.csv` and `Rakic_Al.csv`). The two give almost the same results.
