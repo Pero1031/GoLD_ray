@@ -37,8 +37,12 @@ int RunLightTests(const CliOptions& opt);
 // -----------------------------------------------------------------------------
 int RunAovTests();
 
-// Display pipeline tests (--scene film): exposure and tone map of the written pictures (--exposure, --tonemap), .pfm untouched, clip report
+// Film output tests (--scene film): exposure and tone map of the written pictures (--exposure, --tonemap), .pfm untouched, clip report;
+// the mask and the depth map (--mask, --depth-map)
 int RunFilmTests();
+
+// Camera tests (--scene camera): the perspective and the orthographic view (--ortho) against closed forms
+int RunCameraTests();
 
 // -----------------------------------------------------------------------------
 // Thin-film interference tests (--scene thinfilm): Airy's formula against closed forms, sample() weights, furnace

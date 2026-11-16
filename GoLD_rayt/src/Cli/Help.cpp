@@ -36,6 +36,7 @@ void PrintHelp(std::ostream& out) {
         << "  --tonemap reinhard|clip   reinhard (default): x / (1 + x), highlights compressed; clip: linear up to white, clipped above it\n"
         << "                    (for stimuli: brightness ratios kept below white; it prints how many pixels clipped and how far the brightest is from white)\n"
         << "  --focal-length MM  lens as in photography (35 mm film; the long side of the picture is 36 mm): replaces the field of view of the scene\n"
+        << "  --ortho H         orthographic view H (scene units) high: parallel rays, sizes independent of the distance (0 = perspective; not with light tracing)\n"
         << "  --fstop N         defocus blur: aperture = focal length / N (scenes are in metres; without it a pinhole)\n"
         << "  --focus-dist D | --focus-at x,y,z   where the plane of focus is (default: the point the camera looks at)\n"
         << "  --blades N [--blade-rotation DEG]   polygonal aperture (3 to 32 blades): out-of-focus highlights take its shape\n"

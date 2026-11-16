@@ -287,6 +287,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--width N`, `--spp N`, `--depth N` | image width, samples per pixel, maximum path depth |
 | `--seed N` | the same picture again, noise included (path tracing). Without it every run draws a new seed and prints it |
 | `--focal-length MM`, `--fstop N`, `--focus-dist D`, `--blades N` | the lens (`--help` lists the aberration and vignetting options) |
+| `--ortho H` | an orthographic view H high: parallel rays, sizes independent of the distance |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
 | `--gamut srgb\|p3\|rec2020` | primaries of the output (default `srgb`); a `.png` is tagged so that a viewer shows it in that gamut |

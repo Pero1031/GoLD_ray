@@ -123,6 +123,9 @@
     <ClCompile Include="src\Cli\Checks\FilmChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Cli\Checks\CameraChecks.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Cli\Checks\CausticChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>

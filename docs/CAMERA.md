@@ -8,6 +8,7 @@ What the camera simulates, what the written files contain, and what is verified.
 | Part | What it does | Options |
 |---|---|---|
 | Projection | Perspective, from `from` / `at` / `up` and a vertical field of view, or a focal length on 35 mm film | `fov`, `--focal-length` |
+| Orthographic view | Parallel rays along the view axis from a rectangle H high, centred on `from`: the size of a thing does not depend on its distance (patch stimuli, measurement geometry). An aperture still defocuses (a telecentric lens) | `ortho`, `--ortho H` |
 | Thin lens | Defocus from an aperture (f-number), a plane of focus, a round or polygonal aperture (the shape of the bokeh) | `--fstop`, `--focus-dist`, `--focus-at`, `--blades` |
 | Aberrations | Radial distortion r' = r (1 + k1 r² + k2 r⁴); lateral and axial chromatic aberration (spectral build only: they need the wavelength of the path) | `--distortion`, `--lateral-ca`, `--axial-ca` |
 | Vignetting | The lens barrel cuts oblique bundles (dark corners, cat's-eye bokeh); the cos⁴ law | `--vignette`, `--natural-vignette` |
@@ -32,15 +33,20 @@ translucent layer covers a pixel in proportion to its opacity.
 
 ## 3. Verified
 
+`--scene camera` (RGB and spectral builds): `project()` undoes the ray through a pixel centre; with an aperture, the rays of a film position
+meet on the plane of focus (perspective and orthographic); the orthographic rays are parallel to the axis and start on the H × W rectangle;
+a sphere covers the same pixel area, π R² over the pixel area, at 3 m and at 9 m, and its depth follows the sphere.
+
 `--scene film` (RGB and spectral builds):
 - Display values: Reinhard and clip against their formulas, 8- and 16-bit PNG read back, `.pfm` unchanged by the display settings, the clip report.
 - Mask and depth against closed forms: a sphere's silhouette area (0.01 %), its depth on the axis, a perpendicular wall at the same depth in every corner, a translucent layer, an index-matched boundary against glass, the files read back.
 - On an Erato view, the mask agrees with an earlier mask made by rendering the statue black on white, once that render's tone curve is applied (area −0.07 %).
 
-The lens, the aberrations, the vignetting and the motion blur have no self-check of their own yet.
+The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
 ## 4. Limits
 
-- Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred.
+- Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
+- In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.
 - The depth has one ray per pixel (no anti-aliasing): an edge pixel has the depth of the surface at its centre. Gaussian splats are not surfaces for either output.

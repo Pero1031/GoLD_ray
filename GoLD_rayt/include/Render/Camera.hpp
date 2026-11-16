@@ -1,6 +1,6 @@
 ﻿/**
  * @file include/Render/Camera.hpp
- * @brief The camera: a thin lens (defocus, polygonal aperture), aberrations (radial distortion, lateral / axial chromatic aberration),
+ * @brief The camera: a perspective or orthographic view, a thin lens (defocus, polygonal aperture), aberrations (radial distortion, lateral / axial chromatic aberration),
  * vignetting (lens barrel, cos^4) and an exposure time (motion blur of the camera and the objects). docs/CAMERA.md
  */
 
@@ -135,8 +135,9 @@ namespace rayt {
                 return at.generateRay(cs, weight);   // the same time again
             }
 
-            // --- the point on the focal plane that the film sample looks at (distortion, chromatic aberrations) ---
-            const Point3 target = focalTarget(cs.pFilm.x, cs.pFilm.y, cs.lambdaNm);
+            // --- the chief ray of the film sample: from the lens centre to the point of the focal plane it looks at ---
+            Point3 chief, target;
+            chiefRay(cs.pFilm.x, cs.pFilm.y, cs.lambdaNm, chief, target);
 
             // --- lens sample (DoF) ---
             Vector3 rd(0);
@@ -147,7 +148,7 @@ namespace rayt {
                 offset = m_u * rd.x + m_v * rd.y;
             }
 
-            const Point3 rayOrigin = m_origin + offset;
+            const Point3 rayOrigin = chief + offset;
             // The BSDFs (reflect / refract / GGX) assume unit-length directions, and the camera ray
             // becomes `wo` at the first hit, so it must be normalized (its raw length is ~ focusDist).
             const Vector3 rayDir = glm::normalize(target - rayOrigin);
@@ -156,8 +157,9 @@ namespace rayt {
             if (weight) {
                 Real w = Real(1);
                 if (m_naturalVignetting > Real(0)) {
-                    // natural vignetting: the film is lit in proportion to cos^4 of the angle off the axis (relative to the centre)
-                    const Real cosTheta = glm::dot(glm::normalize(target - m_origin), -m_w);
+                    // natural vignetting: the film is lit in proportion to cos^4 of the angle off the axis (relative to the centre;
+                    // the chief rays of the orthographic view are all on the axis: no darkening)
+                    const Real cosTheta = glm::dot(glm::normalize(target - chief), -m_w);
                     w *= std::pow(std::max(cosTheta, Real(0)), Real(4) * m_naturalVignetting);
                 }
                 if (m_barrelRadius > Real(0) && m_lensRadius > Real(0)) {
@@ -203,11 +205,24 @@ namespace rayt {
          * The pinhole view of the camera (the distortion included, no defocus, no motion): what a pixel sees as geometry, e.g. its depth.
          */
         Ray centerRay(Real s, Real t) const {
-            const Point3 target = focalTarget(s, t, kReferenceWavelengthNm);
-            Ray r(m_origin, glm::normalize(target - m_origin), constants::RAY_EPSILON, m_medium);
+            Point3 chief, target;
+            chiefRay(s, t, kReferenceWavelengthNm, chief, target);
+            Ray r(chief, glm::normalize(target - chief), constants::RAY_EPSILON, m_medium);
             r.time = m_shutterOpen;
             return r;
         }
+
+        /**
+         * @brief Makes the view orthographic: parallel rays along the view axis from a rectangle `viewHeight` high (scene units; the width
+         * follows the aspect ratio of the picture), centred on the camera position. 0: perspective again.
+         *
+         * The size of a thing in the picture no longer depends on its distance. An aperture still defocuses what is off the plane of focus
+         * (a telecentric lens); the distortion and the chromatic aberrations act on the film as in the perspective view. The vignetting has
+         * no effect (every chief ray is on the axis). Light tracing (project()) needs the perspective view.
+         */
+        void setOrthographic(Real viewHeight) { m_orthoHeight = std::max(viewHeight, Real(0)); }
+        bool orthographic() const { return m_orthoHeight > Real(0); }
+        Real orthoHeight() const { return m_orthoHeight; }
 
         /// The direction the camera looks in (unit length; at time 0).
         Vector3 viewAxis() const { return -m_w; }
@@ -218,9 +233,11 @@ namespace rayt {
          * @param s, t     film coordinates in [0, 1) (as in generateRay)
          * @param cosCam   cosine of the angle between the direction to the point and the view axis
          * @param dist     distance from the camera position to the point
-         * @return false if the point is behind the camera or outside the film.
+         * @return false if the point is behind the camera or outside the film, and always for the orthographic view (light tracing,
+         *         the only user, weighs its paths for a pinhole).
          */
         bool project(const Point3& p, Real& s, Real& t, Real& cosCam, Real& dist) const {
+            if (orthographic()) return false;
             const Vector3 d = p - m_origin;
             const Real z = glm::dot(d, -m_w);   // depth along the view axis
             if (z <= Real(0)) return false;
@@ -296,8 +313,9 @@ namespace rayt {
         /// The share of the (round) aperture the barrel leaves open for the film position (s, t) in [0,1]^2, from the chief ray (1 = all of it).
         Real apertureFraction(Real s, Real t) const {
             if (!(m_barrelRadius > Real(0)) || !(m_lensRadius > Real(0))) return Real(1);
-            const Point3 target = focalTarget(s, t, kReferenceWavelengthNm);
-            const Vector3 chief = glm::normalize(target - m_origin);
+            Point3 from, target;
+            chiefRay(s, t, kReferenceWavelengthNm, from, target);
+            const Vector3 chief = glm::normalize(target - from);
             const Real dz = glm::dot(chief, -m_w);
             if (dz <= Real(0)) return Real(0);
             const Real k = m_barrelDist / dz;
@@ -366,8 +384,12 @@ namespace rayt {
             return x * c + glm::cross(k, x) * s + k * (glm::dot(k, x) * (Real(1) - c));
         }
 
-        /// The point of the focal plane that film position (s, t) looks at: radial distortion, lateral and axial chromatic aberration applied.
-        Point3 focalTarget(Real sFilm, Real tFilm, Real lambdaNm) const {
+        /**
+         * The chief ray of film position (s, t): it leaves `from` (the lens centre; in the orthographic view, the point of the view rectangle
+         * in front of that film position) toward `target`, the point of the plane of focus it looks at. Radial distortion, lateral and axial
+         * chromatic aberration applied.
+         */
+        void chiefRay(Real sFilm, Real tFilm, Real lambdaNm, Point3& from, Point3& target) const {
             const Real s = math::saturate(sFilm);
             const Real t = math::saturate(tFilm);
 
@@ -384,11 +406,17 @@ namespace rayt {
                 td = Real(0.5) + dy * g;
             }
 
-            Point3 target = m_lowerLeftCorner + sd * m_horizontal + td * m_vertical;
             // Axial chromatic aberration: the plane of focus of this wavelength lies nearer or farther (the chief ray is not bent)
-            if (m_axialCA != Real(0) && m_lensRadius > Real(0))
-                target = m_origin + (target - m_origin) * (focusDistanceFor(lambdaNm) / m_focusDist);
-            return target;
+            const bool axial = m_axialCA != Real(0) && m_lensRadius > Real(0);
+            if (orthographic()) {
+                const Real height = m_orthoHeight, width = m_orthoHeight * m_viewportW / m_viewportH;
+                from = m_origin + ((sd - Real(0.5)) * width) * m_u + ((td - Real(0.5)) * height) * m_v;
+                target = from - m_w * (axial ? focusDistanceFor(lambdaNm) : m_focusDist);
+                return;
+            }
+            from = m_origin;
+            target = m_lowerLeftCorner + sd * m_horizontal + td * m_vertical;
+            if (axial) target = m_origin + (target - m_origin) * (focusDistanceFor(lambdaNm) / m_focusDist);
         }
 
         /// The distance of the plane of focus for light of this wavelength: the film is fixed, the focal length changes with the wavelength.
@@ -427,6 +455,8 @@ namespace rayt {
         int m_blades = 0;           // 0: a round aperture
         Real m_bladeRotation = 0.0;
         Real m_bladeRadius = 0.0;   // circumradius of the polygon
+
+        Real m_orthoHeight = 0.0;   // > 0: the orthographic view, this high (setOrthographic)
 
         // Aberrations (setAberrations)
         Real m_viewportW = 1.0, m_viewportH = 1.0;   // the film at unit depth

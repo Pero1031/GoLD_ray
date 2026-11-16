@@ -41,7 +41,7 @@ The flow of drawing one image:
 | `Cli/SceneParts` | Building blocks shared by the demo scenes and the self-checks (meshes as hittables, lights, assets) |
 | `Cli/SceneFile.cpp`, `SceneFileMaterials.cpp`, `SceneFileReaders.hpp`, `SceneDescription.hpp`, `Scenes/FileScene.cpp` | JSON scenes. Three stages: read → plain structures → build the engine objects |
 | `Cli/RenderPipeline` | The common drawing procedure |
-| `Cli/Checks/` | Self-checks by topic (`--scene furnace \| lights \| aov \| sss \| volume \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| ...`) |
+| `Cli/Checks/` | Self-checks by topic (`--scene furnace \| lights \| aov \| sss \| volume \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| camera \| film \| ...`) |
 | `Cli/Tools/` | Measurement and diagnostics (`--scene skinlayers`, `sssrw`, `bench`, `--trace`) |
 
 ## 4. Features and where they are

@@ -18,6 +18,7 @@ const std::vector<Command>& Commands() {
     static const std::vector<Command> commands = {
         { { "lights", "light source checks against closed forms and numerical integrals" }, [](const CliOptions& o) { return RunLightTests(o); } },
         { { "aov", "denoiser feature (albedo / normal) checks" }, [](const CliOptions&) { return RunAovTests(); } },
+        { { "camera", "camera: the perspective and the orthographic view (--ortho) against closed forms (rays, plane of focus, sizes, depth)" }, [](const CliOptions&) { return RunCameraTests(); } },
         { { "film", "film output: --exposure, --tonemap reinhard|clip in .png (8 / 16 bit), .pfm untouched, the clip report; --mask, --depth-map against closed forms" }, [](const CliOptions&) { return RunFilmTests(); } },
         { { "dispersion", "Sellmeier presets of glasses (n_d, Abbe number) and a diamond in a white furnace" }, [](const CliOptions&) { return RunDispersionTests(); } },
         { { "thinfilm", "thin-film interference checks (Airy's formula, sample() weights, white furnace)" }, [](const CliOptions&) { return RunThinFilmTests(); } },

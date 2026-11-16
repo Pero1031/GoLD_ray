@@ -20,6 +20,7 @@ namespace {
 
 // The lens as the Camera takes it. The scene gives a field of view (or a lens); the command line's lens replaces it field by field.
 struct ResolvedLens {
+    Real orthoHeight = 0;     // > 0: the orthographic view, this high (scene units)
     Real fovDeg = 35;
     Real focalLengthMm = 0;
     Real fStop = 0;           // 0: a pinhole
@@ -81,6 +82,7 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
         r.barrelDist = s.vignetteDistMm.value_or(r.focalLengthMm * Real(0.5)) * Real(0.001);
     }
     r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
+    r.orthoHeight = s.orthoHeight.value_or(Real(0));
     r.shutter = s.shutter.value_or(Real(0));
     r.velocity = s.velocity.value_or(Vector3(0.0));
     r.panYaw = s.panYawRate.value_or(Real(0));
@@ -118,7 +120,19 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
     const Vector3 vUp = setup.camera.up;
 
     const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
-    if (lens.aperture > 0 || opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) {
+    if (lens.orthoHeight > 0) {
+        if (lightTracing) {
+            std::cerr << "[Camera] the orthographic view cannot be used with light tracing (--caustic-trace, --lvc, or a scene that light-traces its caustics):"
+                " it weighs its paths for a pinhole camera\n";
+            return nullptr;
+        }
+        std::cout << "[Camera] orthographic: a view " << lens.orthoHeight * imageWidth / imageHeight << " x " << lens.orthoHeight
+            << " (scene units) wide and high, rays parallel to the view axis";
+        if (lens.aperture > 0) std::cout << "; f/" << lens.fStop << " = aperture " << lens.aperture * 1000.0 << " mm, focus at " << lens.focusDist << " m";
+        std::cout << "\n";
+        if (lens.barrelRadius > 0 || lens.naturalVignetting > 0) std::cout << "[Camera] note: the vignetting has no effect in the orthographic view (every chief ray is on the axis)\n";
+    }
+    else if (lens.aperture > 0 || opt.lens.focalLengthMm || setup.camera.lens.focalLengthMm) {
         std::cout << "[Camera] focal length " << lens.focalLengthMm << " mm (vertical field of view " << lens.fovDeg << " deg)";
         if (lens.aperture > 0) {
             std::cout << ", f/" << lens.fStop << " = aperture " << lens.aperture * 1000.0 << " mm, focus at " << lens.focusDist << " m, "
@@ -150,6 +164,7 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
         std::cout << "[Camera] warning: chromatic aberration needs the wavelength of the path: it is ignored in the RGB build (use the spectral build)\n";
 #endif
     }
+    camera->setOrthographic(lens.orthoHeight);
     camera->setShutter(lens.shutter);
     camera->setMotion(lens.velocity, lens.panYaw, lens.panPitch);
     if (camera->hasShutter()) {
@@ -161,7 +176,7 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
     }
     else if (camera->moving()) std::cout << "[Camera] note: the camera has a velocity or a pan but the shutter is closed (--shutter, \"shutter\"): it does not move\n";
     camera->setVignetting(lens.barrelRadius, lens.barrelDist, lens.naturalVignetting);
-    if (lens.barrelRadius > 0) {
+    if (lens.barrelRadius > 0 && !camera->orthographic()) {
         if (lens.aperture > 0) {
             std::cout << "[Camera] vignetting: lens barrel opening f/" << lens.focalLengthMm * 0.001 / (2 * lens.barrelRadius) << " (diameter " << 2000.0 * lens.barrelRadius
                 << " mm) " << 1000.0 * lens.barrelDist << " mm in front of the stop; of the round aperture, " << std::lround(100.0 * camera->apertureFraction(1, 1))
@@ -170,7 +185,7 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
         }
         else std::cout << "[Camera] note: the barrel vignetting needs an aperture (--fstop): a pinhole is not clipped\n";
     }
-    if (lens.naturalVignetting > 0) std::cout << "[Camera] natural vignetting: the film is lit in proportion to cos^" << 4 * lens.naturalVignetting << " of the angle off the axis\n";
+    if (lens.naturalVignetting > 0 && !camera->orthographic()) std::cout << "[Camera] natural vignetting: the film is lit in proportion to cos^" << 4 * lens.naturalVignetting << " of the angle off the axis\n";
     if ((lens.k1 != 0 || lens.k2 != 0 || lens.lateralCA != 0) && lightTracing)
         std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
     if (lens.aperture > 0 && lightTracing)
@@ -312,6 +327,7 @@ int RenderScene(CliOptions& opt) {
     // ---- the camera ----
     const bool lvcCamera = opt.lvc && setup.bptLight;   // --lvc connects to a pinhole camera of its own
     const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera);
+    if (!camera) return 1;
 
     CausticPhotonMap causticMap;
     CausticPhotonParams causticParams;   // kept for --caustic-passes: every pass traces a fresh photon set with the same parameters

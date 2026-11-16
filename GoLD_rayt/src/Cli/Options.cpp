@@ -34,9 +34,10 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     return true;
 }
 
-// The lens options (--focal-length, --fstop, --focus-dist, --focus-at, --blades, --blade-rotation). Returns false for any other option.
+// The camera options (--ortho, --focal-length, --fstop, --focus-dist, --focus-at, --blades, ..., --shutter, --pan). Returns false for any other option.
 bool ApplyLensArg(const std::string& a, const std::function<std::string(const char*)>& value, LensSpec& lens) {
-    if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
+    if (a == "--ortho") lens.orthoHeight = std::stod(value("--ortho"));
+    else if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
     else if (a == "--fstop") lens.fStop = std::stod(value("--fstop"));
     else if (a == "--focus-dist") lens.focusDist = std::stod(value("--focus-dist"));
     else if (a == "--focus-at") {
@@ -243,6 +244,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.height < 0) throw std::runtime_error("--height must be >= 0");
         if (o.seed < -1) throw std::runtime_error("--seed must be >= 0");
         if (o.lens.focalLengthMm && !(*o.lens.focalLengthMm > 0)) throw std::runtime_error("--focal-length must be above 0 (mm)");
+        if (o.lens.orthoHeight && !(*o.lens.orthoHeight >= 0)) throw std::runtime_error("--ortho must be 0 (perspective) or the height of the view (scene units)");
         if (o.lens.fStop && !(*o.lens.fStop >= 0)) throw std::runtime_error("--fstop must be 0 (a pinhole) or an f-number above 0");
         if (o.lens.focusDist && !(*o.lens.focusDist > 0)) throw std::runtime_error("--focus-dist must be above 0");
         if (o.lens.blades && (*o.lens.blades < 0 || (*o.lens.blades > 0 && *o.lens.blades < 3) || *o.lens.blades > 32))
