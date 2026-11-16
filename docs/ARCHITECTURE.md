@@ -58,7 +58,7 @@ The flow of drawing one image:
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
 | Polarization (Stokes, `--stokes`, `--polarizer`) | `Core/Polarization`, `Render/Integrator` | `POLARIZATION.md` |
-| Camera and film output (lens, orthographic view, aberrations, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
+| Camera and film output (lens, orthographic view, aberrations, diffraction, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/Diffraction`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
 | MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |
 | Scene file | `Cli/SceneFile*`, `SceneDescription` | `SCENE_FILE.md` |
 

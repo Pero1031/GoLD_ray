@@ -99,6 +99,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Render\Diffraction.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Render\MaskDepth.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -522,6 +526,7 @@
     <ClInclude Include="include\Render\Denoiser.hpp" />
     <ClInclude Include="include\Render\Film.hpp" />
     <ClInclude Include="include\Render\MaskDepth.hpp" />
+    <ClInclude Include="include\Render\Diffraction.hpp" />
     <ClInclude Include="include\Render\Integrator.hpp" />
     <ClInclude Include="include\Render\SpecularBody.hpp" />
     <ClInclude Include="include\Render\SpecularNee.hpp" />

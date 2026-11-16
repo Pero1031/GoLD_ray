@@ -20,6 +20,7 @@ struct LensSpec {
     std::optional<Vector3> focusAt;        // ... or the point to focus on (its distance along the view axis)
     std::optional<int> blades;             // aperture blades: 0 or none = a round aperture, 3 or more = a regular polygon
     std::optional<Real> bladeRotationDeg;  // turns the polygon
+    std::optional<Real> diffraction;       // > 0: diffraction at the aperture (Render/Diffraction.hpp), its pattern this many times its real size; 0: off
     // Aberrations (Camera::setAberrations); none = an ideal lens
     std::optional<Real> distortionK1;      // radial distortion r' = r (1 + k1 r^2 + k2 r^4); k1 > 0 barrel, k1 < 0 pincushion
     std::optional<Real> distortionK2;
@@ -40,6 +41,7 @@ struct LensSpec {
     // The fields that `o` states replace the ones here.
     void overrideWith(const LensSpec& o) {
         if (o.orthoHeight) orthoHeight = o.orthoHeight;
+        if (o.diffraction) diffraction = o.diffraction;
         if (o.shutter) shutter = o.shutter;
         if (o.velocity) velocity = o.velocity;
         if (o.panYawRate) panYawRate = o.panYawRate;

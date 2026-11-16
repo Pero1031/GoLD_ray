@@ -7,6 +7,7 @@
 #include "Core/SampledWavelengths.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
+#include "Render/Diffraction.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/SpecularNee.hpp"
@@ -22,6 +23,7 @@ namespace {
 // The lens as the Camera takes it. The scene gives a field of view (or a lens); the command line's lens replaces it field by field.
 struct ResolvedLens {
     Real orthoHeight = 0;     // > 0: the orthographic view, this high (scene units)
+    Real diffraction = 0;     // > 0: diffraction at the aperture, the pattern this many times its real size
     Real fovDeg = 35;
     Real focalLengthMm = 0;
     Real fStop = 0;           // 0: a pinhole
@@ -84,6 +86,7 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     }
     r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
     r.orthoHeight = s.orthoHeight.value_or(Real(0));
+    r.diffraction = s.diffraction.value_or(Real(0));
     r.shutter = s.shutter.value_or(Real(0));
     r.velocity = s.velocity.value_or(Vector3(0.0));
     r.panYaw = s.panYawRate.value_or(Real(0));
@@ -115,7 +118,9 @@ bool ResolveMaskMaterials(const CliOptions& opt, const SceneSetup& setup, std::v
 
 // The camera of the scene with the lens of the command line, and the notes on what the chosen render mode does not show of it.
 // lightTracing: light paths are connected to a pinhole camera (--caustic-trace, --lvc); lvcCamera: --lvc renders the picture.
-std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& setup, int imageWidth, int imageHeight, bool lightTracing, bool lvcCamera) {
+// diffraction: set when the lens asks for diffraction at the aperture (applied to the pictures when they are written).
+std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& setup, int imageWidth, int imageHeight, bool lightTracing, bool lvcCamera,
+    std::optional<DiffractionSetup>& diffraction) {
     const Point3 lookFrom = setup.camera.from;
     const Point3 lookAt = setup.camera.at;
     const Vector3 vUp = setup.camera.up;
@@ -191,6 +196,25 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
         std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to the undistorted pinhole picture: its caustics are not distorted\n";
     if (lens.aperture > 0 && lightTracing)
         std::cout << "[Camera] note: light tracing (--caustic-trace, --lvc) connects photons to a pinhole camera: its caustics stay sharp while the rest is defocused\n";
+    if (lens.diffraction > 0) {
+        if (!(lens.aperture > 0)) {
+            std::cerr << "[Camera] --diffraction needs an aperture (--fstop, \"fStop\"): a pinhole has no diffraction pattern of finite size\n";
+            return nullptr;
+        }
+        DiffractionSetup d;
+        d.fNumber = lens.fStop;
+        d.blades = lens.blades;
+        d.bladeRotation = lens.bladeRotationDeg * constants::DEG_TO_RAD;
+        d.pixelPitch = Real(0.036) / Real(std::max(imageWidth, imageHeight));   // the 35 mm convention: 36 mm over the long side
+        d.scale = lens.diffraction;
+        d.radius = std::min(255, std::max(imageWidth, imageHeight));
+        diffraction = d;
+        std::cout << "[Camera] diffraction at the aperture (f/" << lens.fStop << ", " << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round"))
+            << "): Airy radius 1.22 lambda N = " << 1.22 * 0.55 * lens.fStop << " um at 550 nm, pixel " << d.pixelPitch * 1e6 << " um";
+        if (lens.diffraction > 1) std::cout << ", the pattern enlarged " << lens.diffraction << " times";
+        else std::cout << " (real size)";
+        std::cout << "\n";
+    }
     return camera;
 }
 
@@ -213,7 +237,7 @@ void EnableSpectralImage(const CliOptions& opt, Film& film) {
 
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
 // photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization).
-void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
+void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction) {
     std::cout << "[Output] Saving images..." << std::endl;
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
@@ -224,6 +248,25 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
         f.setDisplay(opt.exposure, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
     };
     setOutput(film);
+
+    // The denoiser works on the picture as rendered (a noisy bright pixel would otherwise turn into a star of its own).
+    std::unique_ptr<Film> denoised;
+    if (opt.denoise) {
+        denoised = std::make_unique<Film>(film.width(), film.height());
+        setOutput(*denoised);
+        if (!DenoiseFilm(film, *denoised, opt.cleanAux, gamut)) denoised.reset();
+    }
+    // Diffraction at the aperture: optics, so it reaches every picture, .pfm included (not the AOVs, the mask, the depth or the spectral image)
+    std::optional<DiffractionKernels> kernels;
+    if (diffraction) {
+        const auto t0 = std::chrono::steady_clock::now();
+        kernels = ComputeDiffractionKernels(*diffraction);
+        ApplyDiffraction(film, *kernels);
+        if (denoised) ApplyDiffraction(*denoised, *kernels);
+        std::cout << "[Diffraction] kernel of " << 2 * kernels->radius + 1 << " px holding " << 100.0 * kernels->captured << " % of the light, applied in "
+            << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s\n";
+    }
+
     film.save(opt.out);
     const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
     const std::string outExt = std::filesystem::path(opt.out).extension().string();
@@ -247,6 +290,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
             Film filtered(film.width(), film.height());
             setOutput(filtered);
             film.polarizerImage(angle, filtered);
+            if (kernels) ApplyDiffraction(filtered, *kernels);
             std::ostringstream name;
             name << outStem << "_pol" << angle;
             std::string stem = name.str();
@@ -256,11 +300,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded) {
         if (photonsAdded)
             std::cout << "[Polarization] note: the caustic photons and the light-traced image are added without polarization" << std::endl;
     }
-    if (opt.denoise) {
-        Film denoised(film.width(), film.height());
-        setOutput(denoised);
-        if (DenoiseFilm(film, denoised, opt.cleanAux, gamut)) denoised.save(outStem + "_denoised" + outExt);
-    }
+    if (denoised) denoised->save(outStem + "_denoised" + outExt);
 }
 
 } // namespace
@@ -345,7 +385,8 @@ int RenderScene(CliOptions& opt) {
 
     // ---- the camera ----
     const bool lvcCamera = opt.lvc && setup.bptLight;   // --lvc connects to a pinhole camera of its own
-    const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera);
+    std::optional<DiffractionSetup> diffraction;
+    const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera, diffraction);
     if (!camera) return 1;
 
     // --spectral-image comes from the path tracer's own samples: refused where other parts of the picture are added in RGB (checked
@@ -493,7 +534,7 @@ int RenderScene(CliOptions& opt) {
             << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
-    SaveOutputs(opt, film, opt.lvc || causticOn);
+    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction);
 
     bool hooksPassed = true;
     if (setup.afterSave) hooksPassed = setup.afterSave({ *scene, *camera, film, *integrator });

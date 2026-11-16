@@ -213,7 +213,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "ortho", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette", "shutter", "velocity", "pan" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "ortho", "diffraction", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette", "shutter", "velocity", "pan" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -228,6 +228,10 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
         if (c.contains("ortho")) {   // the orthographic view: its height in metres (0: perspective)
             lens.orthoHeight = ReadNumber(c.at("ortho"), "camera.ortho");
             if (!(*lens.orthoHeight >= 0)) Fail("camera.ortho", "must be 0 (perspective) or the height of the view in metres");
+        }
+        if (c.contains("diffraction")) {   // diffraction at the aperture: 1 = the real size, more = enlarged, 0 = off
+            lens.diffraction = ReadNumber(c.at("diffraction"), "camera.diffraction");
+            if (!(*lens.diffraction == 0 || (*lens.diffraction >= 1 && *lens.diffraction <= 100))) Fail("camera.diffraction", "must be 0 (off), 1 (the real size) or up to 100");
         }
         if (c.contains("focalLength")) {
             if (c.contains("fov")) Fail("camera", "give either \"fov\" or \"focalLength\", not both");
