@@ -170,7 +170,8 @@ struct CliOptions {
     long long lvcPaths = 2000000;          // --lvc-paths N : light paths in the cache
     int lvcPasses = 1;                     // --lvc-passes K : K passes with one wavelength each (needed with dispersive glass)
     int lvcDepth = 10;                      // --lvc-depth N : scattering vertices per sub-path
-    int lvcMask = 7;                       // --lvc-mask M : strategies, 1 = next event estimation, 2 = connections, 4 = light tracing
+    int lvcMask = 15;                      // --lvc-mask M : strategies, 1 = next event estimation, 2 = connections, 4 = light tracing, 8 = vertex merging (needs --lvc-merge)
+    double lvcMerge = 0;                   // --lvc-merge R : merging radius of the first pass in scene units (0 = no merging); it shrinks with the passes
     std::string galObject = "ball";        // --gal-object ball|prism|column|tumbler|gem : the glass object of the caustics scene
     Real galLight = 3.0;                   // --gal-light : intensity of its lamp
     Real galFog = 0.2;                     // --gal-fog : extinction of its haze (1/m)

@@ -149,6 +149,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--lvc-paths") o.lvcPaths = std::stoll(value("--lvc-paths"));
             else if (a == "--lvc-depth") o.lvcDepth = std::stoi(value("--lvc-depth"));
             else if (a == "--lvc-mask") o.lvcMask = std::stoi(value("--lvc-mask"));
+            else if (a == "--lvc-merge") o.lvcMerge = std::stod(value("--lvc-merge"));
             else if (a == "--spot-deg") o.spotDeg = std::stod(value("--spot-deg"));
             else if (a == "--fog-sigma") o.fogSigma = std::stod(value("--fog-sigma"));
             else if (a == "--fog-light") o.fogLight = std::stod(value("--fog-light"));

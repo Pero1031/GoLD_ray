@@ -98,6 +98,17 @@ The checks of the dispersive configuration use small images, so the ratio fluctu
 
 The same image was rendered twice independently, the noise was estimated from the difference, and the values are the ratio of the values multiplied by the time. It works in the regions where PT is weak (thin beams, indirect light). For direct light, which PT is good at, the difference is small.
 
+## 8b. Vertex merging (specular-diffuse-specular paths)
+
+A path with only one connectable vertex, such as the floor under a glass ball that the camera sees through the ball (`E S S D S S L`), cannot be made by any connection: both neighbors of the floor vertex are specular. **Vertex merging** (Georgiev et al. 2012; on the light vertex cache as in Davidovič et al. 2014) makes it: a camera vertex is paired with every cached light vertex within a radius `r`, as if they were the same vertex.
+
+- **Strategy "merge at vertex k"**: the light sub-path gives `x_1..x_k`, the camera sub-path `x_n..x_k`. Its density is `pdfF[1..k] · pdfC[k..n] · V`, with `V = π r²` on a surface and `4/3 π r³` in the fog (the measure of the kernel), and every camera sample is paired with all `N` light paths (count `spp · N`). It joins the same balance-heuristic sum `D` as NEE, connections and light tracing, for every path (a path with a specular vertex next to the merge vertex is what makes it useful).
+- **Bias and consistency**: for a fixed radius the estimate is blurred (biased, `O(r²)` inside a smooth region, `O(r)` near the boundary of the fog or of a surface). Each pass has its own light paths, and the radius shrinks as `r_i = r_1 √(i^(α−1))`, `α = 0.75` (`--lvc-passes`), so the bias vanishes with the number of passes. A single pass keeps its radius `r_1`.
+- **Implementation**: a hash grid over the cached non-specular vertices (cell `2r`, rebuilt every pass), a range query at every non-specular camera vertex, and the path rebuilt as `z_1..z_{k−1}, y_t, y_{t−1}..y_1` (the light vertex is replaced by the camera vertex, its edge keeps the recorded transmittance). The same `pathContribution` evaluates it with `sActual = k`.
+- **Switch**: `--lvc-merge R` (scene units; 0 = off, the default) and bit 8 of `--lvc-mask` (default mask 15).
+- **Checks** (`--scene lvc`): the fog and the fog with a floor (no glass) with merging, the glass ball in fog (light-side glass, merging at fog vertices, also dispersive), a directly lit floor seen through a glass ball (camera-side glass, no caustic: next event estimation, merging and path tracing agree), and the caustic of a ball on a floor seen through the ball (the one case no connection can make; the reference is path tracing with the photon map).
+- **Cost**: a camera vertex inside a dense caustic merges thousands of light vertices, each one rebuilding the path and its weights (`O(n)` per pair): about 15 to 20 times the time of the connections alone in the ball-on-a-floor check. The recursive weights of VCM (stored per vertex) would remove that.
+
 ## 9. Usage
 
 ```bash
@@ -111,5 +122,5 @@ GoLD_rayt.exe --scene caustics --gal-object gem --abbe 9 --width 1000 --lvc --lv
 GoLD_rayt.exe --scene lvc
 ```
 
-- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of wavelength passes (64 to 128 for dispersive glass). `--lvc-mask M`: strategies (1 = NEE, 2 = connection, 4 = light tracing).
+- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of wavelength passes (64 to 128 for dispersive glass). `--lvc-mask M`: strategies (1 = NEE, 2 = connection, 4 = light tracing, 8 = vertex merging, which needs `--lvc-merge R`).
 - The render time is decided almost by "the number of light paths" (about 0.3 to 1 microsecond per path, 8 threads).

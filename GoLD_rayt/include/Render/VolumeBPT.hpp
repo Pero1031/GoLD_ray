@@ -51,6 +51,12 @@
  * the wavelengths of connected sub-paths always agree. The density of the wavelength is the same factor in every strategy and cancels in the
  * MIS weights.
  *
+ * Vertex merging (VolumeBptParams::mergeRadius > 0). A path with a single connectable vertex (E S S D S S L: the floor under a glass ball seen through
+ * the ball) cannot be made by a connection. The extra strategies "merge at vertex k" pair a camera vertex with every cached light vertex within a
+ * radius (a hash grid over the cache): p = pdfF[1..k] pdfC[k..n] * (area of the disc on a surface, volume of the ball in the fog), the count is
+ * spp * N, and they enter the same balance-heuristic sum D. Biased by the blur for a fixed radius; the radius shrinks with the pass index
+ * (r_i = r_1 sqrt(i^(alpha - 1))), each pass having its own light paths, so it is consistent (docs/LVC_BPT.md, "Vertex merging").
+ *
  * Not handled: rough dielectrics, colored or heterogeneous media, a camera or a light inside the fog, a camera with a lens, a light that
  * sees itself (the lamp is not a surface). Spectral mode: the medium, the surfaces and the glass are gray, so each sample carries its own
  * wavelengths only for the color of the light.
@@ -104,6 +110,11 @@ namespace rayt {
         /// 1: every sub-path draws its own wavelengths. K > 1 (needed with dispersive glass): the picture is rendered K times, each time with ONE
         /// wavelength shared by every sub-path (see VolumeBPT::render); spp and lightPaths are the totals over all passes.
         int passes = 1;
+        /// Vertex merging (Georgiev et al. 2012): radius of the first pass in scene units; 0 = off. Every pass has its own light paths and the
+        /// radius shrinks as r_i = r_1 sqrt(i^(alpha - 1)) (i = 1, 2, ...), so the bias of the merging vanishes with the number of passes.
+        Real mergeRadius = 0;
+        Real mergeAlpha = Real(0.75);
+        bool useMerging = true;            ///< strategy "merge at vertex k" (needs mergeRadius > 0)
     };
 
     class VolumeBPT {
@@ -136,6 +147,8 @@ namespace rayt {
             size_t cached = 0;
             for (int k = 0; k < K; ++k) {
                 m_passLambdaOn = false;
+                m_mergeR = (m_P.useMerging && m_P.mergeRadius > 0)
+                    ? m_P.mergeRadius * std::sqrt(std::pow(Real(k + 1), m_P.mergeAlpha - Real(1))) : Real(0);
 #if defined(RAYT_SPECTRAL_MODE)
                 if (K > 1) {   // one wavelength for the whole pass, stratified over the passes
                     m_passLambda = SampledWavelengths::sampleVisible((Real(k) + sampling::Random()) / Real(K));
@@ -167,6 +180,7 @@ namespace rayt {
             uint8_t surface;   ///< 1: a point on a surface (diffuse or specular)
             uint8_t spec;      ///< 1: a specular vertex (smooth glass): it cannot be connected
             uint8_t inFog;     ///< 1: the rays at this vertex travel in the fog
+            uint8_t idx;       ///< light sub-paths in the cache: the position of the vertex in its path (1 = the first vertex from the light)
         };
         static Point3 pos(const Vtx& v) { return Point3(v.p[0], v.p[1], v.p[2]); }
         static Vector3 nrm(const Vtx& v) { return Vector3(v.n[0], v.n[1], v.n[2]); }
@@ -187,6 +201,13 @@ namespace rayt {
 
         int m_spp = 1;                 // camera samples per pixel in the current pass
         long long m_N = 1;             // light paths in the current pass
+
+        // vertex merging: a hash grid over the cached vertices that can be merged (not specular), rebuilt every pass
+        Real m_mergeR = 0;             // radius of the current pass (0: merging is off)
+        Real m_cellSize = 1;
+        uint32_t m_gridMask = 0;
+        std::vector<uint32_t> m_gridStart;   // bucket b holds m_gridItems[m_gridStart[b] .. m_gridStart[b + 1])
+        std::vector<uint32_t> m_gridItems;   // indices into m_verts
         SampledWavelengths m_passLambda;
         bool m_passLambdaOn = false;
 
@@ -220,7 +241,7 @@ namespace rayt {
                 for (long long i = first; i < last; ++i) {
                     SampledWavelengths lam = makeLambda();
                     traceLightPath(Z, lam);
-                    if (m_P.useConnections) {   // the cache is only needed by the connections
+                    if (m_P.useConnections || m_mergeR > 0) {   // the cache is only needed by the connections and by the merging
                         vPer[th].insert(vPer[th].end(), Z.begin(), Z.end());
                         countPer[th].push_back(static_cast<uint8_t>(Z.size()));
                     }
@@ -240,6 +261,7 @@ namespace rayt {
                 std::vector<Vtx>().swap(vPer[th]);
             }
             m_nStored = m_start.size() - 1;
+            if (m_mergeR > 0) buildGrid();
             const double tLight = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 
             // ---- 2. camera sub-paths: connections and next event estimation ----
@@ -353,6 +375,60 @@ namespace rayt {
         void traceLightPath(std::vector<Vtx>& Z, SampledWavelengths& lam) const {
             const Vector3 dir = m_light.sampleEmissionDir(Point2(sampling::Random(), sampling::Random()));
             walk(Ray(m_lightPos, dir, constants::RAY_EPSILON, nullptr), Z, lam);
+            for (size_t i = 0; i < Z.size(); ++i) Z[i].idx = static_cast<uint8_t>(i + 1);
+        }
+
+        // ------------------------------------------------------------------------------------------------
+        // Vertex merging: a hash grid over the cached light vertices and a range query
+        // ------------------------------------------------------------------------------------------------
+        uint32_t cellHash(int64_t ix, int64_t iy, int64_t iz) const {
+            const uint64_t h = (static_cast<uint64_t>(ix) * 73856093ull) ^ (static_cast<uint64_t>(iy) * 19349663ull) ^ (static_cast<uint64_t>(iz) * 83492791ull);
+            return static_cast<uint32_t>(h ^ (h >> 29)) & m_gridMask;
+        }
+
+        void buildGrid() {
+            const size_t nv = m_verts.size();
+            m_cellSize = Real(2) * m_mergeR;
+            size_t P = 1024;
+            while (P < 2 * nv) P <<= 1;
+            m_gridMask = static_cast<uint32_t>(P - 1);
+            m_gridStart.assign(P + 1, 0);
+            std::vector<uint32_t> bucket(nv, 0xFFFFFFFFu);
+            for (size_t q = 0; q < nv; ++q) {
+                const Vtx& v = m_verts[q];
+                if (v.spec) continue;
+                const uint32_t b = cellHash(static_cast<int64_t>(std::floor(v.p[0] / m_cellSize)), static_cast<int64_t>(std::floor(v.p[1] / m_cellSize)),
+                    static_cast<int64_t>(std::floor(v.p[2] / m_cellSize)));
+                bucket[q] = b;
+                ++m_gridStart[b + 1];
+            }
+            for (size_t b = 0; b < P; ++b) m_gridStart[b + 1] += m_gridStart[b];
+            m_gridItems.assign(m_gridStart[P], 0);
+            std::vector<uint32_t> cursor(m_gridStart.begin(), m_gridStart.end() - 1);
+            for (size_t q = 0; q < nv; ++q) if (bucket[q] != 0xFFFFFFFFu) m_gridItems[cursor[bucket[q]]++] = static_cast<uint32_t>(q);
+        }
+
+        /// Calls f(q) for the cached vertices q that may lie within the merging radius of p (the caller tests the distance).
+        template <class F> void queryGrid(const Point3& p, F&& f) const {
+            const Real c = m_cellSize, r = m_mergeR;
+            const int64_t x0 = static_cast<int64_t>(std::floor((p.x - r) / c)), x1 = static_cast<int64_t>(std::floor((p.x + r) / c));
+            const int64_t y0 = static_cast<int64_t>(std::floor((p.y - r) / c)), y1 = static_cast<int64_t>(std::floor((p.y + r) / c));
+            const int64_t z0 = static_cast<int64_t>(std::floor((p.z - r) / c)), z1 = static_cast<int64_t>(std::floor((p.z + r) / c));
+            uint32_t seen[8];
+            int ns = 0;
+            for (int64_t ix = x0; ix <= x1; ++ix) for (int64_t iy = y0; iy <= y1; ++iy) for (int64_t iz = z0; iz <= z1; ++iz) {
+                const uint32_t b = cellHash(ix, iy, iz);
+                bool dup = false;
+                for (int i = 0; i < ns; ++i) dup = dup || seen[i] == b;   // two cells of the query can share a bucket
+                if (dup) continue;
+                seen[ns++] = b;
+                for (uint32_t i = m_gridStart[b]; i < m_gridStart[b + 1]; ++i) f(m_gridItems[i]);
+            }
+        }
+
+        /// The measure that the merging kernel covers at a vertex: the area of the disc on a surface, the volume of the ball in the fog.
+        Real mergeMeasure(const Vtx& v) const {
+            return v.surface ? constants::PI * m_mergeR * m_mergeR : Real(4) / Real(3) * constants::PI * m_mergeR * m_mergeR * m_mergeR;
         }
 
         /// Transmittance (scalar) of the straight segment from `a` (travelling in `mediumAtA`) to `b`; zero if a surface is in the way.
@@ -475,6 +551,11 @@ namespace rayt {
             const int M = m_P.maxVertices;
             for (int sIdx = 0; sIdx <= n; ++sIdx) {
                 if (sIdx > 0) prefix *= pdfF[sIdx];
+                // merging at vertex k = sIdx: the light sub-path has x_1..x_k (k vertices), the camera sub-path x_n..x_k (n - k + 1 vertices); the
+                // vertex is sampled from both sides and the merge accepts a light vertex within the kernel: p = pdfF[1..k] pdfC[k..n] * measure of the kernel,
+                // and every camera sample is paired with every one of the m_N light paths
+                if (m_mergeR > 0 && sIdx >= 1 && !X[sIdx - 1].spec && sIdx <= M && n - sIdx + 1 <= M)
+                    D += Real(m_spp) * Real(m_N) * mergeMeasure(X[sIdx - 1]) * prefix * suffix[sIdx - 1];
                 if (sIdx > M || n - sIdx > M) continue;                         // this strategy cannot make a path of this length
                 // a connection cannot end at a specular vertex (nor can the light or the camera be connected to one)
                 if (sIdx == 0 ? X[0].spec : sIdx == n ? X[n - 1].spec : (X[sIdx - 1].spec || X[sIdx].spec)) continue;
@@ -570,6 +651,29 @@ namespace rayt {
                     T[s] = Tc;
                     for (int jj = 1; jj <= t; ++jj) T[s + jj] = Y[t - jj].tIn;
                     acc += I * pathContribution(X.data(), s + t, T, s);
+                }
+                // ---- merging: the light vertices within the radius of y_t (all light paths of the cache) ----
+                if (m_mergeR > 0) {
+                    const Point3 py = pos(yt);
+                    const Real r2 = m_mergeR * m_mergeR;
+                    queryGrid(py, [&](uint32_t q) {
+                        const Vtx& z = m_verts[q];
+                        if (z.surface != yt.surface) return;
+                        const Vector3 d = pos(z) - py;
+                        if (glm::dot(d, d) >= r2) return;
+                        if (z.surface && glm::dot(nrm(z), nrm(yt)) < Real(0.9)) return;   // the same piece of surface (the side is checked by the path)
+                        const int k = z.idx;
+                        const size_t first = q - static_cast<size_t>(k - 1);
+                        const int n = k - 1 + t;
+                        if (n + 2 > 40) return;
+                        X.clear();
+                        for (size_t a = first; a < q; ++a) X.push_back(m_verts[a]);
+                        for (int a = t - 1; a >= 0; --a) X.push_back(Y[a]);
+                        for (int e = 0; e < k - 1; ++e) T[e] = m_verts[first + e].tIn;
+                        T[k - 1] = z.tIn;
+                        for (int jj = 1; jj <= t; ++jj) T[k - 1 + jj] = Y[t - jj].tIn;
+                        acc += I * pathContribution(X.data(), n, T, k);
+                    });
                 }
             }
             const Vector3 rgb = SpectrumToRGB(acc, lam);
