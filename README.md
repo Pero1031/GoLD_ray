@@ -163,6 +163,14 @@ sheet at its original color, and the cup of rolled paper by the window faded on 
 
 <img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
 
+**Measured leather, matte and glossy**: a piece of cowhide measured with a 2D spectroradiometer in the lab (not part of this repository)
+becomes a spectral reflectance texture. Its relief is estimated from the shading in the measurement and built as a mesh, so the grain
+catches the light from any direction. On the right, the same leather under a satin clear coat (`layered` with a `reflectanceTexture` base).
+Lit by a 3200 K lamp and a narrow-band 475 nm LED whose spectrum was also measured in the lab, rendered spectrally.
+800 x 560 each, 256 spp, OIDN-denoised, about 3 minutes each.
+
+<img src="docs/img/gallery_leather.png" alt="The same measured cowhide twice under a warm lamp and a blue LED: matte on the left, with a satin clear coat on the right" width="820">
+
 **Rainbows in fog** (`--scene fogspot --spot-prism --lvc`): a narrow beam crosses a dispersive prism in a haze, and the rainbow fan shows in the
 fog. It is made with a bidirectional path tracer that caches light paths (`--lvc`; one wavelength per pass for the dispersion),
 which is checked against path tracing and the photon map (`--scene lvc`, [details](docs/LVC_BPT.md)). 1280 x 720, 600 M light paths, 9 minutes on 8 threads.
