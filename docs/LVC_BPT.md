@@ -1,15 +1,14 @@
 # LVC-BPT (bidirectional path tracing with a light vertex cache): a prototype
 
-A prototype that renders light shafts and caustics in fog (kiri), on diffuse surfaces and in glass (with dispersion) faster than path tracing (in the same time, the variance of the noise is 10 to 280 times smaller in the beams and the haze, section 8) (2026-11-08). Vertex merging and manifold connections, for the paths that no connection can make, were added on 2026-11-16 (sections 8b, 8c). The implementation is `GoLD_rayt/include/Render/VolumeBPT.hpp` (header only). The design learned from the talk at Ray Tracing Camp 10 (listed in the [references](REFERENCES.md)) was rebuilt in this CPU engine.
+A prototype that renders light shafts and caustics in fog (kiri), on diffuse surfaces and through glass (with dispersion) faster than path tracing: in the same time, the variance of the noise is 10 to 280 times smaller in the beams and the haze (section 10). Vertex merging and manifold connections make the paths that no connection can make, such as a caustic seen through glass (sections 7 and 8). The implementation is `GoLD_rayt/include/Render/VolumeBPT.hpp` (header only). The design learned from the talk at Ray Tracing Camp 10 (listed in the [references](REFERENCES.md)) was rebuilt in this CPU engine. Built on 2026-11-08; merging and manifold connections added on 2026-11-16; the merging check settled on 2026-11-17.
 
 ## 0. Summary
 
 - **N light paths are traced first and their vertices are stored** (Light Vertex Cache). The camera paths are connected to those vertices.
-- There are three connection strategies: **NEE, connection to a light vertex, and light tracing**. Every path is weighted by the **balance heuristic MIS** from the probability densities of all strategies.
-- Two optional strategies make the paths that no connection can make, and join the same MIS sum: **vertex merging** (section 8b) and **manifold connections** through a flat-faced glass body (section 8c).
+- The strategies are **NEE, connection to a light vertex and light tracing**, and optionally **vertex merging** and **manifold connections** through a flat-faced glass body. Every path is weighted by the **balance heuristic MIS** over all the strategies that can make it.
 - **This is not a technique for making the GPU faster.** It is a sampling method that combines the strengths of the light side and the camera side. In the talk (GPU), it appears as a form that keeps the state small and reduces branching (the light vertices are stored in an array). On the CPU here, the advantage of reusing light paths for many camera paths works as it is.
 - Glass is put into the sub-paths as a "vertex that cannot be connected". For dispersion, **the wavelength is fixed to one per render pass**.
-- Verification is `--scene lvc` (agreement with PT and with the light tracing of photons) and `--scene lvcmanifold` (the manifold connections).
+- Verification: `--scene lvc` (against path tracing and the photon map) and `--scene lvcmanifold` (the manifold connections), section 9.
 
 ![The same render of about 9 seconds. Top: PT + light tracing of photons, bottom: this prototype (dispersive prism)](img/lvc_equal_time_prism.png)
 
@@ -18,18 +17,21 @@ A prototype that renders light shafts and caustics in fog (kiri), on diffuse sur
 - **Path tracing (PT)** extends a path from the camera, and it contributes only if it happens to hit a light. It almost never hits point lights, thin lights, or light that passed through glass (caustics). A thin beam in fog has a low probability that a scattering point enters the beam, which gives speckle noise.
 - **Light tracing (LT)** extends a path from the light and connects each vertex to the camera. It is strong for caustics and thin beams, but weak for the camera-side appearance (such as multiple reflections on diffuse surfaces).
 - **Bidirectional path tracing (BPT)** makes both and connects the vertices to each other. The same path can be made in several ways, so it is weighted by MIS.
+- A path whose only connectable vertex lies between two specular ones (a caustic on a floor seen through a glass ball, `E S S D S S L`) cannot be made by any connection. **Merging** and **manifold connections** make such paths.
 
 ## 2. Strategies and MIS
 
-A path with n vertices `x_1 … x_n` (counted from the light side) can be made in `n + 1` ways, with `s` vertices from the light-side sub-path and `n − s` from the camera-side sub-path.
+A path with n vertices `x_1 … x_n` (counted from the light side) can be made in `n + 1` ways by connections, with `s` vertices from the light-side sub-path and `n − s` from the camera-side sub-path.
 
 | s | Name | Content |
 |---|---|---|
 | 0 | NEE | Connect the camera-side sub-path directly to a light |
 | 0 < s < n | Connection | Connect a light-side vertex and a camera-side vertex with a shadow ray |
 | n | Light tracing | Connect the light-side sub-path to the camera (splatting) |
+| 1 ≤ k ≤ n | Merging at vertex k | A camera vertex takes the place of a cached light vertex within a radius `r` (section 7) |
+| (a, a + 3) | Manifold NEE / connection | A camera vertex joined to the light or to a light vertex through two refractions of a glass body (section 8) |
 
-Let the probability density of each strategy be `p_s(x)` and its number of samples `n_s`. A path made by any strategy then contributes `f(x) / D(x)`, with `D = Σ_s n_s p_s(x)` (the balance heuristic). `n_s` is the number of samples per pixel `spp` for the strategies that start from the camera side, and the number of light paths `N` for light tracing. Recursive MIS (a number per vertex) is not used; the densities of all strategies are computed every time from the positions of the vertices of the path (a prototype in a form that is easy to check for correctness).
+Let the probability density of each strategy be `p_s(x)` and its number of samples `n_s`. A path made by any strategy then contributes `f(x) / D(x)`, with `D = Σ_s n_s p_s(x)` (the balance heuristic). `n_s` is the number of samples per pixel `spp` for the strategies that start from the camera side, the number of light paths `N` for light tracing, and `spp · N` for merging. Recursive MIS (a number per vertex) is not used; the densities of all strategies are computed every time from the positions of the vertices of the path (a prototype in a form that is easy to check for correctness; section 12 for its cost).
 
 ## 3. The cache of light vertices
 
@@ -40,7 +42,7 @@ Let the probability density of each strategy be `p_s(x)` and its number of sampl
 
 Note: because the light paths are shared, the noise is correlated between pixels (bands and mottling).
 
-Difference from the paper that named the cache (Davidovič et al. 2014): there, each camera vertex is connected to a fixed number of vertices drawn uniformly from the whole cache, and the weights are computed recursively, so the cache needs no record of which path a vertex came from. Here a whole light path is drawn and all of its vertices are connected, as in the earlier GPU bidirectional path tracer of Novák et al. 2010. The cache keeps its paths because the weights are computed from the whole path (section 2) and a merged path is rebuilt from its light path (section 8b).
+Difference from the paper that named the cache (Davidovič et al. 2014): there, each camera vertex is connected to a fixed number of vertices drawn uniformly from the whole cache, and the weights are computed recursively, so the cache needs no record of which path a vertex came from. Here a whole light path is drawn and all of its vertices are connected, as in the earlier GPU bidirectional path tracer of Novák et al. 2010. The cache keeps its paths because the weights are computed from the whole path (section 2) and a merged path is rebuilt from its light path (section 7).
 
 ## 4. Densities and contributions (fog and diffuse surfaces)
 
@@ -73,24 +75,59 @@ For **dispersion**, the shape of a path changes with wavelength, so the waveleng
 
 To pick up caustics efficiently from a light with a wide cone that also lights the floor and walls, half of the light paths are sent into a small cone that encloses the object (`PointLight::setEmissionTarget`). The emitted amount (intensity) does not change, and the mixed density is put into `emissionPdf`, so the MIS weights are consistent.
 
-## 7. Verification (`--scene lvc`)
+## 7. Vertex merging
+
+**Vertex merging** (Georgiev et al. 2012; on the light vertex cache as in Davidovič et al. 2014) pairs a camera vertex with every cached light vertex within a radius `r`, as if they were the same vertex. It makes the specular-diffuse-specular paths, and it joins the MIS sum of every path, where it also lowers the noise of paths the connections can make.
+
+- **Strategy "merge at vertex k"**: the light sub-path gives `x_1..x_k`, the camera sub-path `x_n..x_k`. Its density is `pdfF[1..k] · pdfC[k..n] · V`, with `V = π r²` on a surface and `4/3 π r³` in the fog (the measure of the kernel), and every camera sample is paired with all `N` light paths (count `spp · N`). This is the path density of the VCM paper (the acceptance probability `π r² p` times the density of the connection).
+- **Implementation**: a hash grid over the cached non-specular vertices (cell `2r`, rebuilt every pass), a range query at every non-specular camera vertex, and the path rebuilt as `z_1..z_{k−1}, y_t, y_{t−1}..y_1` (the light vertex is replaced by the camera vertex, its edge keeps the recorded transmittance). The same `pathContribution` evaluates it with `sActual = k`.
+- **Bias and consistency**: for a fixed radius the estimate is blurred (biased, `O(r²)` inside a smooth region, `O(r)` near the boundary of the fog, of a surface or of a shadow). Each pass has its own light paths, and the radius shrinks as `r_i = r_1 √(i^(α−1))`, `α = 0.75` (`--lvc-passes`), so the bias vanishes with the number of passes. A single pass keeps its radius `r_1`.
+- **Where the bias shows: a caustic smaller than the radius.** With the floor at the focal distance of a glass ball (`--scene lvc --lvc-mask 1016`), the picture is 10 to 40 % too bright. The part that only merging makes (the caustic seen through the ball) is within 5 % of the reference; the error sits on the focal spot that the camera sees directly beside the ball (+10, +37, +42 % for r = 1.5, 3, 6 mm) and on the thin ring of direct light around the ball's shadow (−6, −9, −15 %). Light tracing makes that spot without a kernel, but the balance heuristic gives merging most of the weight there (a rough estimate: some tens of camera samples fall in the disc around a light vertex, against one splat by light tracing), so the blur of the fixed radius shows. This was first taken for an error of the merging through glass; the dependence on the radius, and the agreement once the caustic is smooth (section 9), show that it is the kernel. A render with a sharp caustic and a single pass should use a radius well below the size of the caustic.
+- **Cost**: a camera vertex inside a dense caustic merges hundreds to thousands of light vertices, each one rebuilding the path and its weights (`O(n)` per pair). The pairs grow as `spp · N`, i.e. with the square of the sample count when both grow together: the ball-on-a-floor check takes 2 s at `--spp 4`, 30 s at `--spp 32` (the check caps it there), and took 144 minutes once without the cap.
+- **Switch**: `--lvc-merge R` (scene units; 0 = off, the default) and bit 8 of `--lvc-mask` (default mask 15).
+
+## 8. Manifold connections (two refractions through a flat-faced body)
+
+A connection needs the two vertices to see each other. When a glass body is in the way, the path between them is bent by two refractions, and that chain is fixed by Snell's law once the two ends are fixed: the "generalized half vector" at each refraction must be parallel to the facet normal. **Manifold exploration** (Jakob and Marschner 2012; Hanika et al. 2015 for the light; Speierer et al. 2018 for any two vertices of a bidirectional path tracer) solves it with Newton's method, so the connection is made exactly instead of by chance.
+
+- **Strategies.** *Manifold NEE*: a camera vertex and the light. *Manifold connection*: a camera vertex and a vertex of the cached light path. The chain is the two refractions through ONE body of `SpecularNee` (flat facets, as in the manifold NEE; no reflections, no total internal reflection, no curved glass). `SpecularNee::chains(x, y)` returns every chain with its Fresnel transmittance `(1-F_A)(1-F_B)` and `dω/dA`, the change of the solid angle at `y` per area at `x`, from two re-solved neighbours.
+- **Contribution.** The three edges and the two specular vertices of the chain are replaced by `T_out T_out' · (dω/dA) · (1-F_A)(1-F_B)` (the cosine at the camera-side end is inside `dω/dA`). The rest of the path is evaluated as before.
+- **Weights.** The strategy joins the balance-heuristic sum `D` of every path that has two refractions through the same body between two connectable positions, with density `pdfF[1..a] · pdfC[b..n] · Γ` (`a`, `b = a + 3` the connected positions). `Γ` stands in for the two solved vertices, which are not sampled (the light-side conversions of the two refractions, so the density equals that of the plain connection at `a + 2` that the glass makes impossible); the contribution carries the same factor, so the estimate stays unbiased whatever `Γ` is, and only the variance depends on it. Speierer et al. use a "direct geometry term" instead (the specular vertices dropped, `cos cos / d²` straight across); the two were not compared. A manifold term is counted in `D` only if the solver, started from the two ends, finds exactly the chain of the path (`manifoldReproduces`, as in the paper): the rule that decides which chains the strategy makes must be the rule that weighs them, or energy is lost.
+- **Where it applies.** With `manifoldOnlyBlocked` (the default, as in the paper) only where the straight segment between the two vertices is blocked; the tests switch it off to compare with the photon map. The medium of the two outside segments is taken from the camera-side vertex (the body and the vertices share a medium). Dispersive glass needs `--lvc-passes > 1` (the chain is solved at the wavelength of the pass). Lights must be point lights.
+- **Switch.** Bits 16 (manifold NEE) and 32 (manifold connections) of `--lvc-mask` (default 15: off); the scene must list its flat-faced glass bodies (the prism of `--scene fogspot --spot-prism`).
+- **Not shown.** The solver does not find every chain that exists (the same coverage as the manifold NEE: a few percent of the energy of the photon map is missed, and none of the paths that end on a facet's plane within a millimetre).
+
+## 9. Verification
+
+**`--scene lvc`** (about 17 minutes at the default spp; failing exits with code 2):
 
 | Configuration | Reference | What is compared |
 |---|---|---|
-| A ball of fog | PT (with NEE in the medium) | Each strategy alone (NEE, LT), combinations, all. The mean, and every 6×3 block |
+| A ball of fog | PT (with NEE in the medium) | Each strategy alone (NEE, LT, merging), combinations, all. The mean, and every 6×3 block |
 | A ball of fog + a diffuse floor | PT | Same |
 | A glass ball in fog | Ray tracing of the photon map (an independent implementation) | The image of L S S M… (the first vertex of the light is the glass) |
-| Same, the whole picture | PT + light tracing of photons | Connection + LT, all strategies (blocks that do not show the ball) |
+| Same, the whole picture | PT + light tracing of photons | Connection + LT, all strategies, with merging (blocks that do not show the ball) |
 | A dispersive glass ball (Abbe 10, K = 32) | Same | Same (wider tolerance. A path of one wavelength has a large color variance) |
+| A directly lit floor seen through a glass ball (no caustic) | PT | NEE alone, merging alone, all strategies (camera-side glass) |
+| A glass ball over a floor, the caustic seen through the ball from above | PT + the photon map gathered with the same radius | Without merging (must stay dark behind the ball) and with it: the means within 3 %, a block within 10 % |
 
-It passes in both RGB and spectral. **Comparing each strategy alone with PT** found the following bugs.
+In the last configuration the floor lies twice as far from the ball's centre as its focal length, so that both the lamp's and the camera's bundles have crossed before the floor and the caustic is a smooth patch. Over the ball, 92 % of the reference is made by merging alone; three runs agreed within 1 % (the means) and 3.2 % (the blocks). The same configuration with the floor in focus is kept as `--lvc-mask 1016` (section 7). The check passes in RGB and in the spectral build (on 2026-11-17 the whole check was run in RGB, and the changed last configuration also in spectral: within 1.1 %, 4 minutes).
+
+**Comparing each strategy alone with PT** found the following bugs.
 - When leaving the boundary of the fog into the air, the medium of the ray was not updated (on the floor outside the fog, scattering happened although it was in air).
 - When the number of stored photons was 0, the map was disabled and counted twice.
 - For fog behind the glass, the camera side discarded the path, which made the image 2% darker.
 
 The checks of the dispersive configuration use small images, so the ratio fluctuates by about ±5% (there is no sign bias, and the mean RGB of the real scene agrees with the reference within 1%).
 
-## 8. Results (variance of the noise at the same time. PT / this prototype)
+**`--scene lvcmanifold`** (2.5 minutes at `--spp 32`; a prism on a gray disc, no fog):
+1. `chains()` against `SpecularNee::sample()` on 197 floor points: identical (the glue: frame, Fresnel, `dω/dA`).
+2. Manifold NEE alone, with a camera path of one vertex, against the photon map of the two-refraction chains: the sum is within 7 % (the tolerance of the manifold check itself is 10 %), and every chain that is generated is also found again by the weights.
+3. Adding the manifold strategies to the other strategies changes the picture by 0.4 % (noise): adding a strategy does not change the expectation. With merging added, the picture is within 2 % of path tracing plus the photon map.
+4. The camera looks through the prism (a chain on both ends): manifold and merging add the same energy to the strategies without them.
+5. The noise of the picture with and without the manifold strategies (two independent renders): section 10.
+
+## 10. Results (variance of the noise at the same time. PT / this prototype)
 
 | Configuration (640 px, about 3 to 9 seconds) | Beam | Haze | Caustics |
 |---|---|---|---|
@@ -101,36 +138,9 @@ The checks of the dispersive configuration use small images, so the ratio fluctu
 
 The same image was rendered twice independently, the noise was estimated from the difference, and the values are the ratio of the values multiplied by the time. It works in the regions where PT is weak (thin beams, indirect light). For direct light, which PT is good at, the difference is small.
 
-## 8b. Vertex merging (specular-diffuse-specular paths)
+Manifold connections (the prism of `--scene lvcmanifold`): the standard deviation of the noise is 0.78 times that without them, at about 1.4 times the time, i.e. about 1.2 times better at equal time.
 
-A path with only one connectable vertex, such as the floor under a glass ball that the camera sees through the ball (`E S S D S S L`), cannot be made by any connection: both neighbors of the floor vertex are specular. **Vertex merging** (Georgiev et al. 2012; on the light vertex cache as in Davidovič et al. 2014) makes it: a camera vertex is paired with every cached light vertex within a radius `r`, as if they were the same vertex.
-
-- **Strategy "merge at vertex k"**: the light sub-path gives `x_1..x_k`, the camera sub-path `x_n..x_k`. Its density is `pdfF[1..k] · pdfC[k..n] · V`, with `V = π r²` on a surface and `4/3 π r³` in the fog (the measure of the kernel), and every camera sample is paired with all `N` light paths (count `spp · N`). It joins the same balance-heuristic sum `D` as NEE, connections and light tracing, for every path (a path with a specular vertex next to the merge vertex is what makes it useful).
-- **Bias and consistency**: for a fixed radius the estimate is blurred (biased, `O(r²)` inside a smooth region, `O(r)` near the boundary of the fog or of a surface). Each pass has its own light paths, and the radius shrinks as `r_i = r_1 √(i^(α−1))`, `α = 0.75` (`--lvc-passes`), so the bias vanishes with the number of passes. A single pass keeps its radius `r_1`.
-- **Implementation**: a hash grid over the cached non-specular vertices (cell `2r`, rebuilt every pass), a range query at every non-specular camera vertex, and the path rebuilt as `z_1..z_{k−1}, y_t, y_{t−1}..y_1` (the light vertex is replaced by the camera vertex, its edge keeps the recorded transmittance). The same `pathContribution` evaluates it with `sActual = k`.
-- **Switch**: `--lvc-merge R` (scene units; 0 = off, the default) and bit 8 of `--lvc-mask` (default mask 15).
-- **Checks** (`--scene lvc`): the fog and the fog with a floor (no glass) with merging, the glass ball in fog (light-side glass, merging at fog vertices, also dispersive), a directly lit floor seen through a glass ball (camera-side glass, no caustic: next event estimation, merging and path tracing agree), and the caustic of a ball on a floor seen through the ball from above (the one case no connection can make; the reference is path tracing with the photon map, gathered with the same radius). In that case the floor lies twice as far from the ball's centre as its focal length, so the caustic is a smooth patch: the merged picture is within 1 % of the reference (three runs; the check allows 3 % on the means and 10 % on a block).
-- **Bias of the radius at a focal spot**: with the floor at the focal distance of the ball (`--scene lvc --lvc-mask 1016`), the picture was 10 to 40 % too bright, which was first taken for an error of the merging through glass. It is not: the part that only merging makes (through the ball) stays within 5 % of the reference. The error sits where the caustic is smaller than the radius: the focal spot that the camera sees directly beside the ball (+10, +37, +42 % for r = 1.5, 3, 6 mm) and the thin ring of direct light around the ball's shadow (−6, −9, −15 %). Light tracing makes that spot without a kernel, but the balance heuristic gives merging most of the weight there (a rough estimate: some tens of camera samples fall in the disc around a light vertex, against one splat by light tracing), so the blur of a fixed radius shows. It vanishes as the radius shrinks over passes; a render with a sharp caustic and a single pass should use a radius well below the size of the caustic.
-- **Cost**: a camera vertex inside a dense caustic merges thousands of light vertices, each one rebuilding the path and its weights (`O(n)` per pair): about 15 to 20 times the time of the connections alone in the ball-on-a-floor check. The recursive weights of VCM (stored per vertex) would remove that.
-
-## 8c. Manifold connections (two refractions through a flat-faced body)
-
-A connection needs the two vertices to see each other. When a glass body is in the way, the path between them is bent by two refractions, and that chain is fixed by Snell's law once the two ends are fixed: the "generalized half vector" at each refraction must be parallel to the facet normal. **Manifold exploration** (Jakob and Marschner 2012; Hanika et al. 2015 for the light; Speierer et al. 2018 for any two vertices of a bidirectional path tracer) solves it with Newton's method, so the connection is made exactly instead of by chance.
-
-- **Strategies.** *Manifold NEE*: a camera vertex and the light. *Manifold connection*: a camera vertex and a vertex of the cached light path. The chain is the two refractions through ONE body of `SpecularNee` (flat facets, as in the manifold NEE; no reflections, no total internal reflection, no curved glass). `SpecularNee::chains(x, y)` returns every chain with its Fresnel transmittance `(1-F_A)(1-F_B)` and `dω/dA`, the change of the solid angle at `y` per area at `x`, from two re-solved neighbours.
-- **Contribution.** The three edges and the two specular vertices of the chain are replaced by `T_out T_out' · (dω/dA) · (1-F_A)(1-F_B)` (the cosine at the camera-side end is inside `dω/dA`). The rest of the path is evaluated as before.
-- **Weights.** The strategy joins the balance-heuristic sum `D` of every path that has two refractions through the same body between two connectable positions, with density `pdfF[1..a] · pdfC[b..n] · Γ` (`a`, `b = a + 3` the connected positions). `Γ` stands in for the two solved vertices, which are not sampled (the light-side conversions of the two refractions); the contribution carries the same factor, so the estimate stays unbiased whatever `Γ` is, and only the variance depends on it. A manifold term is counted in `D` only if the solver, started from the two ends, finds exactly the chain of the path (`manifoldReproduces`): the rule that decides which chains the strategy makes must be the rule that weighs them, or energy is lost.
-- **Where it applies.** With `manifoldOnlyBlocked` (the default, as in the paper) only where the straight segment between the two vertices is blocked; the tests switch it off to compare with the photon map. The medium of the two outside segments is taken from the camera-side vertex (the body and the vertices share a medium). Dispersive glass needs `--lvc-passes > 1` (the chain is solved at the wavelength of the pass). Lights must be point lights.
-- **Switch.** Bits 16 (manifold NEE) and 32 (manifold connections) of `--lvc-mask` (default 15: off); the scene must list its flat-faced glass bodies (the prism of `--scene fogspot --spot-prism`).
-- **Checks** (`--scene lvcmanifold`, 2.5 minutes at `--spp 32`):
-  1. `chains()` against `SpecularNee::sample()` on 197 floor points: identical (the glue: frame, Fresnel, `dω/dA`).
-  2. Manifold NEE alone, with a camera path of one vertex, against the photon map of the two-refraction chains: the sum is within 7 % (the tolerance of the manifold check itself is 10 %), and every chain that is generated is also found again by the weights.
-  3. Adding the manifold strategies to the other strategies changes the picture by 0.4 % (noise): adding a strategy does not change the expectation. With merging added, the picture is within 2 % of path tracing plus the photon map.
-  4. The camera looks through the prism (a chain on both ends): manifold and merging add the same energy to the strategies without them.
-  5. The noise of the picture with and without the manifold strategies (two independent renders).
-- **Not shown.** The solver does not find every chain that exists (the same coverage as the manifold NEE: a few percent of the energy of the photon map is missed, and none of the paths that end on a facet's plane within a millimetre).
-
-## 9. Usage
+## 11. Usage
 
 ```bash
 # A prism in fog (about 9 minutes)
@@ -139,10 +149,20 @@ GoLD_rayt.exe --scene fogspot --spot-prism --abbe 6 --spot-deg 1.4 --width 1280 
 # A gem (about 11 minutes)
 GoLD_rayt.exe --scene caustics --gal-object gem --abbe 9 --width 1000 --lvc --lvc-passes 64 --lvc-depth 16 --spp 512 --lvc-paths 400000000 --gal-dist 0.8 --gal-scale 1.4 --gal-light 8 --gal-albedo 0.08 --gal-spread 8 --gal-look 0.02,0.02,-0.015 --gal-fov 9 --denoise
 
-# Self-checks (about 20 minutes, and 2.5 minutes at --spp 32)
+# Self-checks (about 17 minutes, and 2.5 minutes at --spp 32)
 GoLD_rayt.exe --scene lvc
 GoLD_rayt.exe --scene lvcmanifold --spp 32
 ```
 
-- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of wavelength passes (64 to 128 for dispersive glass). `--lvc-mask M`: strategies, the sum of 1 = NEE, 2 = connection, 4 = light tracing, 8 = vertex merging (needs `--lvc-merge R`), 16 = manifold NEE, 32 = manifold connections (16 and 32 need a scene that lists its flat-faced glass bodies, such as `--scene fogspot --spot-prism`); the default is 15. With `--scene lvc`, the masks 1016 to 1019 run only one case of the check: 1019 the caustic seen through the ball (out of focus, the case of the check), 1016 the same with the floor in focus (the bias of the radius), 1017 the floor seen through the ball, 1018 the caustic seen directly. With `--out name.png` they also write the reference and the two renders as `name_ref.pfm`, `name_m7.pfm` (no merging) and `name_m15.pfm`.
-- The render time is decided almost by "the number of light paths" (about 0.3 to 1 microsecond per path, 8 threads).
+- `--lvc`: render with this method (without it, PT). `--lvc-paths N`: total number of light paths. `--lvc-depth D`: number of vertices per sub-path. `--lvc-passes K`: number of passes (wavelengths, and the shrinking merging radius; 64 to 128 for dispersive glass). `--lvc-merge R`: merging radius of the first pass in scene units (0 = off).
+- `--lvc-mask M`: strategies, the sum of 1 = NEE, 2 = connection, 4 = light tracing, 8 = vertex merging (needs `--lvc-merge R`), 16 = manifold NEE, 32 = manifold connections (16 and 32 need a scene that lists its flat-faced glass bodies, such as `--scene fogspot --spot-prism`); the default is 15.
+- Development: with `--scene lvc`, the masks 1016 to 1019 run only one case of the check: 1019 the caustic seen through the ball (out of focus, the case of the check), 1016 the same with the floor in focus (the bias of the radius), 1017 the floor seen through the ball, 1018 the caustic seen directly. With `--out name.png` they also write the reference and the two renders as `name_ref.pfm`, `name_m7.pfm` (no merging) and `name_m15.pfm`.
+- The render time is decided almost by "the number of light paths" (about 0.3 to 1 microsecond per path, 8 threads); with merging in a dense caustic, by the merged pairs (section 7).
+
+## 12. Limits and open items
+
+- **Scope**: one point light (isotropic or a cone), one gray homogeneous fog ball bounded by a null interface, gray Lambertian surfaces with one albedo, smooth glass, a pinhole camera of one wavelength at time 0, the camera and the light outside the fog. Every non-specular surface is taken as the gray Lambertian (only smooth glass was tested as a specular one), so rough dielectrics, textures, layered or skin materials are not rendered as such; colored or heterogeneous media and polarization are not handled either. Such scenes need path tracing.
+- **Weights**: computed from the whole path for every path, and for every merged pair (`O(n)` each). The recursive weights of VCM, or of Speierer et al. after Antwerpen 2011, would make them `O(1)` per vertex and remove most of the cost of merging in dense caustics.
+- **Merging**: with a single pass the bias of the radius stays (section 7).
+- **Manifold connections**: two refractions through one flat-faced body only; no reflections, total internal reflection, curved glass or longer chains; point lights only. The solver also runs inside the weights for every path with such a chain (no Russian roulette on the strategy, which saved 30 % of the solver time in the paper).
+- **Not implemented**: photon beams (Křivánek et al. 2014 show beams far less noisy than points for reflected caustics in thin fog); the connection scheme of Davidovič et al. (section 3).
