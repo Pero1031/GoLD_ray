@@ -77,6 +77,23 @@ namespace rayt {
         void setPng16(bool on) { m_png16 = on; }
         bool png16() const { return m_png16; }
 
+        /**
+         * @brief The display mapping of .png / .bmp / .jpg (the .pfm / .hdr files stay linear radiance and ignore it).
+         *
+         * - Reinhard (default): x / (1 + x) per channel after the exposure; nothing clips, highlights are compressed.
+         * - Clip: linear up to white (1.0 after the exposure), clipped above it; save() reports how much clipped.
+         * The exposure multiplies by 2^stops before either.
+         */
+        enum class ToneMap { Reinhard, Clip };
+        void setDisplay(Real exposureStops, ToneMap toneMap) { m_exposureStops = exposureStops; m_toneMap = toneMap; }
+        Real exposureStops() const { return m_exposureStops; }
+        ToneMap toneMap() const { return m_toneMap; }
+
+        /// What a clip at white cuts off, after `scale` and the exposure, in the output primaries: the share of pixels (0..1) with a channel
+        /// above white, and the brightest channel (1 = white; log2 of it is the --exposure that brings it down to white, negated).
+        struct WhiteClip { Real share = 0; Real brightest = 0; };
+        WhiteClip whiteClip(float scale = 1.0f) const;
+
         // ---- Auxiliary buffers (AOVs) for denoising -------------------------------------------
         // Lighting-free color (albedo) and surface normal of what each pixel sees, each averaged over
         // the pixel's samples. Off by default; the integrator fills them when they are enabled.
@@ -155,8 +172,10 @@ namespace rayt {
 
         color::Gamut m_gamut = color::Gamut::SRGB;
         bool m_png16 = false;
+        Real m_exposureStops = 0;
+        ToneMap m_toneMap = ToneMap::Reinhard;
 
-        std::vector<Vector3> m_albedo;   ///< empty unless enableAOVs() was called
+        std::vector<Vector3> m_albedo;  ///< empty unless enableAOVs() was called
         std::vector<Vector3> m_normal;
         std::vector<Vector3> m_stokes[4];   ///< empty unless enableStokes() was called
 

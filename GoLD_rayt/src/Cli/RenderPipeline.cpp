@@ -355,11 +355,22 @@ int RenderScene(CliOptions& opt) {
     std::cout << "[Output] Saving images..." << std::endl;
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
-    film.setOutputGamut(gamut);
-    film.setPng16(opt.pngBits == 16);
+    // Every written picture (the image, the polarizer images, the denoised copy) gets the same output settings.
+    auto setOutput = [&](Film& f) {
+        f.setOutputGamut(gamut);
+        f.setPng16(opt.pngBits == 16);
+        f.setDisplay(opt.exposure, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
+    };
+    setOutput(film);
     film.save(opt.out);
     const std::string outStem = std::filesystem::path(opt.out).replace_extension("").string();
     const std::string outExt = std::filesystem::path(opt.out).extension().string();
+    {
+        std::string ext = outExt;
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if ((ext == ".pfm" || ext == ".hdr") && (opt.exposure != 0 || opt.tonemap != "reinhard"))
+            std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << ext << " holds the radiance as rendered\n";
+    }
     if (opt.aov) {
         const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);
@@ -370,8 +381,7 @@ int RenderScene(CliOptions& opt) {
         film.saveLinearPolarization(outStem);
         for (const Real angle : opt.polarizers) {
             Film filtered(imageWidth, imageHeight);
-            filtered.setOutputGamut(gamut);
-            filtered.setPng16(opt.pngBits == 16);
+            setOutput(filtered);
             film.polarizerImage(angle, filtered);
             std::ostringstream name;
             name << outStem << "_pol" << angle;
@@ -384,8 +394,7 @@ int RenderScene(CliOptions& opt) {
     }
     if (opt.denoise) {
         Film denoised(imageWidth, imageHeight);
-        denoised.setOutputGamut(gamut);
-        denoised.setPng16(opt.pngBits == 16);
+        setOutput(denoised);
         if (DenoiseFilm(film, denoised, opt.cleanAux, gamut)) denoised.save(outStem + "_denoised" + outExt);
     }
 

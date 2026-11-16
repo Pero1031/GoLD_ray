@@ -291,6 +291,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |
 | `--gamut srgb\|p3\|rec2020` | primaries of the output (default `srgb`); a `.png` is tagged so that a viewer shows it in that gamut |
 | `--bits 8\|16` | bits per channel of a `.png` (16 for wide-gamut work: no banding) |
+| `--exposure EV`, `--tonemap reinhard\|clip` | exposure of the `.png`/`.bmp`/`.jpg`; Reinhard's curve (default) or linear up to white and clipped above it |
 | `--accel own\|embree` | own SAH BVH or Embree, for single-material triangle meshes only |
 | `--light-sampler uniform\|power\|spatial\|all` | how the next-event-estimation light is chosen (default `spatial`) |
 | `--aov`, `--denoise` | write albedo / normal images; also write a denoised image (Intel OIDN) |

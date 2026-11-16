@@ -196,6 +196,8 @@ struct CliOptions {
     bool causticTraceOnly = false;         // --caustic-trace-only : write only the light-traced image (to look at it alone)
     bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
+    Real exposure = 0;                     // --exposure EV : the .png / .bmp / .jpg are 2^EV times brighter (.pfm / .hdr stay radiance)
+    std::string tonemap = "reinhard";      // --tonemap reinhard|clip : Reinhard's curve, or linear up to white and clipped above it
     bool cleanAux = false;                // --clean-aux : tell OIDN the albedo / normal are noise-free (skips its prefilter)
     bool pmxStudio = false;                // --pmx-studio : studio lighting (key/fill/rim soft boxes, dim backdrop), framing by pose width
     bool pmxLight = false;                 // --pmx-light : add a white softbox in front-left (highlights show the gloss)

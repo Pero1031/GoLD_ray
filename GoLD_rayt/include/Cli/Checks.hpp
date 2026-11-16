@@ -37,6 +37,9 @@ int RunLightTests(const CliOptions& opt);
 // -----------------------------------------------------------------------------
 int RunAovTests();
 
+// Display pipeline tests (--scene film): exposure and tone map of the written pictures (--exposure, --tonemap), .pfm untouched, clip report
+int RunFilmTests();
+
 // -----------------------------------------------------------------------------
 // Thin-film interference tests (--scene thinfilm): Airy's formula against closed forms, sample() weights, furnace
 // -----------------------------------------------------------------------------

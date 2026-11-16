@@ -11,8 +11,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -291,8 +293,8 @@ namespace rayt {
      * - ".hdr": saved as 32-bit float RGB (linear), without tone mapping.
      * - ".png/.bmp/.jpg": saved as 8-bit RGB after display transform.
      *
-     * For LDR output, the pipeline is:
-     *   exposure -> tone map (Reinhard) -> sRGB OETF -> clamp -> 8-bit
+     * For LDR output, the pipeline is (setDisplay):
+     *   exposure -> tone map (Reinhard, or none and a clip at white) -> sRGB OETF -> clamp -> 8-bit
      *
      * @param filename Output file path.
      * @param scale    Multiply all stored radiance by this factor before saving.
@@ -365,8 +367,9 @@ namespace rayt {
         // --------------------------------------------------
         std::vector<unsigned char> outputData(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 3);
 
-        // Fixed at 0 EV: the CLI has no exposure option (the GUI applies its own exposure to its display copy).
-        const Real exposureStops = Real(0);
+        // --exposure / --tonemap of the CLI (the GUI applies its own exposure to its display copy).
+        const Real exposureStops = m_exposureStops;
+        const bool clip = (m_toneMap == ToneMap::Clip);
         const int numPixels = static_cast<int>(m_pixels.size());
 
         const bool want16 = m_png16 && ext == "png";
@@ -376,9 +379,9 @@ namespace rayt {
         #pragma omp parallel for schedule(static)
         for (int i = 0; i < numPixels; ++i) {
             // Change of primaries first (exact, unclamped), then the display pipeline, which clips what is still negative:
-            // exposure -> Reinhard -> sRGB curve -> clamp. The curve is the sRGB one for every gamut (as for Display P3).
+            // exposure -> Reinhard (or a clip at white) -> sRGB curve -> clamp. The curve is the sRGB one for every gamut (as for Display P3).
             Vector3 pixel = color::fromLinearSRGB(m_gamut, m_pixels[i] * s);
-            pixel = color::toDisplaySRGB_Reinhard(pixel, exposureStops);
+            pixel = clip ? color::toDisplaySRGB_Clip(pixel, exposureStops) : color::toDisplaySRGB_Reinhard(pixel, exposureStops);
 
             outputData[i * 3 + 0] = toByte(pixel[0]);
             outputData[i * 3 + 1] = toByte(pixel[1]);
@@ -423,6 +426,29 @@ namespace rayt {
         else if (m_gamut != color::Gamut::SRGB)
             std::cout << " (" << color::gamutName(m_gamut) << ", cICP-tagged)";
         std::cout << std::endl;
+
+        if (clip) {
+            const WhiteClip wc = whiteClip(scale);
+            std::cout << "[Film] clip at white: " << std::fixed << std::setprecision(2) << Real(100) * wc.share << " % of the pixels have a channel above white";
+            if (wc.brightest > Real(0))
+                std::cout << " (the brightest is " << std::showpos << std::log2(wc.brightest) << std::noshowpos << " stops from white)";
+            std::cout << std::defaultfloat << std::endl;
+        }
+    }
+
+    Film::WhiteClip Film::whiteClip(float scale) const {
+        const Real gain = static_cast<Real>(scale) * std::pow(Real(2), m_exposureStops);
+        size_t over = 0;
+        WhiteClip wc;
+        for (const Vector3& px : m_pixels) {
+            const Vector3 p = color::fromLinearSRGB(m_gamut, px * gain);
+            const Real m = std::max(p[0], std::max(p[1], p[2]));
+            if (math::hasNonFinite(m)) continue;
+            if (m > Real(1)) ++over;
+            wc.brightest = std::max(wc.brightest, m);
+        }
+        wc.share = m_pixels.empty() ? Real(0) : Real(over) / Real(m_pixels.size());
+        return wc;
     }
 
     void Film::saveAlbedo(const std::string& filename) const {

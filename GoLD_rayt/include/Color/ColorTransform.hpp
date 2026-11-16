@@ -165,4 +165,19 @@ namespace rayt::color {
         return x;
     }
 
+    /**
+     * @brief The same pipeline without the tone curve: exposure, then the sRGB curve, clipped at white.
+     *
+     * Linear up to white (1.0 after the exposure is the brightest code value), so ratios of the radiance survive in the picture
+     * below white; everything above it is clipped per channel. For stimuli whose highlights must not be compressed by a curve.
+     */
+    inline Vector3 toDisplaySRGB_Clip(const Vector3& linearRGB, Real exposureStops = Real(0)) {
+        Vector3 x = applyExposure(linearRGB, exposureStops);
+        for (int c = 0; c < 3; ++c) {
+            const Real v = (rayt::math::hasNonFinite(x[c]) || x[c] < Real(0)) ? Real(0) : x[c];
+            x[c] = rayt::math::saturate(linearToSRGB(rayt::math::saturate(v)));
+        }
+        return x;
+    }
+
 } //namespace rayt::color

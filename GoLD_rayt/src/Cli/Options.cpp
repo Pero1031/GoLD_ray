@@ -22,6 +22,16 @@ Vector3 ParseRgb(const std::string& text, const char* name) {
     return Vector3(v[0], v[1], v[2]);
 }
 
+// The options of the written pictures (--gamut, --bits, --exposure, --tonemap). Returns false for any other option.
+bool ApplyOutputArg(const std::string& a, const std::function<std::string(const char*)>& value, CliOptions& o) {
+    if (a == "--gamut") o.gamut = value("--gamut");
+    else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));
+    else if (a == "--exposure") o.exposure = std::stod(value("--exposure"));
+    else if (a == "--tonemap") o.tonemap = value("--tonemap");
+    else return false;
+    return true;
+}
+
 // The lens options (--focal-length, --fstop, --focus-dist, --focus-at, --blades, --blade-rotation). Returns false for any other option.
 bool ApplyLensArg(const std::string& a, const std::function<std::string(const char*)>& value, LensSpec& lens) {
     if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
@@ -71,6 +81,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
                 return args[++i];
             };
             if (ApplyLensArg(a, value, o.lens)) continue;   // (a separate function: one else-if chain this long does not compile)
+            if (ApplyOutputArg(a, value, o)) continue;
             if (a == "--scene")      o.scene = value("--scene");
             else if (a == "--width") o.width = std::stoi(value("--width"));
             else if (a == "--height") o.height = std::stoi(value("--height"));
@@ -186,8 +197,6 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
                 o.stokes = true;
             }
             else if (a == "--clean-aux") o.cleanAux = true;
-            else if (a == "--gamut") o.gamut = value("--gamut");
-            else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;
             else if (a == "--pmx-check") o.pmxCheck = true;
@@ -217,6 +226,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             throw std::runtime_error("--metal must be Au, Ag or Cu");
         { color::Gamut g; if (!color::parseGamut(o.gamut, g)) throw std::runtime_error("--gamut must be srgb, p3 or rec2020"); }
         if (o.pngBits != 8 && o.pngBits != 16) throw std::runtime_error("--bits must be 8 or 16");
+        if (!std::isfinite(o.exposure) || std::fabs(o.exposure) > 64) throw std::runtime_error("--exposure must be a number of stops between -64 and 64");
+        if (o.tonemap != "reinhard" && o.tonemap != "clip") throw std::runtime_error("--tonemap must be reinhard or clip");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")
