@@ -1,6 +1,6 @@
 # tools/
 
-Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some figures) `matplotlib`. Run them from the repository folder.
+Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some figures) `matplotlib`; `lib/colorimetry.py` needs `colour-science`. Run them from the repository folder.
 
 | Folder / file | What it is for |
 |---|---|
@@ -9,6 +9,7 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | **`test/`** | |
 | `regress.py` | small renders and self-checks of a build, compared with an earlier build (use it when changing the renderer's structure) |
 | `ab_test.py` | interleaved A/B runs of two builds: mean color (z score), time, how often a self-check fails |
+| `spectral_image_check.py` | reads a render's spectral image (`--spectral-image 5,360,830`) and computes its RGB picture in Python: it must be the renderer's `.pfm`; colour-science's CIEDE2000 against `lib/colordiff.py` |
 | `gamut_check.py` | checks of `--gamut srgb\|p3\|rec2020`: the matrices against the primaries, the PNG's cICP chunk, the 16-bit PNG, `.pfm` of two gamuts against each other |
 | **`figures/`** | figures for any scene |
 | `compare_figure.py` | RGB build against spectral build under several lights, with a CIEDE2000 difference map (the README hero) |
@@ -42,6 +43,6 @@ Scripts around the renderer. Python scripts need `numpy`, `Pillow` and (for some
 | `make_drops.py` | water drops on a glass plate: the caps, the contact discs, the plate's top face and the cut-out mask under the drops (`docs/WATERDROPS.md`) |
 | `make_bokeh_layers.py` | writes `scenes/bokeh_layers.json`: a portrait with four layers of depth (glossy balls in front, the gold Erato in focus, balls behind it, small lights far behind: 100 mm, f/1.6, 7 blades) |
 | `mesh_clean.py` | prepares an OBJ or PLY for the renderer: welds vertices, recomputes smooth normals, keeps the uv on request, turns the up axis, scales to a height in metres, drops floating fragments, closes the open boundaries (a scan or a mesh from 3D Gaussian Splatting: `docs/CAPTURE.md`) |
-| **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr` and `.pfm` readers), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display), `scielab.py` (S-CIELAB spatial filtering) |
+| **`lib/`** | shared code (not run directly): `colordiff.py` (sRGB to Lab, CIEDE2000, label font), `hdr_io.py` (Radiance `.hdr`, `.pfm` and ENVI spectral image readers), `colorimetry.py` (spectral image to XYZ, CIELAB, CIEDE2000 and display RGB through colour-science, any CIE observer), `gamut.py` (sRGB / Display P3 / Rec.2020 matrices and display), `scielab.py` (S-CIELAB spatial filtering) |
 
 Scripts that make a figure from renders expect the renders from `GoLD_rayt.exe ... --out x.pfm --denoise` (see the docstring at the top of each script). The denoiser clips negative values, so for colors outside sRGB (a candle-lit gold) use the raw `.pfm`, not `_denoised`.

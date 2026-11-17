@@ -1,7 +1,12 @@
-"""Minimal Radiance .hdr (RGBE) reader, enough for the files written by stb_image_write (flat or new-style RLE scanlines).
+"""Readers for the renderer's float images: Radiance .hdr (RGBE, the files stb_image_write writes: flat or new-style RLE scanlines),
+.pfm, and the ENVI spectral image of --spectral-image.
 
-    img = read_hdr(path)    # float32 array (H, W, 3), linear values
+    img = read_hdr(path)              # float32 array (H, W, 3), linear values
+    cube, wl = read_envi("out/x")     # float32 (H, W, bands) and the band centres in nm (out/x_spectral.hdr + .img)
 """
+import os
+import re
+
 import numpy as np
 
 
@@ -59,3 +64,62 @@ def read_hdr(path):
     e = rgbe[..., 3].astype(np.int32)
     scale = np.where(e > 0, np.ldexp(1.0, e - (128 + 8)), 0.0)
     return (rgbe[..., :3].astype(np.float64) * scale[..., None]).astype(np.float32)
+
+
+ENVI_DTYPES = {1: "u1", 2: "i2", 3: "i4", 4: "f4", 5: "f8", 12: "u2", 13: "u4", 14: "i8", 15: "u8"}
+
+
+def envi_paths(path):
+    """(header, data) paths of an ENVI image given its .hdr, its .img or the stem a render was written to (x for x_spectral.hdr)."""
+    stem, ext = os.path.splitext(path)
+    if ext.lower() in (".hdr", ".img"):
+        return stem + ".hdr", stem + ".img"
+    if ext.lower() in (".pfm", ".png", ".exr", ".bmp", ".jpg"):
+        path = stem                   # the --out file of the render
+    return path + "_spectral.hdr", path + "_spectral.img"
+
+
+def read_envi_header(path):
+    """The header of an ENVI image as a dict of strings; brace lists ({a, b, ...}, possibly over several lines) as lists of strings."""
+    header, _ = envi_paths(path)
+    with open(header, "r", encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    if not text.lstrip().startswith("ENVI"):
+        raise ValueError("not an ENVI header: " + header)
+    out = {}
+    for m in re.finditer(r"^\s*([^=\n]+?)\s*=\s*(\{[^}]*\}|[^\n]*)", text, re.M):
+        key, value = m.group(1).strip().lower(), m.group(2).strip()
+        if value.startswith("{"):
+            inner = value[1:-1].strip()
+            out[key] = inner if key == "description" else [v.strip() for v in inner.split(",") if v.strip()]
+        else:
+            out[key] = value
+    return out
+
+
+def read_envi(path):
+    """An ENVI image as (cube, wavelengths): float32 (H, W, bands) and the band centres (None if the header lists none).
+
+    `path` is the .hdr, the .img or the stem of a render (`--out x.pfm --spectral-image ...` gives x_spectral.hdr / .img). Band sequential,
+    band interleaved by line or by pixel, either byte order. The renderer's bands are the mean spectral radiance over [centre - fwhm/2,
+    centre + fwhm/2] (docs/CAMERA.md)."""
+    h = read_envi_header(path)
+    _, data = envi_paths(path)
+    w, ht, b = int(h["samples"]), int(h["lines"]), int(h["bands"])
+    dtype = np.dtype(ENVI_DTYPES[int(h.get("data type", 4))]).newbyteorder(">" if int(h.get("byte order", 0)) else "<")
+    a = np.fromfile(data, dtype=dtype, count=w * ht * b, offset=int(h.get("header offset", 0)))
+    if a.size != w * ht * b:
+        raise ValueError("%s holds %d values, the header says %d x %d x %d" % (data, a.size, w, ht, b))
+    order = h.get("interleave", "bsq").lower()
+    if order == "bsq":
+        cube = a.reshape(b, ht, w).transpose(1, 2, 0)
+    elif order == "bil":
+        cube = a.reshape(ht, b, w).transpose(0, 2, 1)
+    elif order == "bip":
+        cube = a.reshape(ht, w, b)
+    else:
+        raise ValueError("unknown ENVI interleave: " + order)
+    wl = np.array([float(v) for v in h["wavelength"]]) if "wavelength" in h else None
+    if wl is not None and h.get("wavelength units", "nanometers").lower() in ("micrometers", "microns", "um"):
+        wl = wl * 1000.0
+    return np.ascontiguousarray(cube, dtype=np.float32), wl
