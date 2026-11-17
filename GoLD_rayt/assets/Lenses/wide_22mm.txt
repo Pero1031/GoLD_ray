@@ -1,17 +1,20 @@
-# Wide-angle lens (38 deg half field of view), Nakamura
-# As in W. J. Smith, Modern Lens Design, p. 360; scaled to 22 mm from 100 mm (the same numbers as pbrt's wide.22mm.dat).
-# The source gives n_d only: the glass is not dispersive here.
+# Wide-angle lens, 76 deg field of view, f/2.8, for a 35 mm rangefinder camera: Akiyoshi Nakamura (Minolta), US patent 4,211,472
+# (1980), embodiment 4, given for f = 100 and scaled here by 0.22 (f = 22.03 mm). Radii, spacings, indices n_d and Abbe numbers are
+# the patent's. The stop position (the patent gives none) and the clear diameters are Smith's.
+# W. J. Smith, Modern Lens Design, p. 360 (pbrt's wide.22mm.dat, the file before) has a variant of this embodiment: three glasses
+# changed (n_d 1.617 for 1.6129 and 1.6200, 1.713 for 1.7106), the last radius changed and the rest rescaled by 1.005; pbrt gives
+# its indices to three decimals and no Abbe numbers. The patent's own design is used because its glasses are known in full.
 # radius (mm)  thickness (mm)  n_d  clear diameter (mm)  [Abbe number]
-35.98738    1.21638   1.54    23.716
-11.69718    9.9957    1       17.996
-13.08714    5.12622   1.772   12.364
--22.63294   1.76924   1.617   9.812
-71.05802    0.8184    1       9.152
-0           2.27766   0       8.756
--9.58584    2.43254   1.617   8.184
--11.28864   0.11506   1       9.152
--166.7765   3.09606   1.713   10.648
--7.5911     1.32682   1.805   11.44
--16.7662    3.98068   1       12.276
--7.70286    1.21638   1.617   13.42
--11.97328   0         1       17.996
+35.80082    1.21      1.5404   23.716   51.0
+11.63624    9.944     1        17.996
+13.0196     5.0996    1.7725   12.364   50.1
+-22.51458   1.76      1.6129   9.812    37.0
+70.68952    0.81415   1        9.152
+0           2.26585   0        8.756
+-9.5348     2.42      1.6200   8.184    36.3
+-11.23012   0.1144    1        9.152
+-165.8734   3.08      1.7106   10.648   43.2
+-7.55194    1.32      1.8052   11.44    25.2
+-16.68194   3.96      1        12.276
+-7.66304    1.21      1.6166   13.42    36.7
+-11.9922    0         1        17.996

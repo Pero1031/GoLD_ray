@@ -35,14 +35,16 @@ axial and lateral chromatic aberration.
   trial rays) is stored; a camera ray aims at a point of that box, turned to the film point's angle. Its weight is the film irradiance
   factor cos⁴θ × box area / distance², divided by its value at the film centre, so the centre of the picture keeps the scene's radiance and
   the corners darken as the lens makes them.
-- **Lenses in `assets/Lenses/`:** `dgauss_50mm` (double-Gauss f/2, Tronnier, US patent 2,673,491), `wide_22mm` (Nakamura, f/2.8),
-  `fisheye_10mm` (Muller, f/4), all from W. J. Smith, *Modern Lens Design*, as scaled in pbrt's lens files, and `singlet_bk7_100mm`, an
-  uncorrected N-BK7 lens. pbrt's files give n_d to three decimals and no Abbe numbers. For the double-Gauss the indices and Abbe numbers
-  are the patent's (its radii are the patent's times 50), so its glass is dispersive and its focal length is the patent's 50.0 mm at f/2.00
-  (with the rounded indices: 50.4 mm f/2.02). Its F and C foci differ by 0.19 % of f (93 µm): the residual axial colour that shows as
-  purple and green fringes on the bokeh of a fast normal lens wide open. The wide-angle and the fisheye still have n_d only (their
-  sources give no Abbe numbers): no chromatic aberration. The set-up prints the focal length, the f-number and the field: 50.0 mm f/2.00,
-  22.0 mm f/2.79 and 9.99 mm f/3.99 for the three.
+- **Lenses in `assets/Lenses/`:** three patented designs with the patents' glasses (n_d and Abbe number), so all three are dispersive
+  in the spectral build: `dgauss_50mm` (double-Gauss f/2, Tronnier, US 2,673,491), `wide_22mm` (f/2.8, 76°, for a 35 mm rangefinder
+  camera, A. Nakamura, US 4,211,472, embodiment 4) and `fisheye_10mm` (f/4, 156°, R. Muller, US 4,647,161, embodiment 1); and
+  `singlet_bk7_100mm`, an uncorrected N-BK7 lens. They came from W. J. Smith, *Modern Lens Design*, through pbrt's lens files, which
+  round n_d to three decimals and leave out the Abbe numbers. The double-Gauss and the fisheye keep those radii (the patents', scaled);
+  the wide-angle takes the patent's own, as Smith's is a variant with three other glasses. Their F and C foci differ by 0.19 %
+  (double-Gauss, 93 µm), 0.28 % (wide-angle) and 0.48 % (fisheye) of f: the residual axial colour, seen as purple and green fringes on
+  the bokeh of the fast double-Gauss wide open. The lateral colour stays under 0.1 % of the image height up to the edge of the field
+  (11 µm for the fisheye). The set-up prints the focal length, the f-number and the field: 50.0 mm f/2.00, 22.0 mm f/2.79 and
+  10.0 mm f/4.00 for the three.
 - **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
   of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
   such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.

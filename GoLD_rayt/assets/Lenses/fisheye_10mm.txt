@@ -1,16 +1,17 @@
-# Fisheye lens, 155.9 deg field of view, Muller (16 mm f/4)
-# As in W. J. Smith, Modern Lens Design, p. 164; scaled to 10 mm from 100 mm (the same numbers as pbrt's fisheye.10mm.dat).
-# The source gives n_d only: the glass is not dispersive here.
+# Fisheye lens, 155.9 deg field of view, f/4: Rolf Muller, US patent 4,647,161 (1987), embodiment 1 (f = 15.957 mm, 24 x 36 mm)
+# As in W. J. Smith, Modern Lens Design, p. 164, scaled to 10 mm (the radii and spacings of pbrt's fisheye.10mm.dat: the patent's
+# times 10 / 15.957; clear diameters from Smith). The indices n_d (five decimals) and Abbe numbers are the patent's: pbrt rounds the
+# indices to three decimals (focal length 9.99 mm) and leaves out the Abbe numbers, so the glass was not dispersive before.
 # radius (mm)  thickness (mm)  n_d  clear diameter (mm)  [Abbe number]
-30.2249    0.8335    1.62    30.34
-11.3931    7.4136    1       20.68
-75.2019    1.0654    1.639   17.8
-8.3349     11.1549   1       13.42
-9.5882     2.0054    1.654   9.02
-43.8677    5.3895    1       8.14
-0          1.4163    0       6.08
-29.4541    2.1934    1.517   5.96
--5.2265    0.9714    1.805   5.84
--14.2884   0.0627    1       5.96
--22.3726   0.94      1.673   5.96
--15.0404   0         1       6.52
+30.2249    0.8335    1.62041  30.34    60.33
+11.3931    7.4136    1        20.68
+75.2019    1.0654    1.63854  17.8     55.42
+8.3349     11.1549   1        13.42
+9.5882     2.0054    1.65446  9.02     33.65
+43.8677    5.3895    1        8.14
+0          1.4163    0        6.08
+29.4541    2.1934    1.5168   5.96     64.17
+-5.2265    0.9714    1.80518  5.84     25.43
+-14.2884   0.0627    1        5.96
+-22.3726   0.94      1.6727   5.96     32.21
+-15.0404   0         1        6.52
