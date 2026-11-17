@@ -13,6 +13,7 @@
 #include "Render/LensSystem.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
+#include "Render/Sensor.hpp"
 #include "Render/SpecularNee.hpp"
 #include "Render/VolumeBPT.hpp"
 
@@ -345,9 +346,22 @@ void EnableSpectralImage(const CliOptions& opt, Film& film) {
         << " nm; the poorest band (at " << fewestAt << " nm) gets " << fewest << " wavelength samples per pixel\n";
 }
 
+// --sensor: the model and its numbers at this ISO in the log.
+void LogSensor(const SensorModel& m, const SensorSetting& s, bool physicalExposure) {
+    std::cout << "[Sensor] full well " << m.fullWell << " e-, base ISO " << m.baseIso << ", read noise " << m.readNoise << " e- before the amplifier and "
+        << m.adcNoise << " e- after it (at the base ISO), " << m.bits << "-bit ADC\n";
+    const Real grey = Real(0.18) * s.whiteElectrons;
+    const Real snr = grey / std::sqrt(grey + s.readElectrons * s.readElectrons);
+    std::cout << "[Sensor] ISO " << s.iso << (physicalExposure ? "" : " (the base ISO: no physical exposure, --exposure sets the light)") << ": the picture's white is "
+        << s.whiteElectrons << " e- (" << s.whiteElectrons / m.fullWell << " of the full well), " << s.dnPerElectron << " DN per e- above a black level of "
+        << s.black << " DN, read noise " << s.readElectrons << " e-; mid grey " << grey << " e-, signal-to-noise ratio " << snr << " (shot noise alone "
+        << std::sqrt(grey) << ")\n";
+    if (s.whiteElectrons > m.fullWell) std::cout << "[Sensor] below the base ISO the well is full at " << m.fullWell / s.whiteElectrons << " of the white\n";
+}
+
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
-// photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization).
-void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction, Real exposureStops) {
+// photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization). iso: the physical exposure's (0 = none).
+void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction, Real exposureStops, Real iso) {
     std::cout << "[Output] Saving images..." << std::endl;
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
@@ -375,6 +389,25 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
         if (denoised) ApplyDiffraction(*denoised, *kernels);
         std::cout << "[Diffraction] kernel of " << 2 * kernels->radius + 1 << " px holding " << 100.0 * kernels->captured << " % of the light, applied in "
             << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s\n";
+    }
+    // The sensor: after the optics (diffraction) and after the denoiser, which would otherwise take its noise away. With a physical
+    // exposure the sensor gets the exposure's light and --exposure pushes the recording afterwards, noise and all; without one --exposure
+    // sets the light and the picture's white is the full well at the base ISO. The film keeps radiance units (.pfm).
+    if (!opt.sensor.empty()) {
+        SensorModel model;
+        std::string error;
+        ParseSensorSpec(opt.sensor, model, error);   // validated by the option parser
+        const SensorSetting setting = MakeSensorSetting(model, iso);
+        const Real gain = std::pow(Real(2), iso > 0 ? exposureStops : opt.exposure);
+        LogSensor(model, setting, iso > 0);
+        const std::uint64_t seed = static_cast<std::uint64_t>(opt.seed);
+        const Real clipped = ApplySensor(film, setting, gain, seed);
+        if (denoised) ApplySensor(*denoised, setting, gain, seed ^ 0xd3e01c0ull);   // its own noise
+        std::cout << "[Sensor] " << Real(100) * clipped << " % of the pixels have a channel at the top of the range\n";
+        if (!color::cameraResponse().active)
+            std::cout << "[Sensor] note: its channels are the film's linear sRGB (an ideal camera); --camera-response gives a real camera's (spectral build)\n";
+        if (!denoised) std::cout << "[Sensor] note: the render's own noise adds to the sensor's; with --denoise the _denoised picture has the sensor's alone\n";
+        if (opt.tonemap != "clip") std::cout << "[Sensor] note: --tonemap clip shows the sensor's clip as it is (Reinhard compresses it)\n";
     }
 
     film.save(opt.out);
@@ -654,7 +687,8 @@ int RenderScene(CliOptions& opt) {
             << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
-    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction, exposureStops);
+    const Real iso = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight).iso;   // the physical exposure's, for the sensor
+    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction, exposureStops, iso);
 
     bool hooksPassed = true;
     if (setup.afterSave) hooksPassed = setup.afterSave({ *scene, *camera, film, *integrator });

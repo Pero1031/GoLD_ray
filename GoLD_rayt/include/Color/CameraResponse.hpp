@@ -45,7 +45,10 @@ namespace rayt::color {
     void resetCameraResponse();
 
     /// The camera's raw RGB of a film value: diag(whiteRaw) * matrix^-1 * rgb, scaled so that the G of D65 of unit scale is 1.
+    /// Without a camera response the raw is the film's value itself (an ideal camera whose channels are the film's linear sRGB).
     Vector3 filmToCameraRaw(const Vector3& rgb);
+    /// The inverse: the film value of a raw RGB (the camera's white balance and colour matrix).
+    Vector3 cameraRawToFilm(const Vector3& raw);
 
     /// The film's weight at a wavelength under the active response (linear between the 1 nm entries).
     inline Vector3 cameraFilmWeight(const CameraResponse& cam, Real nm) {

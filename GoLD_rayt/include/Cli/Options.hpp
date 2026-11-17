@@ -202,6 +202,8 @@ struct CliOptions {
     std::string mask;                      // --mask A[,B..] : also write <out>_mask.png, the share of each pixel that objects of these scene-file materials cover
     bool depthMap = false;                 // --depth-map : also write <out>_depth.pfm, the distance of the first surface along the view axis (Render/MaskDepth.hpp)
     std::string cameraResponse;            // --camera-response FILE : the film as this camera sees (CSV of wavelength, R, G, B; spectral build)
+    std::string sensor;                    // --sensor default|key=value,... : the pictures as a sensor records them (shot and read noise, full well, ADC;
+                                           //   Render/Sensor.hpp). "" = an ideal film
     double spectralStep = 0;               // --spectral-image STEP[,FIRST,LAST] : also write <out>_spectral.img/.hdr, the mean spectral radiance in bands of
     double spectralFirst = 380;            //   STEP nm from FIRST to LAST nm (default 380..780; the spectral build). 0 = off
     double spectralLast = 780;

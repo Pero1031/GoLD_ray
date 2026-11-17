@@ -12,8 +12,8 @@
  * 0.18 linear (118 of 255 in sRGB). So a pixel's linear value is 0.018 S H. The scene's radiance has no unit of its own; `nits` states the
  * luminance (cd/m^2) of a radiance whose Y is 1, and the gain on the radiance is 0.018 S t nits G.
  *
- * Not included: the transmittance of the glass (a real lens passes about 90 %; the T-stop), flare, and the sensor's noise and saturation
- * (the tone map's clip at white stands in for the full well).
+ * Not included: the transmittance of the glass (a real lens passes about 90 %; the T-stop) and flare. The sensor's noise and full well:
+ * Render/Sensor.hpp (--sensor).
  */
 
 #include <cmath>

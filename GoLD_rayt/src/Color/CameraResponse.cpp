@@ -114,4 +114,10 @@ namespace rayt::color {
         return (glm::inverse(cam.matrix) * rgb) * cam.whiteRaw / cam.whiteRaw.y;
     }
 
+    Vector3 cameraRawToFilm(const Vector3& raw) {
+        const CameraResponse& cam = cameraResponse();
+        if (!cam.active) return raw;
+        return cam.matrix * (raw * cam.whiteRaw.y / cam.whiteRaw);
+    }
+
 } // namespace rayt::color

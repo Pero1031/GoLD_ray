@@ -111,6 +111,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Render\Sensor.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Render\MaskDepth.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -537,6 +541,7 @@
     <ClInclude Include="include\Render\MaskDepth.hpp" />
     <ClInclude Include="include\Render\Diffraction.hpp" />
     <ClInclude Include="include\Render\Exposure.hpp" />
+    <ClInclude Include="include\Render\Sensor.hpp" />
     <ClInclude Include="include\Render\LensSystem.hpp" />
     <ClInclude Include="include\Color\CameraResponse.hpp" />
     <ClInclude Include="include\Render\Integrator.hpp" />

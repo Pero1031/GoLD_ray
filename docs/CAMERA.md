@@ -105,6 +105,37 @@ raw file (both linear; scale them by a white or grey patch).
   the mean colours): under D65 0.1–1.0 (the matrices are fitted there), under the LED 0.5–3.9 on the cloth and 2.4–6.7 on the grey table
   (the phone camera worst). The grey's error under the LED comes from the white balance, which stays at D65.
 
+### The sensor (`--sensor`; `Render/Sensor`)
+
+Without it the film is ideal: each pixel holds its exact mean. With `--sensor` the written pictures are what a camera's sensor records of
+that mean, in four steps per pixel and channel (on the camera's raw values with `--camera-response`, else on the film's linear sRGB):
+
+1. **Electrons:** the light becomes on average raw × (the white's electrons), and the count is drawn from a Poisson distribution, as
+   photons arrive at random. Its standard deviation is the square root of the mean, so N electrons have a signal-to-noise ratio of √N
+   (shot noise). This is the noise of the light itself; no sensor does better.
+2. **Read noise:** reading the charge out adds Gaussian noise, `read` electrons before the amplifier and `adc` electrons (counted at the
+   base ISO) after it. The ISO setting is the amplifier's gain, so at S times the base ISO the second part counts base / S of itself:
+   σ = √(read² + (adc · base / S)²).
+3. **Analog-to-digital converter:** the amplified signal is rounded to an integer (DN) of `bits` bits above a black level of 1/32 of the
+   range, which keeps the noise below black (no light reads 0 on average). The range ends at the full well at the base ISO and at the
+   white above it, as a camera sets its white level: a full pixel reads the top value, flat.
+4. **Back** to the film's units, (DN − black) / K / (the white's electrons), then the camera's white balance and colour matrix.
+
+- **ISO:** the same light gives the same electrons at any ISO. At S times the base ISO the white is reached with 1/S of the full well:
+  the picture is brighter, the shot noise relative to white √S times larger, the read noise after the amplifier S times smaller in
+  electrons. So raising the ISO beats brightening the picture afterwards until the read noise before the amplifier dominates. Below the
+  base ISO the well is full before the white.
+- **Exposure:** with `--iso` the sensor gets the physical exposure's light and `--exposure` pushes the recording afterwards, noise and
+  all; without `--iso` the picture's white is the full well at the base ISO and `--exposure` sets the light.
+- **Default:** `well=50000,base=100,read=1.5,adc=3,bits=14`, round numbers of a 24-megapixel full-frame sensor (6 µm pixels): mid
+  grey at ISO 100 holds 9000 electrons, a signal-to-noise ratio of 95. For a given camera use its measured full well and read noise.
+  The scale is plausible: D65 brings 1.39 × 10¹⁶ photons per lux second and square metre, so a 6 µm pixel at the white of ISO 100
+  (0.56 lux s) receives 2.8 × 10⁵ photons, of which a fifth become electrons (its green filter passes about a third of them).
+- **Order:** after diffraction and after the denoiser. The main picture also carries the render's own (Monte Carlo) noise; the
+  `_denoised` copy has the sensor's alone. `_camraw.pfm` holds the recorded raw. The spectral image, the AOVs, the mask, the depth and
+  the polarizer views stay noiseless. The log gives the electrons of white and mid grey, the latter's signal-to-noise ratio and the share
+  of pixels at the top of the range.
+
 ## 3. Verified
 
 `--scene camera` (RGB and spectral builds): `project()` undoes the ray through a pixel centre; with an aperture, the rays of a film position
@@ -135,14 +166,22 @@ estimate's error and the far tail; it is renormalized to 1).
 
 Physical exposure, also in `--scene camera`: the thin lens's irradiance factor is π / (4 N²) at infinity and a quarter of it focused at twice the focal length; the double-Gauss's, from its traced rays, is π / (4 N²) within 0.04 % (it meets the sine condition) and drops by (8 / 2)² from f/2 to f/8 within 0.03 %; mid grey comes out at the luminance a reflected-light meter (K = 12.5) exposes for, within 2 % (12.7). A uniform sky (Y 1, `--nits 100`) at f/4, 1/100 s, ISO 100 is written as 0.0887 linear against 0.0884 (8-bit steps), and a quarter of it at f/8.
 
+The sensor, also in `--scene film`: at the base ISO the electrons are the light's and their variance is their mean plus the read noise
+squared plus the ADC's rounding, within 3 %, and its slope against the mean in DN is the conversion gain (the photon transfer curve); the
+same light at ISO 100 and 1600 gives the same 20 electrons and the signal-to-noise ratios of the formula (3.53 and 4.24); above white all
+pixels read the top value, and at ISO 50 the well is full at half the white; no light reads 0 on average; a film keeps its mean, gets the
+shot noise's spread and draws the same noise for the same seed.
+
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
 ## 4. Limits
 
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
-- The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65, and the sensor stays ideal: no noise, no colour filter mosaic, no saturation.
-- Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number) and the sensor's noise; the full well is the clip at white of `--tonemap clip`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
+- The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65.
+- The sensor (`--sensor`) records all three channels in every pixel (no colour filter mosaic yet) and has no dark current and no
+  fixed-pattern noise (the small differences of gain and offset between pixels).
+- Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
 - A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.

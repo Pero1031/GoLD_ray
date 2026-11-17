@@ -7,6 +7,7 @@
 #include "Cli/SceneDescription.hpp"
 #include "Cli/SceneFile.hpp"
 #include "Color/Gamut.hpp"
+#include "Render/Sensor.hpp"
 
 namespace rayt::cli {
 
@@ -32,6 +33,7 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     else if (a == "--mask") o.mask = value("--mask");
     else if (a == "--depth-map") o.depthMap = true;
     else if (a == "--camera-response") o.cameraResponse = value("--camera-response");
+    else if (a == "--sensor") o.sensor = value("--sensor");
     else if (a == "--spectral-image") {   // STEP or STEP,FIRST,LAST (nm)
         std::vector<double> v;
         std::stringstream list(value("--spectral-image"));
@@ -246,6 +248,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.tonemap != "reinhard" && o.tonemap != "clip") throw std::runtime_error("--tonemap must be reinhard or clip");
         if (!(o.nits >= 0) || !std::isfinite(o.nits)) throw std::runtime_error("--nits must be the luminance (cd/m^2) of a radiance whose Y is 1, above 0");
         if (o.lens.iso && !(*o.lens.iso > 0)) throw std::runtime_error("--iso must be an ISO speed above 0");
+        if (!o.sensor.empty()) { SensorModel m; std::string error; if (!ParseSensorSpec(o.sensor, m, error)) throw std::runtime_error(error); }
 #if !defined(RAYT_SPECTRAL_MODE)
         if (o.spectralStep != 0) throw std::runtime_error("--spectral-image needs the spectral build (the RGB build has no wavelengths)");
         if (!o.cameraResponse.empty()) throw std::runtime_error("--camera-response needs the spectral build (the RGB build has no wavelengths)");

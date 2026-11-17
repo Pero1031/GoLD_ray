@@ -17,6 +17,7 @@
 #include "Render/Film.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
+#include "Render/Sensor.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
 
@@ -360,9 +361,11 @@ int RunFilmTests() {
             const Vector3 raw = color::filmToCameraRaw(Vector3(1.0));
             const Vector3 rawDirect = integrate([&](Real l) { return cam.curves[static_cast<size_t>(int(l) - color::CameraResponse::kFirstNm)]; },
                 [](Real l) { return color::evaluateD65(l); });
-            report("p  camera response of Gaussian curves: D65 -> (1, 1, 1), grey stays grey, the raw of D65 as integrated",
+            const Vector3 colour(0.7, 0.2, 0.05);
+            const Vector3 back = color::cameraRawToFilm(color::filmToCameraRaw(colour));   // raw and back (the sensor's way)
+            report("p  camera response of Gaussian curves: D65 -> (1, 1, 1), grey stays grey, the raw of D65 as integrated, raw -> film undoes film -> raw",
                 set && glm::length(white - Vector3(1.0)) < 1e-9 && glm::length(grey - Vector3(0.3)) < 1e-9
-                && glm::length(raw - rawDirect / rawDirect.y) < 1e-9,
+                && glm::length(raw - rawDirect / rawDirect.y) < 1e-9 && glm::length(back - colour) < 1e-9,
                 "fit RMS " + std::to_string(cam.fitRms) + ", raw of D65 " + std::to_string(raw.x) + " 1 " + std::to_string(raw.z));
         }
 
@@ -406,6 +409,123 @@ int RunFilmTests() {
 #else
     std::cout << "[Film]   l-q  spectral image and camera response: need the spectral build (skipped)\n";
 #endif
+
+    // ---- The sensor (--sensor; Render/Sensor.hpp), the default model: 50000 e- full well at ISO 100, read noise 1.5 + 3 e-, 14 bits ----
+    {
+        const SensorModel model;
+        // N draws of one raw value; the electrons read back from the DN, (DN - black) / K: their mean and variance
+        auto draw = [&](Real raw, const SensorSetting& s, int n, std::uint64_t seed, double& mean, double& var, int& atTop) {
+            std::mt19937_64 rng(seed);
+            double sum = 0, sum2 = 0;
+            atTop = 0;
+            for (int i = 0; i < n; ++i) {
+                const int dn = SenseDn(raw, s, rng);
+                if (dn == s.maxDn) ++atTop;
+                const double e = (double(dn) - s.black) / double(s.dnPerElectron);
+                sum += e;
+                sum2 += e * e;
+            }
+            mean = sum / n;
+            var = sum2 / n - mean * mean;
+        };
+        const int n = 100000;
+
+        // (r) Photon transfer at the base ISO: the mean electrons are the light's (within 4 standard errors) and their variance is the mean
+        //     plus the read noise squared plus the rounding of the ADC (1/12 DN^2), within 3 % (the variance of a variance of 1e5 draws:
+        //     0.45 %). The slope of the variance against the mean, both in DN, is the conversion gain K (the photon transfer curve).
+        {
+            const SensorSetting s = MakeSensorSetting(model, 0);
+            bool ok = std::fabs(s.whiteElectrons - 50000) < 1e-9;
+            double worst = 0, dnMean[2] = { 0, 0 }, dnVar[2] = { 0, 0 };
+            int k = 0;
+            for (const Real raw : { Real(0), Real(0.0005), Real(0.005), Real(0.05), Real(0.5) }) {
+                double mean, var;
+                int top;
+                draw(raw, s, n, 11 + static_cast<std::uint64_t>(k), mean, var, top);
+                const double want = double(raw * s.whiteElectrons);
+                const double wantVar = want + double(s.readElectrons * s.readElectrons) + 1.0 / (12.0 * double(s.dnPerElectron * s.dnPerElectron));
+                ok = ok && std::fabs(mean - want) < 4 * std::sqrt(wantVar / n) && top == 0;
+                worst = std::max(worst, std::fabs(var / wantVar - 1));
+                if (raw >= Real(0.05)) { dnMean[k - 3] = mean * double(s.dnPerElectron); dnVar[k - 3] = var * double(s.dnPerElectron * s.dnPerElectron); }
+                ++k;
+            }
+            const double slope = (dnVar[1] - dnVar[0]) / (dnMean[1] - dnMean[0]);
+            ok = ok && worst < 0.03 && std::fabs(slope / double(s.dnPerElectron) - 1) < 0.03;
+            report("r  photon transfer: electrons as the light, variance = mean + read^2 (3 %), its slope in DN the gain K", ok,
+                "variance off by up to " + std::to_string(100 * worst) + " %, slope " + std::to_string(slope) + " DN/e- against "
+                + std::to_string(double(s.dnPerElectron)));
+        }
+
+        // (s) The ISO amplifies, the light stays: 20 electrons' worth of light at ISO 100 (raw 0.0004) and at ISO 1600 (raw 0.0064, the
+        //     picture 16 times brighter) give 20 electrons both times. The signal-to-noise ratio is 20 / sqrt(20 + read^2 + rounding): 3.53
+        //     at ISO 100 (read noise 3.35 e-) and 4.24 at ISO 1600 (1.51 e-), so raising the ISO helps a dark picture; within 3 %.
+        {
+            const SensorSetting s100 = MakeSensorSetting(model, 100), s1600 = MakeSensorSetting(model, 1600);
+            double m100, v100, m1600, v1600;
+            int top;
+            draw(Real(0.0004), s100, n, 21, m100, v100, top);
+            draw(Real(0.0064), s1600, n, 22, m1600, v1600, top);
+            auto snrOf = [](const SensorSetting& s) {
+                return 20 / std::sqrt(20 + double(s.readElectrons * s.readElectrons) + 1.0 / (12.0 * double(s.dnPerElectron * s.dnPerElectron)));
+            };
+            const double want100 = snrOf(s100), want1600 = snrOf(s1600);
+            const double snr100 = m100 / std::sqrt(v100), snr1600 = m1600 / std::sqrt(v1600);
+            report("s  ISO 100 and 1600, the same light: 20 electrons both times, SNR 20 / sqrt(20 + read^2) (3 %)",
+                std::fabs(m100 - 20) < 0.1 && std::fabs(m1600 - 20) < 0.1 && std::fabs(snr100 / want100 - 1) < 0.03 && std::fabs(snr1600 / want1600 - 1) < 0.03,
+                "electrons " + std::to_string(m100) + " / " + std::to_string(m1600) + ", SNR " + std::to_string(snr100) + " / " + std::to_string(snr1600)
+                + " against " + std::to_string(want100) + " / " + std::to_string(want1600));
+        }
+
+        // (t) The ends of the range. Above white at the base ISO every pixel is at the top DN. At ISO 50 the white would need 100000 e-:
+        //     the well is full at 0.5 of it (the mean of raw 0.6 reads 0.5, 0.1 %), and 0.4 is still below it. No light reads 0 on average
+        //     (the black level keeps the noise below it), and negative light counts as none.
+        {
+            const SensorSetting s100 = MakeSensorSetting(model, 100), s50 = MakeSensorSetting(model, 50);
+            double m, v, m6, m4, m0, v0, mNeg;
+            int top, top6, top0;
+            draw(Real(1.2), s100, 1000, 31, m, v, top);
+            draw(Real(0.6), s50, 20000, 32, m6, v, top6);
+            draw(Real(0.4), s50, 20000, 33, m4, v, top0);
+            draw(Real(0), s100, n, 34, m0, v0, top0);
+            draw(Real(-1), s100, 1000, 35, mNeg, v, top0);
+            const double r6 = m6 / double(s50.whiteElectrons), r4 = m4 / double(s50.whiteElectrons);
+            const bool ok = top == 1000 && top6 == 20000 && std::fabs(r6 - 0.5) < 5e-4 && std::fabs(r4 - 0.4) < 5e-4
+                && std::fabs(m0) < 4 * std::sqrt(v0 / n) + 0.02 && std::fabs(mNeg) < 0.5;
+            report("t  ends of the range: above white all at the top; ISO 50 full at 0.5 of white; no light reads 0, negative light none", ok,
+                "raw 0.6 / 0.4 at ISO 50 read " + std::to_string(r6) + " / " + std::to_string(r4) + ", no light " + std::to_string(m0) + " e-");
+        }
+
+        // (u) A film through the sensor (ApplySensor): the same seed draws the same picture and another seed another; a grey of 2500
+        //     electrons keeps its mean radiance (0.5 %) and gets the shot noise's spread (5 %); the white above the clip is the white.
+        {
+            const int side = 128;
+            auto makeFilm = [&](Real value) { Film f(side, side); for (int y = 0; y < side; ++y) for (int x = 0; x < side; ++x) f.setPixel(x, y, Vector3(value)); return f; };
+            const SensorSetting s = MakeSensorSetting(model, 0);
+            const Real gain = Real(4);   // the film holds 0.0125: the sensor sees 0.05 (2500 e-)
+            Film a = makeFilm(Real(0.0125)), b = makeFilm(Real(0.0125)), c = makeFilm(Real(0.0125)), top = makeFilm(Real(1));
+            ApplySensor(a, s, gain, 7);
+            ApplySensor(b, s, gain, 7);
+            ApplySensor(c, s, gain, 8);
+            const Real clipped = ApplySensor(top, s, gain, 7);
+            bool same = true, differ = false;
+            double sum = 0, sum2 = 0;
+            for (int i = 0; i < side * side; ++i) {
+                same = same && a.getData()[i] == b.getData()[i];
+                differ = differ || a.getData()[i] != c.getData()[i];
+                const double g = double(a.getData()[i].y);
+                sum += g;
+                sum2 += g * g;
+            }
+            const double mean = sum / (side * side), sd = std::sqrt(sum2 / (side * side) - mean * mean);
+            const double wantSd = 0.0125 * std::sqrt(2500.0 + double(s.readElectrons * s.readElectrons)) / 2500.0;
+            const double topValue = double(top.getData()[0].y) * gain;
+            report("u  a film through the sensor: same seed same picture, the mean kept (0.5 %), the spread of the shot noise (5 %), the white clipped",
+                same && differ && std::fabs(mean / 0.0125 - 1) < 0.005 && std::fabs(sd / wantSd - 1) < 0.05 && clipped == Real(1)
+                && std::fabs(topValue - double(Real(s.maxDn - s.black) / (s.dnPerElectron * s.whiteElectrons))) < 1e-6,
+                "mean off by " + std::to_string(100 * (mean / 0.0125 - 1)) + " %, spread " + std::to_string(sd / wantSd) + " of the expected, white reads "
+                + std::to_string(topValue));
+        }
+    }
 
     std::cout << "[Film] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;
