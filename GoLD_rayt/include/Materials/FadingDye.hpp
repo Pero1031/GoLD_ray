@@ -9,8 +9,8 @@
  * The spectral build turns the color (RGB or a texel of an image) into the engine's smooth reflectance spectrum and fades it per
  * wavelength. The RGB build fades each channel as if it were a reflectance (an approximation).
  *
- * Only dyed paper was tested against measurements (the dye series of the lab's fading experiment: the color predicted from the RGB of the new
- * paper alone, left out of the fit of c(t), is off by about 5 CIEDE2000); pigments and dyed origami do not follow this model.
+ * Only dyed paper was tested against measurements (the color predicted from the RGB of the new paper alone, left out of the fit of c(t),
+ * is still several CIEDE2000 off); other colorants do not follow this model.
  */
 
 #pragma once

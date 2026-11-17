@@ -3,7 +3,6 @@
 #include "Cli/SceneFileReaders.hpp"
 
 #include "Color/Sellmeier.hpp"
-#include "IO/FadingSeries.hpp"
 #include "Materials/CosmeticLayer.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/SkinLotion.hpp"
@@ -71,7 +70,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& f = m.at("fading");
             const std::string fw = where + ".fading";
             if (!f.is_object()) Fail(fw, "must be { \"series\": the folder of a measured series, \"color\": a patch of it, \"hours\": the hours of exposure }");
-            CheckKeys(f, { "series", "color", "fit", "rgb", "image", "model", "fastness", "paper", "hours", "outdoorDays", "outdoorYears", "unexposedHours", "map", "mat", "gradient", "noise" }, fw);
+            CheckKeys(f, { "series", "color", "fit", "rgb", "image", "model", "fastness", "paper", "hours", "unexposedHours", "map", "mat", "gradient", "noise" }, fw);
             // the source: a measured series ("series" + "color"), or a color alone ("rgb" or "image" + the table "model"): a dyed paper
             const int sources = int(f.contains("series")) + int(f.contains("rgb")) + int(f.contains("image"));
             if (sources != 1 || (f.contains("series") != f.contains("color")) || (!f.contains("series") && f.contains("color")))
@@ -100,15 +99,10 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
                 if (!(s.fadingFastness > 0)) Fail(fw + ".fastness", "must be above 0 (1 = as the measured dyes; 2 = a dye that fades twice as fast)");
                 if (!(s.fadingPaper > 0.1 && s.fadingPaper < 1)) Fail(fw + ".paper", "must be between 0.1 and 1 (the reflectance of the bare paper)");
             }
-            // the time: "hours" of the experiment's pseudo-sunlight, or the same damage as "outdoorDays" / "outdoorYears" of direct sunlight
-            if (int(f.contains("hours")) + int(f.contains("outdoorDays")) + int(f.contains("outdoorYears")) > 1)
-                Fail(fw, "takes one of \"hours\" (of the experiment's pseudo-sunlight), \"outdoorDays\" or \"outdoorYears\" (of direct sunlight outdoors), not several");
             Optional<double>(f, "hours", fw, s.fadingHours, ReadNumber);
-            if (f.contains("outdoorDays")) s.fadingHours = double(io::outdoorDaysToDeviceHours(Real(ReadNumber(f.at("outdoorDays"), fw + ".outdoorDays"))));
-            if (f.contains("outdoorYears")) s.fadingHours = double(io::outdoorDaysToDeviceHours(Real(365.25 * ReadNumber(f.at("outdoorYears"), fw + ".outdoorYears"))));
             Optional<double>(f, "unexposedHours", fw, s.fadingUnexposedHours, ReadNumber);
             const char* negative = "must not be negative (only the Kubelka-Munk law, \"fit\": \"km\", goes back before the first round)";
-            if (s.fadingHours < 0 && !s.fadingKm) Fail(fw + (f.contains("hours") ? ".hours" : f.contains("outdoorDays") ? ".outdoorDays" : ".outdoorYears"), negative);
+            if (s.fadingHours < 0 && !s.fadingKm) Fail(fw + ".hours", negative);
             if (s.fadingUnexposedHours < 0 && !s.fadingKm) Fail(fw + ".unexposedHours", negative);
             // the exposure over the surface: "map" (a gray image over uv), "mat" (a covered border in uv), "gradient" and "noise" (world space)
             Optional<std::string>(f, "map", fw, s.fadingMap, ReadString);

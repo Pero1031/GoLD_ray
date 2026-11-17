@@ -32,7 +32,7 @@ SERIES = {  # --all: sub-folder of the lab's "sample" folder -> output name
 }
 
 
-HOURS_STEP = {"pigment": 150.0, "dye_paper": 30.0}  # hours of pseudo-sunlight between two rounds (Kataoka's thesis, chapter 2); round 1 = before exposure
+HOURS_STEP = {"pigment": 150.0, "dye_paper": 30.0}  # hours of pseudo-sunlight between two rounds (the experiment's schedule); round 1 = before exposure
 
 
 def round_hours(name, rounds):

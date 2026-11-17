@@ -12,10 +12,10 @@ value every 10 nm, linear between) fitted by least squares to all rounds. s >= 1
 reflectance factors above 1 (bright dyes measured against a white reference that is darker than an ideal white): K/S
 needs r < 1.
 
-On the lab's dyed papers the law reproduces every round within about 1 CIEDE2000 (D65), while a model that predicts
-a colorant's fading from its first colour alone (shared rates, Kataoka's principal-component law, or this law with
-shared k and Qinf) misses by 5-6: how fast a colorant fades is a property of the colorant, not of its colour. So the
-fit is per patch, and only for patches that were measured over time. A change that is complete before the first
+On most measured colours the law reproduces the rounds within about 1 CIEDE2000 (D65), while a model that predicts a
+colorant's fading from its first colour alone (shared rates, the shared principal-component law of Kataoka and Okajima,
+CSAJ 2024, or this law with shared k and Qinf) misses by several: how fast a colorant fades is a property of the
+colorant, not of its colour. So the fit is per patch, and only for patches that were measured over time. A change that is complete before the first
 measured time cannot tell how fast it was: k is capped at 4 / (the first interval), which keeps the law finite when it
 is run backward. Before the first round and after the last one the law is an extrapolation.
 

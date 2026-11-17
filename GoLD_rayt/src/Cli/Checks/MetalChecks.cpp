@@ -480,9 +480,7 @@ int RunMetalTests(const CliOptions& opt) {
                         gap = std::max(gap, std::abs(blended - km.curveAt(h).evaluate(Real(nm))));
                     }
                 }
-                report("fading law sampled at 65 times (0..150 h): blend between samples vs the law", gap, 2e-4);
-                report("outdoor time: 2.911 days outdoors = 1 day (24 h) of the experiment's pseudo-sunlight", std::abs(io::outdoorDaysToDeviceHours(Real(2.911)) - Real(24)), 1e-9);
-            }
+                report("fading law sampled at 65 times (0..150 h): blend between samples vs the law", gap, 2e-4);            }
         }
         std::filesystem::remove_all(seriesDir, ec);
     }

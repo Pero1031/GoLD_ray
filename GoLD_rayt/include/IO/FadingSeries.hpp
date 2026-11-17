@@ -186,11 +186,4 @@ namespace rayt::io {
         return true;
     }
 
-    /// Hours of the fading experiment's pseudo-sunlight (SXL-500V2 at full power, 371.76 W/m^2) that do the damage of one day of
-    /// direct sunlight outdoors: 1 day in the device = 2.911 days outdoors (Kataoka's thesis, 2025, section 6.1: the annual direct
-    /// irradiation at Tsukuba in 2022, 2692.77 MJ/m^2, against the device, ultraviolet weighted 0.95 and visible light 0.05).
-    /// Heat, humidity, weather and UV-absorbing coatings are left out, so this is an order of magnitude, not a prediction.
-    constexpr Real kOutdoorDaysPerDeviceDay = Real(2.911);
-    inline Real outdoorDaysToDeviceHours(Real days) { return days * Real(24) / kOutdoorDaysPerDeviceDay; }
-
 } // namespace rayt::io
