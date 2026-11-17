@@ -57,6 +57,7 @@ struct MaterialSpec {
     std::string texture;                           // diffuse: an image (PNG / JPG) that multiplies the albedo at the hit's uv (the photographed texture of a scan)
     std::string fadingSeries, fadingColor;         // diffuse: a measured reflectance that changes with the time of exposure (IO/FadingSeries.hpp):
     double fadingHours = 0;                        //   the series folder, the patch in it, and the hours of exposure ("fading")
+    bool fadingKm = false;                         //   "fit": "km": the Kubelka-Munk law fitted to the series (any time, also negative) instead of the blend of rounds
     bool fadingDye = false;                        //   "fading" from a color alone (a dyed paper; Materials/FadingDye.hpp): fadingRgb or fadingImage, with the table fadingModel
     Vector3 fadingRgb = Vector3(0.5);
     std::string fadingImage, fadingModel;

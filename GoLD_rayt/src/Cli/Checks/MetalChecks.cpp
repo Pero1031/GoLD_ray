@@ -432,6 +432,58 @@ int RunMetalTests(const CliOptions& opt) {
                     glm::length(lam->aovAlbedo(covered) - glm::clamp(fr.rgb(30), Vector3(0.0), Vector3(1.0))), 1e-9);
             }
         }
+
+        // ---- 5c. the Kubelka-Munk fading law of a patch (km/<color>.csv): K/S(R / scale) = Qinf + (Q0 - Qinf) exp(-k t) ----
+        {
+            std::filesystem::create_directories(seriesDir / "km");
+            const int nms[4] = { 440, 520, 600, 680 };
+            const Real r0[4] = { 0.10, 0.35, 0.80, 1.05 }, rInf[4] = { 0.70, 0.75, 0.85, 1.06 }, kk[4] = { 0.02, 0.01, 0.005, 0.0 };
+            {
+                std::ofstream f((seriesDir / "km" / "red.csv").string());
+                f.precision(12);
+                f << "# test\nwavelength_nm,R0,Rinf,k_per_hour,scale\n";
+                for (int i = 0; i < 4; ++i) f << nms[i] << "," << r0[i] << "," << rInf[i] << "," << kk[i] << ",1.1\n";
+            }
+            io::FadingKm km; std::string e;
+            if (!io::loadFadingKm(seriesDir.string(), "red", km, &e)) { std::cout << "[Metals]   fading law load failed: " << e << "   FAIL\n"; allPassed = false; }
+            else {
+                using K = io::FadingKm;
+                Real atZero = 0, law = 0, late = 0;
+                const color::SpectralCurve c0 = km.curveAt(0), c50 = km.curveAt(50), cLate = km.curveAt(1e5);
+                for (int i = 0; i < 4; ++i) {
+                    atZero = std::max(atZero, std::abs(c0.evaluate(Real(nms[i])) - r0[i]));
+                    const Real q0 = K::ks(r0[i] / Real(1.1)), qInf = K::ks(rInf[i] / Real(1.1));
+                    law = std::max(law, std::abs(K::ks(c50.evaluate(Real(nms[i])) / Real(1.1)) - (qInf + (q0 - qInf) * std::exp(-kk[i] * Real(50)))));
+                    if (kk[i] > 0) late = std::max(late, std::abs(cLate.evaluate(Real(nms[i])) - rInf[i]));
+                }
+                report("fading law: at 0 h the first round's reflectance (also above 1, through the scale)", atZero, 1e-9);
+                report("fading law: at 50 h the K/S follows the exponential", law, 1e-9);
+                report("fading law: long after, the reflectance left when the colorant is gone", late, 1e-9);
+                const Real before = km.curveAt(-60).evaluate(Real(440)), now = c0.evaluate(Real(440)), after = c50.evaluate(Real(440));
+                const bool order = before < now && now < after && before > 0;
+                std::cout << "[Metals]   fading law: before the exposure (-60 h) the colorant is stronger: R(440 nm) " << before << " < " << now << " < " << after
+                    << " (50 h)   " << (order ? "OK" : "FAIL") << "\n";
+                allPassed = allPassed && order;
+                report("fading law: no rate (k = 0), no change", std::abs(km.curveAt(500).evaluate(Real(680)) - r0[3]), 1e-9);
+                bool finite = true;
+                for (Real h : { Real(-1e6), Real(-1e4), Real(1e9) })
+                    for (int i = 0; i < 4; ++i) { const Real r = km.reflectance(size_t(i), h); finite = finite && std::isfinite(r) && r >= 0 && r <= Real(1.1); }
+                std::cout << "[Metals]   fading law: far back (-1e6 h) and far ahead (1e9 h) the reflectance stays finite, within 0..scale   " << (finite ? "OK" : "FAIL") << "\n";
+                allPassed = allPassed && finite;
+                // a surface with varying exposure uses the law sampled at 65 times: the blend between samples stays close to the law
+                const io::FadingSeries dense = km.sampled(0, 150);
+                Real gap = 0;
+                for (Real h = 0; h <= 150; h += Real(0.7)) {
+                    size_t lo, hi; Real t; dense.bracket(h, lo, hi, t);
+                    for (int nm = 440; nm <= 680; nm += 10) {
+                        const Real blended = (Real(1) - t) * dense.curves[lo].evaluate(Real(nm)) + t * dense.curves[hi].evaluate(Real(nm));
+                        gap = std::max(gap, std::abs(blended - km.curveAt(h).evaluate(Real(nm))));
+                    }
+                }
+                report("fading law sampled at 65 times (0..150 h): blend between samples vs the law", gap, 2e-4);
+                report("outdoor time: 2.911 days outdoors = 1 day (24 h) of the experiment's pseudo-sunlight", std::abs(io::outdoorDaysToDeviceHours(Real(2.911)) - Real(24)), 1e-9);
+            }
+        }
         std::filesystem::remove_all(seriesDir, ec);
     }
 

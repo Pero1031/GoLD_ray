@@ -181,11 +181,24 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 if (!MakeExposureField(m, name, field)) return 1;
                 const Real exposed = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
                 const Real unexposed = std::min(Real(m.fadingUnexposedHours), exposed);
-                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.fadingSeries << "/" << m.fadingColor << ", exposure varies over the surface: "
-                    << unexposed << " h where nothing arrives to " << exposed << " h where everything does (measured " << series.firstHours() << " to " << series.lastHours() << " h)"
+                const Real measuredFirst = series.firstHours(), measuredLast = series.lastHours();
+                if (m.fadingKm) {   // the fitted law, sampled densely over the times this surface needs
+                    io::FadingKm km;
+                    if (!io::loadFadingKm(m.fadingSeries, m.fadingColor, km, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": fading " << m.fadingSeries << " / " << m.fadingColor << ": " << err << "\n";
+                        return 1;
+                    }
+                    series = km.sampled(unexposed, exposed);
+                }
+                std::cout << "[SceneFile] material \"" << name << "\": reflectance " << m.fadingSeries << "/" << m.fadingColor << (m.fadingKm ? " (Kubelka-Munk law)" : "")
+                    << ", exposure varies over the surface: " << unexposed << " h where nothing arrives to " << exposed << " h where everything does (measured "
+                    << measuredFirst << " to " << measuredLast << " h)"
                     << (m.fadingMap.empty() ? "" : ", map") << (m.fadingMat ? ", mat" : "") << (m.fadingGradient ? ", gradient" : "") << (m.fadingNoiseAmount > 0 ? ", noise" : "") << "\n";
-                if (exposed > series.lastHours())
+                if (!m.fadingKm && exposed > measuredLast)
                     std::cout << "[SceneFile]   warning: " << exposed << " h is beyond the last measured round; the fully exposed places are held at it, not extrapolated\n";
+                if (m.fadingKm && (exposed > measuredLast || unexposed < measuredFirst))
+                    std::cout << "[SceneFile]   note: " << unexposed << " to " << exposed << " h reaches outside the measured " << measuredFirst << " to " << measuredLast
+                        << " h; the law is extrapolated there\n";
                 materials[name] = std::make_shared<Lambertian>(std::make_shared<const FadingReflectance>(std::move(series), std::move(field), exposed, unexposed));
                 break;
             }
@@ -203,7 +216,22 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             else {   // a measured reflectance R(lambda), or R(lambda, t) of a fading series: used as is by the spectral build, as its D65 color by the RGB build
                 auto curve = std::make_shared<color::SpectralCurve>();
                 std::string err, label = m.reflectance;
-                if (!m.fadingSeries.empty()) {
+                if (!m.fadingSeries.empty() && m.fadingKm) {
+                    const Real hours = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
+                    io::FadingKm km;
+                    std::vector<io::FadingRound> rounds;
+                    if (!io::loadFadingKm(m.fadingSeries, m.fadingColor, km, &err) || !io::loadFadingHours(m.fadingSeries + "/hours.csv", rounds, &err)) {
+                        std::cerr << "[SceneFile] material \"" << name << "\": fading " << m.fadingSeries << " / " << m.fadingColor << ": " << err << "\n";
+                        return 1;
+                    }
+                    *curve = km.curveAt(hours);
+                    std::ostringstream h; h << hours;
+                    label = m.fadingSeries + "/" + m.fadingColor + " after " + h.str() + " h (Kubelka-Munk law)";
+                    if (hours < rounds.front().hours || hours > rounds.back().hours)
+                        std::cout << "[SceneFile]   note: " << hours << " h is outside the measured " << rounds.front().hours << " to " << rounds.back().hours
+                            << " h; the law is extrapolated\n";
+                }
+                else if (!m.fadingSeries.empty()) {
                     const Real hours = opt.fadeHours ? *opt.fadeHours : Real(m.fadingHours);
                     io::FadingCurve faded;
                     if (!io::loadFadingCurve(m.fadingSeries, m.fadingColor, hours, faded, &err)) {
