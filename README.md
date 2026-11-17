@@ -126,6 +126,17 @@ of a scene file). 1200 x 800, 256 spp, OIDN-denoised, 4 minutes. The scene is wr
 <sub>Model: Erato by Geoffrey Marchal (© 2016, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from
 [Morgan McGuire's Computer Graphics Archive](https://casual-effects.com/data/); the scan is not part of this repository.</sub>
 
+**Four lenses** (`scenes/lens_chess_*.json`): one chess position at night, photographed through four real lens designs. Each lens is
+traced surface by surface from its prescription (`--lens`), so its look comes from the glass, not from effect settings. Top left: a 10 mm
+fisheye bends the straight lines of the board and of the row of lights. Top right: a 50 mm double-Gauss lens wide open at f/2 keeps only
+the gold queen sharp, and the lights behind become discs. Bottom left: the same lens at f/16, where diffraction at its seven blades turns
+the lights into stars (drawn twice the real size). Bottom right: a single uncorrected glass lens (spectral build) softens everything and
+fringes the highlights with color. The camera moves so that the queen keeps its size. 1200 x 800 each, 256 spp, OIDN-denoised,
+5 to 7 minutes each. The scenes are written by `tools/data/make_lens_chess.py`; the three lens designs are from W. J. Smith,
+*Modern Lens Design*.
+
+![A chess position at night seen through a fisheye, a 50 mm lens at f/2 and at f/16, and a single uncorrected lens](docs/img/gallery_lens_chess.png)
+
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): every fiber is a cylinder with a hair scattering function (white reflection off the
 surface, light through the fiber, light reflected once inside; [details](docs/HAIR.md)), and the color comes from melanin alone.
 Top: the same lock with black, brown, red, blond and white hair; 1400 x 788, 256 spp, OIDN-denoised, 23 minutes. Bottom: 40000 fibers falling over
