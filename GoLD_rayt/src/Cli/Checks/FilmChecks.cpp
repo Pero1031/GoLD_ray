@@ -18,10 +18,15 @@
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/Sensor.hpp"
+#include "IO/DngWriter.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Scene/Scene.hpp"
 
 #include "stb_image.h"
+
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 namespace rayt::cli {
 
@@ -495,18 +500,21 @@ int RunFilmTests() {
                 "raw 0.6 / 0.4 at ISO 50 read " + std::to_string(r6) + " / " + std::to_string(r4) + ", no light " + std::to_string(m0) + " e-");
         }
 
-        // (u) A film through the sensor (ApplySensor): the same seed draws the same picture and another seed another; a grey of 2500
-        //     electrons keeps its mean radiance (0.5 %) and gets the shot noise's spread (5 %); the white above the clip is the white.
+        // (u) A film through a sensor without the mosaic (ApplySensor): the same seed draws the same picture and another seed another; a
+        //     grey of 2500 electrons keeps its mean radiance (0.5 %) and gets the shot noise's spread (5 %); the white above the clip is
+        //     the white.
         {
             const int side = 128;
             auto makeFilm = [&](Real value) { Film f(side, side); for (int y = 0; y < side; ++y) for (int x = 0; x < side; ++x) f.setPixel(x, y, Vector3(value)); return f; };
-            const SensorSetting s = MakeSensorSetting(model, 0);
+            SensorModel plain = model;
+            plain.mosaic = false;
+            const SensorSetting s = MakeSensorSetting(plain, 0);
             const Real gain = Real(4);   // the film holds 0.0125: the sensor sees 0.05 (2500 e-)
             Film a = makeFilm(Real(0.0125)), b = makeFilm(Real(0.0125)), c = makeFilm(Real(0.0125)), top = makeFilm(Real(1));
-            ApplySensor(a, s, gain, 7);
-            ApplySensor(b, s, gain, 7);
-            ApplySensor(c, s, gain, 8);
-            const Real clipped = ApplySensor(top, s, gain, 7);
+            ApplySensor(a, plain, s, gain, 7);
+            ApplySensor(b, plain, s, gain, 7);
+            ApplySensor(c, plain, s, gain, 8);
+            const Real clipped = ApplySensor(top, plain, s, gain, 7);
             bool same = true, differ = false;
             double sum = 0, sum2 = 0;
             for (int i = 0; i < side * side; ++i) {
@@ -524,6 +532,127 @@ int RunFilmTests() {
                 && std::fabs(topValue - double(Real(s.maxDn - s.black) / (s.dnPerElectron * s.whiteElectrons))) < 1e-6,
                 "mean off by " + std::to_string(100 * (mean / 0.0125 - 1)) + " %, spread " + std::to_string(sd / wantSd) + " of the expected, white reads "
                 + std::to_string(topValue));
+        }
+
+        // (v) Demosaicing (bilinear and Malvar-He-Cutler) gives back a uniform colour everywhere, the edges included, and a linear ramp
+        //     inside (2 pixels from the edges): both interpolate a plane exactly. At a slanted grey edge (64 x 64) they give the false
+        //     colour that colour-demosaicing 0.2.6 (Python, its own implementation of both) gives: RMS of each channel's distance from
+        //     the pixel's grey 0.013633 and 0.006779 (Malvar halves it), and at pixel (30, 20) (0.8, 0.725, 0.65) and (0.8, 0.81125, 0.779375).
+        {
+            const int w = 64, h = 64;
+            std::vector<Real> flat(w * h), ramp(w * h), edge(w * h);
+            const Vector3 colour(0.3, 0.5, 0.2);
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const int i = y * w + x;
+                    flat[i] = colour[BayerChannel(x, y)];
+                    ramp[i] = Real(0.1) + Real(0.01) * x + Real(0.005) * y;
+                    edge[i] = Real(0.2) + Real(0.6) * std::clamp((Real(x) - 32 - Real(0.25) * (Real(y) - 32)) * Real(0.7) + Real(0.5), Real(0), Real(1));
+                }
+            bool ok = true;
+            double chroma[2] = { 0, 0 };
+            Vector3 probe[2];
+            for (int k = 0; k < 2; ++k) {
+                const DemosaicMethod method = k == 0 ? DemosaicMethod::Bilinear : DemosaicMethod::Malvar;
+                const std::vector<Vector3> f = DemosaicBayer(flat, w, h, method), r = DemosaicBayer(ramp, w, h, method), e = DemosaicBayer(edge, w, h, method);
+                double sq = 0;
+                int count = 0;
+                for (int y = 0; y < h; ++y)
+                    for (int x = 0; x < w; ++x) {
+                        const int i = y * w + x;
+                        ok = ok && glm::length(f[i] - colour) < 1e-6;
+                        if (x >= 2 && x < w - 2 && y >= 2 && y < h - 2) ok = ok && glm::length(r[i] - Vector3(ramp[i])) < 1e-6;
+                        if (x >= 4 && x < w - 4 && y >= 4 && y < h - 4) {
+                            const Vector3 d = e[i] - Vector3((e[i].x + e[i].y + e[i].z) / 3);
+                            sq += double(glm::dot(d, d));
+                            count += 3;
+                        }
+                    }
+                chroma[k] = std::sqrt(sq / count);
+                probe[k] = e[20 * w + 30];
+            }
+            ok = ok && std::fabs(chroma[0] - 0.013633) < 2e-6 && std::fabs(chroma[1] - 0.006779) < 2e-6
+                && glm::length(probe[0] - Vector3(0.8, 0.725, 0.65)) < 1e-6 && glm::length(probe[1] - Vector3(0.8, 0.81125, 0.779375)) < 1e-6;
+            report("v  demosaicing: a uniform colour and a ramp come back exactly; a grey edge's false colour as colour-demosaicing gives it", ok,
+                "RMS false colour " + std::to_string(chroma[0]) + " (bilinear), " + std::to_string(chroma[1]) + " (Malvar)");
+        }
+
+        // (w) A film through the sensor with the mosaic: the recorded DN holds R at (0, 0), G at (1, 0) and (0, 1), B at (1, 1) (the mean
+        //     DN of each kind of site is that of its channel, within 4 standard errors), the demosaiced picture keeps the colour (0.5 %),
+        //     and without the mosaic there is no recorded mosaic.
+        {
+            const int side = 128;
+            Film f(side, side), g(side, side);
+            const Vector3 colour(0.3, 0.5, 0.2);   // raw values (no camera response): 15000, 25000 and 10000 electrons
+            for (int y = 0; y < side; ++y) for (int x = 0; x < side; ++x) { f.setPixel(x, y, colour); g.setPixel(x, y, colour); }
+            const SensorSetting s = MakeSensorSetting(model, 0);
+            std::vector<std::uint16_t> dn, none;
+            ApplySensor(f, model, s, 1, 9, &dn);
+            SensorModel plain = model;
+            plain.mosaic = false;
+            ApplySensor(g, plain, s, 1, 9, &none);
+            double sum[4] = { 0, 0, 0, 0 }, n[4] = { 0, 0, 0, 0 };
+            Vector3 mean(0.0);
+            for (int y = 0; y < side; ++y)
+                for (int x = 0; x < side; ++x) {
+                    const int site = (y & 1) * 2 + (x & 1);   // 0 R, 1 G of the R row, 2 G of the B row, 3 B
+                    sum[site] += dn.size() == size_t(side * side) ? double(dn[size_t(y * side + x)]) : 0.0;
+                    n[site] += 1;
+                    mean += f.getData()[y * side + x] / Real(side * side);
+                }
+            bool ok = dn.size() == size_t(side * side) && none.empty();
+            const Real want[4] = { colour.x, colour.y, colour.y, colour.z };
+            for (int k = 0; k < 4; ++k) {
+                const double electrons = double(want[k] * s.whiteElectrons), expected = s.black + electrons * double(s.dnPerElectron);
+                const double se = std::sqrt(electrons + double(s.readElectrons * s.readElectrons)) * double(s.dnPerElectron) / std::sqrt(n[k]);
+                ok = ok && std::fabs(sum[k] / n[k] - expected) < 4 * se;
+            }
+            const Vector3 rel = mean / colour - Vector3(1.0);
+            ok = ok && std::fabs(rel.x) < 0.005 && std::fabs(rel.y) < 0.005 && std::fabs(rel.z) < 0.005;
+            report("w  the mosaic: R G / G B as recorded (4 standard errors), the demosaiced colour kept (0.5 %), none without it", ok,
+                "mean DN of the sites " + std::to_string(sum[0] / n[0]) + " " + std::to_string(sum[1] / n[1]) + " " + std::to_string(sum[2] / n[2]) + " "
+                + std::to_string(sum[3] / n[3]));
+        }
+
+        // (x) The DNG file, read back: a little-endian TIFF ("II", 42) whose directory's tags rise, a CFA image (32803) of R G / G B, its
+        //     black and white levels and colour matrix as given, and the mosaic itself where StripOffsets points.
+        {
+            const int w = 4, h = 2;
+            const std::vector<std::uint16_t> mosaic = { 512, 1000, 2000, 3000, 4000, 5000, 6000, 16383 };
+            io::DngInfo info;
+            info.black = 512;
+            info.white = 16383;
+            info.colorMatrix[0] = 0.75;
+            const std::string path = (std::filesystem::temp_directory_path() / "gold_rayt_film_check.dng").string();
+            bool ok = io::WriteDng(path, w, h, mosaic, info);
+            std::ifstream in(path, std::ios::binary);
+            const std::vector<unsigned char> b((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            in.close();
+            std::filesystem::remove(path);
+            auto u16 = [&](size_t o) { return o + 2 <= b.size() ? unsigned(b[o] | (b[o + 1] << 8)) : 0u; };
+            auto u32 = [&](size_t o) { return o + 4 <= b.size() ? unsigned(b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (unsigned(b[o + 3]) << 24)) : 0u; };
+            ok = ok && b.size() > 8 && b[0] == 'I' && b[1] == 'I' && u16(2) == 42;
+            const size_t ifd = u32(4);
+            const unsigned count = u16(ifd);
+            unsigned last = 0, photometric = 0, black = 0, white = 0, stripOffset = 0;
+            bool rising = true, cfa = false, matrix = false;
+            for (unsigned k = 0; k < count && ok; ++k) {
+                const size_t e = ifd + 2 + 12 * size_t(k);
+                const unsigned tag = u16(e), value = u32(e + 8);
+                rising = rising && tag > last;
+                last = tag;
+                if (tag == 262) photometric = u16(e + 8);
+                if (tag == 273) stripOffset = value;
+                if (tag == 33422) cfa = b[e + 8] == 0 && b[e + 9] == 1 && b[e + 10] == 1 && b[e + 11] == 2;
+                if (tag == 50714) black = value;
+                if (tag == 50717) white = value;
+                if (tag == 50721) matrix = int(u32(value)) == 7500 && u32(value + 4) == 10000;   // 0.75 as 7500 / 10000
+            }
+            bool data = stripOffset > 0;
+            for (int i = 0; i < w * h && data; ++i) data = u16(stripOffset + 2 * size_t(i)) == mosaic[size_t(i)];
+            ok = ok && rising && photometric == 32803 && cfa && black == 512 && white == 16383 && matrix && data;
+            report("x  DNG read back: TIFF header, rising tags, CFA R G / G B, black / white levels, colour matrix, the mosaic", ok,
+                std::to_string(count) + " tags, " + std::to_string(b.size()) + " bytes");
         }
     }
 

@@ -108,8 +108,11 @@ raw file (both linear; scale them by a white or grey patch).
 ### The sensor (`--sensor`; `Render/Sensor`)
 
 Without it the film is ideal: each pixel holds its exact mean. With `--sensor` the written pictures are what a camera's sensor records of
-that mean, in four steps per pixel and channel (on the camera's raw values with `--camera-response`, else on the film's linear sRGB):
+that mean, in these steps (on the camera's raw values with `--camera-response`, else on the film's linear sRGB):
 
+0. **Colour filter mosaic:** a single sensor sees colour through a filter on each pixel, the Bayer pattern R G / G B repeated over 2 × 2
+   pixels (green twice, as it carries most of the luminance). Each pixel records one channel (`cfa=none`: all three, as three sensors
+   would).
 1. **Electrons:** the light becomes on average raw × (the white's electrons), and the count is drawn from a Poisson distribution, as
    photons arrive at random. Its standard deviation is the square root of the mean, so N electrons have a signal-to-noise ratio of √N
    (shot noise). This is the noise of the light itself; no sensor does better.
@@ -119,7 +122,23 @@ that mean, in four steps per pixel and channel (on the camera's raw values with 
 3. **Analog-to-digital converter:** the amplified signal is rounded to an integer (DN) of `bits` bits above a black level of 1/32 of the
    range, which keeps the noise below black (no light reads 0 on average). The range ends at the full well at the base ISO and at the
    white above it, as a camera sets its white level: a full pixel reads the top value, flat.
-4. **Back** to the film's units, (DN − black) / K / (the white's electrons), then the camera's white balance and colour matrix.
+4. **Back** to the film's units, (DN − black) / K / (the white's electrons), then the camera's white balance.
+5. **Demosaicing:** each pixel's two missing channels are interpolated from its neighbours, on white-balanced values (as raw developers
+   do: the corrections below assume that R, G and B of a grey are equal), then the camera's colour matrix. `demosaic=bilinear` averages
+   the nearest pixels of the missing colour. `demosaic=malvar` (the default; Malvar, He and Cutler, ICASSP 2004) adds a correction from
+   the pixel's own colour that follows edges where R, G and B change together, as they mostly do in natural pictures: at a grey edge it
+   halves the false colour (RMS 0.0068 against 0.0136) and keeps the edge sharper; where the colours change independently it errs more
+   (30 against 34 dB PSNR on a blurred random colour field). Beyond the picture's edge the mosaic is mirrored about the edge pixel, which
+   keeps the pattern.
+
+- **Raw file:** `<out>.dng` (and `_denoised.dng`): the mosaic as recorded, 16-bit, in Adobe's Digital Negative format, with the black and
+  white levels, the colour matrix (CIE XYZ to the camera's raw under D65) and the white balance, so that a raw developer can develop it
+  like a camera's. `tools/test/sensor_dng_check.py` checks a render's DNG with LibRaw (rawpy) and colour-demosaicing: LibRaw reads the
+  pattern, the levels, the balance and a matrix equal to the renderer's (0.1 %); the picture rebuilt from the DNG's numbers alone is the
+  renderer's (4 × 10⁻⁵ median); LibRaw's own development (AHD) matches the renderer's colours within 1 % (Canon 5D Mark II response, and
+  the ideal camera). Highlights that clip are developed each developer's own way.
+- **Clipped highlights:** the white balance multiplies R and B (by 2.2 and 1.5 for the Canon 5D Mark II under D65) after the channels
+  clipped at the top of the range, so a highlight whose G clipped turns pink, as on a camera, unless a developer recovers it.
 
 - **ISO:** the same light gives the same electrons at any ISO. At S times the base ISO the white is reached with 1/S of the full well:
   the picture is brighter, the shot noise relative to white √S times larger, the read noise after the amplifier S times smaller in
@@ -127,7 +146,7 @@ that mean, in four steps per pixel and channel (on the camera's raw values with 
   base ISO the well is full before the white.
 - **Exposure:** with `--iso` the sensor gets the physical exposure's light and `--exposure` pushes the recording afterwards, noise and
   all; without `--iso` the picture's white is the full well at the base ISO and `--exposure` sets the light.
-- **Default:** `well=50000,base=100,read=1.5,adc=3,bits=14`, round numbers of a 24-megapixel full-frame sensor (6 µm pixels): mid
+- **Default:** `well=50000,base=100,read=1.5,adc=3,bits=14,cfa=rggb,demosaic=malvar`, round numbers of a 24-megapixel full-frame sensor (6 µm pixels): mid
   grey at ISO 100 holds 9000 electrons, a signal-to-noise ratio of 95. For a given camera use its measured full well and read noise.
   The scale is plausible: D65 brings 1.39 × 10¹⁶ photons per lux second and square metre, so a 6 µm pixel at the white of ISO 100
   (0.56 lux s) receives 2.8 × 10⁵ photons, of which a fifth become electrons (its green filter passes about a third of them).
@@ -170,7 +189,9 @@ The sensor, also in `--scene film`: at the base ISO the electrons are the light'
 squared plus the ADC's rounding, within 3 %, and its slope against the mean in DN is the conversion gain (the photon transfer curve); the
 same light at ISO 100 and 1600 gives the same 20 electrons and the signal-to-noise ratios of the formula (3.53 and 4.24); above white all
 pixels read the top value, and at ISO 50 the well is full at half the white; no light reads 0 on average; a film keeps its mean, gets the
-shot noise's spread and draws the same noise for the same seed.
+shot noise's spread and draws the same noise for the same seed. Both demosaicings give a uniform colour back everywhere and a linear ramp
+inside, and at a slanted grey edge the false colour that colour-demosaicing 0.2.6 (a separate implementation in Python) gives (RMS
+0.013633 and 0.006779, and one pixel's three values to 10⁻⁶); the recorded mosaic holds R G / G B; the DNG file reads back.
 
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
@@ -179,8 +200,9 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
 - The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65.
-- The sensor (`--sensor`) records all three channels in every pixel (no colour filter mosaic yet) and has no dark current and no
-  fixed-pattern noise (the small differences of gain and offset between pixels).
+- The sensor (`--sensor`) has no optical low-pass filter (fine detail aliases into false colour, as on cameras without one), no dark
+  current and no fixed-pattern noise (the small differences of gain and offset between pixels). Its DNG carries no EXIF data (the ISO and
+  the sensor are in its description).
 - Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
 - A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.

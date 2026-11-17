@@ -14,6 +14,7 @@
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/Sensor.hpp"
+#include "IO/DngWriter.hpp"
 #include "Render/SpecularNee.hpp"
 #include "Render/VolumeBPT.hpp"
 
@@ -357,6 +358,30 @@ void LogSensor(const SensorModel& m, const SensorSetting& s, bool physicalExposu
         << s.black << " DN, read noise " << s.readElectrons << " e-; mid grey " << grey << " e-, signal-to-noise ratio " << snr << " (shot noise alone "
         << std::sqrt(grey) << ")\n";
     if (s.whiteElectrons > m.fullWell) std::cout << "[Sensor] below the base ISO the well is full at " << m.fullWell / s.whiteElectrons << " of the white\n";
+    std::cout << "[Sensor] " << (m.mosaic ? std::string("Bayer mosaic RGGB, ") + (m.demosaic == DemosaicMethod::Malvar ? "Malvar" : "bilinear")
+        + " demosaicing (a raw file <out>.dng beside the picture)" : std::string("no mosaic: every pixel records all three channels")) << "\n";
+}
+
+// The DNG tags of the sensor's mosaic: its levels, the camera's colours (XYZ -> raw, scaled so that the white's largest raw channel is
+// 1) and the white it is balanced to (D65; without --camera-response the raw channels are the film's linear sRGB).
+io::DngInfo SensorDngInfo(const SensorModel& m, const SensorSetting& s) {
+    io::DngInfo info;
+    info.black = s.black;
+    info.white = s.maxDn;
+    const color::Matrix3 a = color::cameraRawFromXYZ();
+    const Vector3 white = Vector3(1.0) / color::cameraWhiteBalanceGains();   // the raw of the balanced white (G = 1)
+    const Real top = std::max(white.x, std::max(white.y, white.z));
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) info.colorMatrix[3 * i + j] = double(a[j][i] / top);   // row i, column j (glm keeps columns)
+        info.asShotNeutral[i] = double(white[i] / top);
+    }
+    const color::CameraResponse& cam = color::cameraResponse();
+    info.model = "GoLD_rayt " + (cam.active ? cam.name : std::string("ideal sRGB camera"));
+    std::ostringstream d;
+    d << "GoLD_rayt sensor at ISO " << s.iso << ": full well " << m.fullWell << " e- at ISO " << m.baseIso << ", read noise " << m.readNoise
+      << " + " << m.adcNoise << " e-, " << m.bits << "-bit ADC, " << s.whiteElectrons << " e- at white";
+    info.description = d.str();
+    return info;
 }
 
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
@@ -401,9 +426,20 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
         const Real gain = std::pow(Real(2), iso > 0 ? exposureStops : opt.exposure);
         LogSensor(model, setting, iso > 0);
         const std::uint64_t seed = static_cast<std::uint64_t>(opt.seed);
-        const Real clipped = ApplySensor(film, setting, gain, seed);
-        if (denoised) ApplySensor(*denoised, setting, gain, seed ^ 0xd3e01c0ull);   // its own noise
+        std::vector<std::uint16_t> mosaic, mosaicDenoised;
+        const Real clipped = ApplySensor(film, model, setting, gain, seed, &mosaic);
+        if (denoised) ApplySensor(*denoised, model, setting, gain, seed ^ 0xd3e01c0ull, &mosaicDenoised);   // its own noise
         std::cout << "[Sensor] " << Real(100) * clipped << " % of the pixels have a channel at the top of the range\n";
+        if (!mosaic.empty()) {   // the raw files: the mosaic as recorded, for a raw developer
+            const io::DngInfo info = SensorDngInfo(model, setting);
+            const std::string stem = std::filesystem::path(opt.out).replace_extension("").string();
+            auto writeDng = [&](const std::string& path, const std::vector<std::uint16_t>& dn) {
+                if (io::WriteDng(path, film.width(), film.height(), dn, info)) std::cout << "[Sensor] Saved raw file (DNG, the RGGB mosaic as recorded): " << path << "\n";
+                else std::cerr << "[Sensor] Error: could not write " << path << "\n";
+            };
+            writeDng(stem + ".dng", mosaic);
+            if (denoised) writeDng(stem + "_denoised.dng", mosaicDenoised);
+        }
         if (!color::cameraResponse().active)
             std::cout << "[Sensor] note: its channels are the film's linear sRGB (an ideal camera); --camera-response gives a real camera's (spectral build)\n";
         if (!denoised) std::cout << "[Sensor] note: the render's own noise adds to the sensor's; with --denoise the _denoised picture has the sensor's alone\n";

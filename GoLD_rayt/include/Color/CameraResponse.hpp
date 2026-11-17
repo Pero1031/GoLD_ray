@@ -49,6 +49,10 @@ namespace rayt::color {
     Vector3 filmToCameraRaw(const Vector3& rgb);
     /// The inverse: the film value of a raw RGB (the camera's white balance and colour matrix).
     Vector3 cameraRawToFilm(const Vector3& raw);
+    /// The white balance's gains on the raw channels: whiteRaw.y / whiteRaw, so that D65 becomes grey ((1, 1, 1) without a response).
+    Vector3 cameraWhiteBalanceGains();
+    /// The raw RGB of a CIE XYZ (D65 white of Y 1 under the camera's balance; a DNG's ColorMatrix before its normalization).
+    Matrix3 cameraRawFromXYZ();
 
     /// The film's weight at a wavelength under the active response (linear between the 1 nm entries).
     inline Vector3 cameraFilmWeight(const CameraResponse& cam, Real nm) {

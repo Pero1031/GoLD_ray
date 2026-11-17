@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "Color/ColorSpace.hpp"
 #include "Color/Illuminants.hpp"
 #include "Color/SpectralConversion.hpp"
 
@@ -118,6 +119,20 @@ namespace rayt::color {
         const CameraResponse& cam = cameraResponse();
         if (!cam.active) return raw;
         return cam.matrix * (raw * cam.whiteRaw.y / cam.whiteRaw);
+    }
+
+    Vector3 cameraWhiteBalanceGains() {
+        const CameraResponse& cam = cameraResponse();
+        return cam.active ? cam.whiteRaw.y / cam.whiteRaw : Vector3(1.0);
+    }
+
+    Matrix3 cameraRawFromXYZ() {
+        Matrix3 m(Real(0));   // column j: the raw RGB of the j-th unit XYZ (the film's linear sRGB from XYZ, then back to raw)
+        for (int j = 0; j < 3; ++j) {
+            const CIE_XYZ xyz(Real(j == 0), Real(j == 1), Real(j == 2));
+            m[j] = filmToCameraRaw(XYZ_to_sRGB(xyz));
+        }
+        return m;
     }
 
 } // namespace rayt::color
