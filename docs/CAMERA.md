@@ -34,10 +34,17 @@ axial and lateral chromatic aberration.
   trial rays) is stored; a camera ray aims at a point of that box, turned to the film point's angle. Its weight is the film irradiance
   factor cos⁴θ × box area / distance², divided by its value at the film centre, so the centre of the picture keeps the scene's radiance and
   the corners darken as the lens makes them.
-- **Lenses in `assets/Lenses/`:** `dgauss_50mm` (double-Gauss f/2, Tronnier), `wide_22mm` (Nakamura, f/2.8), `fisheye_10mm` (Muller,
-  f/4), all from W. J. Smith, *Modern Lens Design*, as scaled in pbrt's lens files (they give n_d only, so the glass is not dispersive), and
-  `singlet_bk7_100mm`, an uncorrected N-BK7 lens with Abbe number for the chromatic aberration. The set-up prints the focal length, the
-  f-number and the field: 50.4 mm f/2.02, 22.0 mm f/2.79 and 9.99 mm f/3.99 for the three.
+- **Lenses in `assets/Lenses/`:** `dgauss_50mm` (double-Gauss f/2, Tronnier, US patent 2,673,491), `wide_22mm` (Nakamura, f/2.8),
+  `fisheye_10mm` (Muller, f/4), all from W. J. Smith, *Modern Lens Design*, as scaled in pbrt's lens files, and `singlet_bk7_100mm`, an
+  uncorrected N-BK7 lens. pbrt's files give n_d to three decimals and no Abbe numbers. For the double-Gauss the indices and Abbe numbers
+  are the patent's (its radii are the patent's times 50), so its glass is dispersive and its focal length is the patent's 50.0 mm at f/2.00
+  (with the rounded indices: 50.4 mm f/2.02). Its F and C foci differ by 0.19 % of f (93 µm): the residual axial colour that shows as
+  purple and green fringes on the bokeh of a fast normal lens wide open. The wide-angle and the fisheye still have n_d only (their
+  sources give no Abbe numbers): no chromatic aberration. The set-up prints the focal length, the f-number and the field: 50.0 mm f/2.00,
+  22.0 mm f/2.79 and 9.99 mm f/3.99 for the three.
+- **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
+  of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
+  such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.
 
 ## 2. The written files (`Render/Film`, `IO/ImageWriter`)
 
@@ -90,8 +97,9 @@ A real lens, also in `--scene camera`: the singlet's focal length matches the th
 focused at 1 m, rays near the axis from the axis point meet on the film (0.06 µm) and farther out they cross it nearer the lens by an amount
 that grows as the square of the height in the stop (third-order spherical aberration: 2.76 and 11.0 µm at 0.4 and 0.8 mm); the f-number wide
 open is the focal length over the stop's diameter and the stop closes to f/8; in the spectral build the F and C lines' focal lengths differ by
-f / V_d (0.988 of it); in a camera the double-Gauss's weight averages 1 at the film centre and 0.21 in the corner, the picture is upright and
-a wall 10 m away has the depth 10 in the middle and the corners.
+f / V_d (0.988 of it), and through the whole double-Gauss the real rays near the axis cross it where a paraxial y-u trace of the
+prescription puts the F, d and C foci (within 10⁻⁵ µm; f = 50.0 mm, the patent's); in a camera the double-Gauss's weight averages 1 at the
+film centre and 0.21 in the corner, the picture is upright and a wall 10 m away has the depth 10 in the middle and the corners.
 
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged

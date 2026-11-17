@@ -316,6 +316,51 @@ int RunCameraTests() {
     std::cout << "[Camera]   l  real lens dispersion: needs the spectral build (skipped)\n";
 #endif
 
+    // (n) Dispersion through a whole lens (spectral build): the double-Gauss with the patent's glasses. The real ray traced a micrometre
+    //     off the axis crosses it where a paraxial y-u trace of the prescription (a separate, matrix-like calculation) puts the back focus,
+    //     at the F, d and C lines. The lens is partly achromatised: its F and C foci differ by 0.19 % of f, about a ninth of what a single
+    //     lens of these glasses would show (1 / V_d, 1.6 to 3.3 %); a fast normal lens wide open shows this as coloured bokeh fringes.
+#if defined(RAYT_SPECTRAL_MODE)
+    {
+        std::string error;
+        const auto lens = LensSystem::load("assets/Lenses/dgauss_50mm.txt", error);
+        if (!lens) report("n  dispersion through a lens (" + error + ")", false);
+        else {
+            const auto& S = lens->surfaces();
+            auto realFocus = [&](Real nm) {   // where a ray parallel to the axis, 1 um off it, crosses the axis behind the last vertex
+                Point3 o(Real(1e-6), 0, Real(0.01));
+                Vector3 d(0, 0, -1);
+                if (!lens->traceFromObject(o, d, nm) || std::fabs(d.x) < Real(1e-15)) return Real(0);
+                return S.back().z - (o.z + (-o.x / d.x) * d.z);
+            };
+            auto paraxialFocus = [&](Real nm) {   // y-u trace: refraction n'u' = nu - y c (n' - n), transfer y += u t
+                const Real lf = 0.48613, ld = 0.58756, lc = 0.65627, l = nm / 1000;
+                Real y = 1, u = 0, n = 1;
+                for (size_t i = 0; i < S.size(); ++i) {
+                    Real n2 = S[i].nd;
+                    if (n2 > 1 && S[i].abbe > 0) {
+                        const Real B = (S[i].nd - 1) / (S[i].abbe * (1 / (lf * lf) - 1 / (lc * lc)));
+                        n2 = S[i].nd - B / (ld * ld) + B / (l * l);
+                    }
+                    if (n2 < 1) n2 = 1;   // the stop
+                    const Real c = S[i].radius == 0 ? Real(0) : 1 / S[i].radius;
+                    u = (n * u - y * c * (n2 - n)) / n2;
+                    n = n2;
+                    if (i + 1 < S.size()) y += u * (S[i].z - S[i + 1].z);
+                }
+                return -y / u;
+            };
+            Real worst = 0;
+            for (const Real nm : { 486.13, 587.56, 656.27 }) worst = std::max(worst, std::fabs(realFocus(nm) - paraxialFocus(nm)));
+            const Real f = lens->focalLength();
+            const Real fc = (paraxialFocus(486.13) - paraxialFocus(656.27)) / f;
+            report("n  dispersion through a lens: the double-Gauss's foci at F, d, C as a paraxial y-u trace (0.1 um); f = 50 mm",
+                lens->dispersive() && worst < 1e-7 && std::fabs(f - 0.050) < 1e-4,
+                "largest difference " + fmt(worst * 1e6) + " um, F - C " + fmt(fc * 100) + " % of f, f = " + fmt(f * 1000) + " mm");
+        }
+    }
+#endif
+
     // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner
     //     (vignetting); the picture is upright (its upper right looks up and to the right); a wall 10 m away has depth 10 in the middle
     //     and the corners.
