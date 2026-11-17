@@ -615,13 +615,15 @@ int RunFilmTests() {
         }
 
         // (x) The DNG file, read back: a little-endian TIFF ("II", 42) whose directory's tags rise, a CFA image (32803) of R G / G B, its
-        //     black and white levels and colour matrix as given, and the mosaic itself where StripOffsets points.
+        //     black and white levels, its two colour matrices (under illuminant A, 17, and D65, 21) as given, and the mosaic itself where
+        //     StripOffsets points.
         {
             const int w = 4, h = 2;
             const std::vector<std::uint16_t> mosaic = { 512, 1000, 2000, 3000, 4000, 5000, 6000, 16383 };
             io::DngInfo info;
             info.black = 512;
             info.white = 16383;
+            info.colorMatrixA[0] = 0.5;
             info.colorMatrix[0] = 0.75;
             const std::string path = (std::filesystem::temp_directory_path() / "gold_rayt_film_check.dng").string();
             bool ok = io::WriteDng(path, w, h, mosaic, info);
@@ -634,8 +636,8 @@ int RunFilmTests() {
             ok = ok && b.size() > 8 && b[0] == 'I' && b[1] == 'I' && u16(2) == 42;
             const size_t ifd = u32(4);
             const unsigned count = u16(ifd);
-            unsigned last = 0, photometric = 0, black = 0, white = 0, stripOffset = 0;
-            bool rising = true, cfa = false, matrix = false;
+            unsigned last = 0, photometric = 0, black = 0, white = 0, stripOffset = 0, illuminant1 = 0, illuminant2 = 0, forward = 0;
+            bool rising = true, cfa = false, matrix = false, matrixA = false;
             for (unsigned k = 0; k < count && ok; ++k) {
                 const size_t e = ifd + 2 + 12 * size_t(k);
                 const unsigned tag = u16(e), value = u32(e + 8);
@@ -646,13 +648,135 @@ int RunFilmTests() {
                 if (tag == 33422) cfa = b[e + 8] == 0 && b[e + 9] == 1 && b[e + 10] == 1 && b[e + 11] == 2;
                 if (tag == 50714) black = value;
                 if (tag == 50717) white = value;
-                if (tag == 50721) matrix = int(u32(value)) == 7500 && u32(value + 4) == 10000;   // 0.75 as 7500 / 10000
+                if (tag == 50721) matrixA = int(u32(value)) == 5000 && u32(value + 4) == 10000;   // 0.5 as 5000 / 10000
+                if (tag == 50722) matrix = int(u32(value)) == 7500 && u32(value + 4) == 10000;    // 0.75
+                if (tag == 50778) illuminant1 = u16(e + 8);
+                if (tag == 50779) illuminant2 = u16(e + 8);
+                if (tag == 50964 || tag == 50965) forward += u16(e + 2) == 10 && u32(e + 4) == 9;   // ForwardMatrix1 / 2: nine signed rationals
             }
             bool data = stripOffset > 0;
             for (int i = 0; i < w * h && data; ++i) data = u16(stripOffset + 2 * size_t(i)) == mosaic[size_t(i)];
-            ok = ok && rising && photometric == 32803 && cfa && black == 512 && white == 16383 && matrix && data;
-            report("x  DNG read back: TIFF header, rising tags, CFA R G / G B, black / white levels, colour matrix, the mosaic", ok,
+            ok = ok && rising && photometric == 32803 && cfa && black == 512 && white == 16383 && matrix && matrixA && illuminant1 == 17
+                && illuminant2 == 21 && forward == 2 && data;
+            report("x  DNG read back: TIFF header, rising tags, CFA R G / G B, black / white levels, colour matrices under A and D65, the mosaic", ok,
                 std::to_string(count) + " tags, " + std::to_string(b.size()) + " bytes");
+        }
+
+        // Integrals over 380..780 nm with the film's rule (1 nm, trapezoid), illuminant A, and the camera of (p): three Gaussian sensitivities
+        auto integrate = [](auto&& weight, auto&& spectrum) {
+            Vector3 sum(0.0);
+            for (int l = 380; l <= 780; ++l) sum += weight(Real(l)) * (spectrum(Real(l)) * ((l == 380 || l == 780) ? Real(0.5) : Real(1)));
+            return sum;
+        };
+        auto illuminantA = [](Real l) { return color::evaluateBlackbody(l, Real(2856)); };
+        auto cie = [](Real l) { return color::rgbSensorWeights(l); };
+#if defined(RAYT_SPECTRAL_MODE)
+        auto setGaussianCamera = []() {
+            auto gauss = [](Real l, Real mu, Real sigma) { return std::exp(-0.5 * (l - mu) * (l - mu) / (sigma * sigma)); };
+            std::vector<Real> nm;
+            std::vector<Vector3> rgb;
+            for (int l = 380; l <= 780; l += 5) {
+                nm.push_back(Real(l));
+                rgb.push_back(Vector3(gauss(l, 600, 35), 0.9 * gauss(l, 535, 35), 0.7 * gauss(l, 455, 25)));
+            }
+            std::string err;
+            return color::setCameraResponse(nm, rgb, "gaussian", err);
+        };
+        auto camera = [](Real l) { return color::cameraFilmWeight(color::cameraResponse(), l); };
+        auto curves = [](Real l) { return color::cameraResponse().curves[static_cast<size_t>(int(l) - color::CameraResponse::kFirstNm)]; };
+
+        // (y) The camera balanced to the scene's light (illuminant A): a grey under A comes out grey of the light's luminance (1e-9); the
+        //     raw of a light does not depend on the balance (filmToCameraRaw gives the curves' integral over D65's G, 1e-9); the matrix
+        //     fitted under A meets the CIE film's colours balanced with CAT16 exactly on the renderer's smooth reflectances (1e-6: they
+        //     span three dimensions, so one 3 x 3 matrix maps the camera's raw to them). D65's matrix with A's gains is printed beside it:
+        //     for these narrow, separate channels it is nearly as good, which a real camera's are not (docs/CAMERA.md). Through the
+        //     sensor a white above the clip comes out neutral with highlights=clip and tinted by the gains with keep.
+        {
+            bool ok = setGaussianCamera();
+            const color::CameraResponse atD65 = color::cameraResponse();
+            ok = ok && color::setCameraBalance(illuminantA, "A");
+            const color::CameraResponse& cam = color::cameraResponse();
+            const Vector3 filmA = integrate(cie, illuminantA);
+            const color::Matrix3 cat = color::filmBalanceMatrix(filmA);
+            const Real yA = (cat * filmA).y;
+            const Vector3 grey = integrate(camera, [&](Real l) { return Real(0.5) * illuminantA(l); });
+            ok = ok && glm::length(grey - Vector3(Real(0.5) * yA)) < 1e-9 * yA;
+            const Vector3 rawDirect = integrate(curves, illuminantA) / atD65.d65Raw.y;
+            const Vector3 rawViaFilm = color::filmToCameraRaw(integrate(camera, illuminantA));
+            ok = ok && glm::length(rawViaFilm - rawDirect) < 1e-9 * glm::length(rawDirect);
+            const Real levels[3] = { 0.1, 0.5, 0.9 };
+            double fitted = 0, naive = 0;
+            int count = 0;
+            for (const Real r : levels)
+                for (const Real g : levels)
+                    for (const Real b : levels) {
+                        auto light = [&](Real l) { return illuminantA(l) * color::rgbToReflectance(Vector3(r, g, b), l); };
+                        const Vector3 target = cat * integrate(cie, light);
+                        const Vector3 balanced = integrate(curves, light) / cam.whiteRaw;
+                        fitted += double(glm::dot(cam.matrix * balanced - target, cam.matrix * balanced - target));
+                        naive += double(glm::dot(atD65.matrix * balanced - target, atD65.matrix * balanced - target));
+                        count += 3;
+                    }
+            fitted = std::sqrt(fitted / count);
+            naive = std::sqrt(naive / count);
+            ok = ok && fitted < 1e-6;
+            // a white twice above the clip through the sensor (no mosaic), balanced to D65 (gains R 1.03, B 1.73)
+            ok = ok && color::setCameraBalance([](Real l) { return color::evaluateD65(l); }, "D65");
+            SensorModel clip = model, keep = model;
+            clip.mosaic = keep.mosaic = false;
+            keep.clipHighlights = false;
+            Film fc(4, 4), fk(4, 4);
+            for (int y = 0; y < 4; ++y) for (int x = 0; x < 4; ++x) { fc.setPixel(x, y, Vector3(1.0)); fk.setPixel(x, y, Vector3(1.0)); }
+            const SensorSetting s = MakeSensorSetting(model, 0);
+            ApplySensor(fc, clip, s, 2, 3);
+            ApplySensor(fk, keep, s, 2, 3);
+            const Vector3 vc = fc.getData()[0], vk = fk.getData()[0];
+            const Real spreadClip = (std::max(vc.x, std::max(vc.y, vc.z)) - std::min(vc.x, std::min(vc.y, vc.z))) / vc.y;
+            const Real spreadKeep = (std::max(vk.x, std::max(vk.y, vk.z)) - std::min(vk.x, std::min(vk.y, vk.z))) / vk.y;
+            ok = ok && spreadClip < 1e-9 && spreadKeep > 0.1;
+            report("y  camera balanced to illuminant A: grey stays grey, the raw scale stays, its matrix exact on smooth colours; clipped white neutral", ok,
+                "RMS against the CIE film's CAT16 colours " + std::to_string(fitted) + " (fitted under A), " + std::to_string(naive)
+                + " (D65's matrix with A's gains); clipped white's channel spread " + std::to_string(spreadClip) + " (clip), " + std::to_string(spreadKeep) + " (keep)");
+            color::resetCameraResponse();
+        }
+#endif
+
+        // (z) Auto white balance (grey world) of a grey of reflectance 0.5 lit by illuminant A. The CIE film's picture comes out grey
+        //     (1e-9) of the same luminance (1e-9), the light's temperature guessed within 30 K of 2856 K. A camera's (spectral build) comes
+        //     out grey, with the gains of the manual balance to A (0.5 %) and nearly its matrix (0.002).
+        {
+            const Vector3 filmA = integrate(cie, illuminantA);
+            Film f(8, 8);
+            for (int y = 0; y < 8; ++y) for (int x = 0; x < 8; ++x) f.setPixel(x, y, Real(0.5) * filmA);
+            const AutoBalance b = AutoWhiteBalance(f);
+            const Vector3 out = f.getData()[0];
+            const Real yIn = (color::filmToXYZ() * (Real(0.5) * filmA)).y, yOut = (color::filmToXYZ() * out).y;
+            bool ok = b.ok && std::fabs(out.x - out.y) < 1e-9 * out.y && std::fabs(out.z - out.y) < 1e-9 * out.y && std::fabs(yOut / yIn - 1) < 1e-9
+                && std::fabs(b.cct - 2856) < 30;
+            std::string detail = "CIE film: " + std::to_string(b.cct) + " K";
+#if defined(RAYT_SPECTRAL_MODE)
+            ok = ok && setGaussianCamera();
+            Film g(8, 8);
+            const Vector3 greyAtD65 = integrate(camera, [&](Real l) { return Real(0.5) * illuminantA(l); });   // the camera's picture balanced to D65
+            for (int y = 0; y < 8; ++y) for (int x = 0; x < 8; ++x) g.setPixel(x, y, greyAtD65);
+            const AutoBalance bc = AutoWhiteBalance(g);
+            const Vector3 outCam = g.getData()[0];
+            const Vector3 gainsAuto = color::cameraWhiteBalanceGains();
+            const color::Matrix3 matrixAuto = color::cameraResponse().matrix;
+            ok = ok && bc.ok && color::setCameraBalance(illuminantA, "A");
+            const Vector3 gainsManual = color::cameraWhiteBalanceGains();
+            double matrixDiff = 0;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j) matrixDiff = std::max(matrixDiff, std::fabs(double(matrixAuto[j][i] - color::cameraResponse().matrix[j][i])));
+            const Vector3 gainRatio = gainsAuto / gainsManual;
+            ok = ok && std::fabs(outCam.x - outCam.y) < 1e-9 * outCam.y && std::fabs(outCam.z - outCam.y) < 1e-9 * outCam.y
+                && std::fabs(gainRatio.x - 1) < 0.005 && std::fabs(gainRatio.y - 1) < 0.005 && std::fabs(gainRatio.z - 1) < 0.005 && matrixDiff < 0.002;
+            detail += "; camera: " + std::to_string(bc.cct) + " K, gains off the manual balance's by up to "
+                + std::to_string(100 * std::max(std::fabs(gainRatio.x - 1), std::max(std::fabs(gainRatio.y - 1), std::fabs(gainRatio.z - 1)))) + " %, matrix by "
+                + std::to_string(matrixDiff);
+            color::resetCameraResponse();
+#endif
+            report("z  auto white balance (grey world) under illuminant A: grey out, luminance kept, the light's temperature guessed", ok, detail);
         }
     }
 

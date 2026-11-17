@@ -265,6 +265,7 @@ struct CliOptions {
     Real camYaw = 1e9;                 // water --water-sky: camera azimuth in degrees about +y, 0 = on the +z side (1e9: from the brightest spot of the map)
     bool skinMatched = false;          // skindemo: Burley profile with the same albedo and mean radius as the table
     bool whiteBalance = false;         // --wb: white-balance the film to the light (spd scene; scene files: the first emission material)
+    bool autoWhiteBalance = false;     // --awb: auto white balance, the light guessed from the picture (grey world), as a camera does
     std::optional<Real> fadeHours;     // --fade-hours H: the hours of exposure of every "fading" material of a scene file (overrides the file)
     int traceX = -1, traceY = -1;      // --trace x,y : print a few light paths of one pixel and exit
     // The lens: --focal-length MM (replaces the field of view of the scene), --fstop N (defocus blur), --focus-dist D | --focus-at x,y,z,

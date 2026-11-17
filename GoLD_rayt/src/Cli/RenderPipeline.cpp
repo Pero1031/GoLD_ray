@@ -5,6 +5,7 @@
 #include "Cli/Scene.hpp"
 #include "Cli/Tools.hpp"
 #include "Color/CameraResponse.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "Core/SampledWavelengths.hpp"
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
@@ -132,7 +133,7 @@ bool ApplyCameraResponse(const std::string& path) {
     std::string error;
     if (!color::setCameraResponse(path, error)) { std::cerr << "[Camera] --camera-response: " << error << "\n"; return false; }
     const color::CameraResponse& cam = color::cameraResponse();
-    const Vector3 white = cam.whiteRaw / cam.whiteRaw.y;
+    const Vector3 white = cam.d65Raw / cam.d65Raw.y;
     std::cout << "[Camera] response " << cam.name << ": raw of D65 R " << white.x << " G 1 B " << white.z
         << " (balanced to 1 1 1); colour matrix fitted on " << cam.trainingCount << " reflectances under D65, RMS error " << cam.fitRms << ":\n";
     for (int r = 0; r < 3; ++r)
@@ -362,19 +363,41 @@ void LogSensor(const SensorModel& m, const SensorSetting& s, bool physicalExposu
         + " demosaicing (a raw file <out>.dng beside the picture)" : std::string("no mosaic: every pixel records all three channels")) << "\n";
 }
 
-// The DNG tags of the sensor's mosaic: its levels, the camera's colours (XYZ -> raw, scaled so that the white's largest raw channel is
-// 1) and the white it is balanced to (D65; without --camera-response the raw channels are the film's linear sRGB).
+// The DNG tags of the sensor's mosaic: its levels, the camera's colours under illuminant A and D65 (XYZ -> raw, each scaled so that its
+// light's white has a largest raw channel of 1) and the white it is balanced to (without --camera-response the raw channels are the
+// film's linear sRGB).
 io::DngInfo SensorDngInfo(const SensorModel& m, const SensorSetting& s) {
     io::DngInfo info;
     info.black = s.black;
     info.white = s.maxDn;
-    const color::Matrix3 a = color::cameraRawFromXYZ();
-    const Vector3 white = Vector3(1.0) / color::cameraWhiteBalanceGains();   // the raw of the balanced white (G = 1)
+    auto calibration = [](bool illuminantA, double (&out)[9]) {
+        const color::Matrix3 a = color::cameraRawFromXYZ(illuminantA);
+        const Vector3 lightWhite = a * (illuminantA ? Vector3(1.09850, 1, 0.35585) : Vector3(0.95047, 1, 1.08883));   // XYZ of A / D65, Y 1
+        const Real top = std::max(lightWhite.x, std::max(lightWhite.y, lightWhite.z));
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) out[3 * i + j] = double(a[j][i] / top);   // row i, column j (glm keeps columns)
+    };
+    calibration(true, info.colorMatrixA);
+    calibration(false, info.colorMatrix);
+    // ForwardMatrix: white-balanced raw -> the film's RGB (the calibration's colour matrix) -> XYZ (D65 of Y 1) -> Bradford to D50, the
+    // DNG's connection space; a reader goes back to D65 by Bradford too, so it gets the renderer's colours.
+    auto fromRows = [](std::initializer_list<Real> v) { color::Matrix3 m(Real(0)); auto it = v.begin(); for (int r = 0; r < 3; ++r) for (int c = 0; c < 3; ++c) m[c][r] = *it++; return m; };
+    const color::Matrix3 bradford = fromRows({ 0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296 });
+    const color::Matrix3 toXYZ = color::filmToXYZ() / (color::filmToXYZ() * Vector3(1.0)).y;   // the film's RGB -> XYZ, D65 of Y 1
+    const Vector3 coneD65 = bradford * (toXYZ * Vector3(1.0)), coneD50 = bradford * Vector3(0.96422, 1.0, 0.82521);
+    color::Matrix3 scale(Real(0));
+    for (int i = 0; i < 3; ++i) scale[i][i] = coneD50[i] / coneD65[i];
+    const color::Matrix3 toD50 = glm::inverse(bradford) * scale * bradford * toXYZ;
+    auto forward = [&](bool illuminantA, double (&out)[9]) {
+        const color::Matrix3 f = toD50 * color::cameraCalibrationMatrix(illuminantA);
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) out[3 * i + j] = double(f[j][i]);
+    };
+    forward(true, info.forwardMatrixA);
+    forward(false, info.forwardMatrix);
+    const Vector3 white = Vector3(1.0) / color::cameraWhiteBalanceGains();   // the raw of the balanced white
     const Real top = std::max(white.x, std::max(white.y, white.z));
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) info.colorMatrix[3 * i + j] = double(a[j][i] / top);   // row i, column j (glm keeps columns)
-        info.asShotNeutral[i] = double(white[i] / top);
-    }
+    for (int i = 0; i < 3; ++i) info.asShotNeutral[i] = double(white[i] / top);
     const color::CameraResponse& cam = color::cameraResponse();
     info.model = "GoLD_rayt " + (cam.active ? cam.name : std::string("ideal sRGB camera"));
     std::ostringstream d;
@@ -382,6 +405,23 @@ io::DngInfo SensorDngInfo(const SensorModel& m, const SensorSetting& s) {
       << " + " << m.adcNoise << " e-, " << m.bits << "-bit ADC, " << s.whiteElectrons << " e- at white";
     info.description = d.str();
     return info;
+}
+
+// --awb: a camera's auto white balance. The light is guessed from the picture by the grey world assumption (on average a scene
+// reflects grey, so the picture's mean is the light's colour), and the picture is balanced to it: with a camera's response by gains on
+// its raw channels and a matrix interpolated between its A and D65 fits by the white's colour temperature; for the CIE film by CAT16
+// from that white to D65. The denoised copy gets the same balance.
+void LogAutoWhiteBalance(Film& film, Film* denoised) {
+    const AutoBalance b = AutoWhiteBalance(film, denoised);
+    if (!b.ok) { std::cout << "[AWB] the picture has no usable white to balance to; left as it is\n"; return; }
+    const bool camera = color::cameraResponse().active;
+    std::cout << "[AWB] grey world: the picture's mean " << (camera ? "raw " : "RGB ") << b.mean.x / b.mean.y << " 1 " << b.mean.z / b.mean.y
+        << ", a light of about " << b.cct << " K; ";
+    if (camera) {
+        const Vector3 gains = color::cameraWhiteBalanceGains() / color::cameraWhiteBalanceGains().y;
+        std::cout << "gains R " << gains.x << " G 1 B " << gains.z << ", the colour matrix interpolated between the A and D65 fits\n";
+    }
+    else std::cout << "CAT16 from it to D65\n";
 }
 
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
@@ -415,6 +455,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
         std::cout << "[Diffraction] kernel of " << 2 * kernels->radius + 1 << " px holding " << 100.0 * kernels->captured << " % of the light, applied in "
             << std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() << " s\n";
     }
+    if (opt.autoWhiteBalance) LogAutoWhiteBalance(film, denoised.get());   // before the sensor, whose processing uses the balance
     // The sensor: after the optics (diffraction) and after the denoiser, which would otherwise take its noise away. With a physical
     // exposure the sensor gets the exposure's light and --exposure pushes the recording afterwards, noise and all; without one --exposure
     // sets the light and the picture's white is the full well at the base ISO. The film keeps radiance units (.pfm).
@@ -520,6 +561,12 @@ int RenderScene(CliOptions& opt) {
     if (!ResolveMaskMaterials(opt, setup, maskMaterials)) return 1;
 
     if (caustics.lightTraceOnly) opt.causticTrace = true;
+
+    if (const color::CameraResponse& cam = color::cameraResponse(); cam.active && cam.balancedTo != "D65") {   // --wb with a camera
+        const Vector3 gains = color::cameraWhiteBalanceGains() / color::cameraWhiteBalanceGains().y;
+        std::cout << "[Camera] balanced to " << cam.balancedTo << ": gains R " << gains.x << " G 1 B " << gains.z << ", colour matrix fitted under it (RMS "
+            << cam.fitRms << " against the CIE film adapted to D65 with CAT16)\n";
+    }
 
     // ---- the scene: lights, caustics ----
     // The builders collect the objects in a plain list (spheres, quads, whole meshes with their own BVH, hair). Rays go through

@@ -60,15 +60,22 @@ namespace rayt::io {
         shorts(50711, { 1 });                 // CFALayout: rectangular
         longs(50714, { std::uint32_t(info.black) });   // BlackLevel
         longs(50717, { std::uint32_t(info.white) });   // WhiteLevel
+        auto matrix = [&](std::uint16_t tag, const double (&m)[9]) {   // nine signed rationals over 10000
+            std::vector<std::uint8_t> d;
+            for (const double v : m) { Put32(d, std::uint32_t(std::int32_t(std::lround(v * 10000.0)))); Put32(d, 10000); }
+            add(tag, kSRational, 9, d);
+        };
+        matrix(50721, info.colorMatrixA);     // ColorMatrix1 (under illuminant A)
+        matrix(50722, info.colorMatrix);      // ColorMatrix2 (under D65)
         {
-            std::vector<std::uint8_t> d;      // ColorMatrix1: nine signed rationals over 10000
-            for (const double v : info.colorMatrix) { Put32(d, std::uint32_t(std::int32_t(std::lround(v * 10000.0)))); Put32(d, 10000); }
-            add(50721, kSRational, 9, d);
-            d.clear();                        // AsShotNeutral: three rationals over 1000000
+            std::vector<std::uint8_t> d;      // AsShotNeutral: three rationals over 1000000
             for (const double v : info.asShotNeutral) { Put32(d, std::uint32_t(std::lround(std::max(v, 0.0) * 1000000.0))); Put32(d, 1000000); }
             add(50728, kRational, 3, d);
         }
-        shorts(50778, { 21 });                // CalibrationIlluminant1: D65
+        shorts(50778, { 17 });                // CalibrationIlluminant1: Standard light A
+        shorts(50779, { 21 });                // CalibrationIlluminant2: D65
+        matrix(50964, info.forwardMatrixA);   // ForwardMatrix1
+        matrix(50965, info.forwardMatrix);    // ForwardMatrix2
         std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) { return a.tag < b.tag; });
 
         // Layout: header (8), the directory, the values longer than 4 bytes (each at an even offset), the image (even offset).

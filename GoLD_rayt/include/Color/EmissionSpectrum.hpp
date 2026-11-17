@@ -29,6 +29,7 @@
 #include "Color/SpectralCurve.hpp"
 #include "Color/Illuminants.hpp"
 #include "Color/SpectralConversion.hpp"
+#include "Color/CameraResponse.hpp"
 
 namespace rayt {
 
@@ -102,6 +103,11 @@ namespace rayt {
         /// Linear sRGB color of this light as recorded by the film sensor.
         const Vector3& rgb() const { return m_rgb; }
 
+        /// The emission at one wavelength (an RGB light: its RGB x D65, as the spectral build renders it).
+        Real at(Real lambda_nm) const {
+            return m_lut.empty() ? color::rgbToReflectance(m_rgb, lambda_nm) * color::evaluateD65(lambda_nm) : lutAt(lambda_nm);
+        }
+
         EmissionSpectrum operator*(Real s) const {
             EmissionSpectrum e = *this;
             e.m_rgb *= s;
@@ -134,6 +140,9 @@ namespace rayt {
          * Returns false (and leaves the film unchanged) when the light has no visible power.
          */
         inline bool setWhiteBalance(const EmissionSpectrum& light, Real degree = Real(1)) {
+            // With a camera's response (--camera-response) the camera balances itself: gains on its raw channels and a colour matrix
+            // fitted under the light (Color/CameraResponse.hpp), whose targets are what this CAT16 balance gives the CIE film.
+            if (cameraResponse().active) return setCameraBalance([&light](Real l) { return light.at(l); }, "the scene's light");
             const Matrix3 toXYZ = filmToXYZ();
             const Vector3 src = toXYZ * light.rgb();
             const Vector3 d65 = toXYZ * Vector3(1.0);   // the film's (1,1,1) is D65

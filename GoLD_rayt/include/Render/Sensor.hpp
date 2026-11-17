@@ -47,6 +47,9 @@ struct SensorModel {
     int bits = 14;           ///< of the analog-to-digital converter
     bool mosaic = true;      ///< a Bayer filter mosaic (RGGB): one channel per pixel, the others demosaiced; false: all three per pixel
     DemosaicMethod demosaic = DemosaicMethod::Malvar;
+    /// After the white balance, every channel is clipped where the first one clips (the top DN times the smallest gain), as a raw
+    /// developer's "clip" mode does: a highlight whose G clipped stays white instead of turning pink from R and B's gains. false: keep.
+    bool clipHighlights = true;
 };
 
 /// The sensor at one ISO speed.
@@ -85,8 +88,18 @@ std::vector<Vector3> DemosaicBayer(const std::vector<Real>& mosaic, int w, int h
 /// share of pixels with a channel at the top DN. The same seed draws the same noise.
 Real ApplySensor(Film& film, const SensorModel& m, const SensorSetting& s, Real gain, std::uint64_t seed, std::vector<std::uint16_t>* mosaicDn = nullptr);
 
-/// "default", or a comma list of key=value: well, base, read, adc, bits (numbers), cfa=rggb|none, demosaic=malvar|bilinear (the others
-/// keep their defaults). False with a message.
+/// An auto white balance's guess: the picture's mean (the camera's raw values, or the CIE film's RGB) and the light's correlated colour
+/// temperature (K); ok false (the picture left as it was) if the mean has no usable white.
+struct AutoBalance { bool ok = false; Vector3 mean = Vector3(0.0); Real cct = 0; };
+
+/// --awb, a camera's auto white balance by the grey world assumption: on average a scene reflects grey, so the picture's mean is the
+/// colour of its light. With a camera's response the camera is balanced to that raw white (Color/CameraResponse::setCameraBalanceToRawWhite:
+/// gains and a matrix interpolated between the A and D65 fits by the white's colour temperature) and the picture re-made from its raw
+/// values; for the CIE film the picture is adapted from that white to D65 with CAT16. `other` (a denoised copy) gets the same balance.
+AutoBalance AutoWhiteBalance(Film& film, Film* other = nullptr);
+
+/// "default", or a comma list of key=value: well, base, read, adc, bits (numbers), cfa=rggb|none, demosaic=malvar|bilinear,
+/// highlights=clip|keep (the others keep their defaults). False with a message.
 bool ParseSensorSpec(const std::string& spec, SensorModel& m, std::string& error);
 
 } // namespace rayt

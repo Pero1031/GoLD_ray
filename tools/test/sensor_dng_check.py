@@ -7,12 +7,15 @@ DNG, colour-demosaicing demosaics its mosaic. Needs `pip install rawpy colour-de
 
 1. The file as LibRaw reads it: the pattern R G / G B, the black and white levels, the colour matrix and the white balance as this
    script's own TIFF reader finds them, and every value of the mosaic between black and white.
-2. The picture again from the DNG alone: the mosaic minus black, white-balanced with 1 / AsShotNeutral, demosaiced by colour-demosaicing's
-   Malvar 2004, turned into XYZ with the inverse of ColorMatrix1 and into linear sRGB. It must be the renderer's picture (the .pfm, which
-   holds radiance: compared up to one scale) inside 4 pixels from the edges, within the rounding of the matrix to 4 decimals.
+2. The picture again from the DNG alone, as the DNG specification has a reader make it: the mosaic minus black, white-balanced with
+   1 / AsShotNeutral, demosaiced by colour-demosaicing's Malvar 2004; the two calibrations (A and D65) weighted by the as-shot white's
+   colour temperature; the ForwardMatrix (white-balanced raw -> XYZ under D50) and Bradford back to D65, then linear sRGB (without
+   ForwardMatrix tags: the inverse ColorMatrix and CAT16 from the white). It must be the renderer's picture (the .pfm, which holds
+   radiance: compared up to one scale) inside 4 pixels from the edges, within the rounding of the matrices to 4 decimals.
 3. LibRaw's own development (its AHD demosaicing and its colour pipeline, linear sRGB) against the renderer's picture: the mean colour of
    the picture and the colours of smooth regions (2 %). Expose so that little clips (the log's share at the top of the range): raw
-   developers treat clipped highlights each in their own way.
+   developers treat clipped highlights each in their own way. LibRaw uses one calibration and no chromatic adaptation, so a picture
+   balanced far from D65 (--wb under tungsten) differs more.
 """
 import os
 import struct
@@ -55,30 +58,62 @@ def main(stem):
     import rawpy
     from colour_demosaicing import demosaicing_CFA_Bayer_Malvar2004
 
+    import colour
+
     tags = dng_tags(stem + ".dng")
     picture = read_pfm(stem + ".pfm").astype(np.float64)
     black, white = tags[50714][0], tags[50717][0]
-    cm = np.array(tags[50721]).reshape(3, 3)
+    assert tags[50778][0] == 17 and tags[50779][0] == 21, "expected ColorMatrix1 under Standard light A and ColorMatrix2 under D65"
+    cm_a, cm_d65 = np.array(tags[50721]).reshape(3, 3), np.array(tags[50722]).reshape(3, 3)
     neutral = np.array(tags[50728])
     failed = []
 
-    # 1. LibRaw reads the same file. Its camera-to-sRGB matrix (rgb_cam, applied after its white balance) times the balance is
-    #    XYZ_TO_SRGB inv(ColorMatrix1), each row scaled to sum 1 (LibRaw normalizes its matrix so that the balanced white stays white).
+    # The colour matrix for the as-shot white, as the DNG specification has a reader find it: the white's XYZ and correlated colour
+    # temperature (McCamy) and the matrix interpolated linearly in 1 / temperature between the calibrations, a few rounds until they agree.
+    w = 0.0
+    for _ in range(8):
+        cm = w * cm_a + (1 - w) * cm_d65
+        xyz_white = np.linalg.inv(cm) @ neutral
+        x, y = xyz_white[:2] / xyz_white.sum()
+        n = (x - 0.3320) / (0.1858 - y)
+        cct = 449 * n ** 3 + 3525 * n ** 2 + 6823.3 * n + 5520.33
+        w = float(np.clip((1 / cct - 1 / 6504) / (1 / 2856 - 1 / 6504), 0, 1))
+    d65 = colour.xy_to_XYZ(colour.CCS_ILLUMINANTS["CIE 1931 2 Degree Standard Observer"]["D65"])
+    d50 = colour.xy_to_XYZ(colour.CCS_ILLUMINANTS["CIE 1931 2 Degree Standard Observer"]["D50"])
+    if 50964 in tags and 50965 in tags:
+        # ForwardMatrix (DNG 1.2): white-balanced camera raw (raw / AsShotNeutral) -> XYZ under D50, interpolated with the same weight,
+        # then Bradford from D50 to D65 (the way back from the DNG's connection space) and linear sRGB
+        fm = w * np.array(tags[50964]).reshape(3, 3) + (1 - w) * np.array(tags[50965]).reshape(3, 3)
+        bradford = colour.adaptation.matrix_chromatic_adaptation_VonKries(d50, d65, transform="Bradford")
+        camera_to_srgb = XYZ_TO_SRGB @ bradford @ fm @ np.diag(1 / neutral)
+        path = "ForwardMatrix"
+    else:
+        # ColorMatrix only: camera raw -> XYZ under the light -> CAT16 from its white to D65 -> linear sRGB
+        cat16 = colour.adaptation.matrix_chromatic_adaptation_VonKries(xyz_white, d65 * xyz_white[1], transform="CAT16")
+        camera_to_srgb = XYZ_TO_SRGB @ cat16 @ np.linalg.inv(cm)
+        path = "ColorMatrix + CAT16"
+
+    # 1. LibRaw reads the same file. Its camera-to-sRGB matrix (rgb_cam, made for raw scaled by its daylight multipliers) times those
+    #    multipliers is a calibration's XYZ_TO_SRGB inv(ColorMatrix), each row scaled to sum 1 (LibRaw normalizes it so)
     with rawpy.imread(stem + ".dng") as raw:
         mosaic = raw.raw_image_visible.astype(np.float64).copy()
         pattern = raw.raw_pattern.tolist()
         libraw_black = list(raw.black_level_per_channel)
         libraw_white = raw.white_level
         libraw_wb = np.array(raw.camera_whitebalance)[:3]
-        libraw_matrix = np.array(raw.color_matrix)[:, :3] @ np.diag(libraw_wb)
-    ours = XYZ_TO_SRGB @ np.linalg.inv(cm)
-    matrix_diff = np.abs(libraw_matrix / libraw_matrix.sum(1, keepdims=True) - ours / ours.sum(1, keepdims=True)).max()
+        libraw_matrix = np.array(raw.color_matrix)[:, :3] @ np.diag(np.array(raw.daylight_whitebalance)[:3])
+    diffs = {}
+    for name, m in (("A", cm_a), ("D65", cm_d65)):
+        ours = XYZ_TO_SRGB @ np.linalg.inv(m)
+        diffs[name] = np.abs(libraw_matrix / libraw_matrix.sum(1, keepdims=True) - ours / ours.sum(1, keepdims=True)).max()
+    used = min(diffs, key=diffs.get)
     ok1 = (pattern == [[0, 1], [3, 2]] and libraw_black == [black] * 4 and libraw_white == white and mosaic.shape == picture.shape[:2]
-           and mosaic.min() >= 0 and mosaic.max() <= white and matrix_diff < 3e-3
+           and mosaic.min() >= 0 and mosaic.max() <= white and diffs[used] < 3e-3
            and np.allclose(libraw_wb / libraw_wb[1], neutral[1] / neutral, rtol=1e-4))
-    print("1. LibRaw %s reads %d x %d, pattern %s, black %d, white %d, as-shot multipliers %s, colour matrix off by %.1e: %s"
-          % (".".join(map(str, rawpy.libraw_version)), mosaic.shape[1], mosaic.shape[0], pattern, black, white,
-             np.round(libraw_wb / libraw_wb[1], 4), matrix_diff, "OK" if ok1 else "FAIL"))
+    print("1. LibRaw %s reads %d x %d, pattern %s, black %d, white %d, as-shot multipliers %s, its colour matrix the %s calibration's "
+          "(off by %.1e): %s" % (".".join(map(str, rawpy.libraw_version)), mosaic.shape[1], mosaic.shape[0], pattern, black, white,
+                                 np.round(libraw_wb / libraw_wb[1], 4), used, diffs[used], "OK" if ok1 else "FAIL"))
+    print("   as-shot white: %.0f K, the matrix %.3f of A and %.3f of D65" % (cct, w, 1 - w))
     if not ok1:
         failed.append(1)
 
@@ -88,16 +123,15 @@ def main(stem):
     site = np.where(rows % 2 == 0, np.where(cols % 2 == 0, 0, 1), np.where(cols % 2 == 0, 1, 2))
     balanced = lin / neutral[site]
     rgb_raw = demosaicing_CFA_Bayer_Malvar2004(balanced, "RGGB") * neutral
-    srgb = rgb_raw @ (XYZ_TO_SRGB @ np.linalg.inv(cm)).T
+    srgb = rgb_raw @ camera_to_srgb.T
     inner = (slice(4, -4), slice(4, -4))
     a, b = srgb[inner].reshape(-1, 3), picture[inner].reshape(-1, 3)
     bright = a[:, 1] > 0.05 * a[:, 1].max()
     scale = np.median(b[bright, 1] / a[bright, 1])
     rel = np.abs(a[bright] * scale - b[bright]) / np.maximum(b[bright].mean(1, keepdims=True), 0.05 * b[bright].mean())
     ok2 = np.percentile(rel, 99) < 2e-3
-    print("2. picture from the DNG alone (colour-demosaicing Malvar 2004, ColorMatrix1, AsShotNeutral) against the .pfm: relative "
-          "difference median %.2e, 99th percentile %.2e, largest %.2e: %s" % (np.median(rel), np.percentile(rel, 99), rel.max(),
-                                                                                "OK" if ok2 else "FAIL"))
+    print("2. picture from the DNG alone (colour-demosaicing Malvar 2004, %s) against the .pfm: relative difference median %.2e, "
+          "99th percentile %.2e, largest %.2e: %s" % (path, np.median(rel), np.percentile(rel, 99), rel.max(), "OK" if ok2 else "FAIL"))
     if not ok2:
         failed.append(2)
 

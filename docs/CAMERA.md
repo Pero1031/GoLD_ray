@@ -91,10 +91,24 @@ translucent layer covers a pixel in proportion to its opacity.
 The film normally sees as the CIE 1931 observer: an ideal camera that meets the Luther condition. A real camera's R, G, B sensitivities are
 not a linear mix of the colour matching functions, so spectra that match for the eye can differ for the camera (and the other way round),
 and its colours drift from the eye's most under narrow-band light. With `--camera-response` (spectral build) the film does what a camera
-does: raw = the light weighted with its sensitivities, white balance (D65 becomes (1, 1, 1)), and a 3 × 3 colour matrix to sRGB fitted by
-least squares on 216 smooth reflectances under D65, white kept white. The three linear steps make one weight per wavelength in place of the
-CIE one. `<out>_camraw.pfm` holds the camera's raw RGB before white balance and matrix (G of D65 = 1), for comparing with a real camera's
-raw file (both linear; scale them by a white or grey patch).
+does: raw = the light weighted with its sensitivities, white balance (the white becomes grey), and a 3 × 3 colour matrix to sRGB fitted
+by least squares on 216 smooth reflectances under the light it is balanced to, white kept white. The three linear steps make one weight per
+wavelength in place of the CIE one. `<out>_camraw.pfm` holds the camera's raw RGB before white balance and matrix (G of D65 = 1), for
+comparing with a real camera's raw file (both linear; scale them by a white or grey patch).
+
+- **White balance:** D65 by default. With `--wb` (the spd scene's light; in a scene file the first emission object's) the camera is
+  balanced to the scene's light, as a camera set to that light would be: gains that make the light's white grey, and a colour matrix
+  fitted under the light whose targets are the CIE film's colours adapted from the light's white to D65 with CAT16 (what `--wb` does for
+  the CIE film). Fitting under the light matters for a real camera: for the Canon 5D Mark II under illuminant A, on the 24 patches of a
+  ColorChecker (not among the fitted reflectances), the mean CIEDE2000 is 1.3 with the matrix fitted under A against 2.5 with D65's
+  matrix and A's gains (0.9 under D65; `tools/test/camera_wb_matrix_check.py`, colour-science, separate from the renderer). For narrow,
+  separate channels the gains alone come close (the test camera of check y). The raw values keep D65's scale (the G of D65 of unit scale
+  is 1), so the light on the sensor does not depend on the balance.
+- **Auto white balance (`--awb`):** the light is guessed from the picture by the grey world assumption: on average a scene reflects
+  grey, so the picture's mean is the light's colour. The camera is balanced to that raw white: gains from it, and a colour matrix
+  interpolated between its fits under illuminant A and D65 by the white's correlated colour temperature (McCamy's formula), linearly in
+  1 / temperature, as a DNG reader does. The CIE film is adapted from that white to D65 with CAT16. It fails where grey world fails: a
+  picture dominated by one colour is balanced towards the opposite colour.
 
 - **Data:** a CSV of `wavelength_nm,R,G,B`. The 28 cameras of Jiang et al., "What is the Space of Spectral Sensitivity Functions for
   Digital Color Cameras?" (WACV 2013; 400–720 nm in 10 nm steps) are licensed CC BY-NC-SA 4.0 and so are not in this repository: download
@@ -103,7 +117,8 @@ raw file (both linear; scale them by a white or grey patch).
   goes into a CSV of the same form.
 - **Example:** the three SR-5100 cloth swatches under D65 and under the lab's LED, the ideal film against three cameras (CIEDE2000 of
   the mean colours): under D65 0.1–1.0 (the matrices are fitted there), under the LED 0.5–3.9 on the cloth and 2.4–6.7 on the grey table
-  (the phone camera worst). The grey's error under the LED comes from the white balance, which stays at D65.
+  (the phone camera worst), with the cameras balanced to D65: the grey's error under the LED came from that balance (`--wb` now balances
+  the camera to the light).
 
 ### The sensor (`--sensor`; `Render/Sensor`)
 
@@ -132,13 +147,18 @@ that mean, in these steps (on the camera's raw values with `--camera-response`, 
    keeps the pattern.
 
 - **Raw file:** `<out>.dng` (and `_denoised.dng`): the mosaic as recorded, 16-bit, in Adobe's Digital Negative format, with the black and
-  white levels, the colour matrix (CIE XYZ to the camera's raw under D65) and the white balance, so that a raw developer can develop it
-  like a camera's. `tools/test/sensor_dng_check.py` checks a render's DNG with LibRaw (rawpy) and colour-demosaicing: LibRaw reads the
-  pattern, the levels, the balance and a matrix equal to the renderer's (0.1 %); the picture rebuilt from the DNG's numbers alone is the
-  renderer's (4 × 10⁻⁵ median); LibRaw's own development (AHD) matches the renderer's colours within 1 % (Canon 5D Mark II response, and
-  the ideal camera). Highlights that clip are developed each developer's own way.
+  white levels, two calibrations of the camera's colours under Standard light A and under D65 (ColorMatrix: CIE XYZ to raw; ForwardMatrix:
+  white-balanced raw to XYZ under D50, the renderer's own colour matrices; a reader interpolates them by the white's colour temperature)
+  and the white balance as shot, so that a raw developer can develop it like a camera's. `tools/test/sensor_dng_check.py` checks a
+  render's DNG with LibRaw (rawpy) and colour-demosaicing: LibRaw reads the pattern, the levels, the balance and a matrix equal to the
+  renderer's (0.2 %); the picture rebuilt from the DNG's numbers alone, as the DNG specification has a reader do it, is the renderer's
+  (median 3 × 10⁻⁵, with the camera balanced to D65, to a tungsten light by `--wb` and by `--awb`); LibRaw's own development (AHD, one
+  calibration) matches the renderer's colours within 1 % in all three (Canon 5D Mark II response, and the ideal camera). Highlights that
+  clip are developed each developer's own way.
 - **Clipped highlights:** the white balance multiplies R and B (by 2.2 and 1.5 for the Canon 5D Mark II under D65) after the channels
-  clipped at the top of the range, so a highlight whose G clipped turns pink, as on a camera, unless a developer recovers it.
+  clipped at the top of the range, so a highlight whose G clipped would turn pink. As a raw developer's "clip" mode does, every
+  white-balanced channel is clipped where the first one clips (the top value times the smallest gain), which keeps such a highlight
+  white; bright saturated colours near the clip lose some saturation for it. `highlights=keep` leaves the channels as recorded (pink).
 
 - **ISO:** the same light gives the same electrons at any ISO. At S times the base ISO the white is reached with 1/S of the full well:
   the picture is brighter, the shot noise relative to white √S times larger, the read noise after the amplifier S times smaller in
@@ -146,7 +166,7 @@ that mean, in these steps (on the camera's raw values with `--camera-response`, 
   base ISO the well is full before the white.
 - **Exposure:** with `--iso` the sensor gets the physical exposure's light and `--exposure` pushes the recording afterwards, noise and
   all; without `--iso` the picture's white is the full well at the base ISO and `--exposure` sets the light.
-- **Default:** `well=50000,base=100,read=1.5,adc=3,bits=14,cfa=rggb,demosaic=malvar`, round numbers of a 24-megapixel full-frame sensor (6 µm pixels): mid
+- **Default:** `well=50000,base=100,read=1.5,adc=3,bits=14,cfa=rggb,demosaic=malvar,highlights=clip`, round numbers of a 24-megapixel full-frame sensor (6 µm pixels): mid
   grey at ISO 100 holds 9000 electrons, a signal-to-noise ratio of 95. For a given camera use its measured full well and read noise.
   The scale is plausible: D65 brings 1.39 × 10¹⁶ photons per lux second and square metre, so a 6 µm pixel at the white of ISO 100
   (0.56 lux s) receives 2.8 × 10⁵ photons, of which a fifth become electrons (its green filter passes about a third of them).
@@ -191,7 +211,11 @@ same light at ISO 100 and 1600 gives the same 20 electrons and the signal-to-noi
 pixels read the top value, and at ISO 50 the well is full at half the white; no light reads 0 on average; a film keeps its mean, gets the
 shot noise's spread and draws the same noise for the same seed. Both demosaicings give a uniform colour back everywhere and a linear ramp
 inside, and at a slanted grey edge the false colour that colour-demosaicing 0.2.6 (a separate implementation in Python) gives (RMS
-0.013633 and 0.006779, and one pixel's three values to 10⁻⁶); the recorded mosaic holds R G / G B; the DNG file reads back.
+0.013633 and 0.006779, and one pixel's three values to 10⁻⁶); the recorded mosaic holds R G / G B; the DNG file reads back. A camera
+balanced to illuminant A turns a grey under A into grey of its luminance, keeps the raw scale of D65 and its matrix maps the smooth
+reflectances exactly onto the CIE film's CAT16-balanced colours; a clipped white stays neutral (`highlights=clip`). The auto white
+balance turns a grey world under A into grey of the same luminance and guesses 2858 K for A's 2856 K; for the camera its gains are the
+manual balance's within 0.001 %.
 
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
@@ -199,10 +223,12 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
-- The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65.
+- The camera's colour matrix is fitted on smooth reflectances (the renderer's spectra of 216 RGB colours), not on a measured chart.
+  `--wb` balances to the first emission object's light (point lights and the environment are not used); `--awb` is grey world only.
 - The sensor (`--sensor`) has no optical low-pass filter (fine detail aliases into false colour, as on cameras without one), no dark
   current and no fixed-pattern noise (the small differences of gain and offset between pixels). Its DNG carries no EXIF data (the ISO and
-  the sensor are in its description).
+  the sensor are in its description). The camera's processing ends at the colour matrix: no noise reduction, no sharpening, no lens
+  shading correction and no maker's tone curve (each a maker's own design); the display mapping (`--tonemap`, the sRGB curve) follows.
 - Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
 - A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.

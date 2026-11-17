@@ -134,7 +134,7 @@ Spectroradiometer measurement data can be converted with `tools/data/sr5100.py` 
 
 `spectrum`: a preset name `"d65"`, `"tungsten"`, `"candle"`, `"led"` (also written `{ "preset": "d65" }`), or `{ "blackbody": 2856 }`, `{ "rgb": [1, 1, 1] }`, `{ "file": "x.csv" }` (a table of wavelength and value), `{ "mix": [ { "file": "led1.csv", "weight": 0.4 }, { "file": "led2.csv", "weight": 1 } ] }` (the sum of several sources lit together, e.g. the color mixing of an LED cube. The weights are 0 or more and only their ratio matters; the brightness is set by `radiance`).
 
-`--wb` (as an option, or `"options": { "wb": true }`) adapts the film to the **light of the first `emission` object** (CAT16; it removes the color cast of the light). Point lights and the environment map are not used for the adaptation.
+`--wb` (as an option, or `"options": { "wb": true }`) adapts the film to the **light of the first `emission` object** (CAT16; it removes the color cast of the light; with `camera-response` the camera is balanced to that light, see [`CAMERA.md`](CAMERA.md)). Point lights and the environment map are not used for the adaptation. `"awb": true` guesses the light from the picture instead (grey world).
 
 **Objects (`shape`)**
 

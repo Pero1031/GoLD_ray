@@ -226,6 +226,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--pmx-focus") o.pmxFocus = std::stod(value("--pmx-focus"));
             else if (a == "--pmx-yaw") o.pmxYaw = std::stod(value("--pmx-yaw"));
             else if (a == "--wb")    o.whiteBalance = true;
+            else if (a == "--awb")   o.autoWhiteBalance = true;
             else if (a == "--fade-hours") o.fadeHours = std::stod(value("--fade-hours"));
             else if (a == "--trace") {
                 const std::string xy = value("--trace");
@@ -253,8 +254,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.spectralStep != 0) throw std::runtime_error("--spectral-image needs the spectral build (the RGB build has no wavelengths)");
         if (!o.cameraResponse.empty()) throw std::runtime_error("--camera-response needs the spectral build (the RGB build has no wavelengths)");
 #endif
-        if (!o.cameraResponse.empty() && o.whiteBalance)
-            throw std::runtime_error("--camera-response balances the camera to D65; it cannot be combined with --wb yet");
+        if (o.whiteBalance && o.autoWhiteBalance)
+            throw std::runtime_error("--wb balances to the scene's light and --awb guesses the light from the picture: give one of them");
         if (o.spectralStep != 0) {
             const double bands = (o.spectralLast - o.spectralFirst) / o.spectralStep;
             if (!(o.spectralStep > 0) || !(o.spectralFirst >= 360) || !(o.spectralLast <= 830) || !(bands >= 1) || std::fabs(bands - std::round(bands)) > 1e-6)

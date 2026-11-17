@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "Color/CameraResponse.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "Render/Film.hpp"
 
 namespace rayt {
@@ -100,6 +101,9 @@ namespace rayt {
         const size_t n = static_cast<size_t>(w) * static_cast<size_t>(h);
         auto at = [w](int x, int y) { return static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x); };
         long long clipped = 0;
+        // White-balanced values clip where the first channel clips: the top DN as a raw value, times the smallest gain
+        const Vector3 balance = color::cameraWhiteBalanceGains();
+        const Real ceiling = m.clipHighlights ? DnToRaw(s.maxDn, s) * std::min(balance.x, std::min(balance.y, balance.z)) : Real(1e30);
         if (!m.mosaic || w < 3 || h < 3) {   // every pixel records all three channels
 #pragma omp parallel for schedule(static) reduction(+ : clipped)
             for (int y = 0; y < h; ++y) {
@@ -111,7 +115,7 @@ namespace rayt {
                     for (int c = 0; c < 3; ++c) {
                         const int dn = SenseDn(raw[c], s, rng);
                         full = full || dn == s.maxDn;
-                        out[c] = DnToRaw(dn, s);
+                        out[c] = std::min(DnToRaw(dn, s) * balance[c], ceiling) / balance[c];
                     }
                     if (full) ++clipped;
                     film.setPixel(x, y, color::cameraRawToFilm(out) / gain);
@@ -123,7 +127,6 @@ namespace rayt {
 
         // The mosaic: each pixel records its own channel. The demosaicing works on white-balanced values (as a raw developer does: its
         // corrections assume that R, G and B of a grey are equal), then the balance is undone and the camera's matrix applied.
-        const Vector3 balance = color::cameraWhiteBalanceGains();
         std::vector<Real> balanced(n);
         std::vector<std::uint16_t> dns(n);
 #pragma omp parallel for schedule(static) reduction(+ : clipped)
@@ -135,7 +138,7 @@ namespace rayt {
                 const int dn = SenseDn(raw[c], s, rng);
                 if (dn == s.maxDn) ++clipped;
                 dns[at(x, y)] = static_cast<std::uint16_t>(dn);
-                balanced[at(x, y)] = DnToRaw(dn, s) * balance[c];
+                balanced[at(x, y)] = std::min(DnToRaw(dn, s) * balance[c], ceiling);
             }
         }
         const std::vector<Vector3> rgb = DemosaicBayer(balanced, w, h, m.demosaic);
@@ -146,10 +149,48 @@ namespace rayt {
         return n > 0 ? Real(clipped) / Real(static_cast<long long>(n)) : Real(0);
     }
 
+    AutoBalance AutoWhiteBalance(Film& film, Film* other) {
+        const int w = film.width(), h = film.height();
+        const size_t n = static_cast<size_t>(w) * static_cast<size_t>(h);
+        auto rawOf = [n](const Film& f) {   // with the balance the picture was made with
+            std::vector<Vector3> raw(n);
+            for (size_t i = 0; i < n; ++i) raw[i] = color::filmToCameraRaw(f.getData()[i]);
+            return raw;
+        };
+        const std::vector<Vector3> raw = rawOf(film);
+        const std::vector<Vector3> rawOther = other && other->width() == w && other->height() == h ? rawOf(*other) : std::vector<Vector3>();
+        AutoBalance result;
+        size_t count = 0;
+        for (const Vector3& v : raw)
+            if (std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z)) { result.mean += v; ++count; }
+        if (count == 0) return result;
+        result.mean /= Real(count);
+        if (!(result.mean.x > 0 && result.mean.y > 0 && result.mean.z > 0)) return result;
+        auto remap = [w, h](Film& f, auto&& value) {
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) f.setPixel(x, y, value(static_cast<size_t>(y) * static_cast<size_t>(w) + static_cast<size_t>(x)));
+        };
+        if (color::cameraResponse().active) {
+            result.cct = color::setCameraBalanceToRawWhite(result.mean);
+            if (!(result.cct > 0)) return result;
+            remap(film, [&](size_t i) { return color::cameraRawToFilm(raw[i]); });
+            if (!rawOther.empty()) remap(*other, [&](size_t i) { return color::cameraRawToFilm(rawOther[i]); });
+        }
+        else {
+            if (!color::cat16WhiteValid(color::filmToXYZ() * result.mean)) return result;
+            const color::Matrix3 balance = color::filmBalanceMatrix(result.mean);
+            result.cct = color::correlatedColourTemperature(color::filmToXYZ() * result.mean);
+            remap(film, [&](size_t i) { return balance * raw[i]; });
+            if (!rawOther.empty()) remap(*other, [&](size_t i) { return balance * rawOther[i]; });
+        }
+        result.ok = true;
+        return result;
+    }
+
     bool ParseSensorSpec(const std::string& spec, SensorModel& m, std::string& error) {
         m = SensorModel();
         if (spec == "default" || spec.empty()) return true;
-        const std::string keys = " (keys: well, base, read, adc, bits, cfa=rggb|none, demosaic=malvar|bilinear)";
+        const std::string keys = " (keys: well, base, read, adc, bits, cfa=rggb|none, demosaic=malvar|bilinear, highlights=clip|keep)";
         std::stringstream list(spec);
         for (std::string item; std::getline(list, item, ',');) {
             const size_t eq = item.find('=');
@@ -159,6 +200,12 @@ namespace rayt {
                 if (text == "rggb") m.mosaic = true;
                 else if (text == "none") m.mosaic = false;
                 else { error = "--sensor: cfa must be rggb or none"; return false; }
+                continue;
+            }
+            if (key == "highlights") {
+                if (text == "clip") m.clipHighlights = true;
+                else if (text == "keep") m.clipHighlights = false;
+                else { error = "--sensor: highlights must be clip or keep"; return false; }
                 continue;
             }
             if (key == "demosaic") {
