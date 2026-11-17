@@ -54,8 +54,8 @@ axial and lateral chromatic aberration.
 A band's value is the mean radiance over the band (a box of STEP nm); to compare with a measurement at 1 nm, average the measurement over the
 same bands. Reading it in Python: `np.fromfile(stem + "_spectral.img", "<f4").reshape(bands, height, width)`, or `read_envi` of
 `tools/lib/hdr_io.py`; `tools/lib/colorimetry.py` turns it into XYZ (any CIE observer, the bands integrated as boxes), CIELAB, CIEDE2000
-and display RGB with colour-science, so colour science on a render can be done in Python after it. The renderer's RGB uses an analytic
-fit of the CIE 1931 functions: against the tabulated ones its colours differ by CIEDE2000 0.4 (median) to 1.2 on the `spd` scene.
+and display RGB with colour-science, so colour science on a render can be done in Python after it. The film uses the same tabulated
+CIE 1931 functions (1 nm), so Python's defaults give the RGB picture back (`tools/test/spectral_image_check.py`).
 
 The mask and the depth come from a separate pass after the render (`Render/MaskDepth.cpp`): it works with every render mode and leaves the
 picture of a `--seed` run unchanged. Glass, water and mirrors are surfaces; an index-matched boundary (the surface of a fog) is not; a

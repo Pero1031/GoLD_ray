@@ -13,8 +13,8 @@
  * Data:
  * - Relative SPD, normalized to 100 at 560 nm.
  * - 380..780 nm in 5 nm steps (81 samples), linearly interpolated, 0 outside the range.
- * - Sanity check (Python, Wyman 2013 CMF fit): chromaticity of the table is
- *   (x, y) = (0.3126, 0.3292) vs the official D65 (0.3127, 0.3290).
+ * - Sanity check (Python, CIE 1931 1 nm table, 1 nm trapezoid on 380..780 nm): chromaticity of the table is
+ *   (x, y) = (0.31274, 0.32905) vs the official D65 (0.3127, 0.3290).
  */
 
 #pragma once

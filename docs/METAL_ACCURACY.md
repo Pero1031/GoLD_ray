@@ -31,7 +31,7 @@ Reproduction steps are at the [end](#7-reproduction). The full output of the cal
 
 6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6).
 
-**Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013) gives ΔE00 0.01 to 0.18 (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
+**Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013, the film's until 2026-11-17; it now uses the 1 nm CIE table) gave ΔE00 0.01 to 0.18 here (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
 
 ---
 
@@ -45,7 +45,7 @@ RGB_ref(c) = Integral F(λ, θ)^n · L(λ) · s_c(λ) dλ          (c = R, G, B)
 
 - `F`: unpolarized conductor Fresnel from Johnson's n, k, the same as in the engine (a port of `Core/Fresnel.hpp`). As in `ComplexIorTable`, the table is interpolated linearly over the union of the wavelengths of n and k.
 - `L`: the light's SPD, normalized to luminance Y = 1 (the same as the engine's `EmissionSpectrum::FromCurve`).
-- `s_c`: the film's sensor sensitivity (Wyman's CMF times the sRGB matrix, normalized to give (1, 1, 1) for D65). **The same sensor as the engine's film is used**, so what this analysis shows is only the "error of the RGB approximation"; the error of the CMF approximation is not mixed in (the CMF error was measured separately; see section 1).
+- `s_c`: the film's sensor sensitivity (Wyman's CMF times the sRGB matrix, normalized to give (1, 1, 1) for D65). **The same sensor as the engine's film is used** (the film's until 2026-11-17), so what this analysis shows is only the "error of the RGB approximation"; the error of the CMF approximation is not mixed in (the CMF error was measured separately; see section 1).
 
 **RGB approximation**: the engine's RGB build itself was ported.
 

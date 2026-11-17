@@ -32,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "Color/ColorSpace.hpp"
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
 #include "Core/Interaction.hpp"
@@ -203,15 +204,10 @@ namespace rayt {
         static hpbrdf::Vec3 toVec(const Vector3& v) { return hpbrdf::Vec3(float(v.x), float(v.y), float(v.z)); }
         static Vector3 toVector3(const hpbrdf::Vec3& v) { return Vector3(Real(v.x), Real(v.y), Real(v.z)); }
 
-        // CIE 1931 2-degree color matching functions, multi-lobe Gaussian fit (Wyman, Sloan, Shirley 2013)
-        static double lobe(double lam, double mu, double s1, double s2) {
-            const double t = (lam - mu) / (lam < mu ? s1 : s2);
-            return std::exp(-0.5 * t * t);
-        }
+        // CIE 1931 2-degree color matching functions (the 1 nm table of the film)
         static void cmf(double lam, double& x, double& y, double& z) {
-            x = 1.056 * lobe(lam, 599.8, 37.9, 31.0) + 0.362 * lobe(lam, 442.0, 16.0, 26.7) - 0.065 * lobe(lam, 501.1, 20.4, 26.2);
-            y = 0.821 * lobe(lam, 568.8, 46.9, 40.5) + 0.286 * lobe(lam, 530.9, 16.3, 31.1);
-            z = 1.217 * lobe(lam, 437.0, 11.8, 36.0) + 0.681 * lobe(lam, 459.0, 26.0, 13.8);
+            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931(Real(lam));
+            x = double(c.X); y = double(c.Y); z = double(c.Z);
         }
 
         /// m00 over the table's bands -> linear sRGB with the band weights

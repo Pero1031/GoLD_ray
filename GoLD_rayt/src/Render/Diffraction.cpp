@@ -69,13 +69,13 @@ namespace rayt {
 
         int NextPow2(int n) { int p = 1; while (p < n) p <<= 1; return p; }
 
-        /// CIE X, Y, Z times D65 at a wavelength (nm): the weights of the three kernels. The negative lobe of the analytic X fit is cut.
+        /// CIE X, Y, Z times D65 at a wavelength (nm): the weights of the three kernels.
         void XyzWeights(double nm, double w[3]) {
-            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931_MultiLobe(Real(nm));
+            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931(Real(nm));
             const double d65 = color::evaluateD65(Real(nm));
-            w[0] = std::max(0.0, double(c.X)) * d65;
-            w[1] = std::max(0.0, double(c.Y)) * d65;
-            w[2] = std::max(0.0, double(c.Z)) * d65;
+            w[0] = double(c.X) * d65;
+            w[1] = double(c.Y) * d65;
+            w[2] = double(c.Z) * d65;
         }
 
         /// The aperture of unit diameter: a disc, or a regular polygon of the disc's area (circumradius sqrt(pi / (2 n sin(2 pi / n))), corners

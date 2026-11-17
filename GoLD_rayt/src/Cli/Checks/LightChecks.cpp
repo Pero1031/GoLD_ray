@@ -121,11 +121,11 @@ int RunLightTests(const CliOptions& opt) {
         color::CIE_XYZ sum;
         for (int l = 380; l <= 780; ++l) {
             const Real S = color::evaluateBlackbody(Real(l), 2856.0);
-            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931_MultiLobe(Real(l));
+            const color::CIE_XYZ c = color::evaluateCIE_XYZ_1931(Real(l));
             sum.X += c.X * S; sum.Y += c.Y * S; sum.Z += c.Z * S;
         }
         const Real x = sum.X / (sum.X + sum.Y + sum.Z), y = sum.Y / (sum.X + sum.Y + sum.Z);
-        const bool okA = std::abs(x - 0.4476) < 0.005 && std::abs(y - 0.4074) < 0.005;
+        const bool okA = std::abs(x - 0.4476) < 0.0005 && std::abs(y - 0.4074) < 0.0005;   // the tabulated CIE functions: within 1e-4
         std::cout << "[Lights]   blackbody 2856 K chromaticity: xy = (" << x << ", " << y
             << ") vs CIE A (0.4476, 0.4074)   " << (okA ? "OK" : "FAIL") << "\n";
         allPassed = okA && allPassed;

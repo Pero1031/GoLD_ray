@@ -59,13 +59,13 @@ namespace rayt::color {
                 // Same integration rule as spectrumToRGB_D65(): 1 nm steps, trapezoid on [380, 780].
                 for (int l = 380; l <= 780; ++l) {
                     const Real trapezoid = (l == 380 || l == 780) ? Real(0.5) : Real(1);
-                    white += XYZ_to_sRGB(evaluateCIE_XYZ_1931_MultiLobe(Real(l)))
+                    white += XYZ_to_sRGB(evaluateCIE_XYZ_1931(Real(l)))
                         * (evaluateD65(Real(l)) * trapezoid);
                 }
 
                 weights.resize(static_cast<size_t>(kLastNm - kFirstNm + 1));
                 for (int l = kFirstNm; l <= kLastNm; ++l) {
-                    const Vector3 c = XYZ_to_sRGB(evaluateCIE_XYZ_1931_MultiLobe(Real(l)));
+                    const Vector3 c = XYZ_to_sRGB(evaluateCIE_XYZ_1931(Real(l)));
                     weights[static_cast<size_t>(l - kFirstNm)] =
                         Vector3(c.x / white.x, c.y / white.y, c.z / white.z);
                 }
@@ -131,7 +131,7 @@ namespace rayt::color {
                 std::vector<Real> A(3 * n, Real(0));
                 for (int l = 380; l <= 780; ++l) {
                     const Real trapezoid = (l == 380 || l == 780) ? Real(0.5) : Real(1);
-                    const Vector3 c = XYZ_to_sRGB(evaluateCIE_XYZ_1931_MultiLobe(Real(l)));
+                    const Vector3 c = XYZ_to_sRGB(evaluateCIE_XYZ_1931(Real(l)));
                     const Real d65 = evaluateD65(Real(l)) * trapezoid;
                     const Vector3 w(c.x * d65 / sensor.white.x,
                         c.y * d65 / sensor.white.y,

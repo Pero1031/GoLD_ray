@@ -35,8 +35,8 @@ The literature values behind the lotion and emulsion model are listed separately
 
 **Spectra and color**
 
-- C. Wyman, P.-P. Sloan, P. Shirley, "Simple Analytic Approximations to the CIE XYZ Color Matching Functions", *JCGT* 2(2), 2013. The film's color matching functions.
-- CIE 15:2004, *Colorimetry* (superseded by CIE 015:2018). The 1931 observer, illuminants D65 and A.
+- CIE 15:2004, *Colorimetry* (superseded by CIE 015:2018). The 1931 observer (its 1 nm table is the film's color matching functions), illuminants D65 and A.
+- C. Wyman, P.-P. Sloan, P. Shirley, "Simple Analytic Approximations to the CIE XYZ Color Matching Functions", *JCGT* 2(2), 2013. The film's color matching functions until 2026-11-17 (CIEDE2000 0.4 median, 1.2 at most from the table on the `spd` scene); the studies in `tools/studies` that mirror the film still use it.
 - C. Li, Z. Li, Z. Wang, Y. Xu, M. R. Luo, G. Cui, M. Melgosa, M. H. Brill, M. Pointer, "Comprehensive color solutions: CAM16, CAT16, and CAM16-UCS", *Color Research & Application* 42(6), 2017. The chromatic adaptation of the white balance (`--wb`).
 - CIE 142-2001, *Improvement to Industrial Colour-Difference Evaluation* (CIEDE2000); G. Sharma, W. Wu, E. N. Dalal, "The CIEDE2000 Color-Difference Formula: Implementation Notes, Supplementary Test Data, and Mathematical Observations", *Color Research & Application* 30(1), 2005. The color differences of the RGB-vs-spectral studies.
 - X. Zhang, B. A. Wandell, "A Spatial Extension of CIELAB for Digital Color Image Reproduction", *Journal of the Society for Information Display* 5(1), 61-63, 1997; "Color image fidelity metrics evaluated using image distortion maps", *Signal Processing* 70(3), 1998. S-CIELAB: the difference after the eye's spatial filtering.

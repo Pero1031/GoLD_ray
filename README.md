@@ -223,7 +223,7 @@ carry the wavelength itself.
 | **Fresnel** | Conductor Fresnel per wavelength on every bounce. |
 | **Roughness** | GGX microfacets (isotropic or anisotropic), VNDF sampling. |
 | **Multiple scattering** | Kulla-Conty compensation: a perfect conductor keeps an albedo of ~1.0 at every roughness (single scattering alone gives 0.92 / 0.56 / 0.31 at roughness 0.5 / 0.8 / 1.0). `--no-ms` switches it off. |
-| **Film** | CIE 1931 color matching functions (analytic multi-lobe fit) to XYZ, then linear sRGB. |
+| **Film** | CIE 1931 color matching functions (the 1 nm table of the standard) to XYZ, then linear sRGB. |
 | **Lights** | `RGB x D65`, a blackbody (any temperature), CIE illuminant A, or an SPD from CSV. Optional white balance (`--wb`). Environment maps and RGB albedos are upsampled to spectra (white is exact). |
 | **Glass dispersion** | Cauchy `n(λ)` from the refractive index and Abbe number, or Sellmeier coefficients (presets for diamond, sapphire, BK7 and fused silica); a dispersive path continues with one wavelength. |
 | **Thin films** | Interference in a thin transparent layer (soap film, coated metal), per wavelength with Airy's formula, over air, a dielectric or a metal; the film thickness can vary over the surface ([theory](docs/THIN_FILM.md)). |
@@ -455,7 +455,6 @@ Selected works that the code implements or follows. The full list, with what eac
 - P. B. Johnson, R. W. Christy, "Optical Constants of the Noble Metals", *Physical Review B* 6(12), 1972. The `n(λ)`, `k(λ)` of Au, Ag and Cu.
 - O. Gulbrandsen, "Artist Friendly Metallic Fresnel", *JCGT* 3(4), 2014. A measured reflectance `R(λ)` to `(n, k)`, with the edge tint.
 - E. Heitz, "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs", *JCGT* 3(2), 2014; "Sampling the GGX Distribution of Visible Normals", *JCGT* 7(4), 2018. GGX and VNDF sampling.
-- C. Wyman, P.-P. Sloan, P. Shirley, "Simple Analytic Approximations to the CIE XYZ Color Matching Functions", *JCGT* 2(2), 2013. The film's color matching functions.
 - W. Jakob, S. Speierer, N. Roussel, M. Nimier-David, D. Vicini, T. Zeltner, B. Nicolet, M. Crespo, V. Leroy, Z. Zhang, *Mitsuba 3 renderer*, 2022, [mitsuba-renderer.org](https://www.mitsuba-renderer.org). The RGB-vs-spectral study of the graduation research was done with it.
 - J. Gao, C. Gu, Y. Lin, H. Zhu, X. Cao, L. Zhang, Y. Yao, "Relightable 3D Gaussian: Real-time Point Cloud Relighting with BRDF Decomposition and Ray Tracing", arXiv:2311.16043, 2023. The relightable reconstruction that the lighting study trains and relights.
 - J.-N. Dihlmann, A. Majumdar, A. Engelhardt, R. Braun, H. P. A. Lensch, "Subsurface Scattering for 3D Gaussian Splatting", NeurIPS 2024 (arXiv:2408.12282). Reports that a relightable reconstruction bakes the subsurface scattering of translucent objects into the surface color.

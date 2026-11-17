@@ -432,6 +432,7 @@
     <ClInclude Include="include\Cli\Scenes.hpp" />
     <ClInclude Include="include\Cli\Tools.hpp" />
     <ClInclude Include="include\Color\ChromaticAdaptation.hpp" />
+    <ClInclude Include="include\Color\CIE1931Table.hpp" />
     <ClInclude Include="include\Color\ColorSpace.hpp" />
     <ClInclude Include="include\Color\ColorTransform.hpp" />
     <ClInclude Include="include\Color\ComplexIorTable.hpp" />

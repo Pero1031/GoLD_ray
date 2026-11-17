@@ -422,6 +422,9 @@
     <ClInclude Include="include\Lights\LightSampler.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Color\CIE1931Table.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Color\ColorSpace.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

@@ -3,8 +3,7 @@
  * @brief CIE color matching and RGB conversion utilities.
  *
  * Notes / Assumptions:
- * - CIE 1931 2° CMFs are approximated using Wyman/Sloan/Shirley (2013) "multi-lobe" analytic fits.
- * - The CMF approximation is intended for wavelengths roughly in [360, 830] nm (same range used in the paper's viewer).
+ * - CIE 1931 2° CMFs: the 1 nm table of the standard (Color/CIE1931Table.hpp), linearly interpolated, 0 outside [360, 830] nm.
  * - spectralToRGB() integrates S(λ) * CMF(λ) over wavelength.
  *   What S(λ) represents matters:
  *     * If S(λ) is an SPD/radiance already including illuminant, XYZ will be meaningful up to a scale.
@@ -15,11 +14,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
+#include "Color/CIE1931Table.hpp"
 #include "Color/Illuminants.hpp"
 
 namespace rayt::color {
@@ -28,15 +29,7 @@ namespace rayt::color {
     // CIE 1931 Standard Observer (2-degree)
     // ========================================================================
 
-    /**
-     * @brief CIE 1931 XYZ color matching functions.
-     *
-     * These are analytic approximations to the tabulated data.
-     * More accurate than lookup tables for arbitrary wavelengths.
-     *
-     * Reference: "Simple Analytic Approximations to the CIE XYZ Color Matching Functions"
-     * by Chris Wyman, Peter-Pike Sloan, and Peter Shirley (2013)
-     */
+    /// CIE 1931 XYZ tristimulus values (or the three colour-matching functions at one wavelength).
     struct CIE_XYZ {
         Real X, Y, Z;
 
@@ -53,44 +46,17 @@ namespace rayt::color {
     };
 
     /**
-     * @brief Asymmetric Gaussian used by Wyman et al. (2013).
-     *
-     * The paper implements terms in the form:
-     *   d = (λ - μ) * (λ < μ ? k_left : k_right)
-     *   value = A * exp(-0.5 * d^2)
-     * Note: k is effectively (1/σ) and differs on left/right sides of the peak.
+     * @brief CIE 1931 2° colour-matching functions at a wavelength (nm): the 1 nm table (Color/CIE1931Table.hpp), linearly
+     *        interpolated, 0 outside 360..830 nm. At whole nanometres it returns the table's values exactly.
      */
-    inline Real gaussAsym(Real lambda, Real mu, Real kLeft, Real kRight, Real A) {
-        const Real d = (lambda - mu) * (lambda < mu ? kLeft : kRight);
-        return A * std::exp(Real(-0.5) * d * d);
-    }
-
-    /**
-     * @brief Wyman/Sloan/Shirley (2013) multi-lobe analytic fit for CIE 1931 2° CMFs.
-     *
-     * Validated in the paper against the tabulated CIE 1931 1nm data.
-     * Intended usage range: approximately 360–830 nm.
-     */
-    inline CIE_XYZ evaluateCIE_XYZ_1931_MultiLobe(Real lambda_nm) {
-        CIE_XYZ xyz;
-
-        // X
-        xyz.X =
-            gaussAsym(lambda_nm, Real(442.0), Real(0.0624), Real(0.0374), Real(0.362)) +
-            gaussAsym(lambda_nm, Real(599.8), Real(0.0264), Real(0.0323), Real(1.056)) -
-            gaussAsym(lambda_nm, Real(501.1), Real(0.0490), Real(0.0382), Real(0.065));
-
-        // Y
-        xyz.Y =
-            gaussAsym(lambda_nm, Real(568.8), Real(0.0213), Real(0.0247), Real(0.821)) +
-            gaussAsym(lambda_nm, Real(530.9), Real(0.0613), Real(0.0322), Real(0.286));
-
-        // Z
-        xyz.Z =
-            gaussAsym(lambda_nm, Real(437.0), Real(0.0845), Real(0.0278), Real(1.217)) +
-            gaussAsym(lambda_nm, Real(459.0), Real(0.0385), Real(0.0725), Real(0.681));
-
-        return xyz;
+    inline CIE_XYZ evaluateCIE_XYZ_1931(Real lambda_nm) {
+        if (!(lambda_nm >= Real(kCIE1931_FirstNm) && lambda_nm <= Real(kCIE1931_LastNm))) return CIE_XYZ(0, 0, 0);
+        const Real x = lambda_nm - Real(kCIE1931_FirstNm);
+        const int i = std::min(static_cast<int>(x), kCIE1931_LastNm - kCIE1931_FirstNm - 1);
+        const Real t = x - Real(i);
+        const auto& a = kCIE1931_2deg[static_cast<size_t>(i)];
+        const auto& b = kCIE1931_2deg[static_cast<size_t>(i) + 1];
+        return CIE_XYZ(Real(a[0] + t * (b[0] - a[0])), Real(a[1] + t * (b[1] - a[1])), Real(a[2] + t * (b[2] - a[2])));
     }
 
     // ========================================================================
@@ -159,7 +125,7 @@ namespace rayt::color {
     // ========================================================================
 
     /**
-     * @brief Convert spectral samples to CIE XYZ using CIE 1931 2° CMFs (Wyman 2013 multi-lobe).
+     * @brief Convert spectral samples to CIE XYZ using CIE 1931 2° CMFs.
      *
      * Integration:
      * - Uses trapezoidal rule over the provided wavelength samples.
@@ -181,8 +147,8 @@ namespace rayt::color {
             const Real l1 = wavelengths[i + 1];
             const Real dl = (l1 - l0);
 
-            const CIE_XYZ c0 = evaluateCIE_XYZ_1931_MultiLobe(l0);
-            const CIE_XYZ c1 = evaluateCIE_XYZ_1931_MultiLobe(l1);
+            const CIE_XYZ c0 = evaluateCIE_XYZ_1931(l0);
+            const CIE_XYZ c1 = evaluateCIE_XYZ_1931(l1);
 
             const Real v0 = values[i];
             const Real v1 = values[i + 1];
@@ -197,7 +163,7 @@ namespace rayt::color {
 
 
     /**
-     * @brief Convert spectral samples to linear sRGB using CIE 1931 2° CMFs (Wyman 2013 multi-lobe).
+     * @brief Convert spectral samples to linear sRGB using CIE 1931 2° CMFs.
      *
      * Returns *linear* sRGB (no gamma encoding). Use linearToSRGB() for display encoding.
      */
@@ -214,7 +180,7 @@ namespace rayt::color {
      * Computes  RGB = M * Integral( S(l) * D65(l) * CMF(l) dl )  and divides it per channel by the
      * same integral for S(l) == 1, so that:
      *   - a perfectly white spectrum (S == 1) maps to exactly (1, 1, 1),
-     *   - the result does not depend on the CMF fit / D65 table normalization.
+     *   - the result does not depend on the D65 table's normalization.
      *
      * Intended for smooth, "0..1-ish" spectra: reflectance, and also eta(lambda) (an RGB value
      * that stays close to the spectrum's average, like a color).
@@ -240,7 +206,7 @@ namespace rayt::color {
             const Real trapezoid = (i == 0 || i == n) ? Real(0.5) : Real(1);
             const Real weight = evaluateD65(lambda) * trapezoid * stepNm;
 
-            const CIE_XYZ cmf = evaluateCIE_XYZ_1931_MultiLobe(lambda);
+            const CIE_XYZ cmf = evaluateCIE_XYZ_1931(lambda);
             const Real s = static_cast<Real>(spectrum(lambda));
 
             xyzS += cmf * (weight * s);

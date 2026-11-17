@@ -15,8 +15,8 @@ Bands are boxes: a band's value is the mean radiance over [centre - width/2, cen
 is weighted by the integral of the colour-matching functions over its box, not by their value at the centre. The width is the band
 spacing unless given.
 
-The renderer's own RGB uses an analytic fit of the CIE 1931 functions (Wyman et al. 2013); the tabulated functions used here differ from
-it by about one percent in places (tools/test/spectral_image_check.py measures it on a render).
+The renderer's film uses the same tabulated CIE 1931 functions, so the defaults here give its RGB picture back from a spectral image
+of 360..830 nm (tools/test/spectral_image_check.py).
 """
 import colour
 import numpy as np
