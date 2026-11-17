@@ -300,6 +300,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--focal-length MM`, `--fstop N`, `--focus-dist D`, `--blades N` | the lens (`--help` lists the aberration and vignetting options) |
 | `--lens FILE` | a real lens traced surface by surface (`assets/Lenses/`: double-Gauss 50 mm, wide-angle 22 mm, fisheye 10 mm, a singlet) |
 | `--ortho H` | an orthographic view H high: parallel rays, sizes independent of the distance |
+| `--iso S --nits K` | physical exposure: the f-number, the shutter and the ISO speed set the brightness as in a camera |
 | `--diffraction S` | diffraction at the aperture: the star of bright points (1 = the real size, S > 1 enlarged) |
 | `--env file.hdr` | environment map (`assets/env/*.hdr`) |
 | `--out file` | `.png`/`.bmp`/`.jpg` (tone mapped), `.hdr` or `.pfm` (linear float; use `.pfm` to keep negative values) |

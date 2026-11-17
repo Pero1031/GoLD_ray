@@ -14,6 +14,7 @@ What the camera simulates, what the written files contain, and what is verified.
 | Vignetting | The lens barrel cuts oblique bundles (dark corners, cat's-eye bokeh); the cos⁴ law | `--vignette`, `--natural-vignette` |
 | Diffraction | The Fraunhofer pattern of the aperture (`Render/Diffraction`): an Airy disc for a round one, a star for blades (n spikes for an even n, 2n for an odd one), its size λN, so red reaches farther than blue. Integrated over the pixels (36 mm over the long side of the picture) and convolved with every picture, `.pfm` included. At the real size (`1`) only very bright points show a faint star; `S` > 1 enlarges the pattern S times | `--diffraction S`, `diffraction` |
 | Exposure time | Moving objects and a moving or panning camera blur over the shutter time | `--shutter`, `--cam-velocity`, `--pan` |
+| Physical exposure | The f-number, the shutter time and the ISO speed set the brightness as in a camera (below); off by default, when the picture keeps the scene's radiance whatever the f-number and shutter | `--iso`, `iso`; `--nits` |
 
 The lens of the scene file and of the command line are merged in `Cli/RenderPipeline.cpp` (`ResolveLens`, `BuildCamera`).
 
@@ -45,6 +46,21 @@ axial and lateral chromatic aberration.
 - **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
   of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
   such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.
+
+### Physical exposure (`--iso S --nits K`, camera `"iso"`; `Render/Exposure.hpp`)
+
+Without it, the picture holds the scene's radiance: f/16 is as bright as f/2. With an ISO speed the camera records what a real one does:
+
+- **Film irradiance** at the centre of the picture: E = L G, with G = π / (4 N_w²) for the thin lens, N_w = N s / (s − f) the working
+  f-number focused at the distance s (it grows at close range), and for a real lens (`--lens`) G from its traced rays. The corners darken
+  as the lens makes them (a real lens) or with `--natural-vignette 1` (the thin lens).
+- **Exposure and ISO:** H = E t (lux seconds). The ISO speed is the standard output sensitivity of ISO 12232: H = 10 / S is recorded as mid
+  grey, 0.18 linear (118 in 8-bit sRGB). The scene's radiance has no unit of its own: `--nits K` says that a radiance whose Y is 1 has the
+  luminance K cd/m². The written value is 0.018 S t K G times the radiance.
+- **Needs** an f-number (no pinhole), a shutter time (`--shutter`, which also blurs what moves) and `--nits`; not with the orthographic view.
+  The log gives the working f-number, EV100, the gain in stops and the luminance that comes out as mid grey.
+- **Output:** the gain is added to `--exposure` (which stays as exposure compensation) on the `.png` / `.bmp` / `.jpg`; the `.pfm` keeps the
+  radiance. With `--tonemap clip` over-exposure clips at white as on a sensor, and the clip report says by how many stops.
 
 ## 2. The written files (`Render/Film`, `IO/ImageWriter`)
 
@@ -115,6 +131,8 @@ estimate's error and the far tail; it is renormalized to 1).
 - Spectral image (spectral build): a uniform sky gives 0.5 × the band means of D65 (largest deviation 0.74 % at a fixed seed, the sampling noise); weighted with the sensor curves, the bands of a red ball give its RGB picture (0.02 %); the ENVI files read back.
 - On measured data: the three cloth swatches of the SR-5100 (spectral reflectance textures) under D65, seen from above with the orthographic camera. Their reflectance recovered from the spectral image (0.3 × swatch / gray table) matches the textures within 0.001 RMS over 420–700 nm in 10 nm bands.
 
+Physical exposure, also in `--scene camera`: the thin lens's irradiance factor is π / (4 N²) at infinity and a quarter of it focused at twice the focal length; the double-Gauss's, from its traced rays, is π / (4 N²) within 0.04 % (it meets the sine condition) and drops by (8 / 2)² from f/2 to f/8 within 0.03 %; mid grey comes out at the luminance a reflected-light meter (K = 12.5) exposes for, within 2 % (12.7). A uniform sky (Y 1, `--nits 100`) at f/4, 1/100 s, ISO 100 is written as 0.0887 linear against 0.0884 (8-bit steps), and a quarter of it at f/8.
+
 The aberrations, the polygonal aperture, the vignetting and the motion blur have no self-check of their own yet.
 
 ## 4. Limits
@@ -122,6 +140,7 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
 - Light tracing (`--caustic-trace`, `--lvc`) connects light paths to a pinhole camera at time 0: its caustics are sharp, undistorted and not motion-blurred. It refuses the orthographic view (its weights are those of a pinhole).
 - Diffraction is the pattern of a point in focus, laid over the rendered picture (whose defocus comes from the lens samples); it needs an aperture. Each of X, Y and Z is spread as for a D65-like spectrum within it, since the picture keeps no spectrum per pixel. It is not applied to the AOVs, the mask, the depth or the spectral image, and the denoiser works on the picture before it. The kernel takes 7–10 s to compute.
 - The camera response balances to D65 only (it refuses `--wb`; a camera would balance to the scene's light), its matrix is fitted on smooth reflectances under D65, and the sensor stays ideal: no noise, no colour filter mosaic, no saturation.
+- Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number) and the sensor's noise; the full well is the clip at white of `--tonemap clip`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
 - A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.

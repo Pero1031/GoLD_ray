@@ -9,6 +9,7 @@
 #include "Render/LensSystem.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Diffraction.hpp"
+#include "Render/Exposure.hpp"
 #include "Render/Film.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Scene/Aggregate.hpp"
@@ -398,6 +399,36 @@ int RunCameraTests() {
             report("m  real lens in a camera: weight 1 at the centre, less in the corner; upright picture; depth of a wall",
                 ok, "weight " + fmt(centre) + " / " + fmt(corner) + ", depth " + fmt(dc) + " " + fmt(d0) + " " + fmt(d1));
         }
+    }
+
+    // (o) Physical exposure (--iso): the film's irradiance per unit of radiance at the centre. A thin lens: pi / (4 N^2) focused at
+    //     infinity and a quarter of it at twice the focal length (the working f-number doubles). The double-Gauss, its rays traced: the same
+    //     pi / (4 N^2) within 3 % (a lens that meets the sine condition), and 1/16 of it closed from f/2 to f/8. The exposure that records
+    //     mid grey: 10 / S lux s, so the luminance it exposes for is 12.7 N^2 / (S t), the reflected-light meter's 12.5 within 2 %.
+    {
+        const Real pi = Real(3.14159265358979323846);
+        const Real thinInf = ThinLensIrradianceFactor(2, Real(0.05), Real(1e9)), thinNear = ThinLensIrradianceFactor(2, Real(0.05), Real(0.1));
+        bool ok = std::fabs(thinInf / (pi / 16) - 1) < 1e-6 && std::fabs(thinNear / (pi / 64) - 1) < 1e-6;
+        std::string detail = "thin lens off by " + fmt((thinInf / (pi / 16) - 1) * 100) + " / " + fmt((thinNear / (pi / 64) - 1) * 100) + " %";
+        std::string error;
+        const auto lens = LensSystem::load("assets/Lenses/dgauss_50mm.txt", error);
+        if (!lens) { ok = false; detail += ", " + error; }
+        else {
+            lens->focus(Real(1e6));
+            lens->prepare(Real(0.036), Real(0.024));
+            const Real n2 = lens->fNumber(), g2 = lens->centreIrradiance();
+            lens->setFNumber(8);
+            lens->prepare(Real(0.036), Real(0.024));
+            const Real n8 = lens->fNumber(), g8 = lens->centreIrradiance();
+            const Real sine = g2 / (pi / (4 * n2 * n2)), ratio = g2 / g8 / ((n8 * n8) / (n2 * n2));
+            ok = ok && std::fabs(sine - 1) < 0.03 && std::fabs(ratio - 1) < 0.01;
+            detail += "; double-Gauss f/" + fmt(n2) + " off pi / (4 N^2) by " + fmt((sine - 1) * 100) + " %, f/2 : f/8 off (N8 / N2)^2 by "
+                + fmt((ratio - 1) * 100) + " %";
+        }
+        const Real meter = MidGreyLuminance(100, Real(1) / 125, pi / (4 * 64)) * 100 / (64 * 125);   // the meter constant K = L S t / N^2
+        ok = ok && std::fabs(meter / Real(12.5) - 1) < 0.02;
+        report("o  physical exposure: film irradiance pi / (4 N_w^2) (thin and traced lens), mid grey as a light meter exposes it", ok,
+            detail + "; meter constant " + fmt(meter));
     }
 
     std::cout << "[Camera] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";

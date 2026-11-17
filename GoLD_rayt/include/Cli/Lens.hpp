@@ -39,12 +39,16 @@ struct LensSpec {
     std::optional<Real> panYawRate;        // the view turns to the right by this many degrees per second
     std::optional<Real> panPitchRate;      // ... and up
 
+    // Physical exposure (Render/Exposure.hpp); none = off: the picture keeps the scene's radiance
+    std::optional<Real> iso;               // ISO speed S (standard output sensitivity): with the f-number, the shutter and --nits, sets the brightness
+
     // The fields that `o` states replace the ones here.
     void overrideWith(const LensSpec& o) {
         if (o.orthoHeight) orthoHeight = o.orthoHeight;
         if (o.lensFile) lensFile = o.lensFile;
         if (o.diffraction) diffraction = o.diffraction;
         if (o.shutter) shutter = o.shutter;
+        if (o.iso) iso = o.iso;
         if (o.velocity) velocity = o.velocity;
         if (o.panYawRate) panYawRate = o.panYawRate;
         if (o.panPitchRate) panPitchRate = o.panPitchRate;

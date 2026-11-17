@@ -197,6 +197,7 @@ struct CliOptions {
     bool causticTrace = false;             // --caustic-trace : light tracing for the caustics on surfaces the camera sees directly (unbiased, sharp edges); the photons carry the rest
     int pngBits = 8;                       // --bits 8|16 : bits per channel of a written .png (16: no banding in a wide gamut)
     Real exposure = 0;                     // --exposure EV : the .png / .bmp / .jpg are 2^EV times brighter (.pfm / .hdr stay radiance)
+    Real nits = 0;                         // --nits K : a radiance whose Y is 1 has the luminance K cd/m^2 (the scale for --iso; 0 = not given)
     std::string tonemap = "reinhard";      // --tonemap reinhard|clip : Reinhard's curve, or linear up to white and clipped above it
     std::string mask;                      // --mask A[,B..] : also write <out>_mask.png, the share of each pixel that objects of these scene-file materials cover
     bool depthMap = false;                 // --depth-map : also write <out>_depth.pfm, the distance of the first surface along the view axis (Render/MaskDepth.hpp)

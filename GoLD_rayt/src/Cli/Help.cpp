@@ -51,6 +51,8 @@ void PrintHelp(std::ostream& out) {
         << "                    darkens the corners and makes the out-of-focus highlights there cat eyes; gone once the lens is stopped down (needs --fstop)\n"
         << "  --natural-vignette S   the cos^4 law of the film (0 = off, 1 = full; no aperture needed)\n"
         << "  --shutter T       motion blur: the shutter stays open T seconds (0.02 or 1/50); scene objects with a \"velocity\" (m/s) and a moving camera blur over it\n"
+        << "  --iso S --nits K  physical exposure: the f-number, the shutter and the ISO speed S set the brightness as in a camera (f/16 is 64 x darker than\n"
+        << "                    f/2); K is the luminance (cd/m^2) of a radiance whose Y is 1; mid grey 0.18 = the exposure 10 / S lux s (.png / .bmp / .jpg)\n"
         << "  --cam-velocity x,y,z   the camera moves with this velocity (m/s) during the exposure      --pan YAW[,PITCH]   it turns (degrees per second; right / up)\n"
         << "  --env FILE        environment map (.hdr)     --light d65|tungsten|candle|led   light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"

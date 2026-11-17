@@ -27,6 +27,7 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     if (a == "--gamut") o.gamut = value("--gamut");
     else if (a == "--bits") o.pngBits = std::stoi(value("--bits"));
     else if (a == "--exposure") o.exposure = std::stod(value("--exposure"));
+    else if (a == "--nits") o.nits = std::stod(value("--nits"));
     else if (a == "--tonemap") o.tonemap = value("--tonemap");
     else if (a == "--mask") o.mask = value("--mask");
     else if (a == "--depth-map") o.depthMap = true;
@@ -70,6 +71,7 @@ bool ApplyLensArg(const std::string& a, const std::function<std::string(const ch
     else if (a == "--vignette-dist") lens.vignetteDistMm = std::stod(value("--vignette-dist"));
     else if (a == "--natural-vignette") lens.naturalVignetting = std::stod(value("--natural-vignette"));
     else if (a == "--shutter") lens.shutter = ParseShutterSeconds(value("--shutter"));   // seconds or 1/N
+    else if (a == "--iso") lens.iso = std::stod(value("--iso"));
     else if (a == "--cam-velocity") {   // x,y,z in m/s
         const std::string text = value("--cam-velocity");
         if (std::count(text.begin(), text.end(), ',') != 2) throw std::runtime_error("--cam-velocity needs x,y,z (metres per second)");
@@ -242,6 +244,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.pngBits != 8 && o.pngBits != 16) throw std::runtime_error("--bits must be 8 or 16");
         if (!std::isfinite(o.exposure) || std::fabs(o.exposure) > 64) throw std::runtime_error("--exposure must be a number of stops between -64 and 64");
         if (o.tonemap != "reinhard" && o.tonemap != "clip") throw std::runtime_error("--tonemap must be reinhard or clip");
+        if (!(o.nits >= 0) || !std::isfinite(o.nits)) throw std::runtime_error("--nits must be the luminance (cd/m^2) of a radiance whose Y is 1, above 0");
+        if (o.lens.iso && !(*o.lens.iso > 0)) throw std::runtime_error("--iso must be an ISO speed above 0");
 #if !defined(RAYT_SPECTRAL_MODE)
         if (o.spectralStep != 0) throw std::runtime_error("--spectral-image needs the spectral build (the RGB build has no wavelengths)");
         if (!o.cameraResponse.empty()) throw std::runtime_error("--camera-response needs the spectral build (the RGB build has no wavelengths)");

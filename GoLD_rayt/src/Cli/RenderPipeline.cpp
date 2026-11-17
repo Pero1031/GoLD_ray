@@ -9,6 +9,7 @@
 #include "Render/CausticPhotonMap.hpp"
 #include "Render/Denoiser.hpp"
 #include "Render/Diffraction.hpp"
+#include "Render/Exposure.hpp"
 #include "Render/LensSystem.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
@@ -44,6 +45,7 @@ struct ResolvedLens {
     Real shutter = 0;         // motion blur: seconds the shutter is open (0 = off), the velocity of the camera (m/s) and its pan rates (degrees per second)
     Vector3 velocity = Vector3(0.0);
     Real panYaw = 0, panPitch = 0;
+    Real iso = 0;             // > 0: physical exposure (Render/Exposure.hpp) with this ISO speed
 };
 
 ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Real aspect) {
@@ -94,6 +96,7 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     r.lensFile = s.lensFile.value_or(std::string());
     r.fStopGiven = s.fStop.has_value() && *s.fStop > 0;
     r.shutter = s.shutter.value_or(Real(0));
+    r.iso = s.iso.value_or(Real(0));
     r.velocity = s.velocity.value_or(Vector3(0.0));
     r.panYaw = s.panYawRate.value_or(Real(0));
     r.panPitch = s.panPitchRate.value_or(Real(0));
@@ -152,10 +155,34 @@ DiffractionSetup MakeDiffraction(const ResolvedLens& lens, Real fNumber, int ima
     return d;
 }
 
+// Physical exposure (--iso, camera "iso"): the gain from the scene's radiance to the camera's linear value, in stops, for the irradiance
+// factor G (sr) at the film centre, the shutter and --nits. Prints the settings; false when something it needs is missing (the run stops).
+bool PhysicalExposureStops(const CliOptions& opt, const ResolvedLens& lens, Real fNumber, Real irradianceFactor, Real& stops) {
+    stops = 0;
+    if (!(lens.iso > 0)) return true;
+    if (!(lens.shutter > 0)) { std::cerr << "[Camera] --iso needs an exposure time (--shutter, camera \"shutter\")\n"; return false; }
+    if (!(opt.nits > 0)) {
+        std::cerr << "[Camera] --iso needs the scene's luminance scale: --nits K, the luminance (cd/m^2) of a radiance whose Y is 1\n";
+        return false;
+    }
+    if (!(irradianceFactor > 0)) { std::cerr << "[Camera] --iso: no light reaches the film centre through this lens\n"; return false; }
+    const Real gain = PhysicalExposureGain(lens.iso, lens.shutter, opt.nits, irradianceFactor);
+    const Real working = std::sqrt(Real(3.14159265358979323846) / (Real(4) * irradianceFactor));
+    const Real ev100 = std::log2(fNumber * fNumber / lens.shutter) - std::log2(lens.iso / Real(100));
+    stops = std::log2(gain);
+    std::cout << "[Camera] physical exposure: f/" << fNumber << " (working f/" << working << " at the focus distance), " << lens.shutter << " s";
+    if (lens.shutter < 1.0) std::cout << " (1/" << std::lround(1.0 / lens.shutter) << ")";
+    std::cout << ", ISO " << lens.iso << " (EV100 " << ev100 << "); a radiance of Y 1 (" << opt.nits << " cd/m^2) is recorded as " << gain
+        << " (" << (stops >= 0 ? "+" : "") << stops << " EV on the .png / .bmp / .jpg; the .pfm keeps the radiance); mid grey (0.18) is "
+        << MidGreyLuminance(lens.iso, lens.shutter, irradianceFactor) << " cd/m^2\n";
+    if (opt.tonemap != "clip") std::cout << "[Camera] note: a camera clips at its full well: --tonemap clip shows over-exposure as a camera does (Reinhard compresses it)\n";
+    return true;
+}
+
 // A real lens (--lens, camera "lens"): its prescription, the stop closed to the f-number asked for, focused on the focus distance (from the
 // front principal plane, which sits at the camera position), the film of the 35 mm convention. Its field of view comes from the lens and the film.
 std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup& setup, const ResolvedLens& lens, int imageWidth, int imageHeight,
-    bool lightTracing, std::optional<DiffractionSetup>& diffraction) {
+    bool lightTracing, std::optional<DiffractionSetup>& diffraction, Real& exposureStops) {
     if (lens.orthoHeight > 0) { std::cerr << "[Camera] --lens and --ortho exclude each other\n"; return nullptr; }
     if (lightTracing) {
         std::cerr << "[Camera] a real lens (--lens) cannot be used with light tracing (--caustic-trace, --lvc, or a scene that light-traces its caustics):"
@@ -198,6 +225,7 @@ std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup&
 #endif
     (void)hasAbbe;
     if (lens.diffraction > 0) diffraction = MakeDiffraction(lens, fNumber, imageWidth, imageHeight);
+    if (!PhysicalExposureStops(opt, lens, fNumber, system->centreIrradiance(), exposureStops)) return nullptr;
     return camera;
 }
 
@@ -205,13 +233,14 @@ std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup&
 // lightTracing: light paths are connected to a pinhole camera (--caustic-trace, --lvc); lvcCamera: --lvc renders the picture.
 // diffraction: set when the lens asks for diffraction at the aperture (applied to the pictures when they are written).
 std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& setup, int imageWidth, int imageHeight, bool lightTracing, bool lvcCamera,
-    std::optional<DiffractionSetup>& diffraction) {
+    std::optional<DiffractionSetup>& diffraction, Real& exposureStops) {
+    exposureStops = 0;
     const Point3 lookFrom = setup.camera.from;
     const Point3 lookAt = setup.camera.at;
     const Vector3 vUp = setup.camera.up;
 
     const ResolvedLens lens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
-    if (!lens.lensFile.empty()) return BuildLensCamera(opt, setup, lens, imageWidth, imageHeight, lightTracing, diffraction);
+    if (!lens.lensFile.empty()) return BuildLensCamera(opt, setup, lens, imageWidth, imageHeight, lightTracing, diffraction, exposureStops);
     if (lens.orthoHeight > 0) {
         if (lightTracing) {
             std::cerr << "[Camera] the orthographic view cannot be used with light tracing (--caustic-trace, --lvc, or a scene that light-traces its caustics):"
@@ -289,6 +318,13 @@ std::shared_ptr<Camera> BuildCamera(const CliOptions& opt, const SceneSetup& set
         }
         diffraction = MakeDiffraction(lens, lens.fStop, imageWidth, imageHeight);
     }
+    if (lens.iso > 0) {
+        if (lens.orthoHeight > 0) { std::cerr << "[Camera] --iso: the orthographic view has no film irradiance of a photographic lens (use the perspective view)\n"; return nullptr; }
+        if (!(lens.aperture > 0)) { std::cerr << "[Camera] --iso needs an f-number (--fstop, \"fStop\"): a pinhole lets no measurable light through\n"; return nullptr; }
+        const Real g = ThinLensIrradianceFactor(lens.fStop, lens.focalLengthMm * Real(0.001), lens.focusDist);
+        if (!PhysicalExposureStops(opt, lens, lens.fStop, g, exposureStops)) return nullptr;
+        if (!(lens.naturalVignetting > 0)) std::cout << "[Camera] note: the exposure is the centre's; the thin lens darkens the corners only with --natural-vignette 1 (cos^4)\n";
+    }
     return camera;
 }
 
@@ -311,7 +347,7 @@ void EnableSpectralImage(const CliOptions& opt, Film& film) {
 
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
 // photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization).
-void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction) {
+void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction, Real exposureStops) {
     std::cout << "[Output] Saving images..." << std::endl;
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
@@ -319,7 +355,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
     auto setOutput = [&](Film& f) {
         f.setOutputGamut(gamut);
         f.setPng16(opt.pngBits == 16);
-        f.setDisplay(opt.exposure, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
+        f.setDisplay(opt.exposure + exposureStops, opt.tonemap == "clip" ? Film::ToneMap::Clip : Film::ToneMap::Reinhard);
     };
     setOutput(film);
 
@@ -347,8 +383,8 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
     std::string outExtLower = outExt;
     std::transform(outExtLower.begin(), outExtLower.end(), outExtLower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     const bool floatOut = (outExtLower == ".pfm" || outExtLower == ".hdr");
-    if (floatOut && (opt.exposure != 0 || opt.tonemap != "reinhard"))
-        std::cout << "[Output] note: --exposure and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
+    if (floatOut && (opt.exposure != 0 || opt.tonemap != "reinhard" || exposureStops != 0))
+        std::cout << "[Output] note: --exposure, --iso and --tonemap change only .png / .bmp / .jpg; " << outExtLower << " holds the radiance as rendered\n";
     if (film.hasMask()) film.saveMask(outStem + (floatOut ? "_mask.pfm" : "_mask.png"));
     if (film.hasDepth()) film.saveDepth(outStem + "_depth.pfm");
     if (film.hasSpectral()) film.saveSpectral(outStem);
@@ -468,7 +504,9 @@ int RenderScene(CliOptions& opt) {
     // ---- the camera ----
     const bool lvcCamera = opt.lvc && setup.bptLight;   // --lvc connects to a pinhole camera of its own
     std::optional<DiffractionSetup> diffraction;
-    const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera, diffraction);
+    Real exposureStops = 0;   // --iso: the physical exposure's gain on the written pictures
+    const auto camera = BuildCamera(opt, setup, imageWidth, imageHeight, opt.causticTrace || caustics.lightTraceOnly || lvcCamera, lvcCamera, diffraction,
+        exposureStops);
     if (!camera) return 1;
 
     // --spectral-image comes from the path tracer's own samples: refused where other parts of the picture are added in RGB (checked
@@ -616,7 +654,7 @@ int RenderScene(CliOptions& opt) {
             << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
-    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction);
+    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction, exposureStops);
 
     bool hooksPassed = true;
     if (setup.afterSave) hooksPassed = setup.afterSave({ *scene, *camera, film, *integrator });

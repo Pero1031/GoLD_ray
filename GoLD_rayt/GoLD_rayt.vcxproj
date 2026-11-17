@@ -536,6 +536,7 @@
     <ClInclude Include="include\Render\Film.hpp" />
     <ClInclude Include="include\Render\MaskDepth.hpp" />
     <ClInclude Include="include\Render\Diffraction.hpp" />
+    <ClInclude Include="include\Render\Exposure.hpp" />
     <ClInclude Include="include\Render\LensSystem.hpp" />
     <ClInclude Include="include\Color\CameraResponse.hpp" />
     <ClInclude Include="include\Render\Integrator.hpp" />

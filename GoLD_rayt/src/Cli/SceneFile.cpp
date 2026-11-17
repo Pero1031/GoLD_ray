@@ -213,7 +213,7 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
 
     if (doc.contains("camera")) {
         const json& c = doc.at("camera");
-        CheckKeys(c, { "from", "at", "up", "fov", "ortho", "lens", "diffraction", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette", "shutter", "velocity", "pan" }, "camera");
+        CheckKeys(c, { "from", "at", "up", "fov", "ortho", "lens", "diffraction", "aperture", "focus", "focalLength", "fStop", "focusDistance", "focusAt", "blades", "bladeRotation", "distortion", "lateralCA", "axialCA", "vignette", "vignetteDist", "naturalVignette", "shutter", "velocity", "pan", "iso" }, "camera");
         if (c.contains("from")) d->camera.from = ReadVec3(c.at("from"), "camera.from");
         if (c.contains("at")) d->camera.at = ReadVec3(c.at("at"), "camera.at");
         if (c.contains("up")) d->camera.up = ReadVec3(c.at("up"), "camera.up");
@@ -292,6 +292,11 @@ std::shared_ptr<const SceneDescription> ParseDescription(const json& doc, std::v
             }
             else lens.shutter = ReadNumber(s, "camera.shutter");
             if (!(*lens.shutter >= 0)) Fail("camera.shutter", "must be 0 (off) or the seconds the shutter is open");
+        }
+        // physical exposure: the ISO speed (with the f-number, the shutter and the option "nits")
+        if (c.contains("iso")) {
+            lens.iso = ReadNumber(c.at("iso"), "camera.iso");
+            if (!(*lens.iso > 0)) Fail("camera.iso", "must be an ISO speed above 0");
         }
         if (c.contains("velocity")) lens.velocity = ReadVec3(c.at("velocity"), "camera.velocity");
         if (c.contains("pan")) {

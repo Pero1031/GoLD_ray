@@ -62,6 +62,9 @@ namespace rayt {
         /// principal planes). False, and focus at infinity, when the distance is not beyond the focal length.
         bool focus(Real distance);
         Real filmZ() const { return m_filmZ; }
+        /// After prepare(): the projected solid angle (sr) of the rays that reach the film centre through the lens, at the d line: the film's
+        /// irradiance there is the scene's radiance times this (pi / (4 N_w^2) for a lens that meets the sine condition). Physical exposure.
+        Real centreIrradiance() const { return m_centreIrradiance; }
 
         /// The film (metres) and the exit pupil table: call after the stop and the focus are set, before rendering.
         void prepare(Real filmWidth, Real filmHeight);
