@@ -214,6 +214,23 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
                 }
                 o.stokes = true;
             }
+            else if (a == "--sky-pol") {
+                std::vector<Real> v;
+                const std::string list = value("--sky-pol");
+                size_t pos = 0;
+                while (pos <= list.size()) {
+                    const size_t comma = list.find(',', pos);
+                    const std::string item = list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                    if (!item.empty()) v.push_back(std::stod(item));
+                    if (comma == std::string::npos) break;
+                    pos = comma + 1;
+                }
+                if ((v.size() != 1 && v.size() != 3) || !(v[0] >= 0 && v[0] <= 1))
+                    throw std::runtime_error("--sky-pol needs P or P,ELEV,AZIM: the degree of polarization at 90 deg from the sun (0..1), the sun's elevation and azimuth (degrees)");
+                o.skyPol = v[0];
+                if (v.size() == 3) { o.skyPolSunElev = v[1]; o.skyPolSunAzim = v[2]; }
+                o.stokes = true;
+            }
             else if (a == "--clean-aux") o.cleanAux = true;
             else if (a == "--pose-index") o.poseIndex = std::stoi(value("--pose-index"));
             else if (a == "--pose-list") o.poseList = true;

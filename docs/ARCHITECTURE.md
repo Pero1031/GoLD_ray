@@ -57,7 +57,7 @@ The flow of drawing one image:
 | Water, ocean, cloud and fog | `Geometry/ProceduralMesh`, `Materials/Medium`, `DensityField`, `TabulatedPhase` | `WATER.md`, `CLOUD.md` |
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
-| Polarization (Stokes, `--stokes`, `--polarizer`) | `Core/Polarization`, `Render/Integrator` | `POLARIZATION.md` |
+| Polarization (Stokes, `--stokes`, `--polarizer`, `--sky-pol`) | `Core/Polarization`, `Render/Integrator`, `Lights/EnvLight` | `POLARIZATION.md` |
 | Camera and film output (thin lens, real lens, orthographic view, aberrations, diffraction, a camera's spectral sensitivity, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/LensSystem`, `Render/Diffraction`, `Color/CameraResponse`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
 | MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |
 | Scene file | `Cli/SceneFile*`, `SceneDescription` | `SCENE_FILE.md` |

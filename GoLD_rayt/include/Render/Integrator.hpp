@@ -214,6 +214,12 @@ namespace rayt {
         /// The ray left the scene: adds the backdrop or the environment light (with the MIS weight) and records the AOV.
         void addEscapedRadiance(const Ray& r, const Scene& scene, const SampledWavelengths& lambda, PathAOV* aov, PathState& st) const;
 
+        /// Adds the light `v` (already weighted by beta) of `light` that arrives at the current vertex from direction `wi` (toward the light).
+        /// The radiance gets v; the Stokes vector gets it through the chain: a polarized light (Light::polarization) through the whole chain,
+        /// in the basis of the light arriving at the last specular vertex, unpolarized light (or a chain ended by a depolarizing event)
+        /// through its first column, as PathState::add.
+        void addLightFrom(PathState& st, const Spectrum& v, const Light* light, const Vector3& wi) const;
+
         /// The ray hit an emitter: adds its emission (with the MIS weight).
         void addSurfaceEmission(const Ray& r, const Scene& scene, const SurfaceInteraction& rec, const SampledWavelengths& lambda, PathState& st) const;
 

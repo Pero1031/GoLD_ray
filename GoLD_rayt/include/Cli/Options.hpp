@@ -1,6 +1,7 @@
 #pragma once
 // Command line options of the CLI renderer: the defaults, the option struct and the parser.
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -161,6 +162,9 @@ struct CliOptions {
     bool denoise = false;                  // --denoise : also write <out>_denoised.* (Intel OIDN, uses albedo + normal)
     bool stokes = false;                   // --stokes : also write the Stokes images <out>_S0..S3.pfm and the degree / angle of linear polarization (docs/POLARIZATION.md)
     std::vector<Real> polarizers;          // --polarizer A[,A2..] : a linear polarizer at A degrees in front of the camera: <out>_pol<A>.* (implies --stokes)
+    Real skyPol = 0;                       // --sky-pol P[,elev,azim] : the environment is a clear sky polarized by Rayleigh scattering, degree P at 90 deg from the sun (implies --stokes)
+    Real skyPolSunElev = std::numeric_limits<Real>::quiet_NaN();   //   the sun of --sky-pol (degrees; azimuth from +z toward +x); NaN: the brightest spot of the map
+    Real skyPolSunAzim = std::numeric_limits<Real>::quiet_NaN();
     std::string gamut = "srgb";            // --gamut srgb|p3|rec2020 : primaries of the written image / .pfm / .hdr (the film stays linear sRGB)
     Real fogPrismDeg = 21.0;               // --fog-prism-deg : rotation of the prism in the fogbeam scene (degrees)
     Real fogFill = 0.4;                    // --fog-fill : intensity of the faint fill light in the fogbeam scene (0 = none)

@@ -175,6 +175,15 @@ namespace rayt {
         }
 
         /**
+         * @brief Polarization of the light that arrives from direction `wi` (toward the light, world space) (docs/POLARIZATION.md).
+         *
+         * A polarized light returns true with its normalized Stokes vector s = (S1, S2, S3) / S0 in the basis (xRef, k x xRef) of the
+         * light's direction of travel k = -wi (xRef perpendicular to wi), the same at every wavelength. The default is unpolarized
+         * light (false): the integrator then counts it as (L, 0, 0, 0). Only the Stokes images (--stokes) use it.
+         */
+        virtual bool polarization(const Vector3& /*wi*/, Vector3& /*xRef*/, Vector3& /*s*/) const { return false; }
+
+        /**
          * @brief Whether the caustics of this light (L S+ D paths) come from the caustic photon map.
          *
          * True (default): the photon map emits photons from this light and the integrator drops the light that BSDF sampling finds

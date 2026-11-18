@@ -320,6 +320,115 @@ int RunPolarizationTests() {
             }, Real(0.03));   // the lobe has a width: the direction (and the Fresnel factor) is not exactly the mirror's
     }
 
+    // (4) A polarized sky (EnvLight::setSkyPolarization, --sky-pol). The expected Stokes vectors come from the electric fields alone: the
+    //     polarized part (degree P along e) and the unpolarized rest (two incoherent orthogonal fields of (1 - P) / 2 each) are reflected with
+    //     the Fresnel amplitudes and projected on the image basis by stokesOf, without the Mueller matrices or basis rotations of the integrator.
+    auto fieldStokes = [](const Vector3& e, const Vector3& kIn, Real P, const std::function<CVec3(const CVec3&)>& through,
+        const Vector3& xOut, const Vector3& kOut, Real out[4]) {
+        Real a[4], b[4];
+        stokesOf(through(scaled(e, Complex(1))), xOut, kOut, a);
+        stokesOf(through(scaled(glm::cross(kIn, e), Complex(1))), xOut, kOut, b);
+        for (int i = 0; i < 4; ++i) out[i] = P * a[i] + Real(0.5) * (1 - P) * (a[i] + b[i]);
+    };
+    auto estimateStokes = [&](const Scene& scene, const Ray& ray, const Vector3& xRef, int maxDepth, int N, const Real expected[4], Real relTol,
+        std::string& detail) {
+        PathIntegrator integrator(nullptr, maxDepth, 1);
+        Real sum[4] = { 0, 0, 0, 0 }, sum2[4] = { 0, 0, 0, 0 };
+        for (int i = 0; i < N; ++i) {
+#if defined(RAYT_SPECTRAL_MODE)
+            SampledWavelengths lambda = SampledWavelengths::sampleVisible(sampling::Random());
+#else
+            SampledWavelengths lambda;
+#endif
+            PathStokes st;
+            st.xRef = xRef;
+            integrator.Li(ray, scene, lambda, nullptr, &st);
+            for (int c = 0; c < 4; ++c) {
+                const Real v = mean3(SpectrumToRGB(st.S[c], lambda));
+                sum[c] += v;
+                sum2[c] += v * v;
+            }
+        }
+        bool ok = true;
+        for (int c = 0; c < 4; ++c) {
+            const Real m = sum[c] / N, se = std::sqrt(std::max(Real(0), sum2[c] / N - m * m) / N);
+            ok = ok && std::abs(m - expected[c]) <= 4 * se + relTol * expected[0];
+            detail += (c ? ", " : "") + std::to_string(m) + " (" + std::to_string(expected[c]) + ")";
+        }
+        return ok;
+    };
+    {
+        const Real P = 0.7;
+        // The sky seen straight: its own Stokes vector, degree P (1 - c^2) / (1 + c^2) at angle acos(c) from the sun, in the image basis.
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, std::make_shared<Dielectric>(1.5, 0.0)));   // below the rays
+        auto scene = std::make_shared<Scene>(world);
+        auto envLight = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+        scene->setEnvLight(envLight);
+        scene->finalize("spatial");
+        const Vector3 sun = glm::normalize(Vector3(1.0, 0.5, 0.2));
+        envLight->setSkyPolarization(sun, P);
+        for (const Vector3& dir : { Vector3(0.3, 0.8, -0.5), Vector3(-0.6, 0.3, 0.7), Vector3(0.1, 0.2, -0.9) }) {
+            const Vector3 dv = glm::normalize(dir), kCam = -dv;
+            const Vector3 xRef = glm::normalize(glm::cross(Vector3(0, 1, 0), kCam));
+            const Real c = glm::dot(sun, dv), degree = P * (1 - c * c) / (1 + c * c);
+            Real expected[4];
+            fieldStokes(glm::normalize(glm::cross(sun, dv)), kCam, degree, [](const CVec3& e) { return e; }, xRef, kCam, expected);
+            std::string detail;
+            const bool ok = estimateStokes(*scene, Ray(Point3(0, 5, 0), dv), xRef, 2, 256, expected, Real(1e-6), detail);
+            report("polarized sky seen straight, " + std::to_string(int(std::lround(std::acos(c) * 180 / kPi))) + " deg from the sun: S0..S3 (expected)", ok, detail);
+        }
+        // Nothing below the horizon is polarized, nor anything with P = 0.
+        Vector3 x, s;
+        const bool below = envLight->polarization(glm::normalize(Vector3(0.3, -0.2, 0.5)), x, s);
+        envLight->setSkyPolarization(sun, 0.0);
+        const bool off = envLight->polarization(glm::normalize(Vector3(0.3, 0.8, -0.5)), x, s);
+        report("polarized sky: unpolarized below the horizon and with degree 0", !below && !off);
+    }
+
+    //     The reflection of the polarized sky: the sun at 90 deg from the mirror direction, so that the light is polarized along s, along p or
+    //     at 45 deg between them. Glass reaches the sky by the escaping ray only; the metal's narrow lobe by both strategies (NEE and BSDF
+    //     sampling with MIS), so a polarization factor that one of them missed would show.
+    auto polarizedSkyCase = [&](const std::string& label, const std::shared_ptr<Material>& material, Real deg, int N,
+        const std::function<pol::Amplitudes(Real)>& amplitudes, Real relTol) {
+        const Real P = 0.7;
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, material));
+        auto scene = std::make_shared<Scene>(world);
+        auto envLight = std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(1.0)))), 1.0);
+        scene->setEnvLight(envLight);
+        scene->finalize("spatial");
+
+        const Real ti = deg * kPi / 180;
+        const Vector3 d(std::sin(ti), -std::cos(ti), 0), wo = -d;      // the camera ray, and the reflected light travelling to the camera
+        const Vector3 r(std::sin(ti), std::cos(ti), 0), kIn = -r;      // the mirror direction (toward the sky) and the sky light along it
+        const Vector3 sAxis(0, 0, 1), pIn = glm::cross(kIn, sAxis), pOut = glm::cross(wo, sAxis);
+        const pol::Amplitudes a = amplitudes(std::cos(ti));
+        auto reflect = [&](const CVec3& e) { return sum(scaled(sAxis, a.rs * dotC(e, sAxis)), scaled(pOut, a.rp * dotC(e, pIn))); };
+        const Real turn = 30 * kPi / 180;
+        const Vector3 xRef = std::cos(turn) * sAxis + std::sin(turn) * glm::cross(wo, sAxis);
+        const Vector3 sunS(-std::cos(ti), std::sin(ti), 0), sunP(0, 0, 1);   // both at 90 deg from r: the field cross(sun, r) along s, along p
+        const std::pair<const char*, Vector3> suns[] = { { "s", sunS }, { "p", sunP }, { "45 deg", glm::normalize(sunS + sunP) } };
+        for (const auto& [name, sun] : suns) {
+            envLight->setSkyPolarization(sun, P);
+            Real expected[4];
+            fieldStokes(glm::normalize(glm::cross(sun, r)), kIn, P, reflect, xRef, wo, expected);
+            std::string detail;
+            const bool ok = estimateStokes(*scene, Ray(Point3(0.0) - d * Real(10), d), xRef, 2, N, expected, relTol, detail);
+            report(label + " at " + std::to_string(int(std::lround(deg))) + " deg under a sky polarized along " + name + ": S0..S3 (expected)", ok, detail);
+        }
+    };
+    {
+        auto glass = std::make_shared<Dielectric>(1.5, 0.0);
+        for (const Real deg : { Real(56.3099), Real(40) })
+            polarizedSkyCase("glass", glass, deg, 80000, [](Real ci) { return pol::fresnelAmplitudes(ci, Complex(1.5)); }, Real(1e-3));
+        auto table = std::make_shared<color::ComplexIorTable>();
+        table->assign({ { 300.0, 0.27, 2.95 }, { 900.0, 0.27, 2.95 } });
+        auto metal = std::make_shared<RoughConductor>(table, Real(0.02));
+        for (const Real deg : { Real(70), Real(45) })
+            polarizedSkyCase("metal (narrow GGX lobe)", metal, deg, 60000, [](Real ci) { return pol::fresnelAmplitudes(ci, Complex(0.27, 2.95)); }, Real(0.03));
+    }
+
 
     std::cout << "[Polarization] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;

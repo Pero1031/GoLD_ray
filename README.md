@@ -314,6 +314,7 @@ environment ([`docs/SCENE_FILE.md`](docs/SCENE_FILE.md)). `GoLD_rayt.exe --list-
 | `--camera-response FILE` | spectral build: the film as a given camera sees (its R, G, B sensitivities, white balance and colour matrix) instead of the CIE observer |
 | `--spectral-image STEP` | spectral build: also write the spectral radiance of every pixel in bands of STEP nm (ENVI) |
 | `--stokes`, `--polarizer A,B,..` | also write the Stokes images and the polarization degree and angle; images behind a polarizing filter at the given angles |
+| `--sky-pol P[,EL,AZ]` | the environment is a clear sky polarized by Rayleigh scattering (degree P at 90° from the sun); shows in the Stokes and polarizer images |
 | `--shutter T`, `--cam-velocity`, `--pan` | motion blur (see `--help`) |
 
 Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 256 spp, depth 16 takes about 2 minutes.
@@ -334,7 +335,7 @@ Speed on the author's PC (8 threads, Release, RGB): the gold scene at 800x450, 2
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, STL, PMX; a captured object from a scan or from 3D Gaussian Splatting can be brought in and given a physical material, and a 3DGS point cloud itself can be ray-traced as emissive particles around the physical objects: [details](docs/CAPTURE.md)), an ocean surface built from a wave spectrum (wind speed, sun glitter; [details](docs/WATER.md)), and
   hair as chains of cylinders (generated locks and head hair).
   Own SAH BVH or **Embree**.
-- **Polarization** (`--stokes`, `--polarizer`): the Stokes vector of the light that reaches the camera through smooth glass and water, metals and thin films (Mueller matrices; anything rougher depolarizes). Writes the degree and angle of linear polarization, or the image behind a polarizing filter ([details](docs/POLARIZATION.md)).
+- **Polarization** (`--stokes`, `--polarizer`): the Stokes vector of the light that reaches the camera through smooth glass and water, metals and thin films (Mueller matrices; anything rougher depolarizes). Writes the degree and angle of linear polarization, or the image behind a polarizing filter. `--sky-pol` polarizes the environment like a clear sky, which changes how bright glass and water reflect it ([details](docs/POLARIZATION.md)).
 - **Media and sky**: scattering media with colored coefficients and noise densities (null collisions), tabulated phase functions
   (Mie scattering of cloud droplets; [details](docs/CLOUD.md)), a single-scattering sky with a sun (`tools/data/make_sky.py`).
 - **Bidirectional path tracing** (`--lvc`): light paths are cached and connected to the camera paths, with fog, diffuse surfaces,

@@ -48,7 +48,8 @@ Environment MakeEnvironment(const CliOptions& opt, EnvKind kind) {
     else try {
         std::cout << "[EnvMap] Loading: " << opt.env << std::endl;
         auto envImg = io::loadHDR(opt.env);
-        if (kind == EnvKind::HdrWithPeak) {
+        const bool skyPolSunFromMap = opt.skyPol > 0 && std::isnan(opt.skyPolSunElev);   // --sky-pol without a sun: the brightest spot
+        if (kind == EnvKind::HdrWithPeak || skyPolSunFromMap) {
             // Brightest spot of the map (the "sun"): where the caustic comes from. Same mapping as EnvMap::uvToDir (row 0 = north pole).
             const int w = envImg.width(), h = envImg.height();
             auto dirOf = [&](int x, int y) {
@@ -66,7 +67,7 @@ Environment MakeEnvironment(const CliOptions& opt, EnvKind kind) {
                 total += p;
                 if (glm::dot(dirOf(x, y), env.peakDir) > std::cos(glm::radians(6.0))) inCone += p;
             }
-            std::cout << "[Water] brightest spot of " << opt.env << ": radiance " << best << ", elevation "
+            std::cout << (kind == EnvKind::HdrWithPeak ? "[Water]" : "[Sky]") << " brightest spot of " << opt.env << ": radiance " << best << ", elevation "
                 << glm::degrees(std::asin(env.peakDir.y)) << " deg, azimuth " << glm::degrees(std::atan2(env.peakDir.x, env.peakDir.z))
                 << " deg (about +y, 0 = +z); " << 100.0 * inCone / total << " % of the map's power lies within 6 deg of it\n";
         }
@@ -82,6 +83,22 @@ Environment MakeEnvironment(const CliOptions& opt, EnvKind kind) {
         std::cerr << "[EnvMap] Fallback to black background.\n";
         env.map = nullptr;
         env.light = nullptr;
+    }
+
+    // --sky-pol: the environment becomes a clear sky polarized by Rayleigh scattering of the sun (EnvLight::setSkyPolarization).
+    if (opt.skyPol > 0) {
+        if (!env.light) std::cout << "[Sky] --sky-pol: there is no environment light to polarize\n";
+        else {
+            Vector3 sun = env.peakDir;   // the procedural sky's sun or the map's brightest spot (the zenith for a uniform environment)
+            if (!std::isnan(opt.skyPolSunElev)) {
+                const Real el = glm::radians(opt.skyPolSunElev), az = glm::radians(opt.skyPolSunAzim);
+                sun = Vector3(std::cos(el) * std::sin(az), std::sin(el), std::cos(el) * std::cos(az));
+            }
+            env.light->setSkyPolarization(sun, opt.skyPol);
+            std::cout << "[Sky] polarized clear sky (single Rayleigh scattering): degree " << opt.skyPol << " at 90 deg from the sun at elevation "
+                << glm::degrees(std::asin(std::clamp(sun.y, Real(-1), Real(1)))) << " deg, azimuth " << glm::degrees(std::atan2(sun.x, sun.z))
+                << " deg; directions above the horizon only. Only the Stokes and polarizer images show it (the plain image leaves polarization out)\n";
+        }
     }
     return env;
 }

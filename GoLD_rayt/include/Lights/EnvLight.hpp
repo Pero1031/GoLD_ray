@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 
@@ -183,9 +184,37 @@ namespace rayt {
             m_scale = scale;
         }
 
+        /**
+         * @brief Polarization of a clear sky (--sky-pol, docs/POLARIZATION.md): single Rayleigh scattering of the sunlight.
+         *
+         * The light from a sky direction at angle gamma from the sun is partially linearly polarized, with degree
+         * maxDegree sin^2(gamma) / (1 + cos^2(gamma)) (maxDegree at 90 degrees from the sun, a clear sky has about 0.6 to 0.8) and the
+         * electric field perpendicular to the plane of the sun, the sky direction and the observer. The radiance of the map is left as it
+         * is; only directions above the horizon (+y) are polarized (the ground and the sun disc are not: the degree is 0 at the sun).
+         * maxDegree 0 turns it off.
+         */
+        void setSkyPolarization(const Vector3& sunDir, Real maxDegree) {
+            m_sunDir = glm::normalize(sunDir);
+            m_skyPolDegree = std::clamp(maxDegree, Real(0), Real(1));
+        }
+        Real skyPolarizationDegree() const { return m_skyPolDegree; }
+
+        bool polarization(const Vector3& wi, Vector3& xRef, Vector3& s) const override {
+            if (!(m_skyPolDegree > Real(0)) || wi.y <= Real(0)) return false;
+            const Vector3 e = glm::cross(m_sunDir, wi);   // the electric field: normal to the plane of the sun and the sky direction
+            const Real len = glm::length(e);
+            if (len < Real(1e-6)) return false;           // toward the sun or away from it: unpolarized
+            const Real c = glm::dot(m_sunDir, wi);
+            xRef = e / len;
+            s = Vector3(m_skyPolDegree * (Real(1) - c * c) / (Real(1) + c * c), Real(0), Real(0));
+            return true;
+        }
+
     private:
         std::shared_ptr<EnvMap> m_envMap;
         Real m_scale = Real(1);
+        Vector3 m_sunDir = Vector3(0, 1, 0);
+        Real m_skyPolDegree = Real(0);
     };
 
 } // namespace rayt

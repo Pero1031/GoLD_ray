@@ -498,12 +498,24 @@ namespace rayt {
             if (pdfEnv > 0 && st.lastPdf > 0) {
                 w = math::powerHeuristic(st.lastPdf, pdfEnv);
             }
-            st.add(st.beta * envL * w);
+            addLightFrom(st, st.beta * envL * w, scene.envLight(), r.d);
         }
         else if (!(m_caustics && st.fromReceiver && scene.envLight()->photonCaustics())) {
             // Camera ray or specular path: no MIS (an L S+ D path is left to the caustic photons)
-            st.add(st.beta * envL);
+            addLightFrom(st, st.beta * envL, scene.envLight(), r.d);
         }
+    }
+
+    void PathIntegrator::addLightFrom(PathState& st, const Spectrum& v, const Light* light, const Vector3& wi) const {
+        Vector3 xL, sL;
+        if (!st.pol.on || st.pol.done || !light || !light->polarization(wi, xL, sL)) {
+            st.add(v);
+            return;
+        }
+        // The light travels along -wi to the last specular vertex (or to the camera); the chain expects it in the basis (xPrev, k x xPrev).
+        st.L += v;
+        const pol::Mueller M = st.pol.T * pol::basisChange(xL, st.pol.xPrev, -wi);
+        for (int k = 0; k < 4; ++k) st.pol.S[k] += v * (M.e[k][0] + M.e[k][1] * sL.x + M.e[k][2] * sL.y + M.e[k][3] * sL.z);
     }
 
     void PathIntegrator::addSurfaceEmission(const Ray& r, const Scene& scene, const SurfaceInteraction& rec,
@@ -722,13 +734,19 @@ namespace rayt {
         // Li already includes the geometry term from light sampling.
         Ld = f * Li * transmittance * (cosTheta * w / pdfLight);
 
-        // The light is unpolarized: the camera sees the first column of the chain that includes this scattering (a material that does not
-        // know its polarization depolarizes: the chain so far).
+        // Unpolarized light: the camera sees the first column of the chain that includes this scattering (a material that does not
+        // know its polarization depolarizes: the chain so far). A polarized light (Light::polarization) goes through the whole chain, its
+        // Stokes vector turned into the basis (ev.s, k x ev.s) of the light that arrives here along k = -wi.
         if (st && st->pol.on) {
             pol::ScatterEvent ev;
             if (!st->pol.done && rec.matPtr->scatterMueller(rec, wo, wi, lambda, ev)) {
                 const pol::Mueller T = st->pol.T * pol::basisChange(ev.s, st->pol.xPrev, wo) * ev.m;
-                for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * T.e[k][0];
+                Vector3 xL, sL;
+                if (light->polarization(wi, xL, sL)) {
+                    const pol::Mueller M = T * pol::basisChange(xL, ev.s, -wi);
+                    for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * (M.e[k][0] + M.e[k][1] * sL.x + M.e[k][2] * sL.y + M.e[k][3] * sL.z);
+                }
+                else for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * T.e[k][0];
             }
             else for (int k = 0; k < 4; ++k) st->pol.neeS[k] += Ld * st->pol.T.e[k][0];
         }
