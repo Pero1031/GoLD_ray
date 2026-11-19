@@ -241,7 +241,11 @@ namespace rayt {
     // The path
     // ------------------------------------------------------------------------------------------------
 
-    Spectrum PathIntegrator::Li(Ray r, const Scene& scene, SampledWavelengths& lambda, PathAOV* aov, PathStokes* stokes) const {
+    Spectrum PathIntegrator::Li(Ray r, const Scene& scene, SampledWavelengths& filmLambda, PathAOV* aov, PathStokes* stokes) const {
+        // The wavelengths the path carries. A fluorescent surface changes the first of them (light that leaves it at the camera's
+        // wavelength came in at a shorter one), while the film must record the wavelength the camera sampled: filmLambda keeps it,
+        // and learns when the secondary wavelengths are dropped.
+        SampledWavelengths lambda = filmLambda;
         PathState st;
         if (stokes) {
             // The Stokes vectors of the image are expressed in the basis (right, up, toward the viewer) of the camera.
@@ -321,6 +325,13 @@ namespace rayt {
 
             // Dispersive materials reduce the path to a single wavelength before anything is evaluated.
             rec.matPtr->prepareWavelengths(lambda);
+            // A fluorescent surface chooses the wavelength at which the light it sends toward the camera arrived (Materials/Fluorescent.hpp);
+            // from here on the path follows that one wavelength, and this vertex is a diffuse surface of the albedo reemit() set.
+            if (rec.matPtr->shiftsWavelength()) {
+                lambda.terminateSecondary();
+                rec.matPtr->reemit(rec, lambda, sampling::Random(), sampling::Random());
+            }
+            if (lambda.secondaryTerminated()) filmLambda.terminateSecondary();
 
             addSurfaceEmission(r, scene, rec, lambda, st);
 

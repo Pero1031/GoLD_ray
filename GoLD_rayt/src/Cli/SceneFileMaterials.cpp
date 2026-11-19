@@ -43,10 +43,10 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
         else { s.kind = SpectrumSpec::Kind::Curve; s.file = ReadString(v.at("file"), where + ".file"); }
     }
     else {
-        Fail(where, "must be a preset name (d65, tungsten, candle, led) or an object with one of: preset, blackbody (kelvin), rgb, file (csv), mix (a list of files with weights)");
+        Fail(where, "must be a preset name (d65, d65uv, tungsten, candle, led) or an object with one of: preset, blackbody (kelvin), rgb, file (csv), mix (a list of files with weights)");
     }
-    if (s.kind == SpectrumSpec::Kind::Preset && s.preset != "d65" && s.preset != "tungsten" && s.preset != "candle" && s.preset != "led")
-        Fail(where, "has the unknown preset \"" + s.preset + "\" (d65, tungsten, candle or led)");
+    if (s.kind == SpectrumSpec::Kind::Preset && s.preset != "d65" && s.preset != "d65uv" && s.preset != "tungsten" && s.preset != "candle" && s.preset != "led")
+        Fail(where, "has the unknown preset \"" + s.preset + "\" (d65, d65uv, tungsten, candle or led)");
     if (s.kind == SpectrumSpec::Kind::Blackbody && !(s.kelvin > 0)) Fail(where + ".blackbody", "must be a temperature in kelvin above 0");
     return s;
 }
@@ -737,6 +737,13 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         s.measuredFile = ReadString(m.at("file"), where + ".file");
         Optional<double>(m, "alphaSample", where, s.alphaSample, ReadNumber);
         if (!(s.alphaSample > 0)) Fail(where + ".alphaSample", "must be above 0");
+    }
+    else if (type == "fluorescent") {   // { "type": "fluorescent", "file": "assets/Fluorescence/rit_bispectral/Labsphere/CIPLAW8.BFC", "fluorescence": true }
+        CheckKeys(m, { "type", "file", "fluorescence" }, where);
+        s.type = MaterialSpec::Type::Fluorescent;
+        if (!m.contains("file")) Fail(where, "needs a \"file\": a bispectral matrix (Labsphere BFC-450 .BFC)");
+        s.fluorescentFile = ReadString(m.at("file"), where + ".file");
+        Optional<bool>(m, "fluorescence", where, s.fluorescence, ReadBool);
     }
     else if (type == "mix") {   // { "type": "mix", "a": "gold", "b": "leather", "mask": "mask.png" } or "weight": 0.3 instead of the mask
         CheckKeys(m, { "type", "a", "b", "mask", "weight" }, where);

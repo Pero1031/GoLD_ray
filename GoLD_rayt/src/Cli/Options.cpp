@@ -284,8 +284,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             throw std::runtime_error("--studio-look must be default, warm, cool, dramatic or soft");
         if (o.lightSampler != "uniform" && o.lightSampler != "power" && o.lightSampler != "spatial" && o.lightSampler != "all")
             throw std::runtime_error("--light-sampler must be uniform, power, spatial or all");
-        if (o.light != "d65" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
-            throw std::runtime_error("--light must be d65, tungsten, candle or led");
+        if (o.light != "d65" && o.light != "d65uv" && o.light != "tungsten" && o.light != "candle" && o.light != "led")
+            throw std::runtime_error("--light must be d65, d65uv, tungsten, candle or led");
         if (o.width < 16 || o.spp < 1 || o.maxDepth < 1)
             throw std::runtime_error("--width must be >= 16, --spp and --depth >= 1");
         if (o.height < 0) throw std::runtime_error("--height must be >= 0");

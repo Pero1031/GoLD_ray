@@ -105,6 +105,9 @@
     <ClInclude Include="include\Render\Exposure.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClCompile Include="src\Materials\Fluorescent.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="src\Materials\Dielectric.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -145,6 +148,9 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="src\Accelerators\BVH.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="src\Cli\Checks\FluorescenceChecks.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="src\Cli\Checks\AovChecks.cpp">
@@ -405,6 +411,9 @@
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Core\Fresnel.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Materials\Fluorescent.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Materials\Dielectric.hpp">

@@ -41,7 +41,7 @@ The flow of drawing one image:
 | `Cli/SceneParts` | Building blocks shared by the demo scenes and the self-checks (meshes as hittables, lights, assets) |
 | `Cli/SceneFile.cpp`, `SceneFileMaterials.cpp`, `SceneFileReaders.hpp`, `SceneDescription.hpp`, `Scenes/FileScene.cpp` | JSON scenes. Three stages: read → plain structures → build the engine objects |
 | `Cli/RenderPipeline` | The common drawing procedure |
-| `Cli/Checks/` | Self-checks by topic (`--scene furnace \| lights \| aov \| sss \| volume \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| camera \| film \| ...`) |
+| `Cli/Checks/` | Self-checks by topic (`--scene furnace \| lights \| aov \| sss \| volume \| fluorescence \| caustic \| manifoldtest \| metals \| mesh \| splats \| cosmetic \| relief \| camera \| film \| ...`) |
 | `Cli/Tools/` | Measurement and diagnostics (`--scene skinlayers`, `sssrw`, `bench`, `--trace`) |
 
 ## 4. Features and where they are
@@ -57,6 +57,7 @@ The flow of drawing one image:
 | Water, ocean, cloud and fog | `Geometry/ProceduralMesh`, `Materials/Medium`, `DensityField`, `TabulatedPhase` | `WATER.md`, `CLOUD.md` |
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
+| Fluorescence (a measured bispectral matrix; the path changes its wavelength; light with ultraviolet) | `Materials/Fluorescent`, `Render/Integrator` (`Li` keeps the path's wavelengths apart from the film's), `Color/Illuminants` (`evaluateD65Full`) | `FLUORESCENCE.md` |
 | Polarization (Stokes, `--stokes`, `--polarizer`, `--sky-pol`) | `Core/Polarization`, `Render/Integrator`, `Lights/EnvLight` | `POLARIZATION.md` |
 | Camera and film output (thin lens, real lens, orthographic view, aberrations, diffraction, a camera's spectral sensitivity, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/LensSystem`, `Render/Diffraction`, `Color/CameraResponse`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
 | MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |

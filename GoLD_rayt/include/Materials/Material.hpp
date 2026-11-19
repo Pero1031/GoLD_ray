@@ -227,6 +227,18 @@ namespace rayt {
         virtual void prepareWavelengths(SampledWavelengths& lambda) const {}
 
         /**
+         * @brief True for a fluorescent surface, which re-emits at one wavelength light it absorbed at another (Materials/Fluorescent.hpp).
+         *        The integrator then drops the secondary wavelengths and calls reemit() at each hit before anything is evaluated.
+         */
+        virtual bool shiftsWavelength() const { return false; }
+
+        /**
+         * @brief Chooses where the light that leaves toward the camera at lambda[0] came from: lambda[0] may become the excitation
+         *        wavelength, at which the path goes on. Sets rec.reemitAlbedo, the albedo that eval() / sample() then use. u0, u1 in [0, 1).
+         */
+        virtual void reemit(SurfaceInteraction& /*rec*/, SampledWavelengths& /*lambda*/, Real /*u0*/, Real /*u1*/) const {}
+
+        /**
          * @brief Called by the integrator right after a hit: a material with a micro-relief (skin pores) bends the shading
          *        normal rec.n here (the geometric normal rec.gn stays). `wo` points to the viewer. The default does nothing.
          */

@@ -437,3 +437,6 @@ docs/HANDOFF.md
 
 # Camera spectral sensitivities of Jiang et al. 2013 (CC BY-NC-SA 4.0): kept locally, not in this MIT repository; see docs/CAMERA.md
 /GoLD_rayt/assets/CameraResponse/
+
+# RIT bispectral (fluorescence) database, Gonzalez & Fairchild 2000: no license stated, kept locally, not redistributed (tools/data/rit_bispectral.py)
+/GoLD_rayt/assets/Fluorescence/rit_bispectral/

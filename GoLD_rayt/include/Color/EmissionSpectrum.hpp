@@ -116,7 +116,9 @@ namespace rayt {
         }
 
     private:
-        static constexpr int kLutFirstNm = 360;
+        // From 300 nm, below the camera's 360 nm: only light that excites fluorescence is read there (Materials/Fluorescent.hpp).
+        // The nodes at 360 nm and above are the same as when the table started at 360, so nothing the camera sees changes.
+        static constexpr int kLutFirstNm = 300;
         static constexpr int kLutLastNm = 830;
 
         Real lutAt(Real lambda_nm) const {

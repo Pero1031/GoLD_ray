@@ -27,6 +27,7 @@ const std::vector<Command>& Commands() {
         { { "sssrw", "the BSSRDF against a volumetric random walk on a sphere and thin discs (--sssrw-albedo, --sssrw-g, --sssrw-ell, --sssrw-A)" }, [](const CliOptions& o) { return RunSssRandomWalk(o); } },
         { { "skinlayers", "Monte Carlo radial profile of a layered skin (--melanin, --blood, --skin-out ...)" }, [](const CliOptions& o) { return RunSkinLayers(o); } },
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
+        { { "fluorescence", "fluorescent material: the excitation sampler and reemit() against the matrix, a fluorescent sphere in an emitting sphere against R Le + Integral b Le" }, [](const CliOptions& o) { return RunFluorescenceTests(o); } },
         { { "layered", "layered coat (clear coat over diffuse / gold): closed form, eval vs sample, energy, reciprocity; mix of two materials" }, [](const CliOptions& o) { return RunLayeredTests(o); } },
         { { "aniso", "anisotropic metal: tangent of the shapes, anisotropic GGX, rotation of the roughness axes" }, [](const CliOptions& o) { return RunAnisotropyTests(o); } },
         { { "relief", "skin micro-relief (furrows, pores): height field, bent normals, white furnace with and without" }, [](const CliOptions& o) { return RunReliefTests(o); } },

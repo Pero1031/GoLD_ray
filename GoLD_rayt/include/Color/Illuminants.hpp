@@ -57,6 +57,29 @@ namespace rayt::color {
         return kD65_SPD[i] + t * (kD65_SPD[i + 1] - kD65_SPD[i]);
     }
 
+    /// The ultraviolet part of CIE D65, 300..375 nm in 5 nm steps (same scale as kD65_SPD; CIE 15 table).
+    inline constexpr Real kD65_UV_FirstNm = Real(300);
+    inline constexpr std::array<Real, 16> kD65_UV_SPD = {
+        0.0341, 1.6643, 3.2945, 11.7652, 20.236, 28.6447, 37.0535, 38.5011,    // 300-335
+        39.9488, 42.4302, 44.9117, 45.775, 46.6383, 49.3637, 52.0891, 51.0323  // 340-375
+    };
+
+    /**
+     * @brief CIE D65 including its ultraviolet part: 300..780 nm, linearly interpolated, 0 outside.
+     *
+     * evaluateD65() stops at 380 nm because the film's white point is defined there; this one is for light that excites
+     * fluorescence (Materials/Fluorescent.hpp), which the "d65uv" light preset carries. Between 380 and 780 nm both are equal.
+     */
+    inline Real evaluateD65Full(Real lambda_nm) {
+        if (lambda_nm >= kD65_FirstNm) return evaluateD65(lambda_nm);
+        if (lambda_nm < kD65_UV_FirstNm) return Real(0);
+        const Real f = (lambda_nm - kD65_UV_FirstNm) / kD65_StepNm;
+        const int i = std::min(static_cast<int>(f), static_cast<int>(kD65_UV_SPD.size()) - 1);
+        const Real t = f - Real(i);
+        const Real next = (i + 1 < static_cast<int>(kD65_UV_SPD.size())) ? kD65_UV_SPD[i + 1] : kD65_SPD[0];
+        return kD65_UV_SPD[i] + t * (next - kD65_UV_SPD[i]);
+    }
+
     /**
      * @brief Relative spectral radiance of a blackbody (Planck's law) at a wavelength (nm).
      *

@@ -14,6 +14,7 @@
 #include "Lights/PointLight.hpp"
 #include "Materials/CoatedDiffuse.hpp"
 #include "Materials/DiffuseLight.hpp"
+#include "Materials/Fluorescent.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/MeasuredHpBRDF.hpp"
@@ -299,6 +300,28 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             materials[name] = mat;
             break;
         }
+        case MaterialSpec::Type::Fluorescent: {   // a measured bispectral matrix (Materials/Fluorescent.hpp)
+            auto matrix = std::make_shared<BispectralMatrix>();
+            BispectralCleaning cleaning;
+            std::string err;
+            if (!LoadBfcMatrix(m.fluorescentFile, *matrix, &cleaning, &err)) {
+                std::cerr << "[SceneFile] material \"" << name << "\": " << err << "\n";
+                return 1;
+            }
+            auto mat = std::make_shared<Fluorescent>(matrix, m.fluorescence);
+            const Vector3 c = mat->rgbUnderD65();
+            std::cout << "[SceneFile] material \"" << name << "\": fluorescent \"" << matrix->title << "\" (" << m.fluorescentFile << ", "
+                << matrix->nEm << " emission x " << matrix->nEx << " excitation wavelengths; set to 0: " << cleaning.negative << " negative, "
+                << cleaning.antiStokes << " anti-Stokes entries summing to " << cleaning.antiStokesSum << ", " << cleaning.belowNoise
+                << " fluorescence entries below 3 x the noise " << cleaning.noise << " summing to " << cleaning.belowNoiseSum << ")"
+                << (m.fluorescence ? "" : ", fluorescence OFF") << ", linear sRGB under D65 (" << c.x << ", " << c.y << ", " << c.z << ")"
+#if !defined(RAYT_SPECTRAL_MODE)
+                << "; the RGB build cannot shift wavelengths and draws that color"
+#endif
+                << "\n";
+            materials[name] = mat;
+            break;
+        }
         case MaterialSpec::Type::Dielectric: {
             auto glass = std::make_shared<Dielectric>(Real(m.ior), Real(m.roughness), Real(0), Real(m.abbe));
             if (m.exteriorIor != 1) glass->setExteriorIor(Real(m.exteriorIor));   // nested dielectrics: the index on the normal side
@@ -568,6 +591,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             const Material& p = *built->second;
             const char* why = spec->second.type == MaterialSpec::Type::Mix ? "another mix"
                 : spec->second.type == MaterialSpec::Type::Emission ? "a light"
+                : spec->second.type == MaterialSpec::Type::Fluorescent ? "a fluorescent material (it chooses its wavelength before the mix chooses)"
                 : p.subsurface() ? "a subsurface material"
                 : (p.isMediumBoundary() || p.isNullInterface()) ? "a medium boundary" : nullptr;
             if (why) {

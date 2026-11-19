@@ -81,6 +81,7 @@ namespace rayt {
         Real surfScatter = Real(0);          // Reflectance of the white local scatter of flaking skin here (Materials/SkinScatter.hpp), set by Material::perturbShading.
         Vector3 nl = Vector3(0.0);           // Normal of a layer of make-up on top where it differs from n (it levels the relief below it, Materials/CosmeticLayer.hpp); zero = the same as n.
         Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
+        Real reemitAlbedo = Real(-1);        // Fluorescence: the albedo of this vertex once Material::reemit chose the excitation wavelength; < 0 = not chosen.
 
         // ---------------------------------------------------------------------
         // Methods

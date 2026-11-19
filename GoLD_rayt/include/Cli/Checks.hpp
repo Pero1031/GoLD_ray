@@ -66,6 +66,7 @@ int RunCosmeticTests(const CliOptions& opt);   // --scene cosmetic: a layer of f
 int RunSssTests(const CliOptions& opt);
 
 int RunVolumeTests(const CliOptions& opt);
+int RunFluorescenceTests(const CliOptions& opt);   // Checks/FluorescenceChecks.cpp
 
 // Layered coat checks (--scene layered): closed form of a smooth coat over a diffuse base, eval() against sample(), energy, reciprocity.
 int RunLayeredTests(const CliOptions& opt);

@@ -54,7 +54,7 @@ void PrintHelp(std::ostream& out) {
         << "  --iso S --nits K  physical exposure: the f-number, the shutter and the ISO speed S set the brightness as in a camera (f/16 is 64 x darker than\n"
         << "                    f/2); K is the luminance (cd/m^2) of a radiance whose Y is 1; mid grey 0.18 = the exposure 10 / S lux s (.png / .bmp / .jpg)\n"
         << "  --cam-velocity x,y,z   the camera moves with this velocity (m/s) during the exposure      --pan YAW[,PITCH]   it turns (degrees per second; right / up)\n"
-        << "  --env FILE        environment map (.hdr)     --light d65|tungsten|candle|led   light spectrum of some scenes\n"
+        << "  --env FILE        environment map (.hdr)     --light d65|d65uv|tungsten|candle|led  light spectrum of some scenes\n"
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --mask A[,B..]    <out>_mask.png: the share of each pixel that objects of these materials (names in the scene file) cover, as the camera\n"
         << "                    sees them first (edges anti-aliased, through the lens and shutter; linear gray, 16 bit with --bits 16; .pfm if --out is)\n"
