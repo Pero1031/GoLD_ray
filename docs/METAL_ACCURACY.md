@@ -29,7 +29,7 @@ Reproduction steps are at the [end](#7-reproduction). The full output of the cal
 4. **Angle (the incidence-angle dependence of Fresnel) is not the main cause.** Under D65 the RGB reduction of `(eta, k)` reproduces the reflectance well even at oblique incidence (the error for gold is just the normal-incidence error shrinking toward grazing angles). Of the conditions that had been listed in advance as likely to show a difference, angle was a miss.
 5. **The earlier observation "on a gold sphere, spectral and RGB differ by about 2.5/255 (spectral is warmer)" is consistent with the red-channel cap of item 3** (a red difference of about 6% becomes a few /255 in 8-bit sRGB; see 4.1 below). That image was not decomposed with the same method, so this only means "probably the same cause".
 
-6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6). The sRGB display hides the difference only because the RGB renderer works in sRGB primaries: its error then sits in the blue channel that the display clips. With a wider working space both displays show about the same difference (section 3.7).
+6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6). The sRGB display hides the difference only because the RGB renderer works in sRGB primaries: its error then sits in the blue channel that the display clips. With a wider working space both displays show about the same difference (section 3.7). Through real view transforms the hiding survives only where the view clips the Rec.709 channels (Blender's Standard and Filmic); Blender's current default, AgX, shows the difference on sRGB too (section 3.8).
 
 **Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013, the film's until 2026-11-17; it now uses the 1 nm CIE table) gave ΔE00 0.01 to 0.18 here (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
 
@@ -189,6 +189,34 @@ Limits: a calculation with the reference model, not renders (the engine's RGB bu
 
 Full output: [working_space_hiding_results.txt](data/working_space_hiding_results.txt) (script `tools/studies/working_space_hiding.py`). Related: light × reflections for the sRGB basis in [condition_map_results.txt](data/condition_map_results.txt) (`condition_map.py`), and the bowl renders under four gamut mappings in [gamut_mapping_results.txt](data/gamut_mapping_results.txt) (`gamut_mapping_study.py`).
 
+### 3.8 Real view transforms: Blender's AgX shows the difference on sRGB too
+
+The results above use the renderer's own PNG output (Reinhard per channel, negative channels clipped). A production image goes through a view transform instead. The bowl renders of 3.5 (the RGB build works in sRGB primaries) were shown through the view transforms of Blender 4.5 and through the ACES 1.3 SDR output transform, applied with OpenColorIO itself (Blender's own `config.ocio` and LUTs, and OCIO's built-in ACES 1.3 CG config), at exposure 0. The table gives the mean ΔE00 over the bowl under the candle, with the share of pixels above 1 in brackets.
+
+| View transform (candle-lit bowl) | sRGB display | Display P3 display |
+|---|---|---|
+| Renderer's output (Reinhard, clip) | 0.91 (36 %) | 5.15 (87 %) |
+| Blender Standard | 1.12 (43 %) | 5.22 (87 %) |
+| Blender Filmic (Blender's default from 2.80 to 3.6) | 0.99 (40 %) | (sRGB only) |
+| Khronos PBR Neutral | 1.18 (50 %) | (sRGB only) |
+| **Blender AgX (Blender's default since 4.0)** | **2.14 (80 %)** | 4.19 (80 %) |
+| ACES 1.3 SDR | 1.47 (48 %) | 2.31 (79 %) |
+
+The noise floor (the same build rendered twice) is 0.4 to 0.8.
+
+- **The hiding survives in the views that clip the Rec.709 channels:** Blender Standard and Filmic (Filmic takes the logarithm of the Rec.709 channels, so a negative channel ends at the bottom of its range, like a clip), and nearly Khronos PBR Neutral. The candle bowl stays at about 1 on sRGB against 5 on P3.
+- **AgX does not hide it.** On sRGB the difference is 2.14 with 80 % of the pixels above 1, half of the P3 value. AgX converts the image to a very wide gamut (FilmLight E-Gamut) before its logarithmic curve and maps it to the display with a 3D LUT. The negative blue of the spectral image is therefore not cut away: it changes the displayed color. For candle-lit gold with one reflection, the displayed blue is 0.426 for the spectral color and 0.479 for the RGB one (on a scale of 0 to 1), where the clipping views give 0 for both.
+- **ACES lies in between and depends on the exposure.** For candle-lit gold with one reflection (reference model), the sRGB difference is 1.15 at −1 stop, 2.71 at 0 and 4.17 at +1. In the displayed values, the ACES tone scale lifts the RGB color's blue above 0 (0.183) but not the spectral one's (0), so the final clip no longer treats the two alike.
+- **AgX depends on the exposure as well.** For the same color, the sRGB and P3 differences are equal at 0 and +1 stop, but at −2 stops sRGB shows a third of the P3 difference (1.72 against 5.65). Half of the lit bowl pixels are 1.3 to 2.2 stops darker than that color, so the bowl falls in between.
+- **All tone-mapped views also shrink the P3 difference** (AgX 4.19, ACES 2.31, against 5.2 for the views that only clip), because they compress the chroma of bright colors.
+- Under tungsten no view hides the difference (1.8 to 2.8 on sRGB, 2.0 to 3.1 on P3). With an RGB renderer in ACEScg primaries, no view hides it either (reference model: the sRGB version removes at most 10 % of the P3 difference at any exposure), and AgX and Khronos PBR Neutral give the smallest differences.
+
+So whether an sRGB display hides the RGB renderer's error is decided by three things together: the renderer works in sRGB primaries, the light lies outside sRGB, and the view clips the Rec.709 channels. Blender's Standard and Filmic views do; its current default, AgX, does not.
+
+Limits: Blender 4.5's views without looks (no "Punchy" or contrast looks); ACES 2.0 was not tested (OCIO 2.4 has no built-in ACES 2.0 config); the Display P3 version of ACES is the dim-surround transform. Displays are taken as ideal (sRGB piecewise curve, D65 white), and ΔE00 uses the display's white. One scene (the bowl) at exposure 0; the reference model adds the exposure sweep and the 45 conditions.
+
+Full output: [view_transform_hiding_results.txt](data/view_transform_hiding_results.txt) (scripts `tools/studies/view_transform_hiding.py` and `ocio_apply.py`).
+
 ## 4. Why the difference appears
 
 ### 4.1 The red channel of gold exceeds 1 (a collision with the physical upper limit)
@@ -338,6 +366,12 @@ python tools/studies/gamut_mapping_study.py <folder of renders> docs/data/gamut_
 python tools/studies/working_space_hiding.py --out docs/data/working_space_hiding_results.txt
 python tools/studies/rgb_basis_study.py --out docs/data/rgb_basis_study_results.txt
 python tools/studies/condition_map.py <out folder>        # results.txt (= docs/data/condition_map_results.txt) and a figure
+```
+
+**View transforms (section 3.8; a minute)** — needs a Python with PyOpenColorIO; the one bundled with Blender 4.5 has it, and the script takes Blender's `config.ocio` from next to it
+
+```bash
+python tools/studies/view_transform_hiding.py --ocio-python <blender>/4.5/python/bin/python.exe --renders <folder of bowl renders> --out docs/data/view_transform_hiding_results.txt
 ```
 
 File names are `goldbowl_<light>_<rgb|spectral>_<a|b>.pfm` and `erato_<light>_<rgb|spectral>_<a|b>.pfm`. What is measured is not the look of a photograph but the difference between two renders.
