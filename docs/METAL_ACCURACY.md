@@ -29,7 +29,7 @@ Reproduction steps are at the [end](#7-reproduction). The full output of the cal
 4. **Angle (the incidence-angle dependence of Fresnel) is not the main cause.** Under D65 the RGB reduction of `(eta, k)` reproduces the reflectance well even at oblique incidence (the error for gold is just the normal-incidence error shrinking toward grazing angles). Of the conditions that had been listed in advance as likely to show a difference, angle was a miss.
 5. **The earlier observation "on a gold sphere, spectral and RGB differ by about 2.5/255 (spectral is warmer)" is consistent with the red-channel cap of item 3** (a red difference of about 6% becomes a few /255 in 8-bit sRGB; see 4.1 below). That image was not decomposed with the same method, so this only means "probably the same cause".
 
-6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6).
+6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6). The sRGB display hides the difference only because the RGB renderer works in sRGB primaries: its error then sits in the blue channel that the display clips. With a wider working space both displays show about the same difference (section 3.7).
 
 **Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013, the film's until 2026-11-17; it now uses the 1 nm CIE table) gave ΔE00 0.01 to 0.18 here (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
 
@@ -157,6 +157,37 @@ The color-difference map of the statue looks large deep in the folds and small o
 - **The D65 difference is a difference in fine patterns** and mixes away when seen from a distance (0.83, close to the noise of 0.5).
 - The filter widths were copied from the table in the paper. Since the conclusion does not change when the viewing distance changes by a factor of 4, the result is robust to an error in the table.
 - Calculation: `tools/studies/erato_scielab.py`, `tools/lib/scielab.py`. The full output is in `docs/data/erato_scielab_results.txt`.
+
+### 3.7 The sRGB display hides the difference only when the RGB renderer works in sRGB primaries (reference model)
+
+Is the vanishing of the candle difference on an sRGB display (3.5) a property of RGB rendering, or of an RGB renderer that works in sRGB primaries, as this one does (and as Blender and Unreal do by default)? The reference model of this analysis (normal incidence, the same metal at every bounce) was run with the RGB renderer working in five bases: sRGB, Display P3, Rec.2020, the AP1 primaries of ACEScg (white scaled to D65) and the "Sharp" primaries of Ward and Eydelberg-Vileshin (2002). Each was compared with the spectral result over 9 lights (blackbodies from 1500 to 6500 K, and D65) × 1, 2, 3, 4 and 6 reflections, shown on an sRGB display (negative channels clipped) and on a Display P3 display (Reinhard per channel, exposure 0, as in 3.5).
+
+| Working basis (gold) | Hidden on sRGB, visible on P3 | Share of the P3 difference the sRGB clip removes | Mean ΔE00, linear | On P3 | On sRGB |
+|---|---|---|---|---|---|
+| sRGB | **2** of 37 | **64 %** | 8.41 | 7.98 | 3.19 |
+| Display P3 | 0 of 33 | 2 % | 5.33 | 4.25 | 4.34 |
+| Rec.2020 | 0 of 32 | 6 % | 4.72 | 4.67 | 4.59 |
+| ACEScg (AP1) | 0 of 28 | −15 % | 3.39 | 3.96 | 4.40 |
+| Sharp | 0 of 23 | −5 % | 3.07 | 2.64 | 2.73 |
+
+"Hidden" means ΔE00 below 1 on sRGB and at least 2 on P3 ("of 37": the conditions visible on P3). The share removed is the mean of 1 − ΔE(sRGB) / ΔE(P3) over the conditions whose spectral color is outside sRGB. Means are over the 45 conditions.
+
+- **Only the sRGB working basis hides the difference.** With a wider basis, an sRGB and a P3 display show about the same difference. For copper, too, only the sRGB basis hides the difference (the same two conditions as for gold).
+- **Fully hidden only in two conditions: one reflection under a light redder than about 1910 K**, where the light itself lies outside sRGB (1500 K: 0.58 on sRGB against 8.24 on P3; 1850 K, the candle: 0.64 against 5.82). Under the same lights with more reflections, the clip still removes 75 to 90 % of the difference, but what remains is above 1. This agrees with the renders of 3.5: the bowl, mostly single reflections, is hidden under the candle and not under tungsten.
+
+**Why.** The error of the sRGB-basis renderer sits in the blue channel, which is the channel that gets clipped:
+
+- The sRGB blue sensor (the CIE observer converted to linear sRGB) is negative from 516 to 780 nm. Gold reflects long wavelengths strongly and short ones weakly, so under a red light the spectral result keeps the negative part of the blue integral and loses most of the positive part. Its blue is negative (outside sRGB): −0.056 for the candle and one reflection.
+- The RGB renderer's blue is the light's blue times gold's blue (0.36). A light redder than about 1910 K has a blue of zero or below, so the RGB blue sits at about 0, on the edge of sRGB (−0.004).
+- For the candle and one reflection the linear error is 5.83, of which the blue channel alone accounts for 5.05 and red and green together for 1.03. Clipping sets both blues to 0 and removes the error together with the blue.
+- Above about 1910 K the light's blue is positive, the RGB blue stays above 0 (2200 K: +0.023 against −0.025) and the clip no longer removes it (2.71). With more reflections the red and green error grows, and no clip removes that.
+- In the wide bases the error is not in the sRGB blue (ACEScg, candle, one reflection: blue alone 0.14 of 1.17), so the clip removes little of it.
+
+**A consequence for the choice of working space.** On an sRGB display with clipping, the sRGB-basis renderer looks on average closer to the spectral result than the Display P3, Rec.2020 and ACEScg bases do (3.19 against 4.3 to 4.6), because its error lies in the channel that the clip discards; only the Sharp basis does better (2.73). On a P3 display it is the other way round (7.98 against 4.0 to 4.7, Sharp 2.64), and so is an sRGB display with a gamut mapping that reduces chroma instead of clipping (OKLCH: 5.45 against 3.8 to 4.5, Sharp 2.40). A wider working space lowers the rendering error itself (Ward and Eydelberg-Vileshin 2002; [rgb_basis_study_results.txt](data/rgb_basis_study_results.txt)), but whether the displayed image gets closer to the spectral one depends on the display and on the gamut mapping.
+
+Limits: a calculation with the reference model, not renders (the engine's RGB build works only in sRGB primaries). Normal incidence and the same metal at every bounce. The display values depend on the tone curve (Reinhard per channel at exposure 0). ACEScg here is the AP1 primaries with a D65 white; the ACES white (D60) and its adaptation are not modeled. The Sharp matrix was written from memory of the paper. The model uses Wyman's fit of the CIE observer.
+
+Full output: [working_space_hiding_results.txt](data/working_space_hiding_results.txt) (script `tools/studies/working_space_hiding.py`). Related: light × reflections for the sRGB basis in [condition_map_results.txt](data/condition_map_results.txt) (`condition_map.py`), and the bowl renders under four gamut mappings in [gamut_mapping_results.txt](data/gamut_mapping_results.txt) (`gamut_mapping_study.py`).
 
 ## 4. Why the difference appears
 
@@ -296,6 +327,17 @@ python tools/studies/erato_scielab.py <folder> docs/data/erato_scielab_results.t
 
 # Check of the gamut output (matrices, cICP, 16-bit PNG, .pfm)
 python tools/test/gamut_check.py matrices
+
+# Bowl under four gamut mappings (clip, gray, white, OKLCH), from the same renders
+python tools/studies/gamut_mapping_study.py <folder of renders> docs/data/gamut_mapping_results.txt
+```
+
+**Working space (section 3.7; reference model, seconds to a minute)**
+
+```bash
+python tools/studies/working_space_hiding.py --out docs/data/working_space_hiding_results.txt
+python tools/studies/rgb_basis_study.py --out docs/data/rgb_basis_study_results.txt
+python tools/studies/condition_map.py <out folder>        # results.txt (= docs/data/condition_map_results.txt) and a figure
 ```
 
 File names are `goldbowl_<light>_<rgb|spectral>_<a|b>.pfm` and `erato_<light>_<rgb|spectral>_<a|b>.pfm`. What is measured is not the look of a photograph but the difference between two renders.

@@ -1,0 +1,102 @@
+Condition map (reference model, normal incidence, same metal at every bounce). CIEDE2000 between the RGB renderer and the spectral result.
+'linear' = no display. Display = gamut primaries, mapping, Reinhard per channel (exposure 0). 'out' = the spectral color is outside that gamut (a channel < 0).
+Working basis of the RGB renderer: see each table. Written by tools/studies/condition_map.py.
+
+=== A. Au, RGB renderer in sRGB (Rec.709) primaries: light x reflections ===
+   light  n  linear  sRGB clip  sRGB oklch     P3  Rec2020  hidden by clip  out sRGB / P3
+  1500 K  1    7.44       0.58        3.36   8.24     7.76             93%  yes / no
+  1500 K  2   11.37       1.19        5.97  11.82    11.98             90%  yes / yes
+  1500 K  3   13.40       1.65        7.76  13.25    12.84             88%  yes / yes
+  1500 K  4   14.11       1.88        8.82  14.00    13.10             87%  yes / yes
+  1500 K  6   14.15       1.76        9.22  14.18    12.68             88%  yes / yes
+
+  1850 K  1    5.83       0.64        2.60   5.82     5.59             89%  yes / no
+  1850 K  2    9.92       1.51        4.99  10.37     9.80             85%  yes / no
+  1850 K  3   12.71       2.38        7.00  12.55    12.82             81%  yes / yes
+  1850 K  4   14.28       3.07        8.49  13.54    13.28             77%  yes / yes
+  1850 K  6   14.85       3.56        9.88  14.37    13.29             75%  yes / yes
+
+  2200 K  1    4.61       2.71        3.22   4.31     4.20             37%  yes / no
+  2200 K  2    8.56       2.32        4.53   8.34     8.01             72%  yes / no
+  2200 K  3   11.67       2.88        6.39  11.96    11.31             76%  yes / no
+  2200 K  4   13.90       3.63        8.05  13.03    13.24             72%  yes / yes
+  2200 K  6   15.19       4.55       10.04  14.29    13.60             68%  yes / yes
+
+  2856 K  1    2.96       3.02        3.02   2.64     2.60            -15%   no / no
+  2856 K  2    6.43       4.12        4.70   5.84     5.71             29%  yes / no
+  2856 K  3    9.75       3.52        5.62   9.24     8.93             62%  yes / no
+  2856 K  4   12.52       4.02        7.27  12.25    11.91             67%  yes / yes
+  2856 K  6   15.24       5.33        9.90  13.90    13.72             62%  yes / yes
+
+  3500 K  1    1.83       1.85        1.85   1.67     1.64            -11%   no / no
+  3500 K  2    4.82       4.94        4.94   4.30     4.24            -15%   no / no
+  3500 K  3    8.14       4.04        5.23   7.46     7.29             46%  yes / no
+  3500 K  4   11.19       4.14        6.65  10.74    10.37             61%  yes / no
+  3500 K  6   14.92       5.56        9.61  13.46    13.59             59%  yes / yes
+
+  4500 K  1    0.86       0.86        0.86   0.79     0.78             -9%   no / no
+  4500 K  2    3.07       3.13        3.13   2.82     2.78            -11%   no / no
+  4500 K  3    6.25       4.78        5.13   5.65     5.57             15%  yes / no
+  4500 K  4    9.49       4.23        5.96   8.86     8.65             52%  yes / no
+  4500 K  6   14.24       5.62        9.15  12.87    13.28             56%  yes / yes
+
+  5500 K  1    1.05       0.55        0.55   0.56     0.60              3%   no / no
+  5500 K  2    2.05       2.13        2.13   1.93     1.91            -11%   no / no
+  5500 K  3    4.96       5.08        5.08   4.52     4.47            -12%   no / no
+  5500 K  4    8.25       4.32        5.54   7.63     7.50             43%  yes / no
+  5500 K  6   13.58       5.57        8.77  12.43    12.97             55%  yes / yes
+
+  6500 K  1    1.58       0.87        0.87   0.91     0.96              5%   no / no
+  6500 K  2    1.60       1.54        1.54   1.40     1.40            -10%   no / no
+  6500 K  3    4.10       4.20        4.20   3.77     3.73            -11%   no / no
+  6500 K  4    7.36       4.45        5.29   6.80     6.70             35%  yes / no
+  6500 K  6   13.04       5.52        8.48  12.11    12.43             54%  yes / yes
+
+     D65  1    2.05       1.14        1.14   1.20     1.26              5%   no / no
+     D65  2    1.77       1.55        1.55   1.42     1.44             -9%   no / no
+     D65  3    3.71       4.02        4.02   3.56     3.52            -13%   no / no
+     D65  4    6.90       4.02        4.85   6.49     6.40             38%  yes / no
+     D65  6   12.69       5.20        8.11  11.72    12.11             56%  yes / yes
+
+=== B. Working space x output (Au; the RGB renderer works in the row's basis, the display is the column) ===
+Columns: output gamut and mapping. 'linear' needs no display. Same pairs as above.
+-- tungsten 2856 K, 1 reflection(s) --
+   working basis  linear  sRGB clip  sRGB oklch     P3  Rec2020
+  sRGB (Rec.709)    2.96       3.02        3.02   2.64     2.60
+      Display P3    1.90       1.10        1.10   1.11     1.11
+        Rec.2020    1.19       0.94        0.94   0.87     0.85
+           Sharp    0.77       0.33        0.33   0.35     0.36
+-- tungsten 2856 K, 3 reflection(s) --
+   working basis  linear  sRGB clip  sRGB oklch     P3  Rec2020
+  sRGB (Rec.709)    9.75       3.52        5.62   9.24     8.93
+      Display P3    6.21       4.00        3.97   4.85     4.56
+        Rec.2020    4.85       3.84        3.91   4.53     4.28
+           Sharp    2.74       2.30        2.06   2.01     1.96
+
+-- candle 1850 K, 1 reflection(s) --
+   working basis  linear  sRGB clip  sRGB oklch     P3  Rec2020
+  sRGB (Rec.709)    5.83       0.64        2.60   5.82     5.59
+      Display P3    2.46       1.39        1.46   1.93     1.77
+        Rec.2020    2.07       1.54        1.63   1.95     1.81
+           Sharp    1.19       0.81        0.62   0.82     0.79
+-- candle 1850 K, 3 reflection(s) --
+   working basis  linear  sRGB clip  sRGB oklch     P3  Rec2020
+  sRGB (Rec.709)   12.71       2.38        7.00  12.55    12.82
+      Display P3    6.31       5.43        4.75   5.31     5.35
+        Rec.2020    6.11       6.44        6.03   6.34     6.44
+           Sharp    4.00       3.51        2.78   3.30     3.22
+
+=== C. Metals (RGB renderer in sRGB primaries) ===
+metal      light  n  linear  sRGB clip  sRGB oklch     P3
+   Au     2856 K  1    2.96       3.02        3.02   2.64
+   Au     2856 K  3    9.75       3.52        5.62   9.24
+   Au     1850 K  1    5.83       0.64        2.60   5.82
+   Au     1850 K  3   12.71       2.38        7.00  12.55
+   Cu     2856 K  1    1.75       1.24        1.24   1.20
+   Cu     2856 K  3    4.41       3.93        3.93   3.61
+   Cu     1850 K  1    2.80       0.41        1.01   2.58
+   Cu     1850 K  3    6.68       2.61        2.33   6.55
+   Ag     2856 K  1    0.04       0.03        0.03   0.02
+   Ag     2856 K  3    0.12       0.08        0.08   0.08
+   Ag     1850 K  1    0.07       0.01        0.03   0.07
+   Ag     1850 K  3    0.22       0.02        0.08   0.20

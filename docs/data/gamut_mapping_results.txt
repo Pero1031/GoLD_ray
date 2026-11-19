@@ -1,0 +1,36 @@
+Gamut-mapping sensitivity of the displayed RGB-vs-spectral difference (gold bowl, 800x450, 256 spp, mean of two renders per build, 3x3 blur; bowl box, lit pixels).
+CIEDE2000 between the displayed RGB and spectral images. Methods: see tools/studies/gamut_mapping_study.py.
+
+=== d65 (77625 pixels) ===
+display     mapping  dE00 mean  95 pct     >1    outside   noise RGB noise spec
+sRGB        clip          1.32    2.80  65.4%       0.2%        0.54       0.73
+sRGB        gray          1.32    2.80  65.4%       0.2%        0.54       0.73
+sRGB        white         1.32    2.80  65.4%       0.2%        0.54       0.73
+sRGB        oklch         1.32    2.80  65.4%       0.2%        0.54       0.73
+Display P3  clip          1.32    2.71  66.9%       0.0%        0.57       0.75
+Display P3  gray          1.32    2.71  66.9%       0.0%        0.57       0.75
+Display P3  white         1.32    2.71  66.9%       0.0%        0.57       0.75
+Display P3  oklch         1.32    2.71  66.9%       0.0%        0.57       0.75
+
+=== tungsten (77625 pixels) ===
+display     mapping  dE00 mean  95 pct     >1    outside   noise RGB noise spec
+sRGB        clip          2.65    4.92  79.6%      25.8%        0.46       0.55
+sRGB        gray          2.72    5.13  79.6%      25.8%        0.46       0.56
+sRGB        white         2.77    5.30  79.6%      25.8%        0.46       0.55
+sRGB        oklch         2.80    5.46  79.6%      25.8%        0.46       0.55
+Display P3  clip          2.88    6.60  79.6%       0.0%        0.47       0.57
+Display P3  gray          2.88    6.60  79.6%       0.0%        0.47       0.57
+Display P3  white         2.88    6.60  79.6%       0.0%        0.47       0.57
+Display P3  oklch         2.88    6.60  79.6%       0.0%        0.47       0.57
+
+=== candle (77625 pixels) ===
+display     mapping  dE00 mean  95 pct     >1    outside   noise RGB noise spec
+sRGB        clip          0.91    2.11  36.0%     100.0%        0.41       0.56
+sRGB        gray          1.82    3.56  75.5%     100.0%        0.41       0.55
+sRGB        white         2.22    4.10  77.4%     100.0%        0.42       0.57
+sRGB        oklch         2.58    4.89  78.8%     100.0%        0.42       0.54
+Display P3  clip          5.15    9.82  86.6%       3.3%        0.44       0.60
+Display P3  gray          5.15    9.82  86.6%       3.3%        0.44       0.60
+Display P3  white         5.15    9.82  86.6%       3.3%        0.44       0.60
+Display P3  oklch         5.16    9.82  86.6%       3.3%        0.44       0.60
+
