@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -38,41 +39,143 @@ namespace rayt {
             }
         }
 
+        constexpr Real kAutoAperture = Real(1);   // a clear semi-diameter of 1 m or more: "auto", set by setAutoApertures
+
+        bool ParseNumber(const std::string& token, double& value) {
+            if (token == "inf" || token == "infinity" || token == "Infinity") { value = HUGE_VAL; return true; }
+            char* end = nullptr;
+            value = std::strtod(token.c_str(), &end);
+            return end && *end == '\0' && end != token.c_str();
+        }
+
     } // namespace
+
+    bool LensSystem::Surface::sag(Real r, Real& z, Real& slope) const {
+        // in millimetres, the units of the coefficients: z = c r^2 / (1 + s) + Sum A_i r^i, dz/dr = c r / s + Sum i A_i r^(i-1)
+        const Real rm = r * Real(1e3);
+        const Real c = radius == Real(0) ? Real(0) : Real(1) / (radius * Real(1e3));
+        const Real arg = Real(1) - (Real(1) + conic) * c * c * rm * rm;
+        if (!(arg > Real(1e-12))) return false;
+        const Real s = std::sqrt(arg);
+        Real zm = c * rm * rm / (Real(1) + s), dz = c * rm / s;
+        Real rp = 1;   // r^(i-1), then r^i
+        for (size_t i = 1; i < coef.size(); ++i) {
+            dz += Real(i) * coef[i] * rp;
+            rp *= rm;
+            zm += coef[i] * rp;
+        }
+        z = zm * Real(1e-3);
+        slope = dz;
+        return true;
+    }
 
     std::shared_ptr<LensSystem> LensSystem::load(const std::string& path, std::string& error) {
         std::ifstream in(path);
         if (!in) { error = "cannot open " + path; return nullptr; }
         std::vector<Surface> surfaces;
+        std::vector<bool> autoDiameter;
         Real z = 0;
+        double fNumberWanted = 0, imageHeightMm = 0;
         int lineNo = 0;
         for (std::string line; std::getline(in, line);) {
             ++lineNo;
             if (const size_t hash = line.find('#'); hash != std::string::npos) line.erase(hash);
             std::istringstream ss(line);
-            std::vector<double> v;
-            for (double x; ss >> x;) v.push_back(x);
-            if (v.empty()) continue;
-            if (v.size() < 4 || v.size() > 5) { error = path + ", line " + std::to_string(lineNo) + ": expected radius, thickness, n_d, diameter [, Abbe number]"; return nullptr; }
+            std::vector<std::string> tok;
+            for (std::string t; ss >> t;) tok.push_back(t);
+            if (tok.empty()) continue;
+            const std::string where = path + ", line " + std::to_string(lineNo) + ": ";
+            double first = 0;
+            if (!ParseNumber(tok[0], first)) {   // a keyword line
+                const std::string& key = tok[0];
+                if (key == "asphere") {
+                    if (surfaces.empty() || surfaces.back().isStop()) { error = where + "\"asphere\" must follow the line of a lens surface"; return nullptr; }
+                    if (tok.size() < 3 || tok.size() % 2 == 0) { error = where + "expected asphere followed by pairs: k K A4 a4 A6 a6 ..."; return nullptr; }
+                    Surface& s = surfaces.back();
+                    for (size_t i = 1; i + 1 < tok.size(); i += 2) {
+                        double value = 0;
+                        if (!ParseNumber(tok[i + 1], value) || !std::isfinite(value)) { error = where + "not a number: " + tok[i + 1]; return nullptr; }
+                        if (tok[i] == "k") { s.conic = Real(value); continue; }
+                        int power = 0;
+                        if (tok[i].size() >= 2 && (tok[i][0] == 'A' || tok[i][0] == 'a')) power = std::atoi(tok[i].c_str() + 1);
+                        if (power < 2 || power > 60) { error = where + "unknown coefficient " + tok[i] + " (k, or A2 ... A60)"; return nullptr; }
+                        if (value != 0) s.poly.emplace_back(power, Real(value));
+                    }
+                } else if (key == "fnumber" || key == "image-height") {
+                    double value = 0;
+                    if (tok.size() != 2 || !ParseNumber(tok[1], value) || !(value > 0) || !std::isfinite(value)) { error = where + "expected " + key + " and a number above 0"; return nullptr; }
+                    (key == "fnumber" ? fNumberWanted : imageHeightMm) = value;
+                } else { error = where + "unknown keyword " + key + " (asphere, fnumber, image-height)"; return nullptr; }
+                continue;
+            }
+            if (tok.size() < 4 || tok.size() > 5) { error = where + "expected radius, thickness, n_d, diameter [, Abbe number]"; return nullptr; }
+            double v[5] = { 0, 0, 0, 0, 0 };
+            const bool isAuto = tok[3] == "auto";
+            for (size_t i = 0; i < tok.size(); ++i) {
+                if (i == 3 && isAuto) continue;
+                if (!ParseNumber(tok[i], v[i]) || (i > 0 && !std::isfinite(v[i]))) { error = where + "not a number: " + tok[i]; return nullptr; }
+            }
             Surface s;
-            s.radius = Real(v[0] * 1e-3);
+            s.flat = std::isinf(v[0]);
+            s.radius = s.flat ? Real(0) : Real(v[0] * 1e-3);
             s.z = z;
             s.nd = v[2] > 1 ? Real(v[2]) : Real(1);
-            s.apertureRadius = Real(v[3] * 0.5e-3);
-            s.abbe = v.size() == 5 ? Real(v[4]) : Real(0);
-            if (!(s.apertureRadius > 0)) { error = path + ", line " + std::to_string(lineNo) + ": the diameter must be above 0"; return nullptr; }
-            if (s.radius != 0 && std::fabs(s.radius) < s.apertureRadius) { error = path + ", line " + std::to_string(lineNo) + ": the radius is smaller than the semi-diameter"; return nullptr; }
+            s.apertureRadius = isAuto ? kAutoAperture : Real(v[3] * 0.5e-3);
+            s.abbe = tok.size() == 5 ? Real(v[4]) : Real(0);
+            if (!(s.apertureRadius > 0)) { error = where + "the diameter must be above 0"; return nullptr; }
+            if (s.isStop() && s.nd > 1) { error = where + "a radius of 0 is the stop, in air (a flat glass surface has the radius inf)"; return nullptr; }
             surfaces.push_back(s);
+            autoDiameter.push_back(isAuto);
             z -= Real(v[1] * 1e-3);
         }
         if (surfaces.empty()) { error = path + ": no surfaces"; return nullptr; }
+        // A sphere smaller than its clear diameter cannot be a lens surface (an asphere's base radius can be)
+        for (size_t i = 0; i < surfaces.size(); ++i) {
+            const Surface& s = surfaces[i];
+            if (!autoDiameter[i] && s.radius != 0 && !s.aspheric() && std::fabs(s.radius) < s.apertureRadius) {
+                error = path + ", surface " + std::to_string(i + 1) + ": the radius is smaller than the semi-diameter";
+                return nullptr;
+            }
+        }
+        const bool anyAuto = std::find(autoDiameter.begin(), autoDiameter.end(), true) != autoDiameter.end();
+        const auto stopIt = std::find_if(surfaces.begin(), surfaces.end(), [](const Surface& s) { return s.isStop(); });
+        if (anyAuto && !(imageHeightMm > 0)) { error = path + ": \"auto\" clear diameters need the image height (image-height H)"; return nullptr; }
+        if (stopIt != surfaces.end() && stopIt->apertureRadius >= kAutoAperture && !(fNumberWanted > 0)) {
+            error = path + ": an \"auto\" stop diameter needs the f-number (fnumber N)";
+            return nullptr;
+        }
         auto lens = std::make_shared<LensSystem>(std::move(surfaces));
         if (!(lens->focalLength() > 0)) { error = path + ": not a converging lens (no positive focal length at 587.6 nm)"; return nullptr; }
+        if (fNumberWanted > 0) {   // the stop's radius for that f-number (the f-number falls as the stop opens)
+            auto stop = std::find_if(lens->m_surfaces.begin(), lens->m_surfaces.end(), [](const Surface& s) { return s.isStop(); });
+            if (stop == lens->m_surfaces.end()) { error = path + ": fnumber needs a stop (a surface of radius 0)"; return nullptr; }
+            Real lo = Real(1e-7), hi = Real(0.5);
+            stop->apertureRadius = hi;
+            if (lens->fNumber() > Real(fNumberWanted)) { error = path + ": the lens cannot open to f/" + std::to_string(fNumberWanted); return nullptr; }
+            for (int k = 0; k < 80; ++k) {
+                stop->apertureRadius = Real(0.5) * (lo + hi);
+                (lens->fNumber() > Real(fNumberWanted) ? lo : hi) = stop->apertureRadius;
+            }
+            stop->apertureRadius = Real(0.5) * (lo + hi);
+        }
+        if (imageHeightMm > 0) {
+            if (anyAuto && !lens->setAutoApertures(Real(imageHeightMm * 1e-3), error)) { error = path + ": " + error; return nullptr; }
+            lens->m_imageHeight = Real(imageHeightMm * 1e-3);
+        }
+        lens->m_wideOpen = lens->fNumber();
         return lens;
     }
 
     LensSystem::LensSystem(std::vector<Surface> surfaces) : m_surfaces(std::move(surfaces)) {
-        for (Surface& s : m_surfaces) SetCauchy(s);
+        for (Surface& s : m_surfaces) {
+            SetCauchy(s);
+            s.coef.clear();
+            for (const auto& [power, a] : s.poly) {
+                if (power < 1) continue;
+                if (s.coef.size() <= static_cast<size_t>(power)) s.coef.resize(static_cast<size_t>(power) + 1, Real(0));
+                s.coef[static_cast<size_t>(power)] += a;
+            }
+        }
         paraxial();
         m_filmZ = m_rearFocal;
         m_wideOpen = fNumber();
@@ -114,33 +217,70 @@ namespace rayt {
         return true;
     }
 
-    bool LensSystem::crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop) const {
+    bool LensSystem::intersectAspheric(const Surface& s, const Point3& o, const Vector3& d, Real& t) const {
+        // G(t) = z(t) - z_vertex + sag(rho(t)) = 0 (the surface lies at z_vertex - sag); Newton's method from the vertex plane
+        if (std::fabs(d.z) < Real(1e-12)) return false;
+        t = (s.z - o.z) / d.z;
+        for (int it = 0; it < 50; ++it) {
+            const Point3 p = o + d * t;
+            const Real rho = std::sqrt(p.x * p.x + p.y * p.y);
+            Real sag = 0, slope = 0;
+            if (!s.sag(rho, sag, slope)) return false;
+            const Real g = p.z - s.z + sag;
+            const Real dg = d.z + (rho > Real(0) ? slope * (p.x * d.x + p.y * d.y) / rho : Real(0));
+            if (std::fabs(dg) < Real(1e-12)) return false;
+            const Real step = g / dg;
+            t -= step;
+            if (std::fabs(step) < Real(1e-14)) return true;
+        }
+        return false;
+    }
+
+    bool LensSystem::crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop, bool backward) const {
         const Surface& s = m_surfaces[static_cast<size_t>(i)];
-        if (s.radius == Real(0)) {   // the aperture stop: a plane, no refraction
+        const Real tMin = backward ? -HUGE_VAL : Real(1e-12);
+        if (s.isStop()) {   // the aperture stop: a plane, no refraction
             if (std::fabs(d.z) < Real(1e-12)) return false;
             const Real t = (s.z - o.z) / d.z;
-            if (t <= Real(0)) return false;
+            if (!backward && t <= Real(0)) return false;
             const Point3 p = o + d * t;
             if (!insideStop(s, p.x, p.y, stop)) return false;
             o = p;
             return true;
         }
-        // a sphere through the vertex, its centre on the axis; the intersection on the vertex's side of the sphere
-        const Point3 centre(0, 0, s.z - s.radius);
-        const Vector3 oc = o - centre;
-        const Real b = glm::dot(oc, d), c = glm::dot(oc, oc) - s.radius * s.radius;
-        const Real disc = b * b - c;
-        if (disc < Real(0)) return false;
-        const Real root = std::sqrt(disc);
-        const Real t = ((d.z > Real(0)) == (s.radius > Real(0))) ? -b + root : -b - root;
-        if (t <= Real(1e-12)) return false;
-        const Point3 p = o + d * t;
-        if (p.x * p.x + p.y * p.y > s.apertureRadius * s.apertureRadius) return false;
-        Vector3 normal = glm::normalize(p - centre);
+        Real t = 0;
+        Vector3 normal;
+        if (s.aspheric() || s.flat) {
+            if (s.aspheric()) { if (!intersectAspheric(s, o, d, t)) return false; }
+            else {
+                if (std::fabs(d.z) < Real(1e-12)) return false;
+                t = (s.z - o.z) / d.z;
+            }
+            if (t <= tMin) return false;
+            const Point3 p = o + d * t;
+            const Real rho = std::sqrt(p.x * p.x + p.y * p.y);
+            if (rho > s.apertureRadius) return false;
+            Real sag = 0, slope = 0;
+            if (!s.sag(rho, sag, slope)) return false;
+            normal = rho > Real(0) ? glm::normalize(Vector3(slope * p.x / rho, slope * p.y / rho, Real(1))) : Vector3(0, 0, 1);
+            o = p;
+        } else {
+            // a sphere through the vertex, its centre on the axis; the intersection on the vertex's side of the sphere
+            const Point3 centre(0, 0, s.z - s.radius);
+            const Vector3 oc = o - centre;
+            const Real b = glm::dot(oc, d), c = glm::dot(oc, oc) - s.radius * s.radius;
+            const Real disc = b * b - c;
+            if (disc < Real(0)) return false;
+            const Real root = std::sqrt(disc);
+            t = ((d.z > Real(0)) == (s.radius > Real(0))) ? -b + root : -b - root;
+            if (t <= tMin) return false;
+            const Point3 p = o + d * t;
+            if (p.x * p.x + p.y * p.y > s.apertureRadius * s.apertureRadius) return false;
+            normal = glm::normalize(p - centre);
+            o = p;
+        }
         if (glm::dot(normal, d) > Real(0)) normal = -normal;
-        if (!Refract(d, normal, nFrom / nTo)) return false;
-        o = p;
-        return true;
+        return Refract(d, normal, nFrom / nTo);
     }
 
     bool LensSystem::traceFromFilm(Point3& o, Vector3& d, Real nm) const {
@@ -148,22 +288,89 @@ namespace rayt {
     }
 
     bool LensSystem::traceFromFilmWith(Point3& o, Vector3& d, Real nm, const StopShape& stop) const {
-        for (int i = static_cast<int>(m_surfaces.size()) - 1; i >= 0; --i)
-            if (!crossSurface(i, o, d, indexAfter(i, nm), indexAfter(i - 1, nm), stop)) return false;
+        const int n = static_cast<int>(m_surfaces.size());
+        for (int i = n - 1; i >= 0; --i) {
+            // a negative spacing puts surface i behind surface i + 1, which the ray has just left
+            const bool backward = i + 1 < n && m_surfaces[static_cast<size_t>(i)].z < m_surfaces[static_cast<size_t>(i + 1)].z;
+            if (!crossSurface(i, o, d, indexAfter(i, nm), indexAfter(i - 1, nm), stop, backward)) return false;
+        }
         return true;
     }
 
     bool LensSystem::traceFromObject(Point3& o, Vector3& d, Real nm) const {
         const StopShape stop{ m_stopScale, m_blades, m_bladeRotation };
-        for (int i = 0; i < static_cast<int>(m_surfaces.size()); ++i)
-            if (!crossSurface(i, o, d, indexAfter(i - 1, nm), indexAfter(i, nm), stop)) return false;
+        for (int i = 0; i < static_cast<int>(m_surfaces.size()); ++i) {
+            const bool backward = i > 0 && m_surfaces[static_cast<size_t>(i)].z > m_surfaces[static_cast<size_t>(i - 1)].z;
+            if (!crossSurface(i, o, d, indexAfter(i - 1, nm), indexAfter(i, nm), stop, backward)) return false;
+        }
+        return true;
+    }
+
+    Real LensSystem::fieldAngleForImageHeight(Real h) const {
+        if (m_surfaces.empty() || !m_surfaces.front().isStop()) return Real(0);
+        const Real z0 = m_surfaces.front().z;
+        auto landing = [&](Real theta, Real& y) {   // the chief ray of the field angle theta (coming from -x): its height x on the focal plane
+            const Vector3 d0(std::sin(theta), 0, -std::cos(theta));
+            Point3 o = Point3(0, 0, z0) - d0 * Real(0.01);
+            Vector3 d = d0;
+            if (!traceFromObject(o, d, kLineD) || d.z >= Real(0)) return false;
+            y = o.x + (m_rearFocal - o.z) / d.z * d.x;
+            return true;
+        };
+        Real lo = 0, hi = Real(89) * kPi / Real(180);
+        for (int k = 0; k < 80; ++k) {
+            const Real mid = Real(0.5) * (lo + hi);
+            Real y = 0;
+            (landing(mid, y) && y < h ? lo : hi) = mid;
+        }
+        Real y = 0;
+        if (!landing(lo, y) || std::fabs(y - h) > Real(1e-6) * h) return Real(0);
+        return lo;
+    }
+
+    bool LensSystem::setAutoApertures(Real imageHeight, std::string& error) {
+        if (m_surfaces.empty() || !m_surfaces.front().isStop()) { error = "\"auto\" clear diameters need the stop as the first surface"; return false; }
+        const Real thetaMax = fieldAngleForImageHeight(imageHeight);
+        if (!(thetaMax > 0)) { error = "no chief ray reaches the image height " + std::to_string(imageHeight * 1e3) + " mm"; return false; }
+        const size_t n = m_surfaces.size();
+        const Real z0 = m_surfaces.front().z, rs = m_surfaces.front().apertureRadius * Real(1 - 1e-9);
+        const StopShape round{ Real(1), 0, Real(0) };
+        std::vector<Real> highest(n, Real(0));
+        const int fields = 24, rings = 24, spokes = 64;
+        for (int f = 0; f <= fields; ++f) {
+            const Real theta = thetaMax * Real(f) / Real(fields);
+            const Vector3 d0(std::sin(theta), 0, -std::cos(theta));
+            for (int ring = 0; ring <= rings; ++ring)
+                for (int k = 0; k < (ring == 0 ? 1 : spokes); ++k) {
+                    const Real r = rs * Real(ring) / Real(rings), a = Real(2) * kPi * Real(k) / Real(spokes);
+                    Point3 o = Point3(r * std::cos(a), r * std::sin(a), z0) - d0 * Real(0.01);
+                    Vector3 d = d0;
+                    std::vector<Real> h(n, Real(0));
+                    bool through = true;
+                    for (size_t i = 0; i < n && through; ++i) {
+                        const bool backward = i > 0 && m_surfaces[i].z > m_surfaces[i - 1].z;
+                        through = crossSurface(static_cast<int>(i), o, d, indexAfter(static_cast<int>(i) - 1, kLineD), indexAfter(static_cast<int>(i), kLineD), round, backward);
+                        h[i] = std::sqrt(o.x * o.x + o.y * o.y);
+                    }
+                    if (!through) continue;
+                    for (size_t i = 0; i < n; ++i) highest[i] = std::max(highest[i], h[i]);
+                }
+        }
+        for (size_t i = 0; i < n; ++i) {
+            Surface& s = m_surfaces[i];
+            if (s.apertureRadius < kAutoAperture) continue;
+            if (!(highest[i] > 0)) { error = "no ray of the bundle passes surface " + std::to_string(i + 1); return false; }
+            s.apertureRadius = highest[i] * Real(1 + 1e-6);
+        }
+        m_imageHeight = imageHeight;
         return true;
     }
 
     void LensSystem::paraxial() {
-        // A ray parallel to the axis a micrometre off it, from each side: where it crosses the axis is a focal point, where its extension
-        // meets the height it came in at is a principal plane.
-        const Real h = Real(1e-6);
+        // A ray parallel to the axis a nanometre off it, from each side: where it crosses the axis is a focal point, where its extension
+        // meets the height it came in at is a principal plane. (Odd aspheric terms, A3 r^3, bend a ray in proportion to its height, not
+        // its square: at a micrometre they would still move the focus of a phone lens by half a micrometre.)
+        const Real h = Real(1e-9);
         Point3 o(h, 0, Real(0.01));
         Vector3 d(0, 0, -1);
         if (traceFromObject(o, d, kLineD) && std::fabs(d.x) > Real(1e-15)) {
@@ -180,7 +387,7 @@ namespace rayt {
     }
 
     Real LensSystem::focalLengthAt(Real nm) const {
-        const Real h = Real(1e-6);
+        const Real h = Real(1e-9);
         Point3 o(h, 0, Real(0.01));
         Vector3 d(0, 0, -1);
         if (!traceFromObject(o, d, nm) || std::fabs(d.x) < Real(1e-15)) return Real(0);
@@ -210,7 +417,7 @@ namespace rayt {
     }
 
     Real LensSystem::setFNumber(Real n) {
-        const bool hasStop = std::any_of(m_surfaces.begin(), m_surfaces.end(), [](const Surface& s) { return s.radius == Real(0); });
+        const bool hasStop = std::any_of(m_surfaces.begin(), m_surfaces.end(), [](const Surface& s) { return s.isStop(); });
         m_stopScale = 1;
         if (!hasStop || !(n > m_wideOpen)) return fNumber();
         Real lo = Real(1e-4), hi = Real(1);   // the f-number falls as the stop opens

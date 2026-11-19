@@ -20,15 +20,26 @@ The lens of the scene file and of the command line are merged in `Cli/RenderPipe
 
 ### A real lens (`--lens FILE`, camera `"lens"`; `Render/LensSystem`)
 
-Instead of the thin lens, the prescription of a real lens: its spherical surfaces and its aperture stop, one line per surface from the
-front, `radius thickness n_d diameter [Abbe number]` in millimetres (a radius of 0 is the stop; the layout of pbrt's lens files). A camera
-ray starts on the film, crosses the surfaces from the back to the front by Snell's law and is lost at a rim, the stop or total internal
-reflection (Kolb, Mitchell and Hanrahan 1995). What the thin lens takes as parameters follows from the prescription: distortion, field
+Instead of the thin lens, the prescription of a real lens: its spherical, flat and aspheric surfaces and its aperture stop, one line per
+surface from the front, `radius thickness n_d diameter [Abbe number]` in millimetres (a radius of 0 is the stop, `inf` a flat surface; the
+layout of pbrt's lens files). A camera ray starts on the film, crosses the surfaces from the back to the front by Snell's law and is
+lost at a rim, the stop or total internal reflection (Kolb, Mitchell and Hanrahan 1995). What the thin lens takes as parameters follows from the prescription: distortion, field
 curvature, natural and optical vignetting, cat's-eye bokeh at the edges, focus breathing, and, in the spectral build with Abbe numbers,
 axial and lateral chromatic aberration.
 
-- **Set-up:** the focal length, the principal planes and the entrance pupil come from rays traced a micrometre off the axis. The front
-  principal plane sits at the camera position; the film (36 mm on the long side) is placed by Gauss's lens equation for the focus distance;
+- **Aspheric surfaces** (the lenses of phone cameras): a line `asphere k K A4 a4 A6 a6 ...` after a surface gives it the sag of the lens
+  patents, z(r) = c r² / (1 + √(1 − (1 + k) c² r²)) + Σ A_i r^i, with any powers i ≥ 2, odd ones too, in the patents' millimetres. A ray
+  meets it where Newton's method, started on the vertex plane, converges; the normal comes from the derivative of the sag. A negative
+  spacing (the stop behind the first lens's vertex) is followed backward along the ray, as sequential lens-design programs do.
+- **Phone-lens patents** give no clear diameters and are made for a small sensor. `fnumber N` sets the stop for that f-number;
+  `image-height H` (half the image diagonal, mm) makes the film the picture's rectangle on that image circle instead of 36 × 24 mm, and
+  sets every diameter written `auto` to pass the stop's full bundle to every point of that image (the largest height at which such a ray
+  meets the surface; the stop must be the first surface). No surface then vignettes the bundle, as the automatic semi-diameters of
+  lens-design programs do.
+- **Set-up:** the focal length, the principal planes and the entrance pupil come from rays traced a nanometre off the axis (odd aspheric
+  terms bend a ray in proportion to its height: a micrometre off the axis they would still move a phone lens's focus by half a
+  micrometre). The front principal plane sits at the camera position; the film (36 mm on the long side, or the lens's own) is placed by
+  Gauss's lens equation for the focus distance;
   `--fstop` closes the stop (no wider than the lens opens), `--blades` makes it a polygon. The lens and the film decide the field of view
   (`fov` and `focalLength` are not used), and the thin lens's aberration and vignetting settings are not used.
 - **Sampling:** for 64 bands of film radius, the box on the rear vertex's plane through which rays get through (from a 128 × 128 grid of
@@ -44,7 +55,8 @@ axial and lateral chromatic aberration.
   (double-Gauss, 93 µm), 0.28 % (wide-angle) and 0.48 % (fisheye) of f: the residual axial colour, seen as purple and green fringes on
   the bokeh of the fast double-Gauss wide open. The lateral colour stays under 0.1 % of the image height up to the edge of the field
   (11 µm for the fisheye). The set-up prints the focal length, the f-number and the field: 50.0 mm f/2.00, 22.0 mm f/2.79 and
-  10.0 mm f/4.00 for the three.
+  10.0 mm f/4.00 for the three. And a phone lens: `cellphone_5.6mm` (f = 5.59 mm, f/2.8, image height 3.5 mm, four elements with
+  eight aspheric surfaces, M. Taniyama, US 7,535,658, Example 1, read from the patent's figures).
 - **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
   of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
   such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.
@@ -188,6 +200,11 @@ open is the focal length over the stop's diameter and the stop closes to f/8; in
 f / V_d (0.988 of it), and through the whole double-Gauss the real rays near the axis cross it where a paraxial y-u trace of the
 prescription puts the F, d and C foci (within 10⁻⁵ µm; f = 50.0 mm, the patent's); in a camera the double-Gauss's weight averages 1 at the
 film centre and 0.21 in the corner, the picture is upright and a wall 10 m away has the depth 10 in the middle and the corners.
+The aspheric phone lens against rayoptics, an optical-design library that is not the renderer (`tools/test/lens_rayoptics_check.py`,
+which builds the lens from the patent's own numbers, its conic K = 1 + k, and checks the lens file against them): the paraxial focal length
+(5.587072 mm) and back focus (0.648368 mm) within 10⁻⁶ and 1 nm, and 20 real rays from field angles of 0 to 30° through five points of
+the stop land on the patent's image plane within 0.05 nm of rayoptics' points; the `auto` diameters pass all of them and the stop gives
+f/2.8. (The patent states f = 5.57 mm, rounded.)
 
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged
@@ -230,7 +247,10 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
   the sensor are in its description). The camera's processing ends at the colour matrix: no noise reduction, no sharpening, no lens
   shading correction and no maker's tone curve (each a maker's own design); the display mapping (`--tonemap`, the sRGB curve) follows.
 - Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
-- A real lens has spherical surfaces only (no aspheres), no reflections between them (no ghosts or flare) and no absorption in the glass; a radius of 0 is always the stop (a flat glass surface cannot be written). It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
+- A real lens has no reflections between its surfaces (no ghosts or flare) and no absorption in the glass. Aspheres are the power series
+  of the patents only: Forbes's Q-polynomials (Qcon, Qbfs), which some recent phone-lens patents use, are not read. Many such patents print
+  too little to be rebuilt: Q-type coefficients without the normalisation radius, power series rounded to three digits whose terms cancel
+  to a thousandth of their size, indices to two decimals. It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).
 - In the orthographic view the vignetting has no effect (every chief ray is on the axis), and a slanted view down at a floor shows no horizon.
 - The mask selects materials, not objects: two objects with the same material are masked together (give them copies of the material). A mix material is selected by the name of the mix.
 - The depth has one ray per pixel (no anti-aliasing): an edge pixel has the depth of the surface at its centre. Gaussian splats are not surfaces for either output.

@@ -132,6 +132,7 @@ The literature values behind the lotion and emulsion model are listed separately
 - C. Kolb, D. Mitchell, P. Hanrahan, "A Realistic Camera Model for Computer Graphics", SIGGRAPH 1995, 317-324. Tracing rays through a lens prescription surface by surface ([CAMERA.md](CAMERA.md)).
 - W. J. Smith, *Modern Lens Design: A Resource Manual*, McGraw-Hill, 1992 (the edition Kolb et al. cite; 2nd ed. 2005). *(which edition pbrt's files follow is not confirmed)* The source of the bundled lenses' radii, through pbrt's lens files.
 - A. W. Tronnier, US 2,673,491 (double-Gauss); A. Nakamura, US 4,211,472, embodiment 4 (wide angle); R. Muller, US 4,647,161, embodiment 1 (fisheye). The glasses (n_d, Abbe number) of the bundled lenses, read from the patents.
+- M. Taniyama (Fujinon), US 7,535,658, *Imaging lens*, 2009 (priority 2005), Example 1. The aspheric phone-camera lens `cellphone_5.6mm`, read from the patent's figures.
 - J. Jiang, D. Liu, J. Gu, S. Süsstrunk, "What is the Space of Spectral Sensitivity Functions for Digital Color Cameras?", WACV 2013, 168-179, doi:10.1109/WACV.2013.6475015. The spectral sensitivities of 28 cameras (`--camera-response`; CC BY-NC-SA, not redistributed).
 - H. S. Malvar, L.-W. He, R. Cutler, "High-Quality Linear Interpolation for Demosaicing of Bayer-Patterned Color Images", ICASSP 2004, doi:10.1109/ICASSP.2004.1326587. The default demosaicing of the sensor model.
 - ISO 12232:2019, *Photography - Digital still cameras - Determination of exposure index, ISO speed ratings, standard output sensitivity, and recommended exposure index*. The ISO speed of the physical exposure (the standard itself was not read).
@@ -149,5 +150,6 @@ The literature values behind the lotion and emulsion model are listed separately
 **Software and background**
 
 - W. Jakob, S. Speierer, N. Roussel, M. Nimier-David, D. Vicini, T. Zeltner, B. Nicolet, M. Crespo, V. Leroy, Z. Zhang, *Mitsuba 3 renderer*, 2022, [mitsuba-renderer.org](https://www.mitsuba-renderer.org). The RGB-vs-spectral study of the graduation research was done with it, and the renderer is cross-checked against it ([MITSUBA_CHECK.md](MITSUBA_CHECK.md)).
+- M. Hayford, *ray-optics* (rayoptics), an optical-design library in Python (BSD), version 0.9.5, [github.com/mjhoptics/ray-optics](https://github.com/mjhoptics/ray-optics). The independent trace of the aspheric phone lens (`tools/test/lens_rayoptics_check.py`).
 - Blender 4.5 and its OpenColorIO configuration (views Standard, Filmic, AgX), and the ACES 1.3 configuration built into OpenColorIO 2.4. The view transforms of the gamut study ([METAL_ACCURACY.md](METAL_ACCURACY.md) 3.8).
 - rawpy (LibRaw) and colour-demosaicing. The independent reading of the sensor model's DNG files (`tools/test/sensor_dng_check.py`).

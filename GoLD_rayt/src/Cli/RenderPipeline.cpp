@@ -142,12 +142,12 @@ bool ApplyCameraResponse(const std::string& path) {
 }
 
 // Diffraction at an aperture of f-number N (--diffraction): the pattern's setup, and a line on its size.
-DiffractionSetup MakeDiffraction(const ResolvedLens& lens, Real fNumber, int imageWidth, int imageHeight) {
+DiffractionSetup MakeDiffraction(const ResolvedLens& lens, Real fNumber, int imageWidth, int imageHeight, Real filmLongSide = Real(0.036)) {
     DiffractionSetup d;
     d.fNumber = fNumber;
     d.blades = lens.blades;
     d.bladeRotation = lens.bladeRotationDeg * constants::DEG_TO_RAD;
-    d.pixelPitch = Real(0.036) / Real(std::max(imageWidth, imageHeight));   // the 35 mm convention: 36 mm over the long side
+    d.pixelPitch = filmLongSide / Real(std::max(imageWidth, imageHeight));   // the film's long side (the 35 mm convention: 36 mm)
     d.scale = lens.diffraction;
     d.radius = std::min(255, std::max(imageWidth, imageHeight));
     std::cout << "[Camera] diffraction at the aperture (f/" << fNumber << ", " << (lens.blades >= 3 ? std::to_string(lens.blades) + " blades" : std::string("round"))
@@ -183,7 +183,8 @@ bool PhysicalExposureStops(const CliOptions& opt, const ResolvedLens& lens, Real
 }
 
 // A real lens (--lens, camera "lens"): its prescription, the stop closed to the f-number asked for, focused on the focus distance (from the
-// front principal plane, which sits at the camera position), the film of the 35 mm convention. Its field of view comes from the lens and the film.
+// front principal plane, which sits at the camera position), the film of the 35 mm convention, or the picture's rectangle on the lens's own
+// image circle when its file gives one (image-height: a phone lens and its sensor). Its field of view comes from the lens and the film.
 std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup& setup, const ResolvedLens& lens, int imageWidth, int imageHeight,
     bool lightTracing, std::optional<DiffractionSetup>& diffraction, Real& exposureStops) {
     if (lens.orthoHeight > 0) { std::cerr << "[Camera] --lens and --ortho exclude each other\n"; return nullptr; }
@@ -196,7 +197,11 @@ std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup&
     const auto system = LensSystem::load(lens.lensFile, error);
     if (!system) { std::cerr << "[Lens] " << error << "\n"; return nullptr; }
     const double aspect = double(imageWidth) / imageHeight;
-    const Real filmW = aspect >= 1 ? Real(0.036) : Real(0.036 * aspect), filmH = aspect >= 1 ? Real(0.036 / aspect) : Real(0.036);
+    Real filmW = aspect >= 1 ? Real(0.036) : Real(0.036 * aspect), filmH = aspect >= 1 ? Real(0.036 / aspect) : Real(0.036);
+    if (system->imageHeight() > 0) {   // the rectangle whose diagonal is the image circle's diameter
+        filmW = Real(2) * system->imageHeight() * Real(aspect / std::sqrt(1 + aspect * aspect));
+        filmH = filmW / Real(aspect);
+    }
     const Real wideOpen = system->wideOpenFNumber();
     const Real fNumber = lens.fStopGiven ? system->setFNumber(lens.fStop) : wideOpen;
     system->setStopShape(lens.blades, lens.bladeRotationDeg * constants::DEG_TO_RAD);
@@ -227,7 +232,7 @@ std::shared_ptr<Camera> BuildLensCamera(const CliOptions& opt, const SceneSetup&
     if (hasAbbe) std::cout << "[Lens] note: the glass is dispersive, but the RGB build traces n_d only (use the spectral build for chromatic aberration)\n";
 #endif
     (void)hasAbbe;
-    if (lens.diffraction > 0) diffraction = MakeDiffraction(lens, fNumber, imageWidth, imageHeight);
+    if (lens.diffraction > 0) diffraction = MakeDiffraction(lens, fNumber, imageWidth, imageHeight, std::max(filmW, filmH));
     if (!PhysicalExposureStops(opt, lens, fNumber, system->centreIrradiance(), exposureStops)) return nullptr;
     return camera;
 }

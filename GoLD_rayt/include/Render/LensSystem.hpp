@@ -1,12 +1,19 @@
 /**
  * @file include/Render/LensSystem.hpp
- * @brief A real lens: the spherical surfaces and the aperture stop of a published prescription, traced ray by ray (--lens). docs/CAMERA.md
+ * @brief A real lens: the spherical, flat and aspheric surfaces and the aperture stop of a published prescription, traced ray by ray
+ *        (--lens). docs/CAMERA.md
  *
  * A camera ray starts on the film, crosses every surface from the back to the front (Snell's law at each, a dispersive glass bending each
  * wavelength its own way) and is lost when it meets a rim, the stop or total internal reflection. Distortion, field curvature, vignetting,
  * cat's-eye bokeh, focus breathing and chromatic aberration are not parameters here: they follow from the prescription.
  *
- * Lens frame: the optical axis is z, pointing at the object; the front vertex is at z = 0 and the film behind the lens at negative z.
+ * An aspheric surface has the sag of the lens patents, z(r) = c r^2 / (1 + sqrt(1 - (1 + k) c^2 r^2)) + Sum_i A_i r^i (c = 1 / radius,
+ * k the conic constant, any powers i >= 2, odd ones too), measured from the vertex toward the film. A ray meets it where Newton's method
+ * on the ray parameter, started on the vertex plane, converges; the normal comes from the derivative of the sag.
+ *
+ * Lens frame: the optical axis is z, pointing at the object; the first surface's vertex is at z = 0 and the film behind the lens at
+ * negative z. A negative spacing (a stop behind the first lens's vertex, as phone lenses have it) puts the next surface in front of the
+ * previous one; the trace then follows the ray's line backward to it, as sequential lens-design programs do.
  * Lengths in metres (the files are in millimetres). Kolb, Mitchell and Hanrahan 1995; pbrt's RealisticCamera.
  */
 
@@ -14,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Core/Types.hpp"
@@ -23,26 +31,43 @@ namespace rayt {
     class LensSystem {
     public:
         struct Surface {
-            Real radius = 0;            ///< > 0: centre of curvature on the film side; 0: the aperture stop (a plane)
+            Real radius = 0;            ///< > 0: centre of curvature on the film side; 0: the aperture stop (a plane), or a flat surface
+            bool flat = false;          ///< radius 0 is a flat refracting surface (a filter, a cover glass), not the stop
             Real z = 0;                 ///< vertex on the axis
             Real apertureRadius = 0;    ///< clear semi-diameter
             Real nd = 1;                ///< index of the medium behind the surface (toward the film) at 587.6 nm; 1 = air
             Real abbe = 0;              ///< Abbe number V_d of that medium (0: not dispersive)
             Real cauchyA = 0, cauchyB = 0;
+            Real conic = 0;             ///< conic constant k of an aspheric surface (0: the base is a sphere)
+            std::vector<std::pair<int, Real>> poly;   ///< aspheric terms (power i, A_i) of the sag, in millimetres as the patents give them
+            std::vector<Real> coef;     ///< the same terms by power (index i), filled by the LensSystem constructor
+
+            bool isStop() const { return radius == Real(0) && !flat; }
+            bool aspheric() const { return conic != Real(0) || !poly.empty(); }
+            /// The sag z(r) (metres, positive toward the film) and its slope dz/dr at the distance r (metres) from the axis; false where
+            /// the conic is undefined (1 - (1 + k) c^2 r^2 < 0).
+            bool sag(Real r, Real& z, Real& slope) const;
         };
 
         /**
          * @brief Reads a prescription: one surface per line from the front (object side) to the back, in millimetres:
          *   radius  thickness  n_d  clear-diameter  [Abbe number]
-         * `thickness` is the distance to the next surface (the last one's is not used); n_d = 0 or 1 is air; a radius of 0 is the aperture
-         * stop. '#' starts a comment. (The column layout of pbrt's lens files, plus the optional Abbe number.)
+         * `thickness` is the distance to the next surface (the last one's is not used, and it may be negative); n_d = 0 or 1 is air; a
+         * radius of 0 is the aperture stop, `inf` a flat refracting surface. '#' starts a comment. (The column layout of pbrt's lens files,
+         * plus the optional Abbe number.) Further lines, for the lenses of phone-camera patents:
+         *   asphere k K A4 a4 A6 a6 ...   the surface of the line above is aspheric: conic constant K and the terms A_i (any i >= 2, in the
+         *                                 patents' units of millimetres; terms left out are 0)
+         *   fnumber N                     the stop's diameter is set so that the lens has this f-number (its diameter column may be `auto`)
+         *   image-height H                half the image diagonal (mm) the lens is designed for: the film becomes the picture's rectangle of
+         *                                 that half diagonal (instead of 36 x 24 mm), and every `auto` clear diameter is set to pass the full
+         *                                 bundle of the stop to every point of that image (the stop must then be the first surface)
          */
         static std::shared_ptr<LensSystem> load(const std::string& path, std::string& error);
 
         /// Surfaces given directly (front to back, metres; z of the first = 0); the checks build lenses this way.
         explicit LensSystem(std::vector<Surface> surfaces);
 
-        // ---- paraxial properties at the d line (587.6 nm), from rays a micrometre off the axis ----
+        // ---- paraxial properties at the d line (587.6 nm), from rays a nanometre off the axis ----
         Real focalLength() const { return m_focal; }
         Real frontPrincipalZ() const { return m_frontPrincipal; }
         Real rearPrincipalZ() const { return m_rearPrincipal; }
@@ -84,6 +109,19 @@ namespace rayt {
         /// True when the glass is dispersive and the build is spectral: every wavelength takes its own path.
         bool dispersive() const;
         const std::vector<Surface>& surfaces() const { return m_surfaces; }
+        /// Half the image diagonal the lens is designed for (metres; `image-height` of the file), or 0: the 35 mm film is used.
+        Real imageHeight() const { return m_imageHeight; }
+
+        /**
+         * @brief Sets every clear semi-diameter at or above 1 m (the loader's "auto") to the largest height at which a ray passes that
+         *        surface on its way from the stop, which must be the first surface, to an image point within `imageHeight` of the axis
+         *        (the lens focused at infinity, the d line): the stop's full bundle reaches the whole image, no surface vignettes it.
+         *        Also sets imageHeight(). False (and the reason) when the stop is not the first surface or no ray gets through.
+         */
+        bool setAutoApertures(Real imageHeight, std::string& error);
+        /// The angle (radians) between the axis and the object-side ray through the centre of the first-surface stop that lands at the
+        /// height h of the focal plane (the chief ray of that image point, the d line); 0 when it cannot be found.
+        Real fieldAngleForImageHeight(Real h) const;
 
         /// Traces a ray in place, from the film toward the object / from the object toward the film. False if it is blocked.
         bool traceFromFilm(Point3& o, Vector3& d, Real nm) const;
@@ -94,7 +132,12 @@ namespace rayt {
         struct StopShape { Real scale = 1; int blades = 0; Real rotation = 0; };   ///< the stop a trace tests against
 
         Real indexAfter(int i, Real nm) const;   ///< the medium behind surface i (toward the film); 1 before the front surface (i = -1)
-        bool crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop) const;
+        /// Moves the ray to surface i and refracts it. `backward`: the surface lies behind the ray's origin (a negative spacing), so the
+        /// intersection may be at a negative ray parameter.
+        bool crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop, bool backward) const;
+        /// The ray parameter where the ray meets the aspheric (or flat) surface i, by Newton's method from its vertex plane; false if it
+        /// does not converge or leaves the conic's domain.
+        bool intersectAspheric(const Surface& s, const Point3& o, const Vector3& d, Real& t) const;
         bool insideStop(const Surface& s, Real x, Real y, const StopShape& stop) const;
         bool traceFromFilmWith(Point3& o, Vector3& d, Real nm, const StopShape& stop) const;
         void paraxial();
@@ -112,6 +155,7 @@ namespace rayt {
         std::vector<Bounds> m_pupil;   ///< per band of film radius, for a film point on the +x axis
         Real m_filmRadius = 0;          ///< the half diagonal the table covers
         Real m_centreIrradiance = 1;    ///< the weight's normalisation
+        Real m_imageHeight = 0;         ///< half the design's image diagonal (0: not given)
     };
 
 } // namespace rayt

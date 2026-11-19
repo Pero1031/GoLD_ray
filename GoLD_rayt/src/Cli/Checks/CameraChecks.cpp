@@ -372,6 +372,48 @@ int RunCameraTests() {
     }
 #endif
 
+    // (p) An aspheric phone lens: assets/Lenses/cellphone_5.6mm.txt (US patent 7,535,658, Example 1: four elements, every surface aspheric
+    //     with odd and even terms, the stop 0.20 mm behind the first vertex, a cover glass) against rayoptics, an optical-design library
+    //     (tools/test/lens_rayoptics_check.py prints the numbers below): the paraxial focal length and back focus, and where 20 real rays
+    //     from five field angles through five points of the stop land on the patent's image plane, 0.64 mm behind the cover glass. The
+    //     "auto" clear diameters must pass all of them, and the stop must give f/2.8.
+    {
+        struct RayRef { Real deg, sx, sy, ix, iy; };   // field angle, point in the stop (mm) -> point on the image plane (mm)
+        const RayRef refs[] = {
+            { 0, 0, 0, 0.000000000, 0.000000000 },    { 0, 0.8, 0, 0.005617774, 0.000000000 },  { 0, -0.8, 0, -0.005617774, 0.000000000 },
+            { 0, 0, 0.8, 0.000000000, 0.005617774 },  { 0, 0.5, -0.5, 0.003571380, -0.003571380 },
+            { 10, 0, 0, 0.974236141, 0.000000000 },   { 10, 0.8, 0, 0.975806905, 0.000000000 }, { 10, -0.8, 0, 0.965982428, 0.000000000 },
+            { 10, 0, 0.8, 0.973431641, 0.004621718 }, { 10, 0.5, -0.5, 0.976041218, -0.002910297 },
+            { 20, 0, 0, 2.029652236, 0.000000000 },   { 20, 0.8, 0, 2.030828759, 0.000000000 }, { 20, -0.8, 0, 2.020646737, 0.000000000 },
+            { 20, 0, 0.8, 2.026554433, 0.006770811 }, { 20, 0.5, -0.5, 2.030540508, -0.003105742 },
+            { 30, 0, 0, 3.240006713, 0.000000000 },   { 30, 0.8, 0, 3.239845900, 0.000000000 }, { 30, -0.8, 0, 3.245788600, 0.000000000 },
+            { 30, 0, 0.8, 3.240385573, 0.005341494 }, { 30, 0.5, -0.5, 3.242698204, -0.003561350 },
+        };
+        std::string error;
+        const auto lens = LensSystem::load("assets/Lenses/cellphone_5.6mm.txt", error);
+        if (!lens) report("p  aspheric phone lens against rayoptics (" + error + ")", false);
+        else {
+            const auto& S = lens->surfaces();
+            const Real zImage = S.back().z - Real(0.64e-3);
+            Real worst = 0;
+            int blocked = 0;
+            for (const RayRef& r : refs) {
+                const Real th = r.deg * Real(3.14159265358979323846) / 180;
+                Vector3 d(std::sin(th), 0, -std::cos(th));
+                Point3 o = Point3(r.sx * 1e-3, r.sy * 1e-3, S.front().z) - d * Real(0.01);
+                if (!lens->traceFromObject(o, d, 587.56)) { ++blocked; continue; }
+                const Real t = (zImage - o.z) / d.z;
+                worst = std::max(worst, std::hypot(o.x + t * d.x - r.ix * 1e-3, o.y + t * d.y - r.iy * 1e-3));
+            }
+            const Real f = lens->focalLength(), bfl = S.back().z - lens->rearFocalZ();
+            const bool ok = blocked == 0 && worst < 1e-9 && std::fabs(f / 5.587072e-3 - 1) < 1e-6 && std::fabs(bfl - 0.648368e-3) < 1e-9
+                && std::fabs(lens->fNumber() - 2.8) < 1e-6;
+            report("p  aspheric phone lens against rayoptics: focal length, back focus and 20 real rays on the image plane (1 nm)", ok,
+                "f " + fmt(f * 1e3) + " mm (rayoptics 5.587072), back focus " + fmt(bfl * 1e3) + " mm (0.648368), worst ray "
+                + fmt(worst * 1e9) + " nm off, " + std::to_string(blocked) + " blocked, f/" + fmt(lens->fNumber()));
+        }
+    }
+
     // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner
     //     (vignetting); the picture is upright (its upper right looks up and to the right); a wall 10 m away has depth 10 in the middle
     //     and the corners.

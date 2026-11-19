@@ -1,0 +1,28 @@
+# A mobile-phone camera lens of the mid-2000s, 4 plastic and glass elements, f = 5.57 mm, f/2.8: Minoru Taniyama (Fujinon), US patent
+# 7,535,658 (priority 2005), Example 1 (FIG. 10 and 11), read from the patent's images. All eight lens surfaces are aspheric.
+# The patent's sag is Z = C h^2 / (1 + sqrt(1 - K C^2 h^2)) + Sum A_i h^i with K = 1 for a sphere; the conic constant here is k = K - 1.
+# The stop lies 0.20 mm behind the first lens's vertex (the patent's spacing of -0.20). The last two flat surfaces are a cover glass
+# (or an infrared filter) in front of the sensor. The clear diameters are not given: they are set to pass the f/2.8 bundle to the
+# image height of 3.5 mm. Patent: f = 5.57, FNO. = 2.8, back focus (in air) 1.53, total length 6.41, image height 3.5 (mm).
+# radius (mm)  thickness (mm)  n_d  clear diameter (mm)  [Abbe number]
+fnumber 2.8
+image-height 3.5
+0          -0.20   0       auto
+1.962      1.19    1.471   auto   76.6
+asphere k 1.153    A3 -1.895e-02 A4 2.426e-02 A5 -5.123e-02 A6 8.371e-04 A7 7.850e-03 A8 4.091e-03 A9 -7.732e-03 A10 -4.265e-03
+33.398     0.93    1       auto
+asphere k 39.18    A3 -4.966e-03 A4 -1.434e-02 A5 -6.139e-03 A6 -9.284e-05 A7 6.438e-03 A8 -5.720e-03 A9 -2.385e-02 A10 1.108e-02
+-2.182     0.75    1.603   auto   27.5
+asphere k 1.105    A3 -4.388e-02 A4 -2.555e-02 A5 5.160e-02 A6 -4.307e-02 A7 -2.831e-02 A8 3.162e-02 A9 4.630e-02 A10 -4.877e-02
+-6.367     0.10    1       auto
+asphere k 2.382    A3 -1.131e-01 A4 -7.863e-02 A5 1.094e-01 A6 6.228e-03 A7 -2.216e-02 A8 -5.890e-03 A9 4.123e-03 A10 1.041e-03
+5.794      0.89    1.510   auto   56.2
+asphere k -222.1   A3 -7.876e-02 A4 7.020e-02 A5 5.175e-03 A6 -9.958e-03 A7 -7.322e-03 A8 6.914e-04 A9 2.540e-03 A10 -7.650e-04
+9.192      0.16    1       auto
+asphere k -0.0669  A3 9.694e-03 A4 -2.516e-03 A5 -3.606e-03 A6 -2.497e-04 A7 -6.840e-04 A8 -1.414e-04 A9 2.932e-04 A10 -7.284e-05
+1.674      0.85    1.510   auto   56.2
+asphere k -8.617   A3 7.429e-02 A4 -6.933e-02 A5 -5.811e-03 A6 2.396e-03 A7 2.100e-03 A8 -3.119e-04 A9 -5.552e-05 A10 7.969e-06
+1.509      0.70    1       auto
+asphere k -3.707   A3 1.767e-03 A4 -4.652e-02 A5 1.625e-02 A6 -3.522e-03 A7 -7.106e-04 A8 3.825e-04 A9 6.271e-05 A10 -2.631e-05
+inf        0.30    1.516   auto   64.1
+inf        0.64    1       auto
