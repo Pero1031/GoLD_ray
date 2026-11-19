@@ -33,6 +33,7 @@ rendering gets its color wrong. The renderer repeats that study in its own code 
 **Contents**:
 [RGB vs spectral for metals](#how-much-does-rgb-rendering-get-wrong-for-metals) ·
 [Gallery](#gallery) ·
+[Captured objects](#captured-objects-and-3d-gaussian-splatting) ·
 [The spectral engine](#the-spectral-engine) ·
 [Quick start](#quick-start) ·
 [Features](#features) ·
@@ -133,12 +134,6 @@ a mat kept the border of each sheet at its first color.
 
 ![A glass ball focusing a beam of light into a cone in haze](docs/img/gallery_ball_haze.png)
 
-**Relighting a reconstruction**: a statue rendered as an opaque material and as thin wax, reconstructed with a relightable 3D Gaussian
-Splatting method and lit by new lights. The opaque statue comes back close to the truth; the wax does not, as Dihlmann et al.
-(NeurIPS 2024) report for subsurface scattering. Scans and splat clouds can also be put into a scene directly ([details](docs/CAPTURE.md)).
-
-<img src="docs/img/gs_relit_wax.png" alt="An opaque and a wax statue under four lights: the ground truth next to the relit 3D Gaussian Splatting render" width="820">
-
 ### Camera
 
 **Depth of field** (`scenes/bokeh_layers.json`): a 100 mm lens at f/1.6 with seven blades; distant lights become heptagons.
@@ -149,6 +144,19 @@ Splatting method and lit by new lights. The opaque statue comes back close to th
 a 50 mm double-Gauss at f/2 and at f/16 (diffraction stars), and an uncorrected single lens with color fringes.
 
 ![A chess position at night seen through a fisheye, a 50 mm lens at f/2 and at f/16, and a single uncorrected lens](docs/img/gallery_lens_chess.png)
+
+---
+
+## Captured objects and 3D Gaussian Splatting
+
+A scanned mesh can be shown as photographed or given any material of the renderer, and a 3D Gaussian Splatting point cloud is ray-traced
+directly, so a glass ball placed in it reflects the captured room ([details](docs/CAPTURE.md)).
+
+**Relighting a reconstruction.** A statue rendered as an opaque material and as thin wax was reconstructed with a relightable Gaussian
+Splatting method and lit by new lights. The opaque statue comes back close to the truth; the wax does not: the reconstruction bakes the
+scattering into a surface with 2.4 to 3.7 times the contrast, as Dihlmann et al. (NeurIPS 2024) report for subsurface scattering.
+
+<img src="docs/img/gs_relit_wax.png" alt="An opaque and a wax statue under four lights: the ground truth next to the relit 3D Gaussian Splatting render" width="820">
 
 ---
 
