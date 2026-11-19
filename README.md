@@ -417,8 +417,12 @@ The CLI has self-checks that print `OK` / `FAIL` per case and exit with code 2 o
 | `--scene bench` | BVH benchmark: recursive reference vs SAH BVH vs Embree |
 | GUI build: `--selftest` | scripted check of the GUI features |
 
+Cross-checked against Mitsuba 3 on 16 scenes (diffuse, glass, rough metal, scattering media): they agree within the noise, and
+the one bug it found (rough glass ~0.5 % too bright) is fixed ([details](docs/MITSUBA_CHECK.md)).
+
 Bugs found this way (and fixed): refraction that never left a glass sphere, an unnormalized camera ray that made rough gold
-~22 % too dark, area lights that were always shadowed at grazing angles, wrong MIS weights for area lights.
+~22 % too dark, area lights that were always shadowed at grazing angles, wrong MIS weights for area lights, rough glass that
+counted back-facing microfacets.
 
 ---
 
