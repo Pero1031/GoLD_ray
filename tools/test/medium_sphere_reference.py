@@ -8,6 +8,10 @@ multiplied by the albedo at every scattering, Russian roulette below a small wei
 position in the pixel) and the sphere of the scene, and prints the mean over the sphere pixels with its standard error.
 
   python tools/test/medium_sphere_reference.py [--scene densegrayfurnace] [--paths 64] [--width 320 --height 240]
+                                              [--renders <the scene's work folder of mitsuba_compare.py>]
+
+With --renders, the sphere means of the two renders of each renderer in that folder (gold_<seed>.pfm, mitsuba_<seed>.npy) are compared
+with the reference.
 """
 import argparse
 import os
@@ -91,6 +95,7 @@ def main():
     ap.add_argument("--width", type=int, default=320)
     ap.add_argument("--height", type=int, default=240)
     ap.add_argument("--seed", type=int, default=1)
+    ap.add_argument("--renders", default="")
     a = ap.parse_args()
     sc = next(s for s in mc.SCENES if s["name"] == a.scene)
     m = sc["materials"]["obj"]
@@ -120,6 +125,15 @@ def main():
     mean = sums.sum() / n
     se = np.sqrt((sq.sum() / n - mean * mean) / n)
     print(f"{a.scene}: reference sphere mean {mean:.5f} +- {se:.5f} ({len(px)} pixels, {a.paths} paths each; sigma_t {sigma_t}, albedo {albedo}, g {g})")
+    if a.renders:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tools", "lib"))
+        from hdr_io import read_pfm
+        for label, load in (("GoLD_rayt", lambda k: read_pfm(os.path.join(a.renders, f"gold_{k}.pfm"))),
+                            ("Mitsuba", lambda k: np.load(os.path.join(a.renders, f"mitsuba_{k}.npy")))):
+            x, y = (np.asarray(load(k), dtype=np.float64)[mask][:, 1] for k in (1, 2))
+            m = (x.mean() + y.mean()) / 2
+            e = np.sqrt(((x - y) ** 2 / 2).mean() / (2 * len(x)))
+            print(f"  {label:9s} sphere mean {m:.5f} +- {e:.5f}: ratio to the reference {m / mean:.4f}, z {(m - mean) / np.hypot(e, se):+.1f}")
 
 
 if __name__ == "__main__":

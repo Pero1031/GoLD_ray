@@ -50,7 +50,12 @@ namespace rayt {
         if (glm::length2(wh) == 0) return Spectrum(0.0);
         wh = glm::normalize(wh);
 
-        if (glm::dot(wh, wo) < 0) wh = -wh;
+        // The microfacet normal faces the side of n, and light must meet its front from both directions (as pbrt-v4 and
+        // Mitsuba): a pair (wo, wi) whose generalized half vector is back-facing to either is no refraction or reflection by any
+        // microfacet. Without this test eval() returned energy for such pairs, which only light sampling reaches (sample() never
+        // makes them): 0.1 to 1.2 % of extra light near normal incidence at roughness 0.3, 5 to 7 % near grazing (found against Mitsuba 3).
+        if (glm::dot(wh, rec.n) < 0) wh = -wh;
+        if (glm::dot(wh, wi) * cosThetaI <= 0 || glm::dot(wh, wo) * cosThetaO <= 0) return Spectrum(0.0);
 
         // Local frame conversion for GGX
         rayt::frame::Frame frame(rec.n);
@@ -279,7 +284,9 @@ namespace rayt {
         }
         if (glm::length2(wh) == 0) return 0.0;
         wh = glm::normalize(wh);
-        if (glm::dot(wh, wo) < 0) wh = -wh;
+        // the same test as eval(): no density where no microfacet can make the pair (sample() never produces it)
+        if (glm::dot(wh, rec.n) < 0) wh = -wh;
+        if (glm::dot(wh, wi) * cosThetaI <= 0 || glm::dot(wh, wo) * cosThetaO <= 0) return 0.0;
 
         Real dot_wo_wh = glm::dot(wo, wh);
         if (dot_wo_wh == 0) return 0.0;
