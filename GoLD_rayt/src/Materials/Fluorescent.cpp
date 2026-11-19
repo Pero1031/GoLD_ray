@@ -210,17 +210,127 @@ namespace rayt {
 #endif
     }
 
-    void Fluorescent::reemit(SurfaceInteraction& rec, SampledWavelengths& lambda, Real u0, Real u1) const {
-        const Real lo = lambda.lambda[0];
-        const Real R = reflectance(lo), F = fluorescence(lo);
-        rec.reemitAlbedo = R + F;
-        if (F > Real(0) && u0 * (R + F) >= R) lambda.lambda[0] = sampleExcitation(lo, u1);
+    // ------------------------------------------------------------------------------------------------ sampling with the light
+
+    // Share of the excitation samples drawn from the matrix row alone when a light spectrum is known; the rest follow row x light.
+    // The weight row / mixture is then at most 1 / kRowShare = 4 wherever the given spectrum is wrong (a light it leaves out). With
+    // the RIT samples under a black light, one sample's relative deviation at the vertex is 3 to 6 with the row alone, 1.3 to 1.5 with
+    // a share of 1/2 and 0.9 to 1.2 with 1/4.
+    constexpr Real kRowShare = Real(0.25);
+
+    void Fluorescent::setExcitationLight(const std::function<Real(Real)>& spectrum) {
+        const BispectralMatrix& M = *m_m;
+        m_cellsPerBand = std::max(1, static_cast<int>(std::lround(M.exStep)));   // cells of about 1 nm
+        m_cellWidth = M.exStep / Real(m_cellsPerBand);
+        m_cellOrigin = M.exFirst - Real(0.5) * M.exStep;
+        m_cell.assign(static_cast<size_t>(M.nEx) * static_cast<size_t>(m_cellsPerBand), Real(0));
+        m_bandLight.assign(static_cast<size_t>(M.nEx), Real(0));
+        Real total = 0;
+        for (size_t j = 0; j < m_cell.size(); ++j) {
+            const Real v = std::max(Real(0), spectrum(m_cellOrigin + (Real(j) + Real(0.5)) * m_cellWidth));
+            m_cell[j] = std::isfinite(v) ? v : Real(0);
+            m_bandLight[j / static_cast<size_t>(m_cellsPerBand)] += m_cell[j];
+            total += m_cell[j];
+        }
+        m_hasLight = total > Real(0);
+    }
+
+    Real Fluorescent::lightNorm(int r, Real t) const {
+        Real s = 0;
+        for (int c = 0; c < m_m->nEx; ++c) s += columnWeight(r, t, c) * m_bandLight[static_cast<size_t>(c)];
+        return s;
+    }
+
+    Real Fluorescent::sampleExcitationWithLight(Real lambdaO, Real u) const {
+        const BispectralMatrix& M = *m_m;
+        int r;
+        Real t;
+        if (!m_hasLight || !rowOf(lambdaO, r, t)) return lambdaO;
+        const Real norm = lightNorm(r, t);
+        if (!(norm > Real(0))) return lambdaO;
+        Real target = u * norm;
+        for (int c = 0; c < M.nEx; ++c) {
+            const Real w = columnWeight(r, t, c) * m_bandLight[static_cast<size_t>(c)];
+            if (w <= Real(0)) continue;
+            if (target < w || c == M.nEx - 1) {   // this band; then a cell in proportion to the light, uniform inside it
+                Real left = std::clamp(target / w, Real(0), Real(1) - Real(1e-6)) * m_bandLight[static_cast<size_t>(c)];
+                const size_t j0 = static_cast<size_t>(c) * static_cast<size_t>(m_cellsPerBand);
+                for (int k = 0; k < m_cellsPerBand; ++k) {
+                    const Real s = m_cell[j0 + static_cast<size_t>(k)];
+                    if (s <= Real(0)) continue;
+                    if (left < s || k == m_cellsPerBand - 1) {
+                        const Real v = std::clamp(left / s, Real(0), Real(1) - Real(1e-6));
+                        return m_cellOrigin + (Real(j0 + static_cast<size_t>(k)) + v) * m_cellWidth;
+                    }
+                    left -= s;
+                }
+            }
+            target -= w;
+        }
+        return lambdaO;
+    }
+
+    Real Fluorescent::lightDensity(Real lambdaO, Real lambdaI) const {
+        const BispectralMatrix& M = *m_m;
+        int r;
+        Real t;
+        if (!m_hasLight || !m_fluo || !rowOf(lambdaO, r, t)) return Real(0);
+        const int j = static_cast<int>(std::floor((lambdaI - m_cellOrigin) / m_cellWidth));
+        if (j < 0 || j >= static_cast<int>(m_cell.size())) return Real(0);
+        const Real norm = lightNorm(r, t);
+        if (!(norm > Real(0))) return Real(0);
+        const int c = j / m_cellsPerBand;
+        (void)M;
+        return columnWeight(r, t, c) * m_cell[static_cast<size_t>(j)] / (m_cellWidth * norm);
+    }
+
+    Real Fluorescent::mixtureDensity(Real lambdaO, Real lambdaI) const {
+        const Real F = fluorescence(lambdaO);
+        if (!(F > Real(0))) return Real(0);
+        const Real pRow = excitationDensity(lambdaO, lambdaI) / F;
+        int r;
+        Real t;
+        const bool light = m_hasLight && rowOf(lambdaO, r, t) && lightNorm(r, t) > Real(0);
+        return light ? kRowShare * pRow + (Real(1) - kRowShare) * lightDensity(lambdaO, lambdaI) : pRow;
+    }
+
+    void Fluorescent::reemit(SurfaceInteraction& rec, SampledWavelengths& lambda) const {
+#if defined(RAYT_SPECTRAL_MODE)
+        static_assert(kSpectralSamples <= 4, "SurfaceInteraction::reemitAlbedo holds four wavelengths");
+        // Each wavelength the path still carries (one after a dispersive surface) chooses on its own: the direction a diffuse
+        // surface sends light in does not depend on the wavelength, so all of them go on along the same path.
+        const int n = lambda.secondaryTerminated() ? 1 : kSpectralSamples;
+#else
+        const int n = 1;
+#endif
+        for (int i = 0; i < n; ++i) {
+            const Real lo = lambda.lambda[static_cast<size_t>(i)];
+            const Real R = reflectance(lo), F = fluorescence(lo);
+            rec.reemitAlbedo[static_cast<size_t>(i)] = R + F;
+            if (!(F > Real(0)) || sampling::Random() * (R + F) < R) continue;   // reflection: the wavelength stays
+            int r;
+            Real t;
+            const bool light = m_hasLight && rowOf(lo, r, t) && lightNorm(r, t) > Real(0);
+            const Real li = (light && sampling::Random() >= kRowShare) ? sampleExcitationWithLight(lo, sampling::Random())
+                                                                         : sampleExcitation(lo, sampling::Random());
+            const Real pRow = excitationDensity(lo, li) / F;
+            const Real q = light ? kRowShare * pRow + (Real(1) - kRowShare) * lightDensity(lo, li) : pRow;
+            rec.reemitAlbedo[static_cast<size_t>(i)] = q > Real(0) ? (R + F) * pRow / q : Real(0);
+            lambda.lambda[static_cast<size_t>(i)] = li;
+        }
+        for (int i = n; i < 4; ++i) rec.reemitAlbedo[static_cast<size_t>(i)] = rec.reemitAlbedo[0];
     }
 
     Spectrum Fluorescent::eval(const SurfaceInteraction& rec, const Vector3& /*wo*/, const Vector3& wi, const SampledWavelengths& lambda,
                                TransportMode /*mode*/) const {
         if (glm::dot(rec.gn, wi) <= Real(0)) return Spectrum(0.0);
-        if (rec.reemitAlbedo >= Real(0)) return Spectrum(rec.reemitAlbedo / constants::PI);
+#if defined(RAYT_SPECTRAL_MODE)
+        if (rec.reemitAlbedo[0] >= Real(0)) {
+            Spectrum s;
+            for (int i = 0; i < kSpectralSamples; ++i) s[i] = rec.reemitAlbedo[static_cast<size_t>(i)] / constants::PI;
+            return s;
+        }
+#endif
 #if defined(RAYT_SPECTRAL_MODE)
         // Not prepared by reemit() (a renderer other than the path tracer): the reflectance alone, no fluorescence.
         Spectrum s;

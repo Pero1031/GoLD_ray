@@ -614,6 +614,32 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
         out.keepAlive.push_back(m);             // also the ones no object uses: the pointer must not be reused by another material
     }
 
+    // ---- fluorescent surfaces sample their excitation with the scene's light spectrum too (Materials/Fluorescent.hpp) ----
+    // The sum of the emission materials' spectra (radiance x spectrum; the area of each light is not weighed: the mixture with the
+    // matrix row keeps the estimate unbiased whatever spectrum is given). Lights given as RGB, point lights and the environment have no
+    // ultraviolet; they are left out.
+    {
+        std::vector<EmissionSpectrum> spectra;
+        std::vector<Real> weights;
+        for (const auto& [name, spec] : d.materials) {
+            if (spec.type != MaterialSpec::Type::Emission) continue;
+            EmissionSpectrum s;
+            if (!MakeSpectrum(spec.spectrum, s)) return 1;
+            spectra.push_back(s);
+            weights.push_back(Real(spec.radiance));
+        }
+        for (const auto& [name, m] : materials) {
+            auto* fluo = dynamic_cast<Fluorescent*>(m.get());
+            if (!fluo || spectra.empty()) continue;
+            fluo->setExcitationLight([&](Real l) {
+                Real v = 0;
+                for (size_t k = 0; k < spectra.size(); ++k) v += weights[k] * spectra[k].at(l);
+                return v;
+            });
+            std::cout << "[SceneFile] material \"" << name << "\": excitation sampled with the spectrum of " << spectra.size() << " light(s) as well\n";
+        }
+    }
+
     // ---- white balance: --wb adapts the film to the light of the first emission object ----
     if (opt.whiteBalance) {
         bool found = false;

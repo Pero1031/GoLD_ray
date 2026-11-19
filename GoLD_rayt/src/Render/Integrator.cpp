@@ -325,12 +325,9 @@ namespace rayt {
 
             // Dispersive materials reduce the path to a single wavelength before anything is evaluated.
             rec.matPtr->prepareWavelengths(lambda);
-            // A fluorescent surface chooses the wavelength at which the light it sends toward the camera arrived (Materials/Fluorescent.hpp);
-            // from here on the path follows that one wavelength, and this vertex is a diffuse surface of the albedo reemit() set.
-            if (rec.matPtr->shiftsWavelength()) {
-                lambda.terminateSecondary();
-                rec.matPtr->reemit(rec, lambda, sampling::Random(), sampling::Random());
-            }
+            // A fluorescent surface chooses, for each wavelength, the wavelength at which the light it sends toward the camera arrived
+            // (Materials/Fluorescent.hpp): the path goes on at those, and this vertex is a diffuse surface of the albedos reemit() set.
+            if (rec.matPtr->shiftsWavelength()) rec.matPtr->reemit(rec, lambda);
             if (lambda.secondaryTerminated()) filmLambda.terminateSecondary();
 
             addSurfaceEmission(r, scene, rec, lambda, st);

@@ -6,6 +6,7 @@
 #include "Cli/SceneParts.hpp"
 #include "Core/Sampling.hpp"
 #include "Geometry/Sphere.hpp"
+#include "IO/SpectralCurveLoader.hpp"
 #include "Lights/AreaLight.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Fluorescent.hpp"
@@ -65,29 +66,45 @@ namespace {
         return Report("excitation sampler against the matrix", worst <= 4 && outside == 0, d.str());
     }
 
-    /// reemit(): the albedo is R + F, and it shifts with probability F / (R + F).
-    bool CheckReemit(const Fluorescent& mat, Real lambdaO, int n) {
+    /// reemit() as an estimator: for a test spectrum g, the mean of albedo x g(new wavelength) must be R g(lo) + Integral b(lo, li) g(li) dli,
+    /// and the share of shifted wavelengths F / (R + F). Returns the relative standard deviation of one sample through `cv`.
+    bool CheckReemit(const Fluorescent& mat, Real lambdaO, int n, const std::function<Real(Real)>& g, const std::string& name, double* cv = nullptr) {
         const Real R = mat.reflectance(lambdaO), F = mat.fluorescence(lambdaO);
-        int shifted = 0;
-        bool albedoOk = true;
+        double expected = double(R * g(lambdaO));
+        for (Real li = Real(295.125); li < Real(785); li += Real(0.25)) expected += double(mat.excitationDensity(lambdaO, li) * g(li) * Real(0.25));
+#if defined(RAYT_SPECTRAL_MODE)
+        const int per = kSpectralSamples;
+#else
+        const int per = 1;
+#endif
+        double sum = 0, sq = 0;
+        long long shifted = 0, count = 0;
         for (int i = 0; i < n; ++i) {
             SurfaceInteraction rec;
             SampledWavelengths lambda;
-            lambda.lambda[0] = lambdaO;
-            mat.reemit(rec, lambda, sampling::Random(), sampling::Random());
-            if (lambda.lambda[0] != lambdaO) ++shifted;
-            albedoOk = albedoOk && std::abs(rec.reemitAlbedo - (R + F)) < Real(1e-6);
+            for (int k = 0; k < per; ++k) lambda.lambda[static_cast<size_t>(k)] = lambdaO;
+            mat.reemit(rec, lambda);
+            for (int k = 0; k < per; ++k) {
+                const double v = double(rec.reemitAlbedo[static_cast<size_t>(k)] * g(lambda.lambda[static_cast<size_t>(k)]));
+                sum += v; sq += v * v; ++count;
+                if (lambda.lambda[static_cast<size_t>(k)] != lambdaO) ++shifted;
+            }
         }
-        const double p = double(F / (R + F)), got = double(shifted) / n, se = std::sqrt(p * (1 - p) / n);
+        const double mean = sum / count, sd = std::sqrt(std::max(0.0, sq / count - mean * mean)), se = sd / std::sqrt(double(count));
+        const double p = double(F / (R + F)), got = double(shifted) / count, sep = std::sqrt(p * (1 - p) / count);
+        if (cv) *cv = sd / std::max(mean, 1e-30);
         std::ostringstream d;
-        d << "lambda_o " << lambdaO << " nm: albedo R + F = " << R + F << (albedoOk ? "" : " (NOT always set)") << ", shifted " << got
-          << " of the paths, expected F / (R + F) = " << p << " +- " << se;
-        return Report("reemit(): albedo and the share of shifted paths", albedoOk && std::abs(got - p) <= 4 * se + 1e-4, d.str());
+        d << "lambda_o " << lambdaO << " nm: mean " << mean << " against " << expected << " +- " << se << " (one sample's relative deviation "
+          << sd / std::max(mean, 1e-30) << "); shifted " << got << ", expected F / (R + F) = " << p << " +- " << sep;
+        return Report(name, std::abs(mean - expected) <= 4 * se + 1e-4 * std::abs(expected) && std::abs(got - p) <= 4 * sep + 1e-4, d.str());
     }
 
     /// The radiance of a convex fluorescent sphere inside an emitting sphere of radiance Le(lambda): every point receives Le from all
     /// directions, so it sends L(lo) = R(lo) Le(lo) + Integral b(lo, li) Le(li) dli; the film's RGB is the integral of L against its sensor.
-    bool CheckFurnace(const std::shared_ptr<Fluorescent>& mat, const EmissionSpectrum& light, const std::string& name, int n) {
+    bool CheckFurnace(const std::shared_ptr<Fluorescent>& mat, const EmissionSpectrum& light, const std::string& name, int n,
+                      bool lightAware = true, Vector3* seOut = nullptr) {
+        if (lightAware) mat->setExcitationLight([&](Real l) { return light.at(l); });
+        else mat->setExcitationLight([](Real) { return Real(0); });   // the matrix row alone
         auto world = std::make_shared<Aggregate>();
         auto scene = std::make_shared<Scene>(world);
         auto emitter = std::make_shared<DiffuseLight>(light, Real(1), true);   // two-sided: it shines inward
@@ -113,6 +130,7 @@ namespace {
         Vector3 mean, se;
         int bad = 0;
         EstimateRadiance(*scene, Ray(Point3(0, 0, -3), Vector3(0, 0, 1)), n, 64, mean, se, bad);
+        if (seOut) *seOut = se;
         bool ok = bad == 0;
         for (int c = 0; c < 3; ++c) ok = ok && std::abs(mean[c] - expected[c]) <= 4 * se[c] + Real(0.003) * std::abs(expected[c]) + Real(1e-6);
         std::ostringstream d;
@@ -140,10 +158,35 @@ int RunFluorescenceTests(const CliOptions& opt) {
     const auto mat = std::make_shared<Fluorescent>(synthetic, true);
     const auto off = std::make_shared<Fluorescent>(synthetic, false);
 
+    EmissionSpectrum black;   // a black light: almost all of it at 365 nm
+    {
+        color::SpectralCurve curve;
+        std::string err;
+        if (io::loadSpectralCurveCsv("assets/Illuminants/blacklight_365nm.csv", curve, &err)) black = EmissionSpectrum::FromCurve(curve);
+        else { std::cout << "[Fluo]   " << err << "\n"; all = false; }
+    }
+    auto blackAt = [&](Real l) { return black.at(l); };
+    auto d65At = [&](Real l) { return d65uv.at(l); };
+
     all = CheckSampler(*mat, Real(455), 400000) && all;
-    all = CheckReemit(*mat, Real(452), 400000) && all;
+    // reemit() with the matrix row alone, then also with the light's spectrum (the mixture): both must be unbiased, the second less noisy
+    double cvRow = 0, cvMix = 0;
+    mat->setExcitationLight([](Real) { return Real(0); });
+    all = CheckReemit(*mat, Real(452), 200000, blackAt, "reemit() with the matrix row alone, weighed by a black light", &cvRow) && all;
+    mat->setExcitationLight(blackAt);
+    all = CheckReemit(*mat, Real(452), 200000, blackAt, "reemit() with the row and the black light's spectrum", &cvMix) && all;
+    mat->setExcitationLight(d65At);
+    all = CheckReemit(*mat, Real(452), 200000, d65At, "reemit() with the row and D65's spectrum, weighed by D65") && all;
+    std::cout << "[Fluo]   one sample's relative deviation under the black light: " << cvRow << " with the row alone, " << cvMix
+              << " with the light's spectrum as well (information)\n";
+
     all = CheckFurnace(mat, d65uv, "synthetic matrix inside an emitting sphere (D65 with ultraviolet): R Le + Integral b Le", n) && all;
     all = CheckFurnace(off, d65uv, "the same with the fluorescence off: R Le", n) && all;
+    Vector3 seRow, seMix;
+    all = CheckFurnace(mat, black, "synthetic matrix inside a black-light sphere, the row alone", n, false, &seRow) && all;
+    all = CheckFurnace(mat, black, "synthetic matrix inside a black-light sphere, with the light's spectrum", n, true, &seMix) && all;
+    std::cout << "[Fluo]   standard error inside the black-light sphere (G): " << seRow.y << " with the row alone, " << seMix.y
+              << " with the light's spectrum (information)\n";
 
     // The RIT database, if it is on this PC (tools/data/rit_bispectral.py, docs/FLUORESCENCE.md).
     const std::string dir = "assets/Fluorescence/rit_bispectral/Labsphere/";
@@ -160,7 +203,9 @@ int RunFluorescenceTests(const CliOptions& opt) {
           << "), " << cleaning.antiStokes << " anti-Stokes (sum " << cleaning.antiStokesSum << "), noise " << cleaning.noise << ": "
           << cleaning.belowNoise << " fluorescence entries below 3 x noise (sum " << cleaning.belowNoiseSum << ")";
         all = Report("read " + path, shape, d.str()) && all;
-        all = CheckFurnace(std::make_shared<Fluorescent>(m, true), d65uv, std::string(file) + " inside the emitting sphere", n) && all;
+        const auto measured = std::make_shared<Fluorescent>(m, true);
+        all = CheckFurnace(measured, d65uv, std::string(file) + " inside the emitting sphere", n) && all;
+        all = CheckFurnace(measured, black, std::string(file) + " inside the black-light sphere", n) && all;
     }
 
     std::cout << "[Fluo] RESULT: " << (all ? "PASS" : "FAIL") << "\n";

@@ -10,11 +10,15 @@
  * where Ebar(c) is E averaged over the band of column c (ASTM E2152 writes the same sum with E sampled at the column wavelengths).
  * Rows between the measured emission wavelengths are interpolated linearly.
  *
- * Path tracing from the camera: the path arrives with the wavelength lambda_o that the camera records. reemit() chooses reflection
- * with probability R / (R + F) and fluorescence with F / (R + F), where F(lambda_o) = Sum_c D(lambda_o, c); for fluorescence it picks
- * a column with probability D(lambda_o, c) / F and a uniform wavelength in its band. The path goes on at that wavelength, and the
- * vertex is a Lambertian surface of albedo R + F, which can exceed 1 at lambda_o: a fluorescent color can be brighter than a white.
- * The integrator follows one wavelength from the first such surface on (the secondary wavelengths are dropped).
+ * Path tracing from the camera: the path arrives with the wavelengths the camera records (hero wavelength sampling: four). For each
+ * wavelength lambda_o, reemit() chooses reflection with probability R / (R + F) and fluorescence with F / (R + F), where
+ * F(lambda_o) = Sum_c D(lambda_o, c), and for fluorescence an excitation wavelength lambda_i from the mixture of two densities: the
+ * matrix's row (a column with probability D / F, a uniform wavelength in its band), chosen a quarter of the time, and the row times the
+ * scene's light spectrum (setExcitationLight). The second finds the band of a narrow light, such as the 365 nm of a black light,
+ * which the first rarely picks. The weight (R + F) p_row(lambda_i) / p_mixture(lambda_i) keeps the estimate unbiased whatever the light
+ * spectrum given. The wavelength goes on at lambda_i, and the vertex is a Lambertian surface of that albedo, which can exceed 1: a
+ * fluorescent color can be brighter than a white. A diffuse surface sends every wavelength in the same direction, so the four
+ * wavelengths keep sharing the path, each with its own excitation wavelength.
  *
  * The RGB build cannot shift wavelengths: there the surface is a Lambertian of the color it shows under D65, fluorescence that the
  * ultraviolet of D65 excites included (its total radiance factor under D65).
@@ -22,6 +26,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,7 +87,15 @@ namespace rayt {
         Vector3 aovAlbedo(const SurfaceInteraction& rec) const override;
 
         bool shiftsWavelength() const override;
-        void reemit(SurfaceInteraction& rec, SampledWavelengths& lambda, Real u0, Real u1) const override;
+        void reemit(SurfaceInteraction& rec, SampledWavelengths& lambda) const override;
+
+        /**
+         * @brief The spectral radiance of the scene's lights, summed (any scale): the excitation is also sampled in proportion to the
+         *        matrix row times this spectrum. Without it (or where it is 0 in the row's bands) only the row is used. Call it before
+         *        rendering starts.
+         */
+        void setExcitationLight(const std::function<Real(Real)>& spectrum);
+        bool hasExcitationLight() const { return m_hasLight; }
 
         /// R(lambda_o): the reflectance (the diagonal), interpolated between rows and held at the ends.
         Real reflectance(Real lambdaO) const;
@@ -92,6 +105,12 @@ namespace rayt {
         Real sampleExcitation(Real lambdaO, Real u) const;
         /// b(lambda_o, lambda_i): the fluorescence density per nm of excitation (D / column width), 0 on the diagonal column.
         Real excitationDensity(Real lambdaO, Real lambdaI) const;
+        /// An excitation wavelength with density lightDensity(lambda_o, .): the row times the light spectrum, normalized.
+        Real sampleExcitationWithLight(Real lambdaO, Real u) const;
+        /// That density; 0 without a light spectrum or where the row times the light vanishes.
+        Real lightDensity(Real lambdaO, Real lambdaI) const;
+        /// The density reemit() samples fluorescence with: 1/4 row + 3/4 row x light (the row alone without a light spectrum).
+        Real mixtureDensity(Real lambdaO, Real lambdaI) const;
         /// The linear sRGB color under D65 (with its ultraviolet), used by the RGB build and as the denoiser's albedo.
         const Vector3& rgbUnderD65() const { return m_rgbD65; }
         const BispectralMatrix& matrix() const { return *m_m; }
@@ -101,6 +120,15 @@ namespace rayt {
         bool m_fluo;
         std::vector<Real> m_R, m_F;   ///< per row: reflectance and the sum of the fluorescence columns
         Vector3 m_rgbD65 = Vector3(0.5);
+
+        // The light spectrum on cells of 1/cellsPerBand of a column's band, from the first band's lower edge; per band, their sum.
+        bool m_hasLight = false;
+        int m_cellsPerBand = 10;
+        Real m_cellWidth = Real(1), m_cellOrigin = Real(295);
+        std::vector<Real> m_cell, m_bandLight;
+
+        /// Sum_c w_c(lambda_o) bandLight_c: the normalization of the row x light density (in cell units).
+        Real lightNorm(int r, Real t) const;
 
         /// Row r and weight t of lambda_o (lambda_o = (1 - t) em(r) + t em(r + 1)); false outside the rows.
         bool rowOf(Real lambdaO, int& r, Real& t) const;
