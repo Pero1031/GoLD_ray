@@ -1,0 +1,55 @@
+GoLD_rayt against Mitsuba 3.7.1 (scalar_spectral). 320x240, 1024 spp, two renders per renderer (seeds 1, 2), blocks of 16x16 pixels.
+Written by tools/test/mitsuba_compare.py. ratio = Mitsuba / GoLD_rayt (image mean, R G B) with its z; |z|>3 = share of blocks (expected about 0.3 %);
+mean z = average block z (sign = which is brighter); |rel| = relative block difference (median, 95th percentile); noise = median relative noise of a block difference.
+Spectral: Mitsuba's images are multiplied by 0.999001, which removes the offset of its spectral film (it normalizes by 1/106.7503
+while its own y-bar integrates to 106.857, so every spectral render reads 1.001 times the luminance). Image means and blocks are compared in XYZ.
+
+--- sp_glassfurnace: spectral white furnace: smooth glass sphere in a D65 environment of luminance 1 (exactly the environment everywhere) ---
+  image mean  GoLD_rayt (0.9505, 1.0000, 1.0890)  Mitsuba (0.9505, 1.0000, 1.0887)
+  ratio (1.0000, 1.0000, 0.9998)  z (-2.3, -0.2, -3.9)
+  sphere (8208 px): ratio (0.9999, 1.0000, 0.9999) +- (0.0001, 0.0000, 0.0002)  z (-1.0, +0.0, -0.7)
+  sphere XYZ: ratio (0.9999, 1.0000, 0.9999) +- (0.0000, 0.0000, 0.0002)  z (-1.2, -1.0, -0.7)
+  blocks 300: |z|>3 0.7 %, mean z -0.11, |rel| median 0.01 % / 95th 0.15 %, noise 0.02 %
+--- sp_diffuse: spectral: diffuse sphere with a smooth orange reflectance spectrum, tungsten light (blackbody 2856 K) ---
+  image mean  GoLD_rayt (0.0709, 0.0611, 0.0196)  Mitsuba (0.0709, 0.0611, 0.0196)
+  ratio (0.9999, 1.0000, 0.9999)  z (-1.9, -0.7, -1.4)
+  sphere (8208 px): ratio (0.9996, 1.0014, 1.0249) +- (0.0002, 0.0003, -0.0044)  z (-1.9, +5.0, -5.6)
+  sphere XYZ: ratio (0.9997, 1.0001, 0.9993) +- (0.0002, 0.0002, 0.0003)  z (-1.3, +0.6, -2.5)
+  110 blocks without noise (environment only): largest relative difference 0.000 %
+  blocks 188: |z|>3 0.0 %, mean z -0.18, |rel| median 0.04 % / 95th 0.33 %, noise 0.08 %
+--- sp_gold: spectral: smooth gold (Johnson & Christy n, k at 1 nm), candle light (blackbody 1850 K) + D65 environment 0.2 ---
+  image mean  GoLD_rayt (0.2342, 0.2146, 0.1526)  Mitsuba (0.2342, 0.2146, 0.1526)
+  ratio (1.0000, 1.0000, 0.9999)  z (-0.2, -0.3, -2.3)
+  sphere (8208 px): ratio (1.0004, 1.0000, 0.9997) +- (0.0006, 0.0004, 0.0004)  z (+0.7, -0.1, -0.7)
+  sphere XYZ: ratio (1.0003, 1.0002, 0.9999) +- (0.0005, 0.0004, 0.0002)  z (+0.6, +0.5, -0.5)
+  blocks 298: |z|>3 0.9 %, mean z -0.07, |rel| median 0.05 % / 95th 0.25 %, noise 0.10 %
+--- sp_roughgold: spectral: rough gold (GGX alpha 0.25), candle light + D65 environment 0.2 ---
+  image mean  GoLD_rayt (0.2297, 0.2108, 0.1512)  Mitsuba (0.2295, 0.2107, 0.1511)
+  ratio (0.9995, 0.9995, 0.9996)  z (-4.8, -5.5, -5.6)
+  sphere (8208 px): ratio (0.9980, 0.9979, 0.9964) +- (0.0006, 0.0004, 0.0005)  z (-3.2, -5.5, -7.6)
+  sphere XYZ: ratio (0.9979, 0.9979, 0.9971) +- (0.0006, 0.0005, 0.0002)  z (-3.7, -4.3, -11.7)
+  blocks 300: |z|>3 3.6 %, mean z -0.40, |rel| median 0.05 % / 95th 0.33 %, noise 0.10 %
+--- sp_glass: spectral: smooth glass, D65 light + environment ---
+  image mean  GoLD_rayt (0.1993, 0.2096, 0.2283)  Mitsuba (0.1992, 0.2096, 0.2282)
+  ratio (0.9999, 0.9999, 0.9997)  z (-0.6, -0.5, -1.6)
+  sphere (8208 px): ratio (0.9999, 1.0001, 1.0001) +- (0.0008, 0.0008, 0.0009)  z (-0.1, +0.1, +0.2)
+  sphere XYZ: ratio (1.0000, 1.0001, 1.0001) +- (0.0008, 0.0008, 0.0009)  z (+0.0, +0.1, +0.2)
+  blocks 300: |z|>3 0.4 %, mean z -0.04, |rel| median 0.06 % / 95th 0.34 %, noise 0.11 %
+--- sp_roughglass: spectral: rough glass (alpha 0.09), tungsten light + D65 environment 0.2 ---
+  image mean  GoLD_rayt (0.2081, 0.2087, 0.1792)  Mitsuba (0.2080, 0.2086, 0.1792)
+  ratio (0.9998, 0.9999, 0.9997)  z (-1.2, -1.1, -3.2)
+  sphere (8208 px): ratio (0.9987, 0.9992, 0.9990) +- (0.0011, 0.0007, 0.0004)  z (-1.2, -1.1, -2.4)
+  sphere XYZ: ratio (0.9989, 0.9991, 0.9991) +- (0.0009, 0.0008, 0.0004)  z (-1.3, -1.2, -2.2)
+  blocks 300: |z|>3 0.8 %, mean z -0.10, |rel| median 0.06 % / 95th 0.37 %, noise 0.11 %
+--- sp_medium: spectral: smooth glass boundary with a gray medium (sigma_t 20 /m, albedo 0.95, g 0.5), tungsten light ---
+  image mean  GoLD_rayt (0.1997, 0.2000, 0.1700)  Mitsuba (0.1997, 0.2000, 0.1700)
+  ratio (0.9999, 1.0000, 0.9998)  z (-0.3, -0.2, -2.0)
+  sphere (8208 px): ratio (0.9992, 0.9996, 1.0002) +- (0.0023, 0.0017, 0.0009)  z (-0.3, -0.2, +0.2)
+  sphere XYZ: ratio (0.9995, 0.9995, 1.0001) +- (0.0019, 0.0018, 0.0011)  z (-0.3, -0.3, +0.1)
+  blocks 300: |z|>3 0.3 %, mean z -0.06, |rel| median 0.07 % / 95th 0.69 %, noise 0.12 %
+
+Render times (first run, both seeds together): GoLD_rayt 33-69 s, Mitsuba 75-94 s per scene (sp_medium 203 s).
+
+=== sp_roughgold with a diagnostic GoLD_rayt build whose Smith term is separable (as Mitsuba's), same Mitsuba renders ===
+  sphere XYZ: ratio (0.9995, 0.9997, 1.0002) +- (0.0006, 0.0005, 0.0002)  z (-0.8, -0.6, +1.0)
+  blocks 300: |z|>3 0.4 %, mean z -0.01, |rel| median 0.05 % / 95th 0.22 %, noise 0.10 %

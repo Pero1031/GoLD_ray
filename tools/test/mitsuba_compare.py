@@ -12,10 +12,15 @@ is estimated from the two renders, and the images are compared over blocks of Bx
 Conventions matched here (see docs of each renderer): vertical field of view; a box pixel filter; GGX with alpha = roughness^2 (the
 GoLD_rayt "roughness" is sqrt(alpha)); the multiple-scattering compensation of the GoLD_rayt conductor off (Mitsuba has none);
 white lights only (rgb (1,1,1) x radiance); a uniform environment of radiance `env`; no limit on the path length in either renderer
-(Russian roulette only); a medium boundary with index 1 is a Mitsuba "null" BSDF.
+(no Russian roulette in Mitsuba, see MITSUBA_RR_DEPTH); a medium boundary with index 1 is a Mitsuba "null" BSDF.
 
-  python tools/test/mitsuba_compare.py --exe out/cli-dev/GoLD_rayt.exe --spp 256 [--scenes a,b] [--variant scalar_rgb]
-                                       [--work <folder>] [--out docs/data/mitsuba_compare_results.txt]
+The spectral scenes (names sp_*) run with the spectral build and Mitsuba's scalar_spectral variant. Every colored input is a spectrum
+on a 1 nm grid given to both renderers (lights as tables scaled to the asked luminance, reflectance and n, k as tables, the D65
+environment as GoLD_rayt's own table); gray values are flat spectra. The sphere is also compared in XYZ, whose channels stay positive.
+
+  python tools/test/mitsuba_compare.py --exe out/cli-dev/GoLD_rayt.exe --spp 256 [--scenes a,b] [--work <folder>] [--out <results.txt>]
+  python tools/test/mitsuba_compare.py --exe out/cli-dev-spectral/GoLD_rayt.exe --variant scalar_spectral --spp 1024 [...]
+  Without --scenes, all the scenes of the variant (RGB or spectral) run.
 """
 import argparse
 import json
@@ -38,8 +43,9 @@ SPHERE = dict(shape="sphere", center=[0, 0.3, 0], radius=0.3, material="obj")
 CAMERA = dict(origin=[0, 0.8, 2.2], target=[0, 0.3, 0], up=[0, 1, 0], fov=35.0)
 
 
-def scene(name, obj, env=0.0, light=True, floor=True, note=""):
-    return dict(name=name, camera=CAMERA, env=env, lights=[LIGHT] if light else [],
+def scene(name, obj, env=0.0, light=True, floor=True, note="", spd=None):
+    """spd: the light's spectrum for the spectral scenes, ("blackbody", K) or ("d65",); None = an RGB scene (white lights)."""
+    return dict(name=name, camera=CAMERA, env=env, lights=[dict(LIGHT, spd=spd)] if light else [], spectral=spd is not None,
                 materials={"floor": dict(type="diffuse", albedo=[0.5, 0.5, 0.5]), "obj": obj},
                 objects=[FLOOR, SPHERE] if floor else [SPHERE], note=note)
 
@@ -73,15 +79,90 @@ SCENES = [
     scene("densegrayfurnace", dict(type="dielectric", ior=1.0, roughness=0.0, medium=DENSE_GRAY), env=1.0, light=False, floor=False,
           note="furnace: index-matched sphere of the dense gray medium (albedo 0.98): a pixel = the chance that its light escapes"),
     scene("roughdensemedium", dict(type="dielectric", ior=1.5, roughness=0.3, medium=DENSE), env=0.2, note="the same dense medium, rough boundary (alpha 0.09)"),
+    # Spectral scenes (run with --variant scalar_spectral and the spectral build). Every colored input is a spectrum given to both
+    # renderers on the same 1 nm grid: the two convert RGB to spectra by different methods, which would be a difference of the
+    # inputs, not of the rendering. Gray values are flat spectra in both. The environment is D65 (the GoLD_rayt table) of luminance env.
+    scene("sp_glassfurnace", dict(type="dielectric", ior=1.5, roughness=0.0), env=1.0, light=False, floor=False, spd=("d65",),
+          note="spectral white furnace: smooth glass sphere in a D65 environment of luminance 1 (exactly the environment everywhere)"),
+    scene("sp_diffuse", dict(type="diffuse", spectrum="orange"), spd=("blackbody", 2856),
+          note="spectral: diffuse sphere with a smooth orange reflectance spectrum, tungsten light (blackbody 2856 K)"),
+    scene("sp_gold", dict(type="conductor", metal="Au", roughness=0.0), env=0.2, spd=("blackbody", 1850),
+          note="spectral: smooth gold (Johnson & Christy n, k at 1 nm), candle light (blackbody 1850 K) + D65 environment 0.2"),
+    scene("sp_roughgold", dict(type="conductor", metal="Au", roughness=0.5), env=0.2, spd=("blackbody", 1850),
+          note="spectral: rough gold (GGX alpha 0.25), candle light + D65 environment 0.2"),
+    scene("sp_glass", dict(type="dielectric", ior=1.5, roughness=0.0), env=0.2, spd=("d65",), note="spectral: smooth glass, D65 light + environment"),
+    scene("sp_roughglass", dict(type="dielectric", ior=1.5, roughness=0.3), env=0.2, spd=("blackbody", 2856),
+          note="spectral: rough glass (alpha 0.09), tungsten light + D65 environment 0.2"),
+    scene("sp_medium", dict(type="dielectric", ior=1.5, roughness=0.0, medium=dict(sigmaT=[20.0] * 3, albedo=[0.95] * 3, g=0.5)), env=0.2,
+          spd=("blackbody", 2856), note="spectral: smooth glass boundary with a gray medium (sigma_t 20 /m, albedo 0.95, g 0.5), tungsten light"),
 ]
+
+# ------------------------------------------------------------------------------------------------ spectra of the spectral scenes
+SP_LAM = np.arange(360.0, 831.0)                             # 1 nm, the range of Mitsuba's CIE tables and of GoLD_rayt's sampling
+
+
+def sp_light(spd):
+    """Unscaled spectrum of a light on SP_LAM (each renderer then scales it to the luminance asked for)."""
+    if spd[0] == "blackbody":
+        h, c, k = 6.62607015e-34, 2.99792458e8, 1.380649e-23
+        lm = SP_LAM * 1e-9
+        return 1.0 / (lm ** 5 * (np.exp(h * c / (lm * k * spd[1])) - 1.0))
+    return sp_d65()
+
+
+def sp_d65():
+    """GoLD_rayt's D65 table (380-780 nm, 5 nm, linear, 0 outside), read from its source by metal_accuracy.py."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "studies"))
+    import metal_accuracy as ma
+    return np.asarray(ma.d65(SP_LAM), dtype=np.float64)
+
+
+def sp_reflectance(name):
+    if name == "orange":                                     # a smooth reflectance: low in the blue, high in the red
+        return 0.12 + 0.72 / (1.0 + np.exp(-(SP_LAM - 585.0) / 18.0))
+    raise ValueError(name)
+
+
+def sp_metal_nk(metal):
+    """n, k of the metal's Johnson & Christy table (the one GoLD_rayt uses) interpolated linearly to SP_LAM."""
+    path = os.path.join(ROOT, "GoLD_rayt", "assets", "Metal_data", f"Johnson_{metal}.csv")
+    blocks, cur = {}, None
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("wl,"):
+            cur = line.split(",")[1]
+            blocks[cur] = []
+            continue
+        a, b = (float(x) for x in line.split(","))
+        blocks[cur].append((a * 1000.0, b))
+    n, k = (np.array(sorted(blocks[key])) for key in ("n", "k"))
+    return np.interp(SP_LAM, n[:, 0], n[:, 1]), np.interp(SP_LAM, k[:, 0], k[:, 1])
+
+
+def write_csv(path, values):
+    """A two-column table (wavelength in nm, value) for GoLD_rayt; returns the path with forward slashes."""
+    with open(path, "w", newline="\n") as f:
+        f.write("wavelength_nm,value\n" + "".join(f"{l:.0f},{v:.9g}\n" for l, v in zip(SP_LAM, values)))
+    return path.replace(os.sep, "/")
 
 
 # ------------------------------------------------------------------------------------------------ GoLD_rayt scene file
 def write_gold(sc, folder):
     mats = {}
     for name, m in sc["materials"].items():
-        if m["type"] == "diffuse":
+        if m["type"] == "diffuse" and "spectrum" in m:
+            mats[name] = {"type": "diffuse", "reflectance": write_csv(os.path.join(folder, f"refl_{name}.csv"), sp_reflectance(m["spectrum"]))}
+        elif m["type"] == "diffuse":
             mats[name] = {"type": "diffuse", "albedo": m["albedo"]}
+        elif m["type"] == "conductor" and "metal" in m:
+            n, k = sp_metal_nk(m["metal"])
+            csv = os.path.join(folder, f"nk_{name}.csv")
+            with open(csv, "w", newline="\n") as f:     # RefractiveIndex.info layout, micrometres
+                f.write("wl,n\n" + "".join(f"{l / 1000:.4f},{v:.6g}\n" for l, v in zip(SP_LAM, n)))
+                f.write("\nwl,k\n" + "".join(f"{l / 1000:.4f},{v:.6g}\n" for l, v in zip(SP_LAM, k)))
+            mats[name] = {"type": "conductor", "table": csv.replace(os.sep, "/"), "roughness": m["roughness"], "multipleScattering": False}
         elif m["type"] == "conductor":
             csv = os.path.join(folder, f"nk_{name}.csv")
             with open(csv, "w", newline="\n") as f:     # a flat n, k table (RefractiveIndex.info layout)
@@ -94,7 +175,8 @@ def write_gold(sc, folder):
             mats[name] = d
     objects = []
     for i, L in enumerate(sc["lights"]):
-        mats[f"light{i}"] = {"type": "emission", "spectrum": {"rgb": [1, 1, 1]}, "radiance": L["radiance"]}
+        spectrum = {"rgb": [1, 1, 1]} if L.get("spd") is None else {"file": write_csv(os.path.join(folder, f"light{i}.csv"), sp_light(L["spd"]))}
+        mats[f"light{i}"] = {"type": "emission", "spectrum": spectrum, "radiance": L["radiance"]}
         objects.append({"shape": "quad", "corner": L["corner"], "edge1": L["edge1"], "edge2": L["edge2"], "material": f"light{i}"})
     for o in sc["objects"]:
         objects.append({k: v for k, v in o.items()})
@@ -141,6 +223,22 @@ def mitsuba_dict(mi, sc, w, h, spp):
     def rgb(v):
         return {"type": "rgb", "value": [float(x) for x in v]}
 
+    def spectrum(values):
+        return {"type": "regular", "wavelength_min": float(SP_LAM[0]), "wavelength_max": float(SP_LAM[-1]),
+                "values": ", ".join(f"{v:.9g}" for v in values)}
+
+    def luminous(values, Y):
+        """values scaled so that Mitsuba's film reads luminance Y (its CIE Y integral; a flat spectrum of 1 reads 1)."""
+        ybar = np.array([float(mi.cie1931_y(float(l))) for l in SP_LAM])
+        return spectrum(np.asarray(values) * Y / ((np.asarray(values) * ybar).sum() / 106.856895))
+
+    spectral = sc.get("spectral", False)
+    if spectral and "spectral" not in mi.variant():
+        raise RuntimeError(f"{sc['name']} is a spectral scene: run it with --variant scalar_spectral and the spectral build")
+
+    def gray(v):
+        return {"type": "uniform", "value": float(v)} if spectral else rgb([v] * 3)
+
     has_medium = any("medium" in m for m in sc["materials"].values())
     cam = sc["camera"]
     d = {"type": "scene",
@@ -150,14 +248,22 @@ def mitsuba_dict(mi, sc, w, h, spp):
                     "sampler": {"type": "independent", "sample_count": spp},
                     "film": {"type": "hdrfilm", "width": w, "height": h, "pixel_format": "rgb", "rfilter": {"type": "box"}}}}
     if sc["env"] > 0:
-        d["env"] = {"type": "constant", "radiance": rgb([sc["env"]] * 3)}
+        d["env"] = {"type": "constant", "radiance": luminous(sp_d65(), sc["env"]) if spectral else rgb([sc["env"]] * 3)}
     bsdfs = {}
     for name, m in sc["materials"].items():
         if m["type"] == "diffuse":
-            bsdfs[name] = {"type": "diffuse", "reflectance": rgb(m["albedo"])}
+            if "spectrum" in m:
+                refl = spectrum(sp_reflectance(m["spectrum"]))
+            else:
+                refl = gray(m["albedo"][0]) if spectral and len(set(m["albedo"])) == 1 else rgb(m["albedo"])
+            bsdfs[name] = {"type": "diffuse", "reflectance": refl}
         elif m["type"] == "conductor":
             alpha = m["roughness"] ** 2
-            base = {"eta": rgb([m["eta"]] * 3), "k": rgb([m["k"]] * 3)}
+            if "metal" in m:
+                n, k = sp_metal_nk(m["metal"])
+                base = {"eta": spectrum(n), "k": spectrum(k)}
+            else:
+                base = {"eta": gray(m["eta"]), "k": gray(m["k"])}
             bsdfs[name] = dict(type="roughconductor", distribution="ggx", alpha=alpha, **base) if alpha > 0 else dict(type="conductor", **base)
         elif m["type"] == "dielectric":
             alpha = m["roughness"] ** 2
@@ -169,8 +275,8 @@ def mitsuba_dict(mi, sc, w, h, spp):
                 bsdfs[name] = {"type": "dielectric", "int_ior": m["ior"], "ext_ior": 1.0}
     for i, L in enumerate(sc["lights"]):
         d[f"light{i}"] = {"type": "rectangle", "to_world": quad_to_world(mi, L["corner"], L["edge1"], L["edge2"]),
-                          "bsdf": {"type": "diffuse", "reflectance": rgb([0, 0, 0])},
-                          "emitter": {"type": "area", "radiance": rgb([L["radiance"]] * 3)}}
+                          "bsdf": {"type": "diffuse", "reflectance": gray(0.0)},
+                          "emitter": {"type": "area", "radiance": luminous(sp_light(L["spd"]), L["radiance"]) if spectral else rgb([L["radiance"]] * 3)}}
     for i, o in enumerate(sc["objects"]):
         m = sc["materials"][o["material"]]
         if o["shape"] == "sphere":
@@ -181,8 +287,13 @@ def mitsuba_dict(mi, sc, w, h, spp):
         if "medium" in m:
             md = m["medium"]
             st = max(md["sigmaT"])                       # an RGB value must lie in [0, 1]: normalize it and move the size to "scale"
-            s["interior"] = {"type": "homogeneous", "sigma_t": rgb([v / st for v in md["sigmaT"]]), "scale": float(st),
-                             "albedo": rgb(md["albedo"]), "phase": {"type": "hg", "g": float(md["g"])}}
+            if spectral:
+                assert len(set(md["sigmaT"])) == 1 and len(set(md["albedo"])) == 1, "spectral scenes use gray media"
+                s["interior"] = {"type": "homogeneous", "sigma_t": gray(1.0), "scale": float(st), "albedo": gray(md["albedo"][0]),
+                                 "phase": {"type": "hg", "g": float(md["g"])}}
+            else:
+                s["interior"] = {"type": "homogeneous", "sigma_t": rgb([v / st for v in md["sigmaT"]]), "scale": float(st),
+                                 "albedo": rgb(md["albedo"]), "phase": {"type": "hg", "g": float(md["g"])}}
         d[f"obj{i}"] = s
     return d
 
@@ -192,6 +303,18 @@ def render_mitsuba(mi, sc, w, h, spp, seed):
     s = mi.load_dict(mitsuba_dict(mi, sc, w, h, spp))
     img = np.array(mi.render(s, spp=spp, seed=seed), dtype=np.float64)[..., :3]
     return img, time.time() - t
+
+
+def mitsuba_spectral_scale(mi):
+    """Factor that removes the offset of Mitsuba's spectral film: it divides by MI_CIE_Y_NORMALIZATION = 1 / 106.7503, while its own
+    y-bar table integrates to 106.857 over [360, 830] nm, so every spectral render reads 1.001 times the luminance of its spectrum
+    (a flat spectrum of 1 reads Y = 1.001). 1 for the RGB variants."""
+    if "spectral" not in mi.variant():
+        return 1.0
+    lam = np.arange(float(mi.MI_CIE_MIN), float(mi.MI_CIE_MAX) + 0.5, 1.0)
+    ybar = np.array([float(mi.cie1931_y(float(l))) for l in lam])
+    integral = float(((ybar[1:] + ybar[:-1]) / 2).sum())
+    return 1.0 / (integral * float(mi.MI_CIE_Y_NORMALIZATION))
 
 
 # ------------------------------------------------------------------------------------------------ comparison
@@ -256,13 +379,16 @@ def main():
     ap.add_argument("--scenes", default="")
     ap.add_argument("--work", default=os.path.join(ROOT, "out", "studies", "mitsuba_compare"))
     ap.add_argument("--out", default="")
+    ap.add_argument("--reuse", action="store_true", help="read the renders already in the work folder instead of rendering again")
     a = ap.parse_args()
     import mitsuba as mi
     mi.set_variant(a.variant)
+    m_scale = mitsuba_spectral_scale(mi)
     exe = os.path.abspath(a.exe)
     a.work = os.path.abspath(a.work)          # GoLD_rayt runs in its project folder, so its paths must be absolute
     os.makedirs(a.work, exist_ok=True)
-    chosen = [s for s in SCENES if not a.scenes or s["name"] in a.scenes.split(",")]
+    spectral_run = "spectral" in a.variant           # by default, the scenes that match the variant
+    chosen = [s for s in SCENES if (s["name"] in a.scenes.split(",") if a.scenes else s["spectral"] == spectral_run)]
     lines = []
 
     def emit(s=""):
@@ -272,6 +398,10 @@ def main():
     emit(f"GoLD_rayt against Mitsuba {mi.__version__} ({a.variant}). {a.width}x{a.height}, {a.spp} spp, two renders per renderer (seeds 1, 2), blocks of {a.block}x{a.block} pixels.")
     emit("Written by tools/test/mitsuba_compare.py. ratio = Mitsuba / GoLD_rayt (image mean, R G B) with its z; |z|>3 = share of blocks (expected about 0.3 %);")
     emit("mean z = average block z (sign = which is brighter); |rel| = relative block difference (median, 95th percentile); noise = median relative noise of a block difference.")
+    to_xyz = np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]])
+    if spectral_run:
+        emit(f"Spectral: Mitsuba's images are multiplied by {m_scale:.6f}, which removes the offset of its spectral film (it normalizes by 1/106.7503")
+        emit("while its own y-bar integrates to 106.857, so every spectral render reads 1.001 times the luminance). Image means and blocks are compared in XYZ.")
     emit()
     for sc in chosen:
         folder = os.path.join(a.work, sc["name"])
@@ -279,13 +409,17 @@ def main():
         sf = write_gold(sc, folder)
         g, m, tg, tm = [], [], 0.0, 0.0
         for seed in (1, 2):
-            img, t, _ = render_gold(exe, sf, os.path.join(folder, f"gold_{seed}.pfm"), a.width, a.height, a.spp, seed)
+            gp, mp = os.path.join(folder, f"gold_{seed}.pfm"), os.path.join(folder, f"mitsuba_{seed}.npy")
+            if a.reuse and os.path.exists(gp) and os.path.exists(mp):
+                g.append(read_pfm(gp).astype(np.float64)); m.append(np.load(mp).astype(np.float64))
+                continue
+            img, t, _ = render_gold(exe, sf, gp, a.width, a.height, a.spp, seed)
             g.append(img); tg += t
             img, t = render_mitsuba(mi, sc, a.width, a.height, a.spp, seed)
             m.append(img); tm += t
-            np.save(os.path.join(folder, f"mitsuba_{seed}.npy"), img.astype(np.float32))
-        g, m = np.stack(g), np.stack(m)
-        r = compare(g, m, a.block)
+            np.save(mp, img.astype(np.float32))                # as Mitsuba wrote it (the spectral scale is applied below)
+        g, m = np.stack(g), np.stack(m) * m_scale
+        r = compare(g @ to_xyz.T, m @ to_xyz.T, a.block) if spectral_run else compare(g, m, a.block)
         mask = sphere_mask(sc, a.width, a.height)
         sg, sm = g.mean(0)[mask].mean(0), m.mean(0)[mask].mean(0)
         sse = np.sqrt((((g[0] - g[1]) ** 2 / 2)[mask].mean(0) + ((m[0] - m[1]) ** 2 / 2)[mask].mean(0)) / (2 * mask.sum()))
@@ -293,6 +427,11 @@ def main():
         emit(f"  image mean  GoLD_rayt ({', '.join(f'{v:.4f}' for v in r['mean_g'])})  Mitsuba ({', '.join(f'{v:.4f}' for v in r['mean_m'])})")
         emit(f"  ratio ({', '.join(f'{v:.4f}' for v in r['ratio'])})  z ({', '.join(f'{v:+.1f}' for v in r['z_mean'])})")
         emit(f"  sphere ({int(mask.sum())} px): ratio ({', '.join(f'{v:.4f}' for v in sm / sg)}) +- ({', '.join(f'{v:.4f}' for v in sse / sg)})  z ({', '.join(f'{v:+.1f}' for v in (sm - sg) / sse)})")
+        # the same in XYZ, whose channels stay positive for colors outside sRGB (a linear sRGB channel of such a color can be near 0 or negative)
+        gx, mx = np.stack([x[mask] @ to_xyz.T for x in g]), np.stack([x[mask] @ to_xyz.T for x in m])
+        xg, xm = gx.mean(axis=(0, 1)), mx.mean(axis=(0, 1))
+        xse = np.sqrt((((gx[0] - gx[1]) ** 2 / 2).mean(0) + ((mx[0] - mx[1]) ** 2 / 2).mean(0)) / (2 * mask.sum()))
+        emit(f"  sphere XYZ: ratio ({', '.join(f'{v:.4f}' for v in xm / xg)}) +- ({', '.join(f'{v:.4f}' for v in xse / xg)})  z ({', '.join(f'{v:+.1f}' for v in (xm - xg) / xse)})")
         if r["exact"]:
             emit(f"  {r['exact']} blocks without noise (environment only): largest relative difference {r['exact_rel'] * 100:.3f} %")
         emit(f"  blocks {r['blocks']}: |z|>3 {r['frac_z3'] * 100:.1f} %, mean z {r['mean_z']:+.2f}, |rel| median {r['med_rel'] * 100:.2f} % / 95th {r['p95_rel'] * 100:.2f} %, noise {r['noise_rel'] * 100:.2f} %")
