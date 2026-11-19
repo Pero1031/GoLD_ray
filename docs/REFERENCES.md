@@ -130,6 +130,7 @@ The literature values behind the lotion and emulsion model are listed separately
 **Camera, lenses and sensor**
 
 - C. Kolb, D. Mitchell, P. Hanrahan, "A Realistic Camera Model for Computer Graphics", SIGGRAPH 1995, 317-324. Tracing rays through a lens prescription surface by surface ([CAMERA.md](CAMERA.md)).
+- M. B. Hullin, E. Eisemann, H.-P. Seidel, S. Lee, "Physically-Based Real-Time Lens Flare Rendering", *ACM TOG* 30(4), Article 108, 2011 (SIGGRAPH), doi:10.1145/2010324.1965003. The ghosts traced from the lights as grids of rays whose cells become triangles on the film, with the stop's edges from the interpolated stop coordinates (`Render/LensFlare`; traced exactly here, without their polynomial fits).
 - W. J. Smith, *Modern Lens Design: A Resource Manual*, McGraw-Hill, 1992 (the edition Kolb et al. cite; 2nd ed. 2005). *(which edition pbrt's files follow is not confirmed)* The source of the bundled lenses' radii, through pbrt's lens files.
 - A. W. Tronnier, US 2,673,491 (double-Gauss); A. Nakamura, US 4,211,472, embodiment 4 (wide angle); R. Muller, US 4,647,161, embodiment 1 (fisheye). The glasses (n_d, Abbe number) of the bundled lenses, read from the patents.
 - M. Taniyama (Fujinon), US 7,535,658, *Imaging lens*, 2009 (priority 2005), Example 1. The aspheric phone-camera lens `cellphone_5.6mm`, read from the patent's figures.

@@ -44,6 +44,8 @@ void PrintHelp(std::ostream& out) {
         << "  --blades N [--blade-rotation DEG]   polygonal aperture (3 to 32 blades): out-of-focus highlights take its shape\n"
         << "  --diffraction S   diffraction at the aperture (needs --fstop): the star of bright points, n spikes for n blades (2n if odd), colored\n"
         << "                    by the wavelength. S = 1: the real size (pixels of 36 mm / long side); S > 1 enlarges the pattern S times\n"
+        << "  --ghosts coated|uncoated   with --lens: the lens flare of the scene's lights, light reflected twice between the lens surfaces\n"
+        << "                    (one ghost per pair of surfaces), behind a single anti-reflection coating or bare glass (spectral build: with dispersion)\n"
         << "  --distortion K1[,K2]   radial distortion r' = r (1 + K1 r^2 + K2 r^4), r in half diagonals: K1 > 0 barrel, K1 < 0 pincushion\n"
         << "  --lateral-ca A    lateral chromatic aberration: the picture scales by A per 100 nm (0.004: red and blue differ by 0.8 %) (spectral build)\n"
         << "  --axial-ca D      axial chromatic aberration: the focal length changes by D per 100 nm, colored defocus with --fstop (0.01: a singlet) (spectral build)\n"

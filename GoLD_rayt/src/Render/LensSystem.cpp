@@ -2,6 +2,8 @@
 #include "pch.h"
 #include "Render/LensSystem.hpp"
 
+#include "Materials/ThinFilm.hpp"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -183,6 +185,8 @@ namespace rayt {
                 s.coef[static_cast<size_t>(power)] += a;
             }
         }
+        for (size_t i = 0; i < m_surfaces.size(); ++i)
+            if (m_surfaces[i].isStop()) { m_stopIndex = static_cast<int>(i); break; }
         paraxial();
         m_filmZ = m_rearFocal;
         m_wideOpen = fNumber();
@@ -210,9 +214,29 @@ namespace rayt {
         return false;
     }
 
+    void LensSystem::setStopShape(int blades, Real rotation) {
+        m_blades = blades >= 3 ? blades : 0;
+        m_bladeRotation = rotation;
+        // the polygon's edge normals and its apothem per unit of the circle's radius, for insideStop
+        m_bladeNormals.clear();
+        if (m_blades < 3) return;
+        const Real n = Real(m_blades);
+        m_apothemPerRadius = std::sqrt(kPi / (Real(0.5) * n * std::sin(Real(2) * kPi / n))) * std::cos(kPi / n);
+        for (int k = 0; k < m_blades; ++k) {
+            const Real a = rotation + Real(2) * kPi * (Real(k) + Real(0.5)) / n;
+            m_bladeNormals.emplace_back(std::cos(a), std::sin(a));
+        }
+    }
+
     bool LensSystem::insideStop(const Surface& s, Real x, Real y, const StopShape& stop) const {
         const Real r = s.apertureRadius * stop.scale;
         if (stop.blades < 3) return x * x + y * y <= r * r;
+        if (stop.blades == m_blades && stop.rotation == m_bladeRotation && !m_bladeNormals.empty()) {   // the lens's own stop: precomputed
+            const Real apothem = r * m_apothemPerRadius;
+            for (const Point2& nrm : m_bladeNormals)
+                if (x * nrm.x + y * nrm.y > apothem) return false;
+            return true;
+        }
         // a regular polygon of the circle's area (as Camera::setApertureShape): every edge's inner side
         const Real n = Real(stop.blades);
         const Real circumradius = r * std::sqrt(kPi / (Real(0.5) * n * std::sin(Real(2) * kPi / n)));
@@ -243,9 +267,44 @@ namespace rayt {
         return false;
     }
 
+    bool LensSystem::hitSurface(const Surface& s, Point3& o, const Vector3& d, bool backward, bool clip, Vector3& normal, Real& rho) const {
+        const Real tMin = backward ? -HUGE_VAL : Real(1e-12);
+        Real t = 0;
+        if (s.aspheric() || s.flat) {
+            if (s.aspheric()) { if (!intersectAspheric(s, o, d, t)) return false; }
+            else {
+                if (std::fabs(d.z) < Real(1e-12)) return false;
+                t = (s.z - o.z) / d.z;
+            }
+            if (t <= tMin) return false;
+            const Point3 p = o + d * t;
+            rho = std::sqrt(p.x * p.x + p.y * p.y);
+            if (clip && rho > s.apertureRadius) return false;
+            Real sag = 0, slope = 0;
+            if (!s.sag(rho, sag, slope)) return false;
+            normal = rho > Real(0) ? glm::normalize(Vector3(slope * p.x / rho, slope * p.y / rho, Real(1))) : Vector3(0, 0, 1);
+            o = p;
+            return true;
+        }
+        // a sphere through the vertex, its centre on the axis; the intersection on the vertex's side of the sphere
+        const Point3 centre(0, 0, s.z - s.radius);
+        const Vector3 oc = o - centre;
+        const Real b = glm::dot(oc, d), c = glm::dot(oc, oc) - s.radius * s.radius;
+        const Real disc = b * b - c;
+        if (disc < Real(0)) return false;
+        const Real root = std::sqrt(disc);
+        t = ((d.z > Real(0)) == (s.radius > Real(0))) ? -b + root : -b - root;
+        if (t <= tMin) return false;
+        const Point3 p = o + d * t;
+        rho = std::sqrt(p.x * p.x + p.y * p.y);
+        if (clip && rho > s.apertureRadius) return false;
+        normal = glm::normalize(p - centre);
+        o = p;
+        return true;
+    }
+
     bool LensSystem::crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop, bool backward) const {
         const Surface& s = m_surfaces[static_cast<size_t>(i)];
-        const Real tMin = backward ? -HUGE_VAL : Real(1e-12);
         if (s.isStop()) {   // the aperture stop: a plane, no refraction
             if (std::fabs(d.z) < Real(1e-12)) return false;
             const Real t = (s.z - o.z) / d.z;
@@ -255,39 +314,105 @@ namespace rayt {
             o = p;
             return true;
         }
-        Real t = 0;
         Vector3 normal;
-        if (s.aspheric() || s.flat) {
-            if (s.aspheric()) { if (!intersectAspheric(s, o, d, t)) return false; }
-            else {
-                if (std::fabs(d.z) < Real(1e-12)) return false;
-                t = (s.z - o.z) / d.z;
-            }
-            if (t <= tMin) return false;
-            const Point3 p = o + d * t;
-            const Real rho = std::sqrt(p.x * p.x + p.y * p.y);
-            if (rho > s.apertureRadius) return false;
-            Real sag = 0, slope = 0;
-            if (!s.sag(rho, sag, slope)) return false;
-            normal = rho > Real(0) ? glm::normalize(Vector3(slope * p.x / rho, slope * p.y / rho, Real(1))) : Vector3(0, 0, 1);
-            o = p;
-        } else {
-            // a sphere through the vertex, its centre on the axis; the intersection on the vertex's side of the sphere
-            const Point3 centre(0, 0, s.z - s.radius);
-            const Vector3 oc = o - centre;
-            const Real b = glm::dot(oc, d), c = glm::dot(oc, oc) - s.radius * s.radius;
-            const Real disc = b * b - c;
-            if (disc < Real(0)) return false;
-            const Real root = std::sqrt(disc);
-            t = ((d.z > Real(0)) == (s.radius > Real(0))) ? -b + root : -b - root;
-            if (t <= tMin) return false;
-            const Point3 p = o + d * t;
-            if (p.x * p.x + p.y * p.y > s.apertureRadius * s.apertureRadius) return false;
-            normal = glm::normalize(p - centre);
-            o = p;
-        }
+        Real rho = 0;
+        if (!hitSurface(s, o, d, backward, true, normal, rho)) return false;
         if (glm::dot(normal, d) > Real(0)) normal = -normal;
         return Refract(d, normal, nFrom / nTo);
+    }
+
+    bool LensSystem::insideStopNow(Real x, Real y) const {
+        if (m_stopIndex < 0) return true;
+        return insideStop(m_surfaces[static_cast<size_t>(m_stopIndex)], x, y, StopShape{ m_stopScale, m_blades, m_bladeRotation });
+    }
+
+    Real LensSystem::interfaceReflectance(Real cosI, Real nIn, Real nOut, Real nm, Coating coating) {
+        // A quarter wave of MgF2 at 550 nm on every glass-air surface; between two glasses (a cemented surface) bare Fresnel. With no
+        // film thickness the stack's formula is Fresnel's between nIn and nOut.
+        constexpr Real kMgF2 = Real(1.38), kDesignNm = Real(550);
+        const bool glassAir = (nIn > Real(1)) != (nOut > Real(1));
+        const Real thickness = (coating == Coating::SingleLayer && glassAir) ? kDesignNm / (Real(4) * kMgF2) : Real(0);
+        return thinfilm::reflectance(cosI, nIn, kMgF2, thickness, thinfilm::Complex(nOut, Real(0)), nm);
+    }
+
+    LensSystem::ReflectanceTable LensSystem::makeReflectanceTable(int bands, const Real* bandNm, Coating coating) const {
+        ReflectanceTable t;
+        t.bands = bands;
+        const size_t n = m_surfaces.size(), stride = ReflectanceTable::kCos + 1;
+        t.r.assign(n * 2 * static_cast<size_t>(bands) * stride, Real(0));
+        for (size_t k = 0; k < n; ++k)
+            for (int side = 0; side < 2; ++side)
+                for (int b = 0; b < bands; ++b) {
+                    const Real front = indexAfter(static_cast<int>(k) - 1, bandNm[b]), back = indexAfter(static_cast<int>(k), bandNm[b]);
+                    const Real nIn = side == 0 ? front : back, nOut = side == 0 ? back : front;
+                    Real* row = &t.r[((k * 2 + static_cast<size_t>(side)) * static_cast<size_t>(bands) + static_cast<size_t>(b)) * stride];
+                    for (size_t c = 0; c < stride; ++c)
+                        row[c] = interfaceReflectance(Real(c) / Real(ReflectanceTable::kCos), nIn, nOut, bandNm[b], coating);
+                }
+        return t;
+    }
+
+    bool LensSystem::traceGhost(int i, int j, Point3 o, Vector3 d, Real nm, Coating coating, GhostSample& g, const ReflectanceTable* table,
+        Real* bandT) const {
+        const int bands = table ? table->bands : 0;
+        const int n = static_cast<int>(m_surfaces.size());
+        if (!(0 <= i && i < j && j < n) || m_surfaces[static_cast<size_t>(i)].isStop() || m_surfaces[static_cast<size_t>(j)].isStop()) return false;
+        g = GhostSample();
+        g.throughput = Real(1);
+        for (int b = 0; b < bands; ++b) bandT[b] = Real(1);
+        int previous = -1;
+        // one crossing (or reflection) of surface k
+        auto step = [&](int k, bool reflect) -> bool {
+            const Surface& s = m_surfaces[static_cast<size_t>(k)];
+            // a negative spacing puts the surface behind the ray's origin, along its direction of travel
+            const bool backward = previous >= 0
+                && (d.z < Real(0) ? s.z > m_surfaces[static_cast<size_t>(previous)].z : s.z < m_surfaces[static_cast<size_t>(previous)].z);
+            previous = k;
+            if (s.isStop()) {
+                if (std::fabs(d.z) < Real(1e-12)) return false;
+                const Real t = (s.z - o.z) / d.z;
+                if (!backward && t <= Real(0)) return false;
+                o = o + d * t;
+                if (g.stopPasses < 3) { g.stopX[g.stopPasses] = o.x; g.stopY[g.stopPasses] = o.y; }
+                ++g.stopPasses;
+                return true;
+            }
+            Vector3 normal;
+            Real rho = 0;
+            if (!hitSurface(s, o, d, backward, false, normal, rho)) return false;
+            g.rim = std::max(g.rim, rho / s.apertureRadius);
+            if (glm::dot(normal, d) > Real(0)) normal = -normal;
+            const Real cosI = -glm::dot(normal, d);
+            // toward -z the ray goes from the medium in front of surface k into the one behind it; toward +z the other way
+            const bool fromFront = d.z < Real(0);
+            const Real nIn = fromFront ? indexAfter(k - 1, nm) : indexAfter(k, nm);
+            const Real nOut = fromFront ? indexAfter(k, nm) : indexAfter(k - 1, nm);
+            Real r = 0;
+            if (table) {
+                for (int b = 0; b < bands; ++b) {
+                    const Real rb = table->at(k, fromFront, b, cosI);
+                    bandT[b] *= reflect ? rb : Real(1) - rb;
+                }
+            }
+            else r = interfaceReflectance(cosI, nIn, nOut, nm, coating);
+            if (reflect) {
+                d = glm::normalize(d + Real(2) * cosI * normal);
+                g.throughput *= r;
+                return true;
+            }
+            if (!Refract(d, normal, nIn / nOut)) return false;
+            g.throughput *= Real(1) - r;
+            return true;
+        };
+        for (int k = 0; k <= j; ++k) if (!step(k, k == j)) return false;
+        for (int k = j - 1; k >= i; --k) if (!step(k, k == i)) return false;
+        for (int k = i + 1; k < n; ++k) if (!step(k, false)) return false;
+        if (!(d.z < Real(0))) return false;
+        const Real t = (m_filmZ - o.z) / d.z;
+        g.x = o.x + t * d.x;
+        g.y = o.y + t * d.y;
+        if (table && bands > 0) g.throughput = bandT[0];   // with a table, the first band's
+        return g.stopPasses <= 3;
     }
 
     bool LensSystem::traceFromFilm(Point3& o, Vector3& d, Real nm) const {

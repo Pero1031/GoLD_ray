@@ -12,6 +12,7 @@
 #include "Render/Diffraction.hpp"
 #include "Render/Exposure.hpp"
 #include "Render/LensSystem.hpp"
+#include "Render/LensFlare.hpp"
 #include "Render/Integrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/Sensor.hpp"
@@ -30,6 +31,7 @@ namespace {
 struct ResolvedLens {
     Real orthoHeight = 0;     // > 0: the orthographic view, this high (scene units)
     Real diffraction = 0;     // > 0: diffraction at the aperture, the pattern this many times its real size
+    std::string ghosts;       // the ghosts of a real lens: "coated", "uncoated" ("" or "off": none)
     std::string lensFile;     // a real lens instead of the thin one ("" = none)
     bool fStopGiven = false;  // an f-number was asked for ("fStop", --fstop), not only a lens diameter
     Real fovDeg = 35;
@@ -96,6 +98,7 @@ ResolvedLens ResolveLens(const CameraSpec& cam, const LensSpec& fromOptions, Rea
     r.naturalVignetting = s.naturalVignetting.value_or(Real(0));
     r.orthoHeight = s.orthoHeight.value_or(Real(0));
     r.diffraction = s.diffraction.value_or(Real(0));
+    r.ghosts = s.ghosts.value_or(std::string());
     r.lensFile = s.lensFile.value_or(std::string());
     r.fStopGiven = s.fStop.has_value() && *s.fStop > 0;
     r.shutter = s.shutter.value_or(Real(0));
@@ -431,7 +434,8 @@ void LogAutoWhiteBalance(Film& film, Film* denoised) {
 
 // Writes the picture and everything asked for beside it (mask, depth, spectral image, AOVs, Stokes images, polarizer views, the denoised copy).
 // photonsAdded: caustic photons or light paths were added to the picture (they carry no polarization). iso: the physical exposure's (0 = none).
-void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction, Real exposureStops, Real iso) {
+void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std::optional<DiffractionSetup>& diffraction, Real exposureStops, Real iso,
+    const std::vector<Vector3>& flare) {
     std::cout << "[Output] Saving images..." << std::endl;
     color::Gamut gamut = color::Gamut::SRGB;
     color::parseGamut(opt.gamut, gamut);   // already validated by the option parser
@@ -449,6 +453,17 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
         denoised = std::make_unique<Film>(film.width(), film.height());
         setOutput(*denoised);
         if (!DenoiseFilm(film, *denoised, opt.cleanAux, gamut)) denoised.reset();
+    }
+    // The ghosts of the lens (--ghosts): optics, added after the denoiser (they are free of noise) and before diffraction
+    if (!flare.empty()) {
+        for (Film* f : { &film, denoised.get() }) {
+            if (!f) continue;
+            for (int y = 0; y < f->height(); ++y)
+                for (int x = 0; x < f->width(); ++x) {
+                    const size_t i = static_cast<size_t>(y) * static_cast<size_t>(f->width()) + static_cast<size_t>(x);
+                    f->setPixel(x, y, f->getData()[i] + flare[i]);
+                }
+        }
     }
     // Diffraction at the aperture: optics, so it reaches every picture, .pfm included (not the AOVs, the mask, the depth or the spectral image)
     std::optional<DiffractionKernels> kernels;
@@ -775,8 +790,24 @@ int RenderScene(CliOptions& opt) {
             << " -> unblocked " << c.unblocked << " -> focusing ok " << c.focusOk << "\n";
     }
 
-    const Real iso = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight).iso;   // the physical exposure's, for the sensor
-    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction, exposureStops, iso);
+    const ResolvedLens resolved = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
+    const Real iso = resolved.iso;   // the physical exposure's, for the sensor
+    // The lens flare (--ghosts): the ghosts of the scene's lights through the real lens, traced from the lights
+    std::vector<Vector3> flare;
+    if (!resolved.ghosts.empty() && resolved.ghosts != "off") {
+        if (!camera->lensSystem()) std::cout << "[Ghosts] --ghosts needs a real lens (--lens): ignored\n";
+        else {
+            LensFlareSettings fs;
+            fs.coating = resolved.ghosts == "uncoated" ? LensSystem::Coating::Uncoated : LensSystem::Coating::SingleLayer;
+            LensFlareStats st;
+            flare = RenderLensFlare(*scene, *camera, imageWidth, imageHeight, fs, &st);
+            std::cout << "[Ghosts] " << st.ghosts << " pairs of surfaces x " << st.lights << " light point(s), "
+                << (resolved.ghosts == "uncoated" ? "bare glass" : "a single MgF2 coating") << ": " << st.rays / 1e6 << " M rays in " << st.seconds
+                << " s; the brightest pixel " << st.peak << "\n";
+            if (st.lights == 0) std::cout << "[Ghosts] no light of the scene reaches the lens (environment lights cast no ghosts here)\n";
+        }
+    }
+    SaveOutputs(opt, film, opt.lvc || causticOn, diffraction, exposureStops, iso, flare);
 
     bool hooksPassed = true;
     if (setup.afterSave) hooksPassed = setup.afterSave({ *scene, *camera, film, *integrator });

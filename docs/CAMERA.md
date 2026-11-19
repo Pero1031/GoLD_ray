@@ -12,6 +12,7 @@ What the camera simulates, what the written files contain, and what is verified.
 | Thin lens | Defocus from an aperture (f-number), a plane of focus, a round or polygonal aperture (the shape of the bokeh) | `--fstop`, `--focus-dist`, `--focus-at`, `--blades` |
 | Aberrations | Radial distortion r' = r (1 + k1 r² + k2 r⁴); lateral and axial chromatic aberration (spectral build only: they need the wavelength of the path) | `--distortion`, `--lateral-ca`, `--axial-ca` |
 | Vignetting | The lens barrel cuts oblique bundles (dark corners, cat's-eye bokeh); the cos⁴ law | `--vignette`, `--natural-vignette` |
+| Ghosts (lens flare) | With a real lens: the light of the scene's lights that two lens surfaces reflect on its way to the film, one ghost per pair of surfaces, each an image of the stop (below) | `--ghosts coated\|uncoated`, `ghosts` |
 | Diffraction | The Fraunhofer pattern of the aperture (`Render/Diffraction`): an Airy disc for a round one, a star for blades (n spikes for an even n, 2n for an odd one), its size λN, so red reaches farther than blue. Integrated over the pixels (36 mm over the long side of the picture) and convolved with every picture, `.pfm` included. At the real size (`1`) only very bright points show a faint star; `S` > 1 enlarges the pattern S times | `--diffraction S`, `diffraction` |
 | Exposure time | Moving objects and a moving or panning camera blur over the shutter time | `--shutter`, `--cam-velocity`, `--pan` |
 | Physical exposure | The f-number, the shutter time and the ISO speed set the brightness as in a camera (below); off by default, when the picture keeps the scene's radiance whatever the f-number and shutter | `--iso`, `iso`; `--nits` |
@@ -66,6 +67,32 @@ axial and lateral chromatic aberration.
 - **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
   of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
   such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.
+
+### Ghosts (`--ghosts coated|uncoated`, camera `"ghosts"`; `Render/LensFlare`)
+
+Every lens surface reflects a little of the light that crosses it: about 4 % for bare glass, about 1.3 % at 550 nm through a single
+anti-reflection coating (MgF2, a quarter wave thick at 550 nm; more toward blue and red, so its reflections look purple). Light reflected
+at surface j back toward the front and again at an earlier surface i reaches the film a second time, out of focus and displaced: a
+ghost, one for each pair of surfaces (45 for the double-Gauss, 66 for the phone telephoto with its filter), each an image of the stop
+(round, or the blades' polygon) or a crescent of it, lined up through the picture's centre and the light. Light reflected four times or
+more is left out (weaker by another R², 10⁻³ to 10⁻⁴).
+
+- **Traced from the lights.** A camera path rarely takes the two reflections and never reaches a point light, so the ghosts are traced
+  from the lights after the picture is rendered (Hullin, Eisemann, Seidel and Lee 2011, traced exactly here instead of their polynomial
+  fits). For every light (an area light as up to four points, one when they lie within 0.25° of each other), every pair of surfaces and a
+  set of wavelength bands, a parallel beam crosses the lens: a coarse 48 × 48 grid over the entrance finds where its light gets
+  through, a fine 192 × 192 grid over that box is traced through the ghost's path without the clear apertures
+  (`LensSystem::traceGhost`), and its cells become triangles on the film. A triangle spreads its cell's light over its area; the points
+  where its rays crossed the stop and how near they came to each rim are interpolated and tested per sub-pixel, so a ghost keeps the
+  stop's sharp edges with no noise. The reflectances of each interface (Fresnel or the coated stack, unpolarized, `Materials/ThinFilm`)
+  are tabulated over the angle of incidence.
+- **In the picture.** The flare is a picture in the film's units (scene radiance at the centre of the picture, as the camera's rays give
+  it), added after the denoiser and before diffraction, the sensor and the exposure, so `--iso` and `--sensor` treat it as light.
+- **Colour.** Eight wavelength bands, each with its colour weights integrated over the band (the CIE observer or `--camera-response`,
+  the white balance). The spectral build traces each band its own way through the glass (dispersion: coloured fringes); the RGB build
+  traces one path for all bands, so its ghosts take the coating's colour but no dispersion.
+- **Cost.** The double-Gauss with two small lamps in a 640 × 360 picture: about 2 s in the RGB build, 18 s in the spectral build (eight
+  bands each); it grows with the number of lights, of surfaces (pairs) and the area the ghosts cover.
 
 ### Physical exposure (`--iso S --nits K`, camera `"iso"`; `Render/Exposure.hpp`)
 
@@ -214,6 +241,20 @@ f/2.8. (The patent states f = 5.57 mm, rounded.) The telephoto against rayoptics
 12.5° sets (2.740702 mm, within 1 nm), and the RMS spot radii at f/2.6 on the paraxial focal plane of 437 rays through the stop at 0, 70
 and 100 % of the field (2.95, 3.23 and 6.59 µm, within 0.1 nm), none of them stopped by the `auto` diameters.
 
+Ghosts, also in `--scene camera`: the reflectance of bare glass of n = 1.52 at normal incidence is ((n − 1) / (n + 1))² = 4.26 % and
+under the coating ((n − n_f²) / (n + n_f²))² = 1.26 %, the same from inside the glass, more at 450 and 650 nm (1.62 and 1.44 %), and total
+reflection inside the glass beyond the critical angle. Ten rays reflected twice in the double-Gauss (the stop crossed once or three
+times), the aspheric phone lens (its negative spacing, its cover glass) and the telephoto, bare and coated, land on the film within
+10⁻⁶ nm of where an independent tracer puts them (`tools/test/lens_ghost_check.py`: its own reader of the lens files, Newton's method on
+every surface, Airy's formula for the coating) with the same throughput (10⁻¹²). In absolute terms: a point light of intensity I on the axis
+10 m in front of the singlet at f/40 gives its only ghost I / d² × the stop's area × (1 − R) R R (1 − R), and the flare picture's pixels,
+times the pixel's area and the film-centre irradiance factor, add up to it within 0.001 % (RGB build) and 0.3 % (spectral build: the
+light's colour through 32 bands). The 45 ghosts of the coated double-Gauss at f/4 with six blades, for a light 8° off the axis, against
+an estimate that sends one ray through each of 400 × 400 jittered strata of the entrance and lets it land in one pixel with its exact
+clipping: the totals agree within 0.02 % and every block of a 6 × 4 division of the picture within 0.11 % of the brightest. (With
+random instead of stratified rays the two first differed by 6 %: the random estimate's noise, shared by every ghost through the same
+random points.)
+
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged
 pattern has 6 spikes for 6 blades and 14 for 7, across the edges (within 1°); a uniform picture stays uniform and one bright pixel spreads
@@ -255,7 +296,13 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
   the sensor are in its description). The camera's processing ends at the colour matrix: no noise reduction, no sharpening, no lens
   shading correction and no maker's tone curve (each a maker's own design); the display mapping (`--tonemap`, the sRGB curve) follows.
 - Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
-- A real lens has no reflections between its surfaces (no ghosts or flare) and no absorption in the glass. Aspheres are the power series
+- The ghosts: a light is a parallel beam over the lens (its direction from the lens's centre) that reaches the lens or not as a whole
+  (one shadow ray); environment lights cast none; light reflected four times or more, the reflection of the sensor itself, scattering
+  in the lens (veiling glare) and the rays a coarse grid cell misses (a passing region thinner than 1/48 of the entrance) are left out;
+  the reflectances are the unpolarized ones at each interface (the polarization of the first reflection is not carried to the second);
+  multilayer coatings and filters' dichroic stacks are not modelled (their designs are not published). Only for a real lens. The
+  rendered picture itself does not lose the light that the surfaces reflect (about 4 % per bare surface).
+- A real lens has no absorption in the glass. Aspheres are the power series
   of the patents only: Forbes's Q-polynomials (Qcon, Qbfs), which some recent phone-lens patents use, are not read. Many such patents print
   too little to be rebuilt: Q-type coefficients without the normalisation radius, power series rounded to three digits whose terms cancel
   to a thousandth of their size, indices to two decimals. It refuses light tracing and the orthographic view. The RGB build traces n_d only. The focus uses the paraxial principal planes, so at close range the plane of sharpest focus can sit slightly off the asked distance (spherical aberration).

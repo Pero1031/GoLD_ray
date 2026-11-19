@@ -111,6 +111,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Render\LensFlare.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Render\Diffraction.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
@@ -554,6 +558,7 @@
     <ClInclude Include="include\Render\Film.hpp" />
     <ClInclude Include="include\Render\MaskDepth.hpp" />
     <ClInclude Include="include\Render\Diffraction.hpp" />
+    <ClInclude Include="include\Render\LensFlare.hpp" />
     <ClInclude Include="include\Render\Exposure.hpp" />
     <ClInclude Include="include\Render\Sensor.hpp" />
     <ClInclude Include="include\Render\LensSystem.hpp" />

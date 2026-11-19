@@ -22,6 +22,7 @@ struct LensSpec {
     std::optional<int> blades;             // aperture blades: 0 or none = a round aperture, 3 or more = a regular polygon
     std::optional<Real> bladeRotationDeg;  // turns the polygon
     std::optional<Real> diffraction;       // > 0: diffraction at the aperture (Render/Diffraction.hpp), its pattern this many times its real size; 0: off
+    std::optional<std::string> ghosts;     // the ghosts of a real lens (Render/LensFlare.hpp): "coated", "uncoated" or "off"
     // Aberrations (Camera::setAberrations); none = an ideal lens
     std::optional<Real> distortionK1;      // radial distortion r' = r (1 + k1 r^2 + k2 r^4); k1 > 0 barrel, k1 < 0 pincushion
     std::optional<Real> distortionK2;
@@ -47,6 +48,7 @@ struct LensSpec {
         if (o.orthoHeight) orthoHeight = o.orthoHeight;
         if (o.lensFile) lensFile = o.lensFile;
         if (o.diffraction) diffraction = o.diffraction;
+        if (o.ghosts) ghosts = o.ghosts;
         if (o.shutter) shutter = o.shutter;
         if (o.iso) iso = o.iso;
         if (o.velocity) velocity = o.velocity;

@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -83,7 +84,7 @@ namespace rayt {
         /// Closes the stop to f-number N (no wider than the lens allows); returns the f-number set.
         Real setFNumber(Real n);
         /// A stop of `blades` straight blades (a regular polygon of the circle's area, turned by `rotation` radians); fewer than 3: round.
-        void setStopShape(int blades, Real rotation) { m_blades = blades >= 3 ? blades : 0; m_bladeRotation = rotation; }
+        void setStopShape(int blades, Real rotation);
 
         /// Moves the film so that a point `distance` in front of the front principal plane is in focus (Gauss's lens equation with the
         /// principal planes). False, and focus at infinity, when the distance is not beyond the focal length.
@@ -131,6 +132,57 @@ namespace rayt {
         bool traceFromFilm(Point3& o, Vector3& d, Real nm) const;
         bool traceFromObject(Point3& o, Vector3& d, Real nm) const;
 
+        // ---- ghosts (Render/LensFlare): light reflected twice inside the lens ----
+
+        /// The anti-reflection coating of the glass-air surfaces: none (bare glass, about 4 % per surface) or a single layer of MgF2
+        /// (n = 1.38) a quarter wave thick at 550 nm, the classic coating (about 1.3 % at 550 nm, more toward blue and red).
+        enum class Coating { Uncoated, SingleLayer };
+
+        /// One ray of a ghost, traced without the clear apertures: where it meets the film and what would clip it, so that the flare
+        /// renderer can test the stop and the rims between its rays.
+        struct GhostSample {
+            Real x = 0, y = 0;          ///< where it meets the film plane (lens frame, metres)
+            Real throughput = 0;        ///< the two reflectances times the transmittances (1 - R) of every other crossing
+            int stopPasses = 0;         ///< how often it crossed the stop's plane (1 to 3), and where
+            Real stopX[3] = { 0, 0, 0 }, stopY[3] = { 0, 0, 0 };
+            Real rim = 0;               ///< the largest height / clear radius at the lens surfaces it crossed (above 1: clipped)
+        };
+
+        /// The reflectances of every surface's interface (from the front and from behind), per wavelength band, over the cosine of
+        /// incidence: the flare's rays meet the surfaces millions of times, and a coated surface's reflectance costs a thin-film formula.
+        struct ReflectanceTable {
+            static constexpr int kCos = 512;   ///< intervals of the cosine (linear interpolation)
+            int bands = 0;
+            std::vector<Real> r;               ///< [surface][side: 0 from the front, 1 from behind][band][kCos + 1]
+            Real at(int surface, bool fromFront, int band, Real cosI) const {
+                const Real x = std::clamp(cosI, Real(0), Real(1)) * Real(kCos);
+                const int i = std::min(static_cast<int>(x), kCos - 1);
+                const Real f = x - Real(i);
+                const size_t base = ((static_cast<size_t>(surface) * 2 + (fromFront ? 0 : 1)) * static_cast<size_t>(bands) + static_cast<size_t>(band))
+                    * static_cast<size_t>(kCos + 1) + static_cast<size_t>(i);
+                return r[base] + (r[base + 1] - r[base]) * f;
+            }
+        };
+        /// The table for the wavelengths bandNm[0 .. bands) (each band's own indices of refraction in the spectral build).
+        ReflectanceTable makeReflectanceTable(int bands, const Real* bandNm, Coating coating) const;
+
+        /**
+         * @brief The ghost of the surfaces i < j: light from the object side crosses the surfaces to j, is reflected there back toward
+         *        the front, crosses back to i, is reflected there toward the film, and crosses the rest to the film (the film as focused).
+         *        The reflectances and transmittances are the unpolarized ones of each interface (Fresnel, or the coated stack of a glass-air
+         *        surface, Materials/ThinFilm.hpp). The path is traced at `nm`; its throughput (the two reflectances times 1 - R of every
+         *        other crossing) at the wavelength `nm` goes to g.throughput, or, with a table, at each of its bands to bandT (the RGB build
+         *        traces one path for all bands: its glass bends every wavelength alike while the coating still colours the reflections).
+         *        False if the ray misses a surface or is totally reflected where it should cross.
+         */
+        bool traceGhost(int i, int j, Point3 o, Vector3 d, Real nm, Coating coating, GhostSample& g, const ReflectanceTable* table = nullptr,
+            Real* bandT = nullptr) const;
+        /// Whether a point of the stop's plane (lens frame) passes the stop as it is set (f-number, blades).
+        bool insideStopNow(Real x, Real y) const;
+        /// The unpolarized reflectance of an interface for light from the medium of index nIn into nOut at the cosine cosI: Fresnel, or
+        /// through the coating when one side is air and the other glass.
+        static Real interfaceReflectance(Real cosI, Real nIn, Real nOut, Real nm, Coating coating);
+
     private:
         struct Bounds { Real minX = 0, minY = 0, maxX = 0, maxY = 0; bool empty = true; };
         struct StopShape { Real scale = 1; int blades = 0; Real rotation = 0; };   ///< the stop a trace tests against
@@ -139,6 +191,9 @@ namespace rayt {
         /// Moves the ray to surface i and refracts it. `backward`: the surface lies behind the ray's origin (a negative spacing), so the
         /// intersection may be at a negative ray parameter.
         bool crossSurface(int i, Point3& o, Vector3& d, Real nFrom, Real nTo, const StopShape& stop, bool backward) const;
+        /// Moves the ray to the (non-stop) surface s: the point, its distance from the axis and the normal there (facing either way).
+        /// `clip`: false where the point lies outside the clear aperture.
+        bool hitSurface(const Surface& s, Point3& o, const Vector3& d, bool backward, bool clip, Vector3& normal, Real& rho) const;
         /// The ray parameter where the ray meets the aspheric (or flat) surface i, by Newton's method from its vertex plane; false if it
         /// does not converge or leaves the conic's domain.
         bool intersectAspheric(const Surface& s, const Point3& o, const Vector3& d, Real& t) const;
@@ -161,6 +216,9 @@ namespace rayt {
         Real m_filmRadius = 0;          ///< the half diagonal the table covers
         Real m_centreIrradiance = 1;    ///< the weight's normalisation
         Real m_imageHeight = 0;         ///< half the design's image diagonal (0: not given)
+        int m_stopIndex = -1;           ///< the stop surface (-1: none)
+        std::vector<Point2> m_bladeNormals;   ///< the polygonal stop's edge normals (setStopShape)
+        Real m_apothemPerRadius = 1;          ///< its apothem per unit of the round stop's radius (the same area)
     };
 
 } // namespace rayt

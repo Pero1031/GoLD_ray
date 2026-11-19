@@ -50,6 +50,7 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
 bool ApplyLensArg(const std::string& a, const std::function<std::string(const char*)>& value, LensSpec& lens) {
     if (a == "--ortho") lens.orthoHeight = std::stod(value("--ortho"));
     else if (a == "--diffraction") lens.diffraction = std::stod(value("--diffraction"));
+    else if (a == "--ghosts") lens.ghosts = value("--ghosts");
     else if (a == "--lens") lens.lensFile = value("--lens");
     else if (a == "--focal-length") lens.focalLengthMm = std::stod(value("--focal-length"));
     else if (a == "--fstop") lens.fStop = std::stod(value("--fstop"));
@@ -294,6 +295,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
         if (o.lens.orthoHeight && !(*o.lens.orthoHeight >= 0)) throw std::runtime_error("--ortho must be 0 (perspective) or the height of the view (scene units)");
         if (o.lens.diffraction && !(*o.lens.diffraction == 0 || (*o.lens.diffraction >= 1 && *o.lens.diffraction <= 100)))
             throw std::runtime_error("--diffraction must be 0 (off), 1 (the real size) or up to 100 (the pattern enlarged that many times)");
+        if (o.lens.ghosts && *o.lens.ghosts != "coated" && *o.lens.ghosts != "uncoated" && *o.lens.ghosts != "off")
+            throw std::runtime_error("--ghosts must be coated, uncoated or off");
         if (o.lens.fStop && !(*o.lens.fStop >= 0)) throw std::runtime_error("--fstop must be 0 (a pinhole) or an f-number above 0");
         if (o.lens.focusDist && !(*o.lens.focusDist > 0)) throw std::runtime_error("--focus-dist must be above 0");
         if (o.lens.blades && (*o.lens.blades < 0 || (*o.lens.blades > 0 && *o.lens.blades < 3) || *o.lens.blades > 32))

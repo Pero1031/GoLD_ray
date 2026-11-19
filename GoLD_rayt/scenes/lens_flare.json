@@ -1,0 +1,17 @@
+{
+ "comment": "Lens flare: two small bright lamps at night through the double-Gauss at f/4 with six blades; the ghosts of its coated surfaces (docs/CAMERA.md). Try \"ghosts\": \"uncoated\" for bare glass.",
+ "options": {"width": 960, "height": 540, "spp": 64, "depth": 6, "denoise": true},
+ "camera": {"from": [0, 0.3, 2.0], "at": [0, 0.3, 0], "up": [0, 1, 0], "lens": "assets/Lenses/dgauss_50mm.txt", "fStop": 4, "blades": 6, "ghosts": "coated"},
+ "materials": {
+  "ground": {"type": "diffuse", "albedo": [0.08, 0.08, 0.09]},
+  "grey": {"type": "diffuse", "albedo": [0.4, 0.4, 0.4]},
+  "lamp": {"type": "emission", "spectrum": {"blackbody": 3000}, "radiance": 20000},
+  "lamp2": {"type": "emission", "spectrum": {"blackbody": 5500}, "radiance": 20000}
+ },
+ "objects": [
+  {"shape": "quad", "corner": [-20, 0, 20], "edge1": [40, 0, 0], "edge2": [0, 0, -40], "material": "ground"},
+  {"shape": "sphere", "center": [-0.3, 0.15, -0.5], "radius": 0.15, "material": "grey"},
+  {"shape": "sphere", "center": [0.35, 0.55, -1.5], "radius": 0.01, "material": "lamp"},
+  {"shape": "sphere", "center": [-0.5, 0.45, -3.0], "radius": 0.01, "material": "lamp2"}
+ ]
+}

@@ -6,6 +6,8 @@
 #include "Geometry/Quad.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Materials/Lambertian.hpp"
+#include "Lights/PointLight.hpp"
+#include "Render/LensFlare.hpp"
 #include "Render/LensSystem.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Diffraction.hpp"
@@ -455,6 +457,151 @@ int RunCameraTests() {
                 "f " + fmt(f * 1e3) + " mm (12.257120), image height " + fmt(h * 1e3) + " mm (2.740702), RMS " + rmsText
                 + " um (2.95 / 3.23 / 6.59), worst off by " + fmt(worstRms * 1e9) + " nm, " + std::to_string(blocked) + " blocked");
         }
+    }
+
+    // ---- Ghosts (--ghosts; Render/LensFlare.hpp) ----
+    // (r) The reflectance of an interface: bare glass of n = 1.52 at normal incidence ((n - 1) / (n + 1))^2 = 4.26 %; under a quarter wave of
+    //     MgF2 (n_f = 1.38) at its design wavelength ((n - n_f^2) / (n + n_f^2))^2 = 1.26 %, the same from inside the glass, more at 450 and
+    //     650 nm (the coating's purple); from inside the glass beyond the critical angle, total reflection.
+    {
+        using C = LensSystem::Coating;
+        const Real n = Real(1.52), nf2 = Real(1.38) * Real(1.38);
+        const Real bare = LensSystem::interfaceReflectance(1, 1, n, 550, C::Uncoated), coat = LensSystem::interfaceReflectance(1, 1, n, 550, C::SingleLayer);
+        const Real coatBack = LensSystem::interfaceReflectance(1, n, 1, 550, C::SingleLayer);
+        const Real c450 = LensSystem::interfaceReflectance(1, 1, n, 450, C::SingleLayer), c650 = LensSystem::interfaceReflectance(1, 1, n, 650, C::SingleLayer);
+        const Real tir = LensSystem::interfaceReflectance(Real(0.5), n, 1, 550, C::SingleLayer);   // 60 deg inside, beyond 41 deg
+        const Real bareRef = (n - 1) * (n - 1) / ((n + 1) * (n + 1)), coatRef = (n - nf2) * (n - nf2) / ((n + nf2) * (n + nf2));
+        report("r  ghosts: bare and coated reflectance against the closed forms (4.26 / 1.26 %), the coating purple, total reflection",
+            std::fabs(bare - bareRef) < 1e-12 && std::fabs(coat - coatRef) < 1e-12 && std::fabs(coatBack - coat) < 1e-12 && c450 > 1.2 * coat && c650 > 1.1 * coat
+                && std::fabs(tir - 1) < 1e-9,
+            "bare " + fmt(bare * 100) + " %, coated " + fmt(coat * 100) + " % (450 nm " + fmt(c450 * 100) + ", 650 nm " + fmt(c650 * 100) + "), inside " + fmt(tir));
+    }
+
+    // (s) Ghost rays against an independent tracer (tools/test/lens_ghost_check.py: its own file reader, Newton's method on every surface,
+    //     Airy's formula): ten rays reflected twice in the double-Gauss (with the stop crossed once or three times), the aspheric phone lens
+    //     (its negative spacing, its cover glass) and the telephoto, bare and coated, land on the paraxial focal plane within 1 nm of it
+    //     and keep the same throughput (1e-9).
+    {
+        struct GhostRef { const char* file; int i, j; Real deg, x, y; bool coated; Real fx, fy, throughput; int passes; };
+        const GhostRef refs[] = {
+            { "dgauss_50mm.txt", 0, 1, 0, 3, 0, false, -11.341331967974, 0.000000000000, 2.349889356103e-03, 1 },
+            { "dgauss_50mm.txt", 2, 7, 5, -4, 2, true, 2.908702612520, -11.609568924970, 1.396020965941e-06, 3 },
+            { "dgauss_50mm.txt", 4, 9, 4, 1, -2, true, -16.815906603600, 6.684398755166, 1.349946373275e-05, 3 },
+            { "dgauss_50mm.txt", 7, 10, 3, 0, 6, false, -9.398411445634, -26.671946274676, 9.621130985315e-06, 1 },
+            { "cellphone_5.6mm.txt", 1, 2, 0, 0.5, 0, true, -3.164288715589, 0.000000000000, 2.473999381019e-04, 1 },
+            { "cellphone_5.6mm.txt", 2, 4, 5, 0.3, -0.4, true, -1.228182359789, 1.224415019069, 1.168772249280e-04, 1 },
+            { "cellphone_5.6mm.txt", 5, 8, 5, -0.1, 0.2, false, 2.155072328465, 0.179122283741, 9.401335583805e-04, 1 },
+            { "cellphone_5.6mm.txt", 9, 10, 10, 0.7, 0.1, true, 0.994190798052, -0.008187701902, 1.517678660249e-04, 1 },
+            { "cellphone_5.6mm.txt", 7, 10, 20, -0.2, 0.6, false, 13.551555998226, -1.349847462653, 9.514636057876e-03, 1 },
+            { "phone_tele_12mm.txt", 6, 11, 8, -0.5, -1, true, -1.561766342064, 0.730573570996, 1.198025671112e-04, 1 },
+        };
+        Real worstPos = 0, worstT = 0;
+        int failed = 0;
+        std::string error;
+        for (const GhostRef& r : refs) {
+            const auto lens = LensSystem::load(std::string("assets/Lenses/") + r.file, error);
+            if (!lens) { ++failed; continue; }
+            Real zTop = lens->surfaces().front().z;
+            for (const auto& s : lens->surfaces()) zTop = std::max(zTop, s.z);
+            const Real th = r.deg * Real(3.14159265358979323846) / 180;
+            const Vector3 d(std::sin(th), 0, -std::cos(th));
+            const Point3 o = Point3(r.x * 1e-3, r.y * 1e-3, zTop + Real(1e-3)) - d * Real(0.05);
+            LensSystem::GhostSample g;
+            if (!lens->traceGhost(r.i, r.j, o, d, Real(587.56), r.coated ? LensSystem::Coating::SingleLayer : LensSystem::Coating::Uncoated, g)
+                || g.stopPasses != r.passes) {
+                ++failed;
+                error += std::string(" ") + r.file + " " + std::to_string(r.i) + "-" + std::to_string(r.j);
+                continue;
+            }
+            worstPos = std::max(worstPos, std::hypot(g.x * 1e3 - r.fx, g.y * 1e3 - r.fy));
+            worstT = std::max(worstT, std::fabs(g.throughput / r.throughput - 1));
+        }
+        report("s  ghosts: ten rays reflected twice against an independent tracer: film point (1 nm), throughput (1e-9)",
+            failed == 0 && worstPos < 1e-6 && worstT < 1e-9,
+            "worst " + fmt(worstPos * 1e6) + " nm, throughput off by " + fmt(worstT) + ", " + std::to_string(failed) + " failed" + (error.empty() ? "" : " (" + error + ")"));
+    }
+
+    // (t) The flare's brightness in absolute terms: a point light of intensity I on the axis 10 m in front of the singlet stopped down to
+    //     f/40, whose only ghost (reflected at its back surface, then at its front surface) carries P = I / d^2 x the stop's area x
+    //     (1 - R) R R (1 - R) (bare glass at near-normal incidence) onto the film; the flare picture's pixels, times the pixel's area and
+    //     the irradiance factor at the film centre, must add up to P (0.5 %; the singlet without dispersion). And the 45 ghosts
+    //     of the coated double-Gauss at f/4 with six blades, a light 8 deg off the axis: the flare's triangles against single rays, one in
+    //     each of 400 x 400 jittered strata of the entrance landing in one pixel with its exact clipping (RenderLensFlareBySampling): the
+    //     total (0.5 %) and the light in 6 x 4 blocks of the picture (3 % of the brightest block), summed over R, G and B.
+    {
+        auto flareScene = [&](const Point3& lightAt, Real intensity) {
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Quad>(Point3(-50, -50, 20), Vector3(100, 0, 0), Vector3(0, 100, 0), std::make_shared<Lambertian>(RgbColor(Vector3(0.0)))));
+            auto scene = std::make_shared<Scene>(world);
+            scene->addLight(std::make_shared<PointLight>(lightAt, RgbColor(1.0, 1.0, 1.0), intensity));
+            scene->finalize("uniform");
+            return scene;
+        };
+        const int fw = 72, fh = 48;
+        const Real intensity = 1e6, pixelArea = (Real(0.036) / fw) * (Real(0.024) / fh);
+        // the singlet, without dispersion (its reflectance is then the same at every wavelength, R of n_d)
+        std::vector<LensSystem::Surface> plain = singlet()->surfaces();
+        for (auto& s : plain) s.abbe = 0;
+        auto lens = std::make_shared<LensSystem>(plain);
+        lens->setFNumber(40);
+        lens->focus(10.0);
+        lens->prepare(Real(0.036), Real(0.024));
+        auto cam = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 40.0, 1.5, 0.0, 10.0);
+        cam->setLensSystem(lens);
+        auto scene = flareScene(Point3(0, 0, -10), intensity);
+        LensFlareSettings fs;
+        fs.coating = LensSystem::Coating::Uncoated;
+        fs.wavelengths = 32;
+        const auto flare = RenderLensFlare(*scene, *cam, fw, fh, fs);
+        Vector3 sum(0.0);
+        for (const Vector3& v : flare) sum += v;
+        const Vector3 power = sum * pixelArea * lens->centreIrradiance();
+        Real zTop = lens->surfaces().front().z;
+        for (const auto& s : lens->surfaces()) zTop = std::max(zTop, s.z);
+        const Real dist = glm::length(Point3(0, 0, -10) - cam->lensPointToWorld(Point3(0, 0, zTop)));
+        const Real stopR = lens->focalLength() / Real(80);   // f/40, the stop in front: the entrance pupil
+        const Real R = (nBk7 - 1) * (nBk7 - 1) / ((nBk7 + 1) * (nBk7 + 1));
+        const Real expected = intensity / (dist * dist) * Real(3.14159265358979323846) * stopR * stopR * (1 - R) * R * R * (1 - R);
+        const Real worstChannel = std::max({ std::fabs(power.x / expected - 1), std::fabs(power.y / expected - 1), std::fabs(power.z / expected - 1) });
+        // the double-Gauss: triangles against single rays
+        std::string error;
+        auto dg = LensSystem::load("assets/Lenses/dgauss_50mm.txt", error);
+        Real totalOff = 1, blockOff = 1;
+        if (dg) {
+            dg->setFNumber(4);
+            dg->setStopShape(6, Real(0.2));
+            dg->focus(10.0);
+            dg->prepare(Real(0.036), Real(0.024));
+            auto cam2 = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 40.0, 1.5, 0.0, 10.0);
+            cam2->setLensSystem(dg);
+            const Real a = Real(8) * Real(3.14159265358979323846) / 180;
+            auto scene2 = flareScene(Point3(10 * std::sin(a), 0, -10 * std::cos(a)), intensity);
+            LensFlareSettings fs2;
+            fs2.wavelengths = 4;
+            const auto mesh = RenderLensFlare(*scene2, *cam2, fw, fh, fs2);
+            const auto rays = RenderLensFlareBySampling(*scene2, *cam2, fw, fh, fs2, 400 * 400);
+            Real tm = 0, tr = 0, bmax = 0, bdiff = 0;
+            for (int by = 0; by < 4; ++by)
+                for (int bx = 0; bx < 6; ++bx) {
+                    Real m = 0, r = 0;
+                    for (int y = by * fh / 4; y < (by + 1) * fh / 4; ++y)
+                        for (int x = bx * fw / 6; x < (bx + 1) * fw / 6; ++x) {
+                            const Vector3& vm = mesh[static_cast<size_t>(y) * fw + x];
+                            const Vector3& vr = rays[static_cast<size_t>(y) * fw + x];
+                            m += vm.x + vm.y + vm.z;
+                            r += vr.x + vr.y + vr.z;
+                        }
+                    tm += m; tr += r;
+                    bmax = std::max(bmax, std::fabs(m));
+                    bdiff = std::max(bdiff, std::fabs(m - r));
+                }
+            totalOff = std::fabs(tm / tr - 1);
+            blockOff = bdiff / bmax;
+        }
+        report("t  ghosts: a singlet's ghost carries I / d^2 x stop area x (1 - R) R R (1 - R); the double-Gauss's triangles against single rays",
+            worstChannel < 0.005 && totalOff < 0.005 && blockOff < 0.03,
+            "singlet off by " + fmt(worstChannel * 100) + " %; double-Gauss total off by " + fmt(totalOff * 100) + " %, blocks by " + fmt(blockOff * 100)
+                + " % of the brightest" + (error.empty() ? "" : " (" + error + ")"));
     }
 
     // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner

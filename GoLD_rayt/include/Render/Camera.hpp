@@ -377,6 +377,13 @@ namespace rayt {
         const Vector3& right() const { return m_u; }
         const Medium* medium() const { return m_medium; }
 
+        /// The real lens's frame (Render/LensSystem.hpp: z toward the object, the front principal plane at the camera position) and the
+        /// world: a point of the lens frame in the world, and a world direction in the lens frame. Only with a real lens.
+        Point3 lensPointToWorld(const Point3& p) const {
+            return m_origin + m_u * p.x + m_v * p.y + (-m_w) * (p.z - m_lensSystem->frontPrincipalZ());
+        }
+        Vector3 worldDirToLens(const Vector3& d) const { return Vector3(glm::dot(d, m_u), glm::dot(d, m_v), glm::dot(d, -m_w)); }
+
     private:
         /// Places the camera at `from`, looking along -w: the orthonormal basis and the image plane at the focus distance.
         void orient(const Point3& from, const Vector3& w) {
