@@ -1,0 +1,33 @@
+# A phone telephoto lens, five plastic elements, f = 12 mm, f/2.6, half field 12.5 deg (about 4x the usual main camera): Huawei,
+# US patent 11,435,561 (priority 2017), embodiment 1 (Tables 1A-1C, from the patent's text). All ten lens surfaces are aspheric; the
+# patent names their coefficients K, A, B, C, D without the formula: read as the conic and the 4th to 10th orders (CODE V's
+# convention), which focuses to spots of 2-5 um over the field, close to the diffraction limit (tools/test/lens_rayoptics_check.py).
+# The radii are printed to 0.1 mm: the focal length comes out 12.26 mm (2 % long), and the paraxial focus lies 0.18 mm behind the
+# patent's image plane (the film is focused paraxially, so this does not matter). The infrared filter's glass is not given: N-BK7 is
+# assumed. The stop lies 0.647 mm behind the first lens's vertex.
+# radius (mm)  thickness (mm)  n_d  clear diameter (mm)  [Abbe number]
+fnumber 2.6
+half-field 12.5
+0       -0.647   0        auto
+3.5      1.392   1.5445   auto   55.987
+asphere k -0.5183718290219  A4 0.000645357   A6 -0.00029483   A8 5.49948e-05   A10 -1.12277e-05
+-8.7     0.199   1        auto
+asphere k -69.28160396529   A4 -0.001843687  A6 0.000692963   A8 -0.000305642  A10 2.69035e-05
+-4.0     0.913   1.651    auto   21.514
+asphere k -13.5515155313    A4 0.005218305   A6 -0.000201498  A8 -0.000212351  A10 2.3109e-05
+-8.2     2.117   1        auto
+asphere k -44.6216377294299 A4 0.011125775   A6 -0.001325862  A8 -1.92571e-05  A10 -1.80032e-06
+-13.3    0.592   1.5445   auto   55.987
+asphere k -100.0316086065   A4 0.048584858   A6 -0.019027247  A8 0.003977575   A10 -0.000611011
+10.3     0.985   1        auto
+asphere k 8.986958724834    A4 0.066648754   A6 -0.018183559  A8 0.004025427   A10 -0.000594704
+-3.6     0.535   1.651    auto   21.514
+asphere k -3.078803714048   A4 -0.008771879  A6 -0.004733329  A8 0.000700767   A10 -1.59353e-05
+-3.7     0.097   1        auto
+asphere k 0.8984316967218   A4 -0.00206329   A6 0.000799001   A8 0.000105887   A10 4.00495e-05
+-7.5     0.938   1.5445   auto   55.987
+asphere k -32.62718992356   A4 -0.021473645  A6 0.005307631   A8 -0.000372303  A10 -1.04086e-05
+-11.1    0.1     1        auto
+asphere k 7.599381520156    A4 -0.012026771  A6 0.000174529   A8 6.60397e-05   A10 -1.95207e-05
+inf      0.21    1.5168   auto   64.17
+inf      3.072   1        auto

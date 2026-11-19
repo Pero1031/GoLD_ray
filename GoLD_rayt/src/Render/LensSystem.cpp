@@ -75,7 +75,7 @@ namespace rayt {
         std::vector<Surface> surfaces;
         std::vector<bool> autoDiameter;
         Real z = 0;
-        double fNumberWanted = 0, imageHeightMm = 0;
+        double fNumberWanted = 0, imageHeightMm = 0, halfFieldDeg = 0;
         int lineNo = 0;
         for (std::string line; std::getline(in, line);) {
             ++lineNo;
@@ -101,11 +101,12 @@ namespace rayt {
                         if (power < 2 || power > 60) { error = where + "unknown coefficient " + tok[i] + " (k, or A2 ... A60)"; return nullptr; }
                         if (value != 0) s.poly.emplace_back(power, Real(value));
                     }
-                } else if (key == "fnumber" || key == "image-height") {
+                } else if (key == "fnumber" || key == "image-height" || key == "half-field") {
                     double value = 0;
                     if (tok.size() != 2 || !ParseNumber(tok[1], value) || !(value > 0) || !std::isfinite(value)) { error = where + "expected " + key + " and a number above 0"; return nullptr; }
-                    (key == "fnumber" ? fNumberWanted : imageHeightMm) = value;
-                } else { error = where + "unknown keyword " + key + " (asphere, fnumber, image-height)"; return nullptr; }
+                    if (key == "half-field" && !(value < 89)) { error = where + "half-field is in degrees, below 89"; return nullptr; }
+                    (key == "fnumber" ? fNumberWanted : key == "image-height" ? imageHeightMm : halfFieldDeg) = value;
+                } else { error = where + "unknown keyword " + key + " (asphere, fnumber, image-height, half-field)"; return nullptr; }
                 continue;
             }
             if (tok.size() < 4 || tok.size() > 5) { error = where + "expected radius, thickness, n_d, diameter [, Abbe number]"; return nullptr; }
@@ -139,7 +140,8 @@ namespace rayt {
         }
         const bool anyAuto = std::find(autoDiameter.begin(), autoDiameter.end(), true) != autoDiameter.end();
         const auto stopIt = std::find_if(surfaces.begin(), surfaces.end(), [](const Surface& s) { return s.isStop(); });
-        if (anyAuto && !(imageHeightMm > 0)) { error = path + ": \"auto\" clear diameters need the image height (image-height H)"; return nullptr; }
+        if (imageHeightMm > 0 && halfFieldDeg > 0) { error = path + ": give image-height or half-field, not both"; return nullptr; }
+        if (anyAuto && !(imageHeightMm > 0) && !(halfFieldDeg > 0)) { error = path + ": \"auto\" clear diameters need the image height (image-height H or half-field DEG)"; return nullptr; }
         if (stopIt != surfaces.end() && stopIt->apertureRadius >= kAutoAperture && !(fNumberWanted > 0)) {
             error = path + ": an \"auto\" stop diameter needs the f-number (fnumber N)";
             return nullptr;
@@ -157,6 +159,11 @@ namespace rayt {
                 (lens->fNumber() > Real(fNumberWanted) ? lo : hi) = stop->apertureRadius;
             }
             stop->apertureRadius = Real(0.5) * (lo + hi);
+        }
+        if (halfFieldDeg > 0) {   // the image height of that field: where its chief ray meets the focal plane
+            const Real h = lens->imageHeightForFieldAngle(Real(halfFieldDeg) * kPi / Real(180));
+            if (!(h > 0)) { error = path + ": no chief ray of the half field " + std::to_string(halfFieldDeg) + " deg reaches the focal plane (the stop must be the first surface)"; return nullptr; }
+            imageHeightMm = double(h) * 1e3;
         }
         if (imageHeightMm > 0) {
             if (anyAuto && !lens->setAutoApertures(Real(imageHeightMm * 1e-3), error)) { error = path + ": " + error; return nullptr; }
@@ -306,17 +313,25 @@ namespace rayt {
         return true;
     }
 
+    bool LensSystem::chiefRayHeight(Real theta, Real& y) const {
+        // the chief ray of the field angle theta, coming from -x through the centre of the first-surface stop: its height on the focal plane
+        if (m_surfaces.empty() || !m_surfaces.front().isStop()) return false;
+        const Vector3 d0(std::sin(theta), 0, -std::cos(theta));
+        Point3 o = Point3(0, 0, m_surfaces.front().z) - d0 * Real(0.01);
+        Vector3 d = d0;
+        if (!traceFromObject(o, d, kLineD) || d.z >= Real(0)) return false;
+        y = o.x + (m_rearFocal - o.z) / d.z * d.x;
+        return true;
+    }
+
+    Real LensSystem::imageHeightForFieldAngle(Real theta) const {
+        Real y = 0;
+        return chiefRayHeight(theta, y) && y > Real(0) ? y : Real(0);
+    }
+
     Real LensSystem::fieldAngleForImageHeight(Real h) const {
         if (m_surfaces.empty() || !m_surfaces.front().isStop()) return Real(0);
-        const Real z0 = m_surfaces.front().z;
-        auto landing = [&](Real theta, Real& y) {   // the chief ray of the field angle theta (coming from -x): its height x on the focal plane
-            const Vector3 d0(std::sin(theta), 0, -std::cos(theta));
-            Point3 o = Point3(0, 0, z0) - d0 * Real(0.01);
-            Vector3 d = d0;
-            if (!traceFromObject(o, d, kLineD) || d.z >= Real(0)) return false;
-            y = o.x + (m_rearFocal - o.z) / d.z * d.x;
-            return true;
-        };
+        auto landing = [&](Real theta, Real& y) { return chiefRayHeight(theta, y); };
         Real lo = 0, hi = Real(89) * kPi / Real(180);
         for (int k = 0; k < 80; ++k) {
             const Real mid = Real(0.5) * (lo + hi);
@@ -336,12 +351,14 @@ namespace rayt {
         const Real z0 = m_surfaces.front().z, rs = m_surfaces.front().apertureRadius * Real(1 - 1e-9);
         const StopShape round{ Real(1), 0, Real(0) };
         std::vector<Real> highest(n, Real(0));
-        const int fields = 24, rings = 24, spokes = 64;
+        // fields from the axis to the edge; points of the stop on rings, the rim (where the heights peak) finely
+        const int fields = 24, rings = 24;
         for (int f = 0; f <= fields; ++f) {
             const Real theta = thetaMax * Real(f) / Real(fields);
             const Vector3 d0(std::sin(theta), 0, -std::cos(theta));
-            for (int ring = 0; ring <= rings; ++ring)
-                for (int k = 0; k < (ring == 0 ? 1 : spokes); ++k) {
+            for (int ring = 0; ring <= rings; ++ring) {
+                const int spokes = ring == 0 ? 1 : ring == rings ? 720 : 64;
+                for (int k = 0; k < spokes; ++k) {
                     const Real r = rs * Real(ring) / Real(rings), a = Real(2) * kPi * Real(k) / Real(spokes);
                     Point3 o = Point3(r * std::cos(a), r * std::sin(a), z0) - d0 * Real(0.01);
                     Vector3 d = d0;
@@ -355,12 +372,13 @@ namespace rayt {
                     if (!through) continue;
                     for (size_t i = 0; i < n; ++i) highest[i] = std::max(highest[i], h[i]);
                 }
+            }
         }
         for (size_t i = 0; i < n; ++i) {
             Surface& s = m_surfaces[i];
             if (s.apertureRadius < kAutoAperture) continue;
             if (!(highest[i] > 0)) { error = "no ray of the bundle passes surface " + std::to_string(i + 1); return false; }
-            s.apertureRadius = highest[i] * Real(1 + 1e-6);
+            s.apertureRadius = highest[i] * Real(1.005);   // a margin for the peaks between the samples
         }
         m_imageHeight = imageHeight;
         return true;

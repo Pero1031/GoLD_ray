@@ -414,6 +414,49 @@ int RunCameraTests() {
         }
     }
 
+    // (q) A phone telephoto given by its half field (assets/Lenses/phone_tele_12mm.txt, Huawei, US patent 11,435,561): against rayoptics,
+    //     the focal length, the image height its `half-field` of 12.5 deg sets (the chief ray on the paraxial focal plane), and the RMS
+    //     spot radius at f/2.6 on that plane of 3 x 437 rays through the stop (a 25 x 25 grid inside its circle) at 0, 70 and 100 % of the
+    //     field: this exercises the auto clear diameters with the full bundle.
+    {
+        std::string error;
+        const auto lens = LensSystem::load("assets/Lenses/phone_tele_12mm.txt", error);
+        if (!lens) report("q  phone telephoto against rayoptics (" + error + ")", false);
+        else {
+            const Real refRms[3] = { 2.951746e-6, 3.232436e-6, 6.587106e-6 }, fracs[3] = { 0, 0.7, 1 };
+            // the grid's rim points lie on the stop's edge: a hair inside it, so that rounding does not put them outside
+            const Real f = lens->focalLength(), rs = lens->surfaces().front().apertureRadius * Real(1 - 1e-9), zFocus = lens->rearFocalZ();
+            Real worstRms = 0;
+            int blocked = 0;
+            std::string rmsText;
+            for (int k = 0; k < 3; ++k) {
+                const Real th = fracs[k] * Real(12.5) * Real(3.14159265358979323846) / 180;
+                const Vector3 d0(std::sin(th), 0, -std::cos(th));
+                double sx = 0, sy = 0, sxx = 0;
+                int n = 0;
+                for (int i = -12; i <= 12; ++i)
+                    for (int j = -12; j <= 12; ++j) {
+                        if (i * i + j * j > 144) continue;
+                        Point3 o = Point3(rs * i / 12, rs * j / 12, lens->surfaces().front().z) - d0 * Real(0.01);
+                        Vector3 d = d0;
+                        if (!lens->traceFromObject(o, d, 587.56)) { ++blocked; continue; }
+                        const Real t = (zFocus - o.z) / d.z;
+                        const double x = o.x + t * d.x, y = o.y + t * d.y;
+                        sx += x; sy += y; sxx += x * x + y * y; ++n;
+                    }
+                const Real rms = Real(std::sqrt(std::max(0.0, sxx / n - (sx / n) * (sx / n) - (sy / n) * (sy / n))));
+                worstRms = std::max(worstRms, std::fabs(rms - refRms[k]));
+                rmsText += (k ? " / " : "") + fmt(rms * 1e6);
+            }
+            const Real h = lens->imageHeight();
+            const bool ok = blocked == 0 && std::fabs(f / 12.257120e-3 - 1) < 1e-6 && std::fabs(h - 2.740702e-3) < 1e-9 && worstRms < 1e-10
+                && std::fabs(lens->fNumber() - 2.6) < 1e-6;
+            report("q  phone telephoto against rayoptics: focal length, image height of its half field, RMS spots at f/2.6 (0.1 nm)", ok,
+                "f " + fmt(f * 1e3) + " mm (12.257120), image height " + fmt(h * 1e3) + " mm (2.740702), RMS " + rmsText
+                + " um (2.95 / 3.23 / 6.59), worst off by " + fmt(worstRms * 1e9) + " nm, " + std::to_string(blocked) + " blocked");
+        }
+    }
+
     // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner
     //     (vignetting); the picture is upright (its upper right looks up and to the right); a wall 10 m away has depth 10 in the middle
     //     and the corners.

@@ -61,6 +61,8 @@ namespace rayt {
          *   image-height H                half the image diagonal (mm) the lens is designed for: the film becomes the picture's rectangle of
          *                                 that half diagonal (instead of 36 x 24 mm), and every `auto` clear diameter is set to pass the full
          *                                 bundle of the stop to every point of that image (the stop must then be the first surface)
+         *   half-field DEG                instead of image-height: the image height is where the chief ray of this field angle meets
+         *                                 the focal plane (for patents that give the field of view but not the image height)
          */
         static std::shared_ptr<LensSystem> load(const std::string& path, std::string& error);
 
@@ -113,7 +115,7 @@ namespace rayt {
         Real imageHeight() const { return m_imageHeight; }
 
         /**
-         * @brief Sets every clear semi-diameter at or above 1 m (the loader's "auto") to the largest height at which a ray passes that
+         * @brief Sets every clear semi-diameter at or above 1 m (the loader's "auto") to the largest height (plus 0.5 %) at which a ray passes that
          *        surface on its way from the stop, which must be the first surface, to an image point within `imageHeight` of the axis
          *        (the lens focused at infinity, the d line): the stop's full bundle reaches the whole image, no surface vignettes it.
          *        Also sets imageHeight(). False (and the reason) when the stop is not the first surface or no ray gets through.
@@ -122,6 +124,8 @@ namespace rayt {
         /// The angle (radians) between the axis and the object-side ray through the centre of the first-surface stop that lands at the
         /// height h of the focal plane (the chief ray of that image point, the d line); 0 when it cannot be found.
         Real fieldAngleForImageHeight(Real h) const;
+        /// The inverse: where the chief ray of the field angle theta (radians) meets the focal plane (metres); 0 when it does not.
+        Real imageHeightForFieldAngle(Real theta) const;
 
         /// Traces a ray in place, from the film toward the object / from the object toward the film. False if it is blocked.
         bool traceFromFilm(Point3& o, Vector3& d, Real nm) const;
@@ -138,6 +142,7 @@ namespace rayt {
         /// The ray parameter where the ray meets the aspheric (or flat) surface i, by Newton's method from its vertex plane; false if it
         /// does not converge or leaves the conic's domain.
         bool intersectAspheric(const Surface& s, const Point3& o, const Vector3& d, Real& t) const;
+        bool chiefRayHeight(Real theta, Real& y) const;
         bool insideStop(const Surface& s, Real x, Real y, const StopShape& stop) const;
         bool traceFromFilmWith(Point3& o, Vector3& d, Real nm, const StopShape& stop) const;
         void paraxial();

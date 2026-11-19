@@ -12,6 +12,10 @@ The prescription is built here from the patent's own numbers (its conic K = 1 + 
 rayoptics' documentation transcribes this patent), not from the renderer's file; the script then checks that the file says the same.
 Rays: from the object side at the field angle theta in the x-z plane, through a point of the stop (the first surface, 0.20 mm behind the
 first lens's vertex), at the d line (587.56 nm); the image plane lies 0.64 mm behind the cover glass, as in the patent.
+
+Then the telephoto of assets/Lenses/phone_tele_12mm.txt (Huawei, US patent 11,435,561, embodiment 1): its focal length, the height at
+which the chief ray of its half field (12.5 deg) meets the paraxial focal plane (the renderer's `half-field`), and the RMS spot radius at
+f/2.6 on that plane for three field angles (rayoptics' rays; the renderer's check q traces its own).
 """
 import math
 import os
@@ -113,5 +117,73 @@ def main():
         print('    { %g, %g, %g, %.9f, %.9f },' % r[:5])
 
 
+TELE_FILE = os.path.join(os.path.dirname(LENS_FILE), "phone_tele_12mm.txt")
+# (radius, thickness, n_d, V_d, k, A4, A6, A8, A10): the patent's Tables 1B and 1C (its K, A, B, C, D)
+TELE = [
+    (3.5, 1.392, 1.5445, 55.987, -0.5183718290219, 0.000645357, -0.00029483, 5.49948E-05, -1.12277E-05),
+    (-8.7, 0.199, 1, 0, -69.28160396529, -0.001843687, 0.000692963, -0.000305642, 2.69035E-05),
+    (-4.0, 0.913, 1.651, 21.514, -13.5515155313, 0.005218305, -0.000201498, -0.000212351, 2.3109E-05),
+    (-8.2, 2.117, 1, 0, -44.6216377294299, 0.011125775, -0.001325862, -1.92571E-05, -1.80032E-06),
+    (-13.3, 0.592, 1.5445, 55.987, -100.0316086065, 0.048584858, -0.019027247, 0.003977575, -0.000611011),
+    (10.3, 0.985, 1, 0, 8.986958724834, 0.066648754, -0.018183559, 0.004025427, -0.000594704),
+    (-3.6, 0.535, 1.651, 21.514, -3.078803714048, -0.008771879, -0.004733329, 0.000700767, -1.59353E-05),
+    (-3.7, 0.097, 1, 0, 0.8984316967218, -0.00206329, 0.000799001, 0.000105887, 4.00495E-05),
+    (-7.5, 0.938, 1.5445, 55.987, -32.62718992356, -0.021473645, 0.005307631, -0.000372303, -1.04086E-05),
+    (-11.1, 0.1, 1, 0, 7.599381520156, -0.012026771, 0.000174529, 6.60397E-05, -1.95207E-05),
+]
+TELE_STOP_GAP, TELE_FILTER, TELE_IMAGE_GAP, TELE_FNO, TELE_HALF_FIELD = -0.647, (0.21, 1.5168, 64.17), 3.072, 2.6, 12.5
+
+
+def tele():
+    rows, asph = [], []
+    for line in open(TELE_FILE, encoding='utf-8'):
+        line = line.split('#')[0].split()
+        if not line or line[0] in ('fnumber', 'half-field'):
+            continue
+        (asph.append(dict(zip(line[1::2], map(float, line[2::2])))) if line[0] == 'asphere' else rows.append(line))
+    assert float(rows[0][1]) == TELE_STOP_GAP
+    for i, s in enumerate(TELE):
+        row, kv = rows[i + 1], asph[i]
+        assert float(row[0]) == s[0] and float(row[1]) == s[1] and float(row[2]) == s[2], row
+        assert kv == {'k': s[4], 'A4': s[5], 'A6': s[6], 'A8': s[7], 'A10': s[8]}, (i, kv)
+    print('telephoto file: surfaces, glasses and coefficients as the patent')
+    opm = OpticalModel()
+    sm, osp = opm['seq_model'], opm['optical_spec']
+    osp['pupil'] = PupilSpec(osp, key=['image', 'f/#'], value=TELE_FNO)
+    osp['fov'] = FieldSpec(osp, key=['object', 'angle'], value=TELE_HALF_FIELD, flds=[0., 1.], is_relative=True)
+    osp['wvls'] = WvlSpec([(LINE_D, 1.0)], ref_wl=0)
+    opm.radius_mode = True
+    sm.gaps[0].thi = OBJECT_GAP
+    sm.add_surface([0., TELE_STOP_GAP])
+    sm.set_stop()
+    for r, th, n, v, k, a4, a6, a8, a10 in TELE:
+        sm.add_surface([r, th, n, v] if n > 1 else [r, th])
+        sm.ifcs[sm.cur_surface].profile = RadialPolynomial(r=r, cc=k, coefs=[0.0, 0.0, 0.0, a4, 0.0, a6, 0.0, a8, 0.0, a10])
+    sm.add_surface([0., TELE_FILTER[0], TELE_FILTER[1], TELE_FILTER[2]])
+    sm.add_surface([0., TELE_IMAGE_GAP])
+    opm.update_model()
+    fod = opm['analysis_results']['parax_data'].fod
+
+    def land(theta, px, py):
+        d = np.array([math.sin(theta), 0.0, math.cos(theta)])
+        p0 = np.array([px - OBJECT_GAP * d[0] / d[2], py - OBJECT_GAP * d[1] / d[2], 0.0])
+        ray, _, _ = trace(sm, p0, d, LINE_D)
+        pt, dd = ray[-1][0], ray[-2][1]
+        dz = fod.bfl - TELE_IMAGE_GAP   # from the patent's image plane to the paraxial focus
+        return pt[0] + dz * dd[0] / dd[2], pt[1] + dz * dd[1] / dd[2]
+
+    h = land(math.radians(TELE_HALF_FIELD), 0.0, 0.0)[0]
+    print('telephoto rayoptics: efl %.6f mm, back focus %.6f mm, chief ray of %.1f deg at %.6f mm on the paraxial focal plane'
+          % (fod.efl, fod.bfl, TELE_HALF_FIELD, h))
+    rs = fod.efl / TELE_FNO / 2
+    for frac in (0.0, 0.7, 1.0):
+        th = math.radians(TELE_HALF_FIELD * frac)
+        pts = [land(th, rs * i / 12, rs * j / 12) for i in range(-12, 13) for j in range(-12, 13) if i * i + j * j <= 144]
+        P = np.array(pts)
+        rms = math.sqrt(((P - P.mean(0)) ** 2).sum(1).mean())
+        print('  field %.0f %%: RMS spot %.6f um (Airy radius 1.22 lambda N = %.2f um)' % (frac * 100, rms * 1e3, 1.22 * LINE_D * 1e-3 * TELE_FNO))
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    main()
+    sys.exit(tele())

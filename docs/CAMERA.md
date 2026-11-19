@@ -34,7 +34,8 @@ axial and lateral chromatic aberration.
 - **Phone-lens patents** give no clear diameters and are made for a small sensor. `fnumber N` sets the stop for that f-number;
   `image-height H` (half the image diagonal, mm) makes the film the picture's rectangle on that image circle instead of 36 × 24 mm, and
   sets every diameter written `auto` to pass the stop's full bundle to every point of that image (the largest height at which such a ray
-  meets the surface; the stop must be the first surface). No surface then vignettes the bundle, as the automatic semi-diameters of
+  meets the surface, plus 0.5 %; the stop must be the first surface); `half-field DEG` instead gives the image height as the height of
+  that field's chief ray on the focal plane, for patents that state the field of view only. No surface then vignettes the bundle, as the automatic semi-diameters of
   lens-design programs do.
 - **Set-up:** the focal length, the principal planes and the entrance pupil come from rays traced a nanometre off the axis (odd aspheric
   terms bend a ray in proportion to its height: a micrometre off the axis they would still move a phone lens's focus by half a
@@ -55,8 +56,13 @@ axial and lateral chromatic aberration.
   (double-Gauss, 93 µm), 0.28 % (wide-angle) and 0.48 % (fisheye) of f: the residual axial colour, seen as purple and green fringes on
   the bokeh of the fast double-Gauss wide open. The lateral colour stays under 0.1 % of the image height up to the edge of the field
   (11 µm for the fisheye). The set-up prints the focal length, the f-number and the field: 50.0 mm f/2.00, 22.0 mm f/2.79 and
-  10.0 mm f/4.00 for the three. And a phone lens: `cellphone_5.6mm` (f = 5.59 mm, f/2.8, image height 3.5 mm, four elements with
-  eight aspheric surfaces, M. Taniyama, US 7,535,658, Example 1, read from the patent's figures).
+  10.0 mm f/4.00 for the three. And two phone lenses: `cellphone_5.6mm` (f = 5.59 mm, f/2.8, image height 3.5 mm, four elements with
+  eight aspheric surfaces, M. Taniyama, US 7,535,658, Example 1, read from the patent's figures) and `phone_tele_12mm`, a telephoto of
+  five plastic elements (Huawei, US 11,435,561, embodiment 1: f/2.6, half field 12.5°, image height 2.74 mm, about four times the
+  focal length of a main camera). That patent names its coefficients K, A, B, C, D without a formula; read as the conic and the 4th to
+  10th orders, the lens focuses to RMS spots of 3 to 7 µm wide open over the field (the diffraction limit's Airy radius is 1.9 µm),
+  which a wrong reading would not. Its radii are printed to 0.1 mm, so its focal length comes out 12.26 mm instead of 12, and the
+  infrared filter's glass is assumed (N-BK7).
 - **Noise of a dispersive lens:** each wavelength takes its own path through the glass, so a camera path carries one wavelength instead
   of four. The colour noise is about three times that of the same lens without dispersion, and the denoiser does not keep the colour of
   such noise (on bright bokeh it shifted red by up to 20 %): give it more samples (four times or more) or compare without denoising.
@@ -204,7 +210,9 @@ The aspheric phone lens against rayoptics, an optical-design library that is not
 which builds the lens from the patent's own numbers, its conic K = 1 + k, and checks the lens file against them): the paraxial focal length
 (5.587072 mm) and back focus (0.648368 mm) within 10⁻⁶ and 1 nm, and 20 real rays from field angles of 0 to 30° through five points of
 the stop land on the patent's image plane within 0.05 nm of rayoptics' points; the `auto` diameters pass all of them and the stop gives
-f/2.8. (The patent states f = 5.57 mm, rounded.)
+f/2.8. (The patent states f = 5.57 mm, rounded.) The telephoto against rayoptics: its focal length (12.257120 mm), the image height its `half-field` of
+12.5° sets (2.740702 mm, within 1 nm), and the RMS spot radii at f/2.6 on the paraxial focal plane of 437 rays through the stop at 0, 70
+and 100 % of the field (2.95, 3.23 and 6.59 µm, within 0.1 nm), none of them stopped by the `auto` diameters.
 
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged
