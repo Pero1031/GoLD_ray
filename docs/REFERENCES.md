@@ -3,7 +3,7 @@
 The works that the code implements or follows, and the ones that the studies in `docs/` reproduce or test. Each entry says what it is used for.
 Entries marked *(studied)* were implemented as a reference or evaluated, and are not part of the renderer.
 
-**How far the bibliographic data were checked.** The entries that README and the documents on hair, skin, clouds, ocean, gloss and thin films carried on 2026-11-09 were checked by web search that day (authors, title, venue, volume, year, pages; 6 corrections were made). The entries of Haro et al., Graham et al., Barros and Walter were checked from search summaries only. The entries added later were taken from the title page of the PDF where one was at hand (Moon et al., Dihlmann et al., Lanza et al., Křivánek et al., Speierer et al., Yao et al., Kouros et al.) and otherwise written from memory; those are marked *(from memory)*. Not confirmed: the edition of Born & Wolf, the conference name (EGSR) of Hanika et al. 2015 (volume and issue are confirmed), and the source of the melanin absorption values (taken from PBRT). Remarks such as *(Text read.)* say whether the work was read in full or only cited second-hand. The entries added on 2026-11-19 (fluorescence, the camera, the gamut study, water drops and a few others that the documents cited but this list lacked) were copied from those documents; the documents took them from the text read or wrote them from memory, as marked.
+**How far the bibliographic data were checked.** The entries that README and the documents on hair, skin, clouds, ocean, gloss and thin films carried on 2026-11-09 were checked by web search that day (authors, title, venue, volume, year, pages; 6 corrections were made). The entries of Haro et al., Graham et al., Barros and Walter were checked from search summaries only. The entries added later were taken from the title page of the PDF where one was at hand (Moon et al., Dihlmann et al., Lanza et al., Křivánek et al., Speierer et al., Yao et al., Kouros et al.) and otherwise written from memory; those are marked *(from memory)*. Not confirmed: the edition of Born & Wolf, the conference name (EGSR) of Hanika et al. 2015 (volume and issue are confirmed), and the source of the melanin absorption values (taken from PBRT). Remarks such as *(Text read.)* say whether the work was read in full or only cited second-hand. The entries added on 2026-11-19 (fluorescence, the camera, the gamut study, water drops and a few others that the documents cited but this list lacked) and the earlier ones marked *(from memory)* were checked by web search that day (authors, title, venue, volume, pages, DOI: DBLP, Crossref, the publishers' and authors' pages); one correction (the article number of Kerbl et al., which Crossref does not give, was removed).
 The literature values behind the lotion and emulsion model are listed separately in [SKIN_MOISTURE_REFS.md](SKIN_MOISTURE_REFS.md) (search summaries; not cross-checked).
 
 **Rendering framework and sampling**
@@ -25,8 +25,8 @@ The literature values behind the lotion and emulsion model are listed separately
 - E. Heitz, "Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs", *JCGT* 3(2), 2014; "Sampling the GGX Distribution of Visible Normals", *JCGT* 7(4), 2018. GGX and VNDF sampling.
 - C. Kulla, A. Conty, "Revisiting Physically Based Shading at Imageworks", SIGGRAPH 2017 course. The multiple-scattering compensation of rough metals.
 - C. Schlick, "An Inexpensive BRDF Model for Physically-based Rendering", *Computer Graphics Forum* 13(3), 1994. The Fresnel of the coated diffuse material.
-- A. D. Rakić, "Algorithm for the determination of intrinsic optical constants of metal films: application to aluminum", *Applied Optics* 34(22), 4755-4767, 1995; K. M. McPeak, S. V. Jayanti, S. J. P. Kress, S. Meyer, S. Iotti, A. Rossinelli, D. J. Norris,"Plasmonic Films Can Easily Be Better: Rules and Recipes", *ACS Photonics* 2(3), 326-333, 2015. *(from memory)* The `n(λ)`, `k(λ)` of aluminum (`assets/Metal_data/Rakic_Al.csv`, `McPeak_Al.csv`), for the comparison with the measured aluminum.
-- E. Heitz, J. Hanika, E. d'Eon, C. Dachsbacher, "Multiple-Scattering Microfacet BSDFs with the Smith Model", *ACM TOG* 35(4), 2016 (SIGGRAPH). *(from memory)* The exact random walk over microfacets that the multiple-scattering compensation approximates; named in [METAL_ACCURACY.md](METAL_ACCURACY.md) as a reference that could settle the remaining color error, not implemented.
+- A. D. Rakić, "Algorithm for the determination of intrinsic optical constants of metal films: application to aluminum", *Applied Optics* 34(22), 4755-4767, 1995, doi:10.1364/AO.34.004755; K. M. McPeak, S. V. Jayanti, S. J. P. Kress, S. Meyer, S. Iotti, A. Rossinelli, D. J. Norris, "Plasmonic Films Can Easily Be Better: Rules and Recipes", *ACS Photonics* 2(3), 326-333, 2015, doi:10.1021/ph5004237. The `n(λ)`, `k(λ)` of aluminum (`assets/Metal_data/Rakic_Al.csv`, `McPeak_Al.csv`), for the comparison with the measured aluminum.
+- E. Heitz, J. Hanika, E. d'Eon, C. Dachsbacher, "Multiple-Scattering Microfacet BSDFs with the Smith Model", *ACM TOG* 35(4), Article 58, 2016 (SIGGRAPH), doi:10.1145/2897824.2925943. The exact random walk over microfacets that the multiple-scattering compensation approximates; named in [METAL_ACCURACY.md](METAL_ACCURACY.md) as a reference that could settle the remaining color error, not implemented.
 
 **Measured reflectance and polarization**
 
@@ -43,7 +43,7 @@ The literature values behind the lotion and emulsion model are listed separately
 - X. Zhang, B. A. Wandell, "A Spatial Extension of CIELAB for Digital Color Image Reproduction", *Journal of the Society for Information Display* 5(1), 61-63, 1997; "Color image fidelity metrics evaluated using image distortion maps", *Signal Processing* 70(3), 1998. S-CIELAB: the difference after the eye's spatial filtering.
 - W. Jakob, J. Hanika, "A Low-Dimensional Function Space for Efficient Spectral Upsampling", *Computer Graphics Forum* 38(2), 2019. *(studied)* An alternative to the RGB-to-spectrum conversion; not adopted.
 - C. Peters, S. Merzbach, J. Hanika, C. Dachsbacher, "Using Moments to Represent Bounded Signals for Spectral Rendering", *ACM TOG* 38(4), 2019. *(studied)* The metamer-mismatch study ([SPECTRUM_FROM_RGB.md](SPECTRUM_FROM_RGB.md)).
-- G. Ward, E. Eydelberg-Vileshin, "Picture Perfect RGB Rendering Using Spectral Prefiltering and Sharp Color Primaries", Eurographics Workshop on Rendering, 2002. *(from memory; the Sharp matrix too)* The "Sharp" working space in the study of RGB working spaces ([METAL_ACCURACY.md](METAL_ACCURACY.md) 3.7).
+- G. Ward, E. Eydelberg-Vileshin, "Picture Perfect RGB Rendering Using Spectral Prefiltering and Sharp Color Primaries", Eurographics Workshop on Rendering 2002, 117-124, doi:10.2312/EGWR/EGWR02/117-124. *(the Sharp matrix used was written from memory)* The "Sharp" working space in the study of RGB working spaces ([METAL_ACCURACY.md](METAL_ACCURACY.md) 3.7).
 
 **Dispersion and thin films**
 
@@ -83,8 +83,8 @@ The literature values behind the lotion and emulsion model are listed separately
 - K. Hasselmann et al., "Measurements of wind-wave growth and swell decay during the Joint North Sea Wave Project (JONSWAP)", *Deutsche Hydrographische Zeitschrift*, Reihe A (8°), Nr. 12, 1973 (16 authors). The peak enhancement γ of the spectrum.
 - C. Cox, W. Munk, "Measurement of the roughness of the sea surface from photographs of the sun's glitter", *J. Opt. Soc. Am.* 44(11), 838-850, 1954. The slope variance behind the roughness of the distant water.
 - R. M. Pope, E. S. Fry, "Absorption spectrum (380-700 nm) of pure water. II. Integrating cavity measurements", *Applied Optics* 36(33), 8710-8723, 1997. The absorption of water (`assets/Water/`).
-- K. Kaneda, T. Kagawa, H. Yamashita, "Animation of Water Droplets on a Glass Plate", Proc. Computer Animation '93, 1993. *(from memory)* The "part of a sphere" drop that the water-drop generator extends ([WATERDROPS.md](WATERDROPS.md)).
-- C. M. Schmidt, B. Budge, "Simple Nested Dielectrics in Ray Traced Images", *Journal of Graphics Tools* 7(2), 2002. *(from memory)* The priority approach to overlapping media, which the water drops replace with explicit contact faces.
+- K. Kaneda, T. Kagawa, H. Yamashita, "Animation of Water Droplets on a Glass Plate", Computer Animation '93, 177-189, 1993 (in *Models and Techniques in Computer Animation*, Springer, doi:10.1007/978-4-431-66911-1_17). The "part of a sphere" drop that the water-drop generator extends ([WATERDROPS.md](WATERDROPS.md)).
+- C. M. Schmidt, B. Budge, "Simple Nested Dielectrics in Ray Traced Images", *Journal of Graphics Tools* 7(2), 1-8, 2002. The priority approach to overlapping media, which the water drops replace with explicit contact faces.
 
 **Caustics and light transport**
 
@@ -97,7 +97,7 @@ The literature values behind the lotion and emulsion model are listed separately
 - shocker_0x15, "Renderer introduction: Ray Tracing Camp 10" (slides, in Japanese), [Speaker Deck](https://speakerdeck.com/shocker_0x15/renderer-introduction-ray-tracing-camp-10). Volumetric and dispersive caustics by light vertex cache bidirectional path tracing: the target of the fog scenes.
 - J. Křivánek, I. Georgiev, T. Hachisuka, P. Vévoda, M. Šik, D. Nowrouzezahrai, W. Jarosz, "Unifying Points, Beams, and Paths in Volumetric Light Transport Simulation", *ACM TOG* 33(4), 2014 (SIGGRAPH), doi:10.1145/2601097.2601219. (Read in part: the estimators and the results.) Related work of the bidirectional estimator in fog ([LVC_BPT.md](LVC_BPT.md)): point and beam estimators combined with paths by multiple importance sampling. The prototype has no beams.
 - S. Speierer, C. Hery, R. Villemin, W. Jakob, "Caustic Connection Strategies for Bidirectional Path Tracing", Pixar Technical Memo #18-01, 2018. (Text read, from a Wayback Machine copy: the Pixar page now redirects.) Connection strategies through chains of refractive events, found by manifold exploration, for caustics that classical bidirectional path tracing finds poorly: the manifold connections of [LVC_BPT.md](LVC_BPT.md) section 8.
-- D. van Antwerpen, "Improving SIMD Efficiency for Parallel Monte Carlo Light Transport on the GPU", High Performance Graphics 2011. *(from memory)* The recursive MIS weights that [LVC_BPT.md](LVC_BPT.md) names as a way to make its weights O(1); not implemented.
+- D. van Antwerpen, "Improving SIMD Efficiency for Parallel Monte Carlo Light Transport on the GPU", High Performance Graphics 2011, 41-50, doi:10.1145/2018323.2018330. The recursive MIS weights that [LVC_BPT.md](LVC_BPT.md) names as a way to make its weights O(1); not implemented.
 
 **Hair**
 
@@ -129,22 +129,22 @@ The literature values behind the lotion and emulsion model are listed separately
 
 **Camera, lenses and sensor**
 
-- C. Kolb, D. Mitchell, P. Hanrahan, "A Realistic Camera Model for Computer Graphics", SIGGRAPH 1995. *(from memory)* Tracing rays through a lens prescription surface by surface ([CAMERA.md](CAMERA.md)).
-- W. J. Smith, *Modern Lens Design*, McGraw-Hill. *(from memory; edition not confirmed)* The source of the bundled lenses' radii, through pbrt's lens files.
+- C. Kolb, D. Mitchell, P. Hanrahan, "A Realistic Camera Model for Computer Graphics", SIGGRAPH 1995, 317-324. Tracing rays through a lens prescription surface by surface ([CAMERA.md](CAMERA.md)).
+- W. J. Smith, *Modern Lens Design: A Resource Manual*, McGraw-Hill, 1992 (the edition Kolb et al. cite; 2nd ed. 2005). *(which edition pbrt's files follow is not confirmed)* The source of the bundled lenses' radii, through pbrt's lens files.
 - A. W. Tronnier, US 2,673,491 (double-Gauss); A. Nakamura, US 4,211,472, embodiment 4 (wide angle); R. Muller, US 4,647,161, embodiment 1 (fisheye). The glasses (n_d, Abbe number) of the bundled lenses, read from the patents.
-- J. Jiang, D. Liu, J. Gu, S. Süsstrunk, "What is the Space of Spectral Sensitivity Functions for Digital Color Cameras?", WACV 2013. *(authors from memory)* The spectral sensitivities of 28 cameras (`--camera-response`; CC BY-NC-SA, not redistributed).
-- H. S. Malvar, L.-W. He, R. Cutler, "High-Quality Linear Interpolation for Demosaicing of Bayer-Patterned Color Images", ICASSP 2004. *(title from memory)* The default demosaicing of the sensor model.
-- ISO 12232, *Photography - Digital still cameras - Determination of exposure index, ISO speed ratings, standard output sensitivity, and recommended exposure index*. The ISO speed of the physical exposure (the standard itself was not read).
+- J. Jiang, D. Liu, J. Gu, S. Süsstrunk, "What is the Space of Spectral Sensitivity Functions for Digital Color Cameras?", WACV 2013, 168-179, doi:10.1109/WACV.2013.6475015. The spectral sensitivities of 28 cameras (`--camera-response`; CC BY-NC-SA, not redistributed).
+- H. S. Malvar, L.-W. He, R. Cutler, "High-Quality Linear Interpolation for Demosaicing of Bayer-Patterned Color Images", ICASSP 2004, doi:10.1109/ICASSP.2004.1326587. The default demosaicing of the sensor model.
+- ISO 12232:2019, *Photography - Digital still cameras - Determination of exposure index, ISO speed ratings, standard output sensitivity, and recommended exposure index*. The ISO speed of the physical exposure (the standard itself was not read).
 - Adobe, *Digital Negative (DNG) Specification*. The raw file the sensor model writes, with its color matrices for two illuminants.
 
 **3D Gaussian Splatting**
 
 - J. Gao, C. Gu, Y. Lin, H. Zhu, X. Cao, L. Zhang, Y. Yao, "Relightable 3D Gaussian: Real-time Point Cloud Relighting with BRDF Decomposition and Ray Tracing", arXiv:2311.16043, 2023. *(studied)* The relightable reconstruction that the lighting study trains and relights.
 - J.-N. Dihlmann, A. Majumdar, A. Engelhardt, R. Braun, H. P. A. Lensch, "Subsurface Scattering for 3D Gaussian Splatting", NeurIPS 2024 (arXiv:2408.12282). *(studied)* Reports that a relightable reconstruction bakes the subsurface scattering of translucent objects into the surface color.
-- B. Kerbl, G. Kopanas, T. Leimkühler, G. Drettakis, "3D Gaussian Splatting for Real-Time Radiance Field Rendering", *ACM TOG* 42(4), Article 139, 2023 (SIGGRAPH). *(from memory)* The representation that the `point_cloud.ply` reader expects ([CAPTURE.md](CAPTURE.md)).
+- B. Kerbl, G. Kopanas, T. Leimkühler, G. Drettakis, "3D Gaussian Splatting for Real-Time Radiance Field Rendering", *ACM TOG* 42(4), 2023 (SIGGRAPH), doi:10.1145/3592433. The representation that the `point_cloud.ply` reader expects ([CAPTURE.md](CAPTURE.md)).
 - Y. Yao, Z. Zeng, C. Gu, X. Zhu, L. Zhang, "Reflective Gaussian Splatting", arXiv:2412.19282, 2024 (v2). (Abstract read.) Related work of the lighting study: relightable reconstruction of reflective objects. Not run here.
 - G. Kouros, M. Wu, T. Tuytelaars, "Spec-Gloss Surfels and Normal-Diffuse Priors for Relightable Glossy Objects", arXiv:2510.02069, 2025 (v3). (Abstract read.) Related work of the lighting study: a microfacet BRDF in 2D Gaussian splatting for glossy objects. Not run here.
-- N. Moenne-Loccoz et al., "3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes", *ACM TOG* 43(6), 2024 (SIGGRAPH Asia). *(from memory)* The ray-Gaussian response with which a splat cloud is ray-traced ([CAPTURE.md](CAPTURE.md)).
+- N. Moenne-Loccoz, A. Mirzaei, O. Perel, R. de Lutio, J. Martinez Esturo, G. State, S. Fidler, N. Sharp, Z. Gojcic, "3D Gaussian Ray Tracing: Fast Tracing of Particle Scenes", *ACM TOG* 43(6), 2024 (SIGGRAPH Asia), doi:10.1145/3687934. The ray-Gaussian response with which a splat cloud is ray-traced ([CAPTURE.md](CAPTURE.md)).
 
 **Software and background**
 
