@@ -1,0 +1,181 @@
+The RGB-vs-spectral difference after white balance (CAT16 from the light's white to D65, as the renderer's --wb). Written by
+tools/studies/white_balance_difference.py. Views as in view_transform_hiding.py; CIEDE2000 with the display's white (D65).
+
+=== A (sRGB (Rec.709) working basis). Gold, reference model, 45 conditions, exposure 0 ===
+Columns: CIEDE2000 between the RGB and the spectral result after the same white balance; 'out' = share of the 45 balanced spectral colors outside sRGB.
+--- no WB (out of sRGB: 69 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)        5.83        7.44        2.96       12.71        3.71   8.41
+      sRGB  Reinhard + clip (renderer)        0.64        0.58        3.02        2.38        4.02   3.19
+Display P3  Reinhard + clip (renderer)        5.82        8.24        2.64       12.55        3.56   7.98
+      sRGB            Blender Standard        0.72        0.60        2.41        2.30        3.71   2.92
+      sRGB                 Blender AgX        3.06        2.89        2.01        5.82        3.11   5.04
+Display P3                 Blender AgX        3.04        2.89        2.01        5.81        3.01   5.20
+      sRGB                ACES 1.3 SDR        2.71        1.73        2.18        3.28        2.94   3.18
+Display P3                ACES 1.3 SDR        2.96        3.16        2.18        5.52        2.94   4.33
+--- D = 0.6 (out of sRGB: 27 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)       14.77       20.84        4.96       24.20        3.71  12.46
+      sRGB  Reinhard + clip (renderer)       12.71       16.87        4.21       24.36        4.02  11.03
+Display P3  Reinhard + clip (renderer)       11.94       15.89        4.02       22.42        3.56  11.36
+      sRGB            Blender Standard       15.58       27.31        4.26       27.70        3.71  12.01
+      sRGB                 Blender AgX        7.19        9.05        2.99       14.12        3.11   8.07
+Display P3                 Blender AgX        7.19        9.04        2.99       14.11        3.01   8.24
+      sRGB                ACES 1.3 SDR       13.03       19.19        4.06       23.81        2.94  10.26
+Display P3                ACES 1.3 SDR       13.03       19.19        4.06       23.81        2.94  10.61
+--- D = 0.8 (out of sRGB: 24 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)       18.67       25.74        5.64       28.91        3.71  13.97
+      sRGB  Reinhard + clip (renderer)       13.79       16.67        4.70       25.74        4.02  11.56
+Display P3  Reinhard + clip (renderer)       13.25       16.19        4.53       24.30        3.56  11.91
+      sRGB            Blender Standard       20.47       30.35        5.00       31.62        3.71  13.29
+      sRGB                 Blender AgX        8.35       10.48        3.42       16.04        3.11   8.76
+Display P3                 Blender AgX        8.34       10.48        3.41       16.03        3.01   8.93
+      sRGB                ACES 1.3 SDR       14.99       18.80        4.77       27.55        2.94  11.31
+Display P3                ACES 1.3 SDR       14.99       18.80        4.77       27.55        2.94  11.62
+--- D = 1 (out of sRGB: 24 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)       24.09       30.84        6.37       33.98        3.71  15.58
+      sRGB  Reinhard + clip (renderer)       14.35       17.08        5.01       27.06        4.02  12.04
+Display P3  Reinhard + clip (renderer)       14.09       17.01        4.87       26.10        3.56  12.43
+      sRGB            Blender Standard       24.52       25.24        5.89       34.84        3.71  14.04
+      sRGB                 Blender AgX        9.60       12.11        3.68       18.29        3.11   9.49
+Display P3                 Blender AgX        9.60       12.10        3.67       18.28        3.01   9.65
+      sRGB                ACES 1.3 SDR       15.59       17.95        5.46       30.26        2.94  12.10
+Display P3                ACES 1.3 SDR       15.59       17.95        5.46       30.26        2.94  12.38
+  candle x1 after the balance, linear sRGB: spectral (1.0813, 0.8211, 0.5048), RGB (1.1320, 0.7827, 0.8778)
+  tungsten x1 after the balance, linear sRGB: spectral (1.0827, 0.7814, 0.4024), RGB (1.0977, 0.7660, 0.5116)
+
+=== A (ACEScg (AP1) working basis). Gold, reference model, 45 conditions, exposure 0 ===
+Columns: CIEDE2000 between the RGB and the spectral result after the same white balance; 'out' = share of the 45 balanced spectral colors outside sRGB.
+--- no WB (out of sRGB: 69 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)        1.17        1.21        0.76        3.50        2.27   3.39
+      sRGB  Reinhard + clip (renderer)        1.50        2.24        0.55        6.29        1.64   4.40
+Display P3  Reinhard + clip (renderer)        1.17        1.53        0.54        5.30        1.64   3.96
+      sRGB            Blender Standard        2.41        3.17        1.10        7.28        2.27   4.57
+      sRGB                 Blender AgX        0.90        0.88        0.43        2.84        1.73   2.81
+Display P3                 Blender AgX        0.89        0.88        0.43        2.85        1.71   2.77
+      sRGB                ACES 1.3 SDR        1.81        2.45        0.69        6.78        2.25   4.75
+Display P3                ACES 1.3 SDR        1.67        2.34        0.69        6.61        2.24   4.78
+--- D = 0.6 (out of sRGB: 27 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)        1.41        1.74        0.88        4.32        2.27   3.64
+      sRGB  Reinhard + clip (renderer)        1.18        1.79        0.54        4.34        1.64   3.80
+Display P3  Reinhard + clip (renderer)        1.15        1.69        0.55        4.09        1.64   3.47
+      sRGB            Blender Standard        2.11        2.49        1.17        6.07        2.27   4.35
+      sRGB                 Blender AgX        1.19        1.48        0.51        3.67        1.73   3.08
+Display P3                 Blender AgX        1.19        1.48        0.51        3.67        1.71   3.03
+      sRGB                ACES 1.3 SDR        1.44        2.13        0.66        5.68        2.25   4.56
+Display P3                ACES 1.3 SDR        1.44        2.13        0.66        5.68        2.24   4.55
+--- D = 0.8 (out of sRGB: 24 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)        1.73        2.24        0.95        4.95        2.27   3.87
+      sRGB  Reinhard + clip (renderer)        1.31        1.97        0.59        4.36        1.64   3.76
+Display P3  Reinhard + clip (renderer)        1.31        1.92        0.60        4.21        1.64   3.51
+      sRGB            Blender Standard        2.16        2.75        1.18        6.08        2.27   4.36
+      sRGB                 Blender AgX        1.32        1.79        0.66        4.02        1.73   3.23
+Display P3                 Blender AgX        1.33        1.79        0.66        4.02        1.71   3.17
+      sRGB                ACES 1.3 SDR        1.62        2.56        0.68        5.73        2.25   4.62
+Display P3                ACES 1.3 SDR        1.62        2.56        0.68        5.73        2.24   4.61
+--- D = 1 (out of sRGB: 24 %) ---
+   display                        view   candle x1   1500 K x1 tungsten x1   candle x3      D65 x3   mean
+                  (linear, no display)        2.53        3.60        1.05        6.04        2.27   4.27
+      sRGB  Reinhard + clip (renderer)        1.62        2.36        0.65        4.60        1.64   3.82
+Display P3  Reinhard + clip (renderer)        1.64        2.35        0.67        4.56        1.64   3.63
+      sRGB            Blender Standard        2.33        3.22        1.22        6.12        2.27   4.42
+      sRGB                 Blender AgX        1.48        2.13        0.65        4.78        1.73   3.45
+Display P3                 Blender AgX        1.48        2.13        0.64        4.78        1.71   3.38
+      sRGB                ACES 1.3 SDR        1.95        2.88        0.74        6.03        2.25   4.76
+Display P3                ACES 1.3 SDR        1.95        2.88        0.74        6.03        2.24   4.74
+
+=== B. Why: the two results in CAT16's cone-like space (sRGB working basis, one reflection, normal incidence) ===
+LMS of the result divided by the light's LMS (= the effective reflectance each cone sees); gain = the balance's scale (D = 1);
+'S only' = dE after the balance when only S is taken from the RGB result (L, M from the spectral one); 'L,M only' = the reverse.
+   light           spectral L/M/S                RGB L/M/S            gain L/M/S  dE balanced  S only  L,M only  unbalanced
+  1500 K        0.895/0.855/0.653        0.922/0.874/1.184    0.790/1.209/11.223        30.84   31.19      1.76        7.44
+  1850 K        0.879/0.834/0.563        0.898/0.843/0.872     0.834/1.153/7.031        24.09   23.83      1.94        5.83
+  2200 K        0.867/0.817/0.515        0.879/0.822/0.705     0.867/1.116/4.766        14.98   14.05      1.61        4.61
+  2856 K        0.848/0.795/0.472        0.851/0.795/0.562     0.911/1.073/2.814         6.37    5.80      0.77        2.96
+  4500 K        0.818/0.764/0.441        0.808/0.758/0.460     0.967/1.025/1.410         1.20    1.16      0.77        0.86
+     D65        0.798/0.745/0.432        0.779/0.736/0.430     1.000/1.000/1.000         2.05    0.10      2.02        2.05
+
+  1850 K: the S sensor x light has its weighted mean at 505 nm (S peak 448 nm); gold's F there 0.509
+  D65: the S sensor x light has its weighted mean at 460 nm (S peak 448 nm); gold's F there 0.405
+Which working-RGB channels carry the candle's (1850 K) S stimulus, and gold's S reflectance in each working basis (one reflection):
+    sRGB (Rec.709): light (2.6486, 0.6119, -0.0115), S share R/G/B 48%/59%/-7%, gold F0 (0.975, 0.730, 0.364), S reflectance spectral 0.563 / RGB 0.872
+          Rec.2020: light (1.8628, 0.7456, 0.0870), S share R/G/B 14%/29%/57%, gold F0 (0.905, 0.746, 0.408), S reflectance spectral 0.563 / RGB 0.575
+      ACEScg (AP1): light (1.8401, 0.7460, 0.1103), S share R/G/B 8%/18%/74%, gold F0 (0.900, 0.746, 0.417), S reflectance spectral 0.563 / RGB 0.513
+
+=== C. Gold bowl renders, current builds (800x450, 256 spp, two renders per build with seeds 1 and 2, raw .pfm, 3x3 blur, bowl box, lit pixels; 8-bit) ===
+The balance is applied to the renders afterwards (the same matrix as --wb, computed from the light's film RGB in the render's log).
+--- candle (film RGB of the light [2.7029, 0.5957, -0.0096]; 77625 pixels) ---
+ balance    display                        view dE00 mean  95 pct     >1  noise RGB noise spec  out sRGB
+   no WB       sRGB  Reinhard + clip (renderer)      0.81    1.91  27.0%       0.42       0.51      100%
+   no WB Display P3  Reinhard + clip (renderer)      5.03    9.60  86.5%       0.45       0.55      100%
+   no WB       sRGB            Blender Standard      1.05    2.82  39.0%       0.60       0.69      100%
+   no WB       sRGB                 Blender AgX      2.08    4.30  78.7%       0.48       0.54      100%
+   no WB Display P3                 Blender AgX      4.05    6.85  78.9%       0.50       0.58      100%
+   no WB       sRGB                ACES 1.3 SDR      1.41    4.84  47.1%       0.65       0.73      100%
+   no WB Display P3                ACES 1.3 SDR      2.21    5.27  78.6%       0.66       0.74      100%
+         white ball, linear sRGB: RGB build (1.454, 0.318, -0.005), spectral (1.452, 0.318, -0.006)
+ D = 0.6       sRGB  Reinhard + clip (renderer)      9.73   16.83  91.5%       0.49       0.64        0%
+ D = 0.6 Display P3  Reinhard + clip (renderer)      9.39   16.05  91.5%       0.51       0.66        0%
+ D = 0.6       sRGB            Blender Standard      9.76   16.63  88.6%       0.67       0.89        0%
+ D = 0.6       sRGB                 Blender AgX      8.56   15.02  89.8%       0.51       0.64        0%
+ D = 0.6 Display P3                 Blender AgX      8.56   15.10  90.0%       0.53       0.63        0%
+ D = 0.6       sRGB                ACES 1.3 SDR      8.88   14.38  90.9%       0.67       0.80        0%
+ D = 0.6 Display P3                ACES 1.3 SDR      8.86   14.41  91.1%       0.68       0.82        0%
+         white ball, linear sRGB: RGB build (0.905, 0.448, 0.320), spectral (0.904, 0.448, 0.317)
+ D = 0.8       sRGB  Reinhard + clip (renderer)     11.04   18.72  91.7%       0.51       0.70        0%
+ D = 0.8 Display P3  Reinhard + clip (renderer)     10.78   18.15  91.6%       0.53       0.73        0%
+ D = 0.8       sRGB            Blender Standard     11.83   19.47  88.5%       0.70       0.96        0%
+ D = 0.8       sRGB                 Blender AgX     10.08   17.67  90.8%       0.52       0.70        0%
+ D = 0.8 Display P3                 Blender AgX     10.11   17.63  90.7%       0.53       0.72        0%
+ D = 0.8       sRGB                ACES 1.3 SDR     11.37   18.13  91.2%       0.68       0.86        0%
+ D = 0.8 Display P3                ACES 1.3 SDR     11.36   18.17  91.2%       0.70       0.89        0%
+         white ball, linear sRGB: RGB build (0.722, 0.491, 0.428), spectral (0.721, 0.492, 0.424)
+   D = 1       sRGB  Reinhard + clip (renderer)     12.42   20.85  91.8%       0.54       0.82        0%
+   D = 1 Display P3  Reinhard + clip (renderer)     12.30   20.56  91.9%       0.55       0.83        0%
+   D = 1       sRGB            Blender Standard     14.47   22.89  88.4%       0.72       1.09        0%
+   D = 1       sRGB                 Blender AgX     11.88   20.69  91.0%       0.53       0.81        0%
+   D = 1 Display P3                 Blender AgX     11.88   20.58  91.1%       0.55       0.86        0%
+   D = 1       sRGB                ACES 1.3 SDR     14.41   22.63  91.5%       0.70       1.02        0%
+   D = 1 Display P3                ACES 1.3 SDR     14.42   22.68  91.6%       0.72       1.04        0%
+         white ball, linear sRGB: RGB build (0.540, 0.535, 0.536), spectral (0.539, 0.535, 0.531)
+
+--- tungsten (film RGB of the light [1.8449, 0.8262, 0.2336]; 77625 pixels) ---
+ balance    display                        view dE00 mean  95 pct     >1  noise RGB noise spec  out sRGB
+   no WB       sRGB  Reinhard + clip (renderer)      2.63    4.87  79.3%       0.45       0.55       26%
+   no WB Display P3  Reinhard + clip (renderer)      2.80    6.51  79.3%       0.48       0.57       26%
+   no WB       sRGB            Blender Standard      2.75    4.92  81.0%       0.68       0.77       26%
+   no WB       sRGB                 Blender AgX      1.95    3.82  79.0%       0.48       0.55       26%
+   no WB Display P3                 Blender AgX      2.68    5.82  78.5%       0.49       0.58       26%
+   no WB       sRGB                ACES 1.3 SDR      1.82    4.25  77.5%       0.65       0.74       26%
+   no WB Display P3                ACES 1.3 SDR      1.98    4.40  78.0%       0.66       0.75       26%
+         white ball, linear sRGB: RGB build (0.992, 0.442, 0.124), spectral (0.992, 0.442, 0.123)
+ D = 0.6       sRGB  Reinhard + clip (renderer)      4.10    8.59  84.7%       0.50       0.65        0%
+ D = 0.6 Display P3  Reinhard + clip (renderer)      3.98    7.96  85.9%       0.53       0.67        0%
+ D = 0.6       sRGB            Blender Standard      4.34    8.78  84.9%       0.75       0.90        0%
+ D = 0.6       sRGB                 Blender AgX      3.80    7.68  82.8%       0.52       0.65        0%
+ D = 0.6 Display P3                 Blender AgX      3.78    7.43  83.9%       0.55       0.67        0%
+ D = 0.6       sRGB                ACES 1.3 SDR      3.53    6.74  85.3%       0.68       0.82        0%
+ D = 0.6 Display P3                ACES 1.3 SDR      3.52    6.78  85.5%       0.70       0.84        0%
+         white ball, linear sRGB: RGB build (0.721, 0.498, 0.368), spectral (0.720, 0.498, 0.368)
+ D = 0.8       sRGB  Reinhard + clip (renderer)      4.50    9.00  86.0%       0.53       0.69        0%
+ D = 0.8 Display P3  Reinhard + clip (renderer)      4.33    8.51  86.7%       0.55       0.72        0%
+ D = 0.8       sRGB            Blender Standard      4.74    9.37  86.6%       0.75       0.94        0%
+ D = 0.8       sRGB                 Blender AgX      4.30    8.13  84.8%       0.54       0.70        0%
+ D = 0.8 Display P3                 Blender AgX      4.25    8.27  85.8%       0.56       0.71        0%
+ D = 0.8       sRGB                ACES 1.3 SDR      4.11    7.66  86.2%       0.69       0.86        0%
+ D = 0.8 Display P3                ACES 1.3 SDR      4.11    7.68  87.2%       0.72       0.89        0%
+         white ball, linear sRGB: RGB build (0.630, 0.516, 0.450), spectral (0.630, 0.516, 0.449)
+   D = 1       sRGB  Reinhard + clip (renderer)      4.90    9.51  86.7%       0.56       0.74        0%
+   D = 1 Display P3  Reinhard + clip (renderer)      4.81    9.13  87.3%       0.58       0.74        0%
+   D = 1       sRGB            Blender Standard      5.25    9.98  87.1%       0.74       0.98        0%
+   D = 1       sRGB                 Blender AgX      4.69    8.71  85.6%       0.56       0.77        0%
+   D = 1 Display P3                 Blender AgX      4.71    8.78  86.1%       0.60       0.78        0%
+   D = 1       sRGB                ACES 1.3 SDR      4.76    8.61  88.1%       0.72       0.93        0%
+   D = 1 Display P3                ACES 1.3 SDR      4.77    8.61  88.0%       0.75       0.94        0%
+         white ball, linear sRGB: RGB build (0.539, 0.535, 0.532), spectral (0.539, 0.535, 0.530)
+

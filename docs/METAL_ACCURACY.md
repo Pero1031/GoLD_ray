@@ -29,7 +29,7 @@ Reproduction steps are at the [end](#7-reproduction). The full output of the cal
 4. **Angle (the incidence-angle dependence of Fresnel) is not the main cause.** Under D65 the RGB reduction of `(eta, k)` reproduces the reflectance well even at oblique incidence (the error for gold is just the normal-incidence error shrinking toward grazing angles). Of the conditions that had been listed in advance as likely to show a difference, angle was a miss.
 5. **The earlier observation "on a gold sphere, spectral and RGB differ by about 2.5/255 (spectral is warmer)" is consistent with the red-channel cap of item 3** (a red difference of about 6% becomes a few /255 in 8-bit sRGB; see 4.1 below). That image was not decomposed with the same method, so this only means "probably the same cause".
 
-6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6). The sRGB display hides the difference only because the RGB renderer works in sRGB primaries: its error then sits in the blue channel that the display clips. With a wider working space both displays show about the same difference (section 3.7). Through real view transforms the hiding survives only where the view clips the Rec.709 channels (Blender's Standard and Filmic); Blender's current default, AgX, shows the difference on sRGB too (section 3.8).
+6. **The gamut you display in changes what difference is visible.** Candle-lit gold lies outside sRGB, and on an sRGB display the difference vanishes (ΔE00 about 0.9 for the bowl and the statue), but in Display P3 it is 4 to 5 (section 3.5). The difference is not a fine pattern in the folds but a shift in the color of the whole object, and it does not vanish through the eye's spatial filter (section 3.6). The sRGB display hides the difference only because the RGB renderer works in sRGB primaries: its error then sits in the blue channel that the display clips. With a wider working space both displays show about the same difference (section 3.7). Through real view transforms the hiding survives only where the view clips the Rec.709 channels (Blender's Standard and Filmic); Blender's current default, AgX, shows the difference on sRGB too (section 3.8). And once the image is white balanced to a warm light, as a photograph would be, the difference grows about fourfold (candle: ΔE00 14 on either display) and no display or view hides it (section 3.9).
 
 **Where "spectral is accurate" holds:** the spectral renderer converges to the 1 nm integral of `Fresnel(λ, θ)^n × light(λ) × film sensor`. The values measured in the engine agree with this integral within 0.5% ([section 5](#5-check-against-measurements-in-the-engine)). The error of the integral itself is: the film's CMF approximation (Wyman 2013, the film's until 2026-11-17; it now uses the 1 nm CIE table) gave ΔE00 0.01 to 0.18 here (the displayed 8-bit sRGB values are identical); the optical constants are as in Johnson's table.
 
@@ -217,6 +217,40 @@ Limits: Blender 4.5's views without looks (no "Punchy" or contrast looks); ACES 
 
 Full output: [view_transform_hiding_results.txt](data/view_transform_hiding_results.txt) (scripts `tools/studies/view_transform_hiding.py` and `ocio_apply.py`).
 
+### 3.9 After white balance the difference grows, and no display hides it
+
+Sections 3.5 to 3.8 leave the light's color cast in the image. A photograph or a film is usually balanced to the light. The renderer's `--wb` (CIE film) adapts from the light's white to D65 with CAT16, a 3×3 matrix on the linear film values; D < 1 adapts only partly. The same matrix was applied to the RGB and the spectral result.
+
+| Gold, one reflection (reference model, sRGB working basis) | Linear | sRGB, renderer's output | P3, renderer's output | AgX (sRGB / P3) |
+|---|---|---|---|---|
+| Candle, no balance | 5.83 | 0.64 | 5.82 | 3.06 / 3.04 |
+| Candle, balanced (D = 1) | **24.1** | **14.4** | **14.1** | 9.6 / 9.6 |
+| Candle, balanced (D = 0.6) | 14.8 | 12.7 | 11.9 | 7.2 / 7.2 |
+| Tungsten, no balance | 2.96 | 3.02 | 2.64 | 2.01 / 2.01 |
+| Tungsten, balanced (D = 1) | 6.37 | 5.01 | 4.87 | 3.68 / 3.67 |
+
+- **Balancing to a warm light enlarges the difference about fourfold under the candle, and both displays show it alike.** After the balance most colors lie inside sRGB (24 % of the 45 conditions stay outside, against 69 % without the balance), so nothing is clipped away. Every view transform shows it (ACES 15.6, Blender Standard 24.5; AgX compresses it most, to 9.6).
+- In the balanced RGB image the gold turns pale and pinkish: in linear sRGB the spectral result is (1.08, 0.82, 0.50) and the RGB one (1.13, 0.78, 0.88).
+- **With a wide working space the balance does little harm.** With the RGB renderer in ACEScg primaries the balanced candle difference is 2.5 linear and 1.6 on either display.
+- **The renders agree.** The bowl was rendered again with the current builds (the balance applied afterwards to the raw renders, which equals rendering with `--wb` within 0.1 %). Candle, balanced with D = 1: 12.4 on sRGB and 12.3 on P3 (renderer's output), AgX 11.9 on both, ACES 14.4 on both, with 92 % of the pixels above 1; D = 0.6 already gives 9.7 and 9.4. The same renders without the balance give 0.81 and 5.03 (as in 3.5). Tungsten: from 2.6 to 4.9. The noise floor is 0.5 to 1.1. The white ball is neutral after the balance in both builds (linear sRGB 0.540, 0.535, 0.536 and 0.539, 0.535, 0.531), so only the gold differs.
+
+**Why.** The error sits in the short-wavelength cone (S of CAT16), and the balance multiplies S by a large factor:
+
+| Light (one reflection) | Gold's reflectance as the S cone sees it: spectral / RGB renderer | Balance's gain on S | ΔE00 balanced | of which S alone |
+|---|---|---|---|---|
+| 1500 K | 0.65 / 1.18 | 11.2 | 30.8 | 31.2 |
+| 1850 K (candle) | 0.56 / 0.87 | 7.0 | 24.1 | 23.8 |
+| 2856 K (tungsten) | 0.47 / 0.56 | 2.8 | 6.4 | 5.8 |
+| D65 | 0.43 / 0.43 | 1 | 2.1 | 0.1 |
+
+("Gold's reflectance as the S cone sees it" = S of the result divided by S of the light.) A candle has little short-wavelength light, and in sRGB primaries what it has is carried by the red and green channels: they hold 48 % and 59 % of the candle's S stimulus, the blue channel −7 % (its value is about 0 because the positive and negative parts of the blue sensor cancel, 3.7). The RGB renderer multiplies each channel by gold's reflectance in that channel (0.98, 0.73, 0.36), so the S stimulus, riding on red and green, is reflected at about 0.87. In the spectral calculation gold reflects about half of the light that the S cone sees under the candle. Without the balance S is so small that the error barely changes the color; the balance raises S sevenfold and the error with it. Under D65 the S error vanishes and the remaining error is in L and M (the red channel's cap, 4.1). In ACEScg primaries the blue channel holds 74 % of the candle's S stimulus, so it meets gold's blue reflectance, and the RGB renderer's S comes out at 0.51 against the spectral 0.56.
+
+Limits: the balance is the renderer's CIE-film `--wb` (CAT16); the camera balance with `--camera-response` (a color matrix fitted under the light) was not tested. The values of D (0.6, 0.8) were picked, not derived from a viewing model. The reference model is at normal incidence; the renders are one scene.
+
+Full output: [white_balance_difference_results.txt](data/white_balance_difference_results.txt) (script `tools/studies/white_balance_difference.py`).
+
+**Summary of 3.7 to 3.9.** "An sRGB display hides the RGB renderer's error, and a wide-gamut display shows it" holds only when four things meet: no white balance, a renderer in sRGB primaries, a light outside sRGB (redder than about 1910 K) and a view that clips the Rec.709 channels (Blender's Standard or Filmic). Balanced to a warm light, the same error is among the largest of this analysis and every display shows it. A renderer in ACEScg primaries keeps the error far smaller in all these cases (candle, one reflection: 1.2 unbalanced and 2.5 balanced, linear, against 5.8 and 24.1 in sRGB primaries).
+
 ## 4. Why the difference appears
 
 ### 4.1 The red channel of gold exceeds 1 (a collision with the physical upper limit)
@@ -373,5 +407,14 @@ python tools/studies/condition_map.py <out folder>        # results.txt (= docs/
 ```bash
 python tools/studies/view_transform_hiding.py --ocio-python <blender>/4.5/python/bin/python.exe --renders <folder of bowl renders> --out docs/data/view_transform_hiding_results.txt
 ```
+
+**White balance (section 3.9)** — bowl renders of the current builds without `--wb` (the balance is applied afterwards; the script reads the light's film RGB from each render's log, so keep the `.log` next to the `.pfm`). 8 renders of about 75 s each (development build)
+
+```powershell
+GoLD_rayt.exe --scene goldbowl --light candle --width 800 --spp 256 --seed 1 --out goldbowl_candle_rgb_a.pfm > goldbowl_candle_rgb_a.log
+python tools/studies/white_balance_difference.py --ocio-python <blender>/4.5/python/bin/python.exe --renders <folder> --out docs/data/white_balance_difference_results.txt
+```
+
+Seeds 1 and 2 give the renders `a` and `b`; lights candle and tungsten; the RGB and the spectral build.
 
 File names are `goldbowl_<light>_<rgb|spectral>_<a|b>.pfm` and `erato_<light>_<rgb|spectral>_<a|b>.pfm`. What is measured is not the look of a photograph but the difference between two renders.
