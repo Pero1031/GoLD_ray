@@ -33,7 +33,6 @@ rendering gets its color wrong. The renderer repeats that study in its own code 
 **Contents**:
 [RGB vs spectral for metals](#how-much-does-rgb-rendering-get-wrong-for-metals) ·
 [Gallery](#gallery) ·
-[Captured objects](#captured-objects-and-3d-gaussian-splatting) ·
 [The spectral engine](#the-spectral-engine) ·
 [Quick start](#quick-start) ·
 [Features](#features) ·
@@ -49,17 +48,13 @@ Both builds are the same engine with the same optical constants (Johnson & Chris
 The reference is a 1 nm integral of `Fresnel(λ, θ)^n x light x film sensor`, which the engine matches within ΔE00 0.12
 (CIEDE2000: about 1 is visible side by side, 2-3 obvious).
 
-| ΔE00, RGB vs spectral | Gold | Copper | Silver |
-|---|---|---|---|
-| D65 light, one reflection | 0.2 - **2.1** | 0.0 - 0.3 | 0.00 |
-| other lights (tungsten, candle, LED), one reflection | **2 - 6** | 1.8 - 2.8 | <= 0.07 |
-| D65, metal reflecting metal 3 / 4 / 6 times | **3.7 / 6.9 / 12.7** | 1.4 / 2.3 / 4.4 | <= 0.01 |
-
 ![Reflectance of Au, Ag and Cu against the flat per-channel value of the RGB model](docs/img/metal_reflectance_spectra.png)
+
+![RGB error against the number of bounces and the light temperature](docs/img/metal_rgb_error.png)
 
 - **Silver**: RGB is enough; its reflectance is flat.
 - **Gold is the worst case**: its reflectance rises steeply across the visible range, which three numbers cannot follow. The error grows
-  under a light that is not D65, with repeated reflections and with roughness.
+  with each reflection of metal in metal and the further the light is from daylight.
 - **Rule of thumb**: RGB for previews and daylight scenes; spectral when the light is warm or colored, or the metal is the subject.
 
 ![The gold bowl under three lights: RGB renderer, spectral renderer, and the CIEDE2000 difference of the linear renders and of the displayed images](docs/img/gold_rgb_vs_spectral.png)
@@ -75,18 +70,7 @@ Display P3 screen (`--gamut p3`) it shows. Write-up with all tables and the reas
 More renders from the same engine (CPU; OIDN-denoised unless noted). The statue in several of them is Erato by Geoffrey Marchal
 (CC BY 4.0, see above); the scan is not part of this repository.
 
-**Fluorescence** (spectral build): six samples from a measured bispectral database (white tile, white paper, highlighter, fluorescent
-orange pigment, orange tile, yellow textile) under daylight with its ultraviolet, under the same daylight with the fluorescence switched
-off, and under a black light. Paper with an optical brightener turns ultraviolet into blue and looks whiter than white; the highlighter
-and the pigment send out more light at their color than a white surface reflects. At such a surface the path changes its wavelength
-([details](docs/FLUORESCENCE.md)).
-
-<img src="docs/img/fluorescence.png" alt="Six samples under daylight, under the same daylight with the fluorescence off, and under a black light, where only the fluorescent samples glow" width="720">
-
-**Three translucent materials, one statue** (`scenes/erato_translucent.json`): wax, marble and jade, lit from behind. Light scatters
-inside the volume, so thin parts such as the drapery and the lyre glow.
-
-![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
+### What only a spectral renderer shows
 
 **A soap bubble** (`scenes/soap_bubble_hdr.json`): thin-film interference per wavelength, with a film that thickens downward and swirls
 ([theory](docs/THIN_FILM.md)).
@@ -97,14 +81,26 @@ inside the volume, so thin parts such as the drapery and the lyre glow.
 
 ![A gold ring with a round brilliant-cut diamond that shows colored fire, in a dark studio](docs/img/gallery_diamond_ring.png)
 
-**Depth of field** (`scenes/bokeh_layers.json`): a 100 mm lens at f/1.6 with seven blades; distant lights become heptagons.
+**A prism in fog** (`--lvc`): a beam through a dispersive prism fans out into a rainbow ([details](docs/LVC_BPT.md)).
 
-![A gold statue in focus, with blurred glossy balls in front of it, balls behind it, and heptagonal light discs far behind](docs/img/gallery_bokeh_layers.png)
+![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
 
-**Four lenses** (`scenes/lens_chess_*.json`): one chess position through four real lens designs traced surface by surface: a fisheye,
-a 50 mm double-Gauss at f/2 and at f/16 (diffraction stars), and an uncorrected single lens with color fringes.
+**Fluorescence**: measured samples under daylight, with the fluorescence switched off, and under a black light. Light absorbed at one
+wavelength comes out at a longer one ([details](docs/FLUORESCENCE.md)).
 
-![A chess position at night seen through a fisheye, a 50 mm lens at f/2 and at f/16, and a single uncorrected lens](docs/img/gallery_lens_chess.png)
+<img src="docs/img/fluorescence.png" alt="Six samples under daylight, under the same daylight with the fluorescence off, and under a black light, where only the fluorescent samples glow" width="720">
+
+**The color of the light** (`--scene spd --light d65|tungsten|led`): colored spheres and gold under three lights. White balance (`--wb`)
+restores the white but not the colors, and the RGB build gets the white right but not the colors.
+
+![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/light_spectrum_spheres.png)
+
+### Materials
+
+**Three translucent materials, one statue** (`scenes/erato_translucent.json`): wax, marble and jade, lit from behind. Light scatters
+inside the volume, so thin parts such as the drapery and the lyre glow.
+
+![The same statue made of wax, marble and jade, lit from behind](docs/img/erato_translucent.png)
 
 **Hair** (`scenes/hair_colors.json`, `scenes/hair_head.json`): each fiber scatters light by its own model, and the color comes from
 melanin alone ([details](docs/HAIR.md)).
@@ -120,11 +116,6 @@ sharpens the glint. Below: a lotion and an emulsion over an hour ([details](docs
 
 <img src="docs/img/skin_lotion_series.png" alt="Close-ups of skin over an hour: a lotion alone, and a lotion followed by an emulsion" width="820">
 
-**Faded paper under an LED mix**: dye papers measured as they faded under simulated sunlight (a lab measurement, not in this repository);
-the exposure varies over each sheet, and a mat kept the border at its first color. The light is a sum of LED spectra.
-
-<img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
-
 **Measured leather**: cowhide measured with a 2D spectroradiometer becomes a spectral texture with a relief; right, under a satin clear
 coat ([details](docs/GLOSS.md)). Below, gilt leather: gold leaf (left) and silver leaf under a yellow varnish (right) look alike in daylight
 and under a lamp.
@@ -133,25 +124,31 @@ and under a lamp.
 
 <img src="docs/img/gallery_gilt_leather.png" alt="The same gilt leather under daylight and under a 3200 K lamp; in each, the left half is gold leaf and the right half silver leaf under a yellow varnish, and the two halves look alike" width="820">
 
-**Light in fog** (`--lvc`): a beam through a dispersive prism fans out into a rainbow; a glass ball focuses a beam into a cone. Rendered
-with a bidirectional path tracer that caches light paths ([details](docs/LVC_BPT.md)).
+**Faded paper under an LED mix**: dye papers measured as they faded under simulated sunlight (a lab measurement, not in this repository);
+a mat kept the border of each sheet at its first color.
 
-![A beam of light entering a prism in fog and leaving as a rainbow fan](docs/img/gallery_prism_fog.png)
+<img src="docs/img/gallery_faded_paper.png" alt="Four sheets of faded dye paper, red, orange, purple and green, each with its original color left in a border where a mat covered it, and a faded paper cup" width="820">
+
+**A glass ball in haze** (`--lvc`): the ball focuses a beam into a cone of light ([details](docs/LVC_BPT.md)).
 
 ![A glass ball focusing a beam of light into a cone in haze](docs/img/gallery_ball_haze.png)
 
----
-
-## Captured objects and 3D Gaussian Splatting
-
-A scanned mesh can be shown as photographed or given any material of the renderer, and a 3D Gaussian Splatting point cloud is ray-traced
-directly, so a glass ball placed in it reflects the captured room ([details](docs/CAPTURE.md)).
-
-**Relighting a reconstruction.** A statue rendered as an opaque material and as thin wax was reconstructed with a relightable Gaussian
-Splatting method and lit by new lights. The opaque statue comes back close to the truth; the wax does not: the reconstruction bakes the
-scattering into a surface with 2.4 to 3.7 times the contrast, as Dihlmann et al. (NeurIPS 2024) report for subsurface scattering.
+**Relighting a reconstruction**: a statue rendered as an opaque material and as thin wax, reconstructed with a relightable 3D Gaussian
+Splatting method and lit by new lights. The opaque statue comes back close to the truth; the wax does not, as Dihlmann et al.
+(NeurIPS 2024) report for subsurface scattering. Scans and splat clouds can also be put into a scene directly ([details](docs/CAPTURE.md)).
 
 <img src="docs/img/gs_relit_wax.png" alt="An opaque and a wax statue under four lights: the ground truth next to the relit 3D Gaussian Splatting render" width="820">
+
+### Camera
+
+**Depth of field** (`scenes/bokeh_layers.json`): a 100 mm lens at f/1.6 with seven blades; distant lights become heptagons.
+
+![A gold statue in focus, with blurred glossy balls in front of it, balls behind it, and heptagonal light discs far behind](docs/img/gallery_bokeh_layers.png)
+
+**Four lenses** (`scenes/lens_chess_*.json`): one chess position through four real lens designs traced surface by surface: a fisheye,
+a 50 mm double-Gauss at f/2 and at f/16 (diffraction stars), and an uncorrected single lens with color fringes.
+
+![A chess position at night seen through a fisheye, a 50 mm lens at f/2 and at f/16, and a single uncorrected lens](docs/img/gallery_lens_chess.png)
 
 ---
 
@@ -164,11 +161,6 @@ scattering into a surface with 2.4 to 3.7 times the contrast, as Dihlmann et al.
 - **Film**: the CIE 1931 observer, or a given camera's sensitivities; output in sRGB, Display P3 or Rec.2020.
 - **RGB build**: a one-line compile-time switch ([`RenderMode.hpp`](GoLD_rayt/include/Core/RenderMode.hpp)); spectral tables are reduced
   to RGB, so both builds render the same data.
-
-**The color of the light** (`--scene spd --light d65|tungsten|led`): under a warm or an LED light the spheres change by different amounts;
-white balance (`--wb`) restores the white but not the colors, and the RGB build matches the white but not the colors.
-
-![Five spheres and gold under D65, tungsten and an LED light, with and without white balance, spectral and RGB](docs/img/light_spectrum_spheres.png)
 
 ---
 
