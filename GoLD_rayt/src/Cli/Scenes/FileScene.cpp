@@ -711,12 +711,23 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             break;
         }
         case ObjectSpec::Shape::Quad:
+            if (!std::isnan(o.polarizer) && !asLight) {
+                std::cerr << "[SceneFile] a \"polarizer\" needs a quad with an emission material that is a light (not \"light\": false)\n";
+                return 1;
+            }
             if (!emission) world->add(std::make_shared<Quad>(o.corner, o.edge1, o.edge2, mat));
             else {
                 EmissionSpectrum spectrum;
                 if (!MakeSpectrum(spec.spectrum, spectrum)) return 1;
                 const auto light = AddQuadLight(*world, nullptr, o.corner, o.edge1, o.edge2, spectrum, Real(spec.radiance), asLight, spec.twoSided);
                 if (asLight && light) out.lights.push_back(light);
+                if (light && !std::isnan(o.polarizer) && o.polarizerDegree > 0) {   // a screen: the field at this angle from edge1 toward edge2
+                    const Vector3 n = glm::normalize(glm::cross(o.edge1, o.edge2)), u = glm::normalize(o.edge1), v = glm::cross(n, u);
+                    const Real a = glm::radians(Real(o.polarizer));
+                    static_cast<AreaLight&>(*light).setLinearPolarizer(std::cos(a) * u + std::sin(a) * v, n, Real(o.polarizerDegree));
+                    std::cout << "[SceneFile] polarized quad light: field at " << o.polarizer << " deg from edge1, degree " << o.polarizerDegree
+                        << (opt.stokes ? "" : "; only the Stokes and polarizer images show it (--stokes: the intensity that includes it is <out>_S0.pfm)") << "\n";
+                }
             }
             break;
         case ObjectSpec::Shape::Mesh: {

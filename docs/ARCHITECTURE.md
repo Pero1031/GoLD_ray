@@ -58,7 +58,7 @@ The flow of drawing one image:
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
 | Fluorescence (a measured bispectral matrix; the path changes its wavelength; light with ultraviolet) | `Materials/Fluorescent`, `Render/Integrator` (`Li` keeps the path's wavelengths apart from the film's), `Color/Illuminants` (`evaluateD65Full`) | `FLUORESCENCE.md` |
-| Polarization (Stokes, `--stokes`, `--polarizer`, `--sky-pol`) | `Core/Polarization`, `Render/Integrator`, `Lights/EnvLight` | `POLARIZATION.md` |
+| Polarization (Stokes, `--stokes`, `--polarizer`, `--sky-pol`, a polarized screen: `"polarizer"` on a quad light) | `Core/Polarization`, `Render/Integrator`, `Lights/EnvLight`, `Lights/AreaLight` | `POLARIZATION.md` |
 | Camera and film output (thin lens, real lens, ghosts, orthographic view, aberrations, diffraction, a camera's spectral sensitivity, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/LensSystem`, `Render/LensFlare`, `Render/Diffraction`, `Color/CameraResponse`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |
 | MMD | `IO/Pmx*`, `Cli/PmxSupport`, `Scenes/PmxScene` | — |
 | Scene file | `Cli/SceneFile*`, `SceneDescription` | `SCENE_FILE.md` |

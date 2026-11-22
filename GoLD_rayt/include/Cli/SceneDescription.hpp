@@ -202,6 +202,8 @@ struct ObjectSpec {
     Shape shape = Shape::Sphere;
     std::string material;                          // empty for splats (they have no material: the color is the capture's)
     int light = -1;                                // emission only: 1 = register as a light for next-event estimation, 0 = do not (-1: yes)
+    double polarizer = std::numeric_limits<double>::quiet_NaN();   // emitting quad that is a light: a linear polarizer over it (a screen), the field at this
+    double polarizerDegree = 1;                    //   angle (degrees) from edge1 toward edge2; degree of polarization 0..1 (docs/POLARIZATION.md)
     Vector3 velocity = Vector3(0.0);               // sphere, quad, mesh, lathe: moves with this velocity (m/s) during the exposure (camera "shutter"); not for a light
     Point3 center = Point3(0.0);                   // sphere
     Real radius = 1;

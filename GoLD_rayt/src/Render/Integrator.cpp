@@ -541,10 +541,10 @@ namespace rayt {
             if (pdfLight > 0 && st.lastPdf > 0) {
                 w = math::powerHeuristic(st.lastPdf, pdfLight);
             }
-            st.add(st.beta * Le * w);
+            addLightFrom(st, st.beta * Le * w, rec.areaLight, r.d);
         }
         else if (!(m_caustics && st.fromReceiver && rec.areaLight && rec.areaLight->photonCaustics())) {
-            st.add(st.beta * Le);
+            addLightFrom(st, st.beta * Le, rec.areaLight, r.d);   // a polarized emitter (a screen) keeps its Stokes vector; others: st.add
         }
     }
 

@@ -8,6 +8,7 @@
 #include "Core/Polarization.hpp"
 #include "Core/Sampling.hpp"
 #include "Geometry/Sphere.hpp"
+#include "Lights/AreaLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Materials/ThinFilm.hpp"
@@ -429,6 +430,85 @@ int RunPolarizationTests() {
             polarizedSkyCase("metal (narrow GGX lobe)", metal, deg, 60000, [](Real ci) { return pol::fresnelAmplitudes(ci, Complex(0.27, 2.95)); }, Real(0.03));
     }
 
+    // (5) A polarized area light (AreaLight::setLinearPolarizer: a screen). Seen straight it has its own Stokes vector: along the normal the
+    //     field is the transmission axis; off the normal, without refraction (film index 1), it is normal to the ray and to the absorbing axis.
+    //     Then its reflection: a large quad square to the mirror direction, the axis along s, along p and at 45 deg, degree 0.7. Glass finds
+    //     the light with the reflected ray only (addSurfaceEmission); the metal's narrow lobe by both strategies. Expected as in part (4).
+    auto addScreen = [](Aggregate& world, Scene& scene, const Point3& center, const Vector3& normal, const Vector3& axis, Real half, Real degree, Real index) {
+        const Vector3 u = glm::normalize(axis - glm::dot(axis, normal) * normal), v = glm::cross(normal, u);   // cross(u, v) = normal
+        auto light = AddQuadLight(world, &scene, center - half * (u + v), Real(2) * half * u, Real(2) * half * v, EmissionSpectrum(RgbColor(1.0)), 1.0, true);
+        static_cast<AreaLight&>(*light).setLinearPolarizer(axis, normal, degree, index);
+        return light;
+    };
+    {
+        const Vector3 n = glm::normalize(Vector3(0.2, 1.0, 0.1)), axis = glm::normalize(glm::cross(n, Vector3(0.3, 0.1, 1.0)));
+        const Vector3 absorb = glm::cross(n, axis);
+        for (const Real tiltDeg : { Real(0), Real(50) }) {
+            auto world = std::make_shared<Aggregate>();
+            auto scene = std::make_shared<Scene>(world);
+            addScreen(*world, *scene, Point3(0, 0, 0), n, axis, 5.0, 0.7, 1.0);
+            scene->finalize("spatial");
+            const Real t = tiltDeg * kPi / 180;
+            const Vector3 side = glm::normalize(axis + Real(0.6) * absorb);                 // tilt the view toward a direction between the two axes
+            const Vector3 kCam = glm::normalize(std::cos(t) * n + std::sin(t) * side);      // the light's direction of travel, toward the camera
+            const Vector3 xRef = glm::normalize(glm::cross(Vector3(0, 1, 0), kCam));
+            const Vector3 e = tiltDeg == 0 ? axis : glm::normalize(glm::cross(kCam, absorb));
+            Real expected[4];
+            fieldStokes(e, kCam, 0.7, [](const CVec3& f) { return f; }, xRef, kCam, expected);
+            std::string detail;
+            const bool ok = estimateStokes(*scene, Ray(Point3(0.0) + kCam * Real(3), -kCam), xRef, 2, 256, expected, Real(1e-6), detail);
+            report("polarized quad light seen " + std::to_string(int(tiltDeg)) + " deg off its normal: S0..S3 (expected)", ok, detail);
+        }
+        // With the sheet's index the field off the normal lies between the projected axis and the no-refraction one; degree 0 is unpolarized.
+        AreaLight probe;
+        Vector3 x, x1, xn, s;
+        const Vector3 k = glm::normalize(n + Real(0.9) * glm::normalize(axis + absorb));
+        probe.setLinearPolarizer(axis, n, 1.0, 1.0);
+        probe.polarization(-k, x1, s);
+        probe.setLinearPolarizer(axis, n, 1.0, 1.5);
+        const bool on = probe.polarization(-k, xn, s);
+        const Vector3 proj = glm::normalize(axis - glm::dot(axis, k) * k);
+        const Real a1 = std::acos(std::min(Real(1), std::abs(glm::dot(x1, proj)))), an = std::acos(std::min(Real(1), std::abs(glm::dot(xn, proj))));
+        probe.setLinearPolarizer(axis, n, 0.0);
+        report("polarized quad light: the sheet's index turns the field less than no refraction; perpendicular to the ray; degree 0 is unpolarized",
+            on && an > Real(1e-3) && an < a1 && std::abs(glm::dot(xn, k)) < Real(1e-9) && !probe.polarization(-k, x, s),
+            "angle from the projected axis: " + std::to_string(an * 180 / kPi) + " deg (index 1.5), " + std::to_string(a1 * 180 / kPi) + " deg (index 1)");
+    }
+    auto polarizedScreenCase = [&](const std::string& label, const std::shared_ptr<Material>& material, Real deg, int N,
+        const std::function<pol::Amplitudes(Real)>& amplitudes, Real relTol) {
+        const Real P = 0.7;
+        const Real ti = deg * kPi / 180;
+        const Vector3 d(std::sin(ti), -std::cos(ti), 0), wo = -d;
+        const Vector3 r(std::sin(ti), std::cos(ti), 0), kIn = -r;
+        const Vector3 sAxis(0, 0, 1), pIn = glm::cross(kIn, sAxis), pOut = glm::cross(wo, sAxis);
+        const pol::Amplitudes a = amplitudes(std::cos(ti));
+        auto reflect = [&](const CVec3& e) { return sum(scaled(sAxis, a.rs * dotC(e, sAxis)), scaled(pOut, a.rp * dotC(e, pIn))); };
+        const Real turn = 30 * kPi / 180;
+        const Vector3 xRef = std::cos(turn) * sAxis + std::sin(turn) * glm::cross(wo, sAxis);
+        const std::pair<const char*, Vector3> axes[] = { { "s", sAxis }, { "p", pIn }, { "45 deg", glm::normalize(sAxis + pIn) } };
+        for (const auto& [name, axis] : axes) {
+            auto world = std::make_shared<Aggregate>();
+            world->add(std::make_shared<Sphere>(Point3(0, -1000, 0), 1000.0, material));
+            auto scene = std::make_shared<Scene>(world);
+            addScreen(*world, *scene, Point3(0.0) + r * Real(20), kIn, axis, 6.0, P, 1.5);   // faces the surface point, square to the mirror direction
+            scene->finalize("spatial");
+            Real expected[4];
+            fieldStokes(axis, kIn, P, reflect, xRef, wo, expected);
+            std::string detail;
+            const bool ok = estimateStokes(*scene, Ray(Point3(0.0) - d * Real(10), d), xRef, 2, N, expected, relTol, detail);
+            report(label + " at " + std::to_string(int(std::lround(deg))) + " deg under a quad light polarized along " + name + ": S0..S3 (expected)", ok, detail);
+        }
+    };
+    {
+        auto glass = std::make_shared<Dielectric>(1.5, 0.0);
+        for (const Real deg : { Real(56.3099), Real(40) })
+            polarizedScreenCase("glass", glass, deg, 80000, [](Real ci) { return pol::fresnelAmplitudes(ci, Complex(1.5)); }, Real(1e-3));
+        auto table = std::make_shared<color::ComplexIorTable>();
+        table->assign({ { 300.0, 0.27, 2.95 }, { 900.0, 0.27, 2.95 } });
+        auto metal = std::make_shared<RoughConductor>(table, Real(0.02));
+        for (const Real deg : { Real(70), Real(45) })
+            polarizedScreenCase("metal (narrow GGX lobe)", metal, deg, 60000, [](Real ci) { return pol::fresnelAmplitudes(ci, Complex(0.27, 2.95)); }, Real(0.03));
+    }
 
     std::cout << "[Polarization] RESULT: " << (allPassed ? "PASS" : "FAIL") << "\n";
     return allPassed ? 0 : 2;

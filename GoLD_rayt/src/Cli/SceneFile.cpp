@@ -104,12 +104,16 @@ ObjectSpec ParseObject(const json& o, const std::string& where) {
         if (!(s.radius > 0)) Fail(where + ".radius", "must be above 0");
     }
     else if (shape == "quad") {
-        CheckKeys(o, { "shape", "material", "light", "velocity", "corner", "edge1", "edge2" }, where);
+        CheckKeys(o, { "shape", "material", "light", "velocity", "corner", "edge1", "edge2", "polarizer", "polarizerDegree" }, where);
         s.shape = ObjectSpec::Shape::Quad;
         if (!o.contains("corner") || !o.contains("edge1") || !o.contains("edge2")) Fail(where, "a quad needs \"corner\", \"edge1\" and \"edge2\"");
         s.corner = ReadVec3(o.at("corner"), where + ".corner");
         s.edge1 = ReadVec3(o.at("edge1"), where + ".edge1");
         s.edge2 = ReadVec3(o.at("edge2"), where + ".edge2");
+        if (o.contains("polarizer")) s.polarizer = ReadNumber(o.at("polarizer"), where + ".polarizer");   // a screen: linearly polarized light
+        Optional<double>(o, "polarizerDegree", where, s.polarizerDegree, ReadNumber);
+        if (!(s.polarizerDegree >= 0 && s.polarizerDegree <= 1)) Fail(where + ".polarizerDegree", "must be between 0 and 1");
+        if (o.contains("polarizerDegree") && !o.contains("polarizer")) Fail(where, "\"polarizerDegree\" needs a \"polarizer\" (the angle of the field from edge1, degrees)");
     }
     else if (shape == "mesh") {
         CheckKeys(o, { "shape", "material", "light", "velocity", "file", "cutout", "scale", "rotate", "translate" }, where);
