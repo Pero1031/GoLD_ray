@@ -434,6 +434,10 @@ docs/HANDOFF.md
 /docs/img/gallery_prism_caustic.png
 /docs/img/overview.png
 /docs/img/skin_macro_voronoi.png
+/docs/img/gallery_crystal_lamp.png
+/docs/img/gallery_gem_caustic.png
+/docs/img/gallery_water.png
+/docs/img/skin_sss.png
 
 # Camera spectral sensitivities of Jiang et al. 2013 (CC BY-NC-SA 4.0): kept locally, not in this MIT repository; see docs/CAMERA.md
 /GoLD_rayt/assets/CameraResponse/
