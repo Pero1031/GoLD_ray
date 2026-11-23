@@ -81,7 +81,8 @@ namespace rayt {
         Real filmCover = Real(0);            // 0..1: how much of the surface here is under the film (set with ns by Material::perturbShading).
         Real surfScatter = Real(0);          // Reflectance of the white local scatter of flaking skin here (Materials/SkinScatter.hpp), set by Material::perturbShading.
         Vector3 nl = Vector3(0.0);           // Normal of a layer of make-up on top where it differs from n (it levels the relief below it, Materials/CosmeticLayer.hpp); zero = the same as n.
-        Real pixelSpacing = Real(0);         // Distance between the rays of neighbouring pixels here, across the ray (camera rays; 0 = unknown): the footprint of glints (docs/GLINTS.md).
+        Real pixelSpacing = Real(0);         // Distance between the rays of neighbouring pixels here, across the ray (0 = unknown): the footprint of glints (docs/GLINTS.md).
+        Real pathBlur = Real(0);             // Standard deviation, across the ray, of the blur the path's earlier bounces add to that footprint (0 for a camera ray and after mirrors).
         Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
         std::array<Real, 4> reemitAlbedo{ Real(-1), Real(-1), Real(-1), Real(-1) };   // Fluorescence: per wavelength of the path, the albedo of this vertex once Material::reemit chose the excitation wavelengths; [0] < 0 = not chosen.
 

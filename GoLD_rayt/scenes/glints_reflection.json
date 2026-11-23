@@ -1,0 +1,19 @@
+{
+ "comment": "Glints beyond the first hit (docs/GLINTS.md): a gold sphere with 100 000 facets per square metre on a floor of polished black glass. Its mirror image in the floor keeps its glints: the pixel's footprint follows the path through a perfect reflection. No denoiser.",
+ "options": {"width": 960, "height": 540, "spp": 256, "depth": 6},
+ "camera": {"from": [0, 0.75, 4.0], "at": [0, 0.12, 0], "up": [0, 1, 0], "fov": 24},
+ "materials": {
+  "black glass": {"type": "dielectric", "ior": 1.5},
+  "under": {"type": "diffuse", "albedo": [0.02, 0.02, 0.02]},
+  "glitter": {"type": "conductor", "metal": "Au", "roughness": 0.3, "glints": {"density": 1e5, "microRoughness": 0.01}},
+  "lamp": {"type": "emission", "spectrum": {"blackbody": 5500}, "radiance": 150000},
+  "lamp2": {"type": "emission", "spectrum": {"blackbody": 3200}, "radiance": 150000}
+ },
+ "objects": [
+  {"shape": "quad", "corner": [-20, 0, 20], "edge1": [40, 0, 0], "edge2": [0, 0, -40], "material": "black glass"},
+  {"shape": "quad", "corner": [-20, -0.05, 20], "edge1": [40, 0, 0], "edge2": [0, 0, -40], "material": "under"},
+  {"shape": "sphere", "center": [0, 0.45, 0], "radius": 0.45, "material": "glitter"},
+  {"shape": "sphere", "center": [1.5, 2.6, 3.0], "radius": 0.02, "material": "lamp"},
+  {"shape": "sphere", "center": [-2.5, 1.6, 2.0], "radius": 0.02, "material": "lamp2"}
+ ]
+}

@@ -93,7 +93,7 @@ namespace rayt {
         /// The same Jacobian at a point of the disc.
         Real jacobianAtDisc(const Point2& u) const;
 
-        static constexpr int kMaxLevel = 20;        ///< beyond it a pixel holds so many facets that the distribution is the smooth one
+        static constexpr int kMaxLevel = 12;        ///< beyond it a footprint holds so many facets (millions) that the distribution is the smooth one
         static constexpr Real kCellsPerSigma = 4;   ///< a cell of the chosen level is 2 to 4 standard deviations of the filter wide
         static constexpr Real kSampleLevel = Real(1.5);   ///< the facets are sampled below this level (about 3 facets per pixel)
         static constexpr Real kFilterReach = 4;     ///< the spatial cells within this many standard deviations are visited

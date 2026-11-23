@@ -25,7 +25,8 @@ namespace rayt {
         // The pixel's filter on the surface: a disc across the ray (radius = the filter's standard deviation), projected along the ray
         // onto the tangent plane: an ellipse with its long axis in the plane of incidence.
         const Vector3 n = rec.gn;
-        const Real r = m_glintFilter * rec.pixelSpacing;
+        // the pixel's filter, widened by what the path's earlier bounces blur
+        const Real r = std::sqrt(math::sqr(m_glintFilter * rec.pixelSpacing) + math::sqr(rec.pathBlur));
         Vector3 t1 = glm::cross(n, wo);
         const Real l1 = glm::length(t1);
         if (l1 > Real(1e-6)) t1 /= l1;

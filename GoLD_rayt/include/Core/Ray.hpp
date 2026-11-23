@@ -63,11 +63,14 @@ namespace rayt {
 
         /**
          * @brief The pixel this ray belongs to, for materials that filter over the pixel (glints, docs/GLINTS.md): the distance between
-         * the rays of neighbouring pixels, across the ray, is pixelSpacing0 + t * |d| * pixelSpread. Both 0 = unknown (any ray that is not
-         * a camera ray).
+         * the rays of neighbouring pixels, across the ray, is pixelSpacing0 + t * |d| * pixelSpread. Both 0 = unknown. A path carries
+         * them on through its bounces (as flat mirrors would), and adds what the bounces blur: a bounce that is not a perfect mirror
+         * spreads the path over its lobe, a blur of standard deviation pathBlur0 + t * |d| * pathBlurSpread across the ray.
          */
         Real pixelSpacing0 = 0.0;
         Real pixelSpread = 0.0;
+        Real pathBlur0 = 0.0;
+        Real pathBlurSpread = 0.0;
 
         /**
          * @brief Default constructor.

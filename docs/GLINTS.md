@@ -1,8 +1,8 @@
 # Glints: a GGX distribution made of a finite number of facets
 
-**Status:** stage 3 of 5. The distribution (`Microfacet/GlintNDF`) is an option of the rough metal (`"glints"` on a `conductor`,
-section 3) for surfaces the camera sees directly, with its own sampling where a pixel holds few facets; `--scene glints` checks
-them. Next: later bounces, more scenes.
+**Status:** stage 4 of 5. The distribution (`Microfacet/GlintNDF`) is an option of the rough metal (`"glints"` on a `conductor`,
+section 3), with its own sampling where a pixel holds few facets, also in mirror images and behind glass; `--scene glints` checks
+them. Next: more scenes (lamé, flakes under a clear coat).
 
 ![Three gold spheres of the same roughness: smooth, 300 000 facets per square metre, 10 million](img/glints_spheres.png)
 
@@ -77,9 +77,21 @@ density (facets per unit area of texture space), a seed for another arrangement.
   a plane the surface is nearly perpendicular to is left out). Spheres, quads and meshes without UVs work alike. The density is per
   area of the coordinate plane, so a surface tilted against all three carries somewhat fewer facets per area than one that faces an
   axis (by |n_k| for each arrangement).
-- **Only where the camera looks directly.** A ray that has bounced does not know a pixel's size, and the material answers with the
-  smooth distribution: the facets' average, so the picture's energy is the same and only the glints are missing in reflections
-  (stage 4). A camera ray keeps its pixel through the boundary of a fog and through a see-through layer.
+- **Beyond the first hit** (the paper leaves path tracing as future work; this part is the renderer's own). The footprint follows
+  the path: every ray carries the pixel's spacing and, apart from it, the blur its earlier bounces add. A perfect mirror or smooth
+  glass hands the footprint on unchanged, as a flat one would (the curvature of the surface and the bending at a refraction are
+  ignored: the footprint comes out too small behind a curved mirror, which costs noise, not sharpness). Any other bounce spreads the
+  path over its lobe, and the lobe's angular width, taken from the density of the sampled direction as 1 / √(2π pdf) (the standard
+  deviation of a Gaussian lobe with that peak), widens the blur from there on. The material's filter is the pixel's filter and the
+  blur added in quadrature. So a mirror image keeps its glints, a polished metal shows them blurred, and after a diffuse bounce the
+  footprint holds so many facets that the answer is the smooth distribution (exactly, beyond level 12). A camera ray keeps its
+  pixel through the boundary of a fog and through a see-through layer. Without a known footprint (the bidirectional integrator,
+  light paths) the material answers with the smooth distribution, the facets' average.
+
+  ![A gold sphere with glints on polished black glass: its mirror image shows the same glints](img/glints_reflection.png)
+
+  (`scenes/glints_reflection.json`, spectral build, 256 spp, 118 s. 10⁵ facets per m². The mirror image is seen from below the
+  floor, so its glints are the same facets under slightly different angles.)
 - **The pixel is filtered twice**: by the facets' filter and by the samples spread over the pixel. A glint is therefore a little
   wider than the filter says. A smaller `filter` gives sharper glints and needs more samples.
 - **Sampling the facets.** Under a large light the smooth distribution's samples rarely land inside the narrow lobes, and the
@@ -114,7 +126,7 @@ density (facets per unit area of texture space), a seed for another arrangement.
 - **Path tracing is left as future work** in the paper (it would need the pixel's footprint carried along the path). That part will be
   this renderer's own.
 
-## 5. Checks (`--scene glints`, both builds, about 6 minutes)
+## 5. Checks (`--scene glints`, both builds, about 7 minutes)
 
 | Check | Result |
 |---|---|
@@ -123,12 +135,13 @@ density (facets per unit area of texture space), a seed for another arrangement.
 | c. The average over the surface is the smooth GGX: 8 cases, levels −2 to 9.2, footprints stretched up to 8 : 1, anisotropic roughness | within the standard error (0.002 to 0.3 %) in every case |
 | d. Level 3: the far facets replaced by their expectation against the plain sum of all 64 angular cells | averages 1.006 and 1.000, each ± 0.002 |
 | e. Energy against the smooth distribution (half vectors drawn from D cos θ, averaged over the surface): α 0.1 / 0.3 / 0.6, micro-roughness 0.01 / 0.05, levels 1.5 / 6.5 | within the error in 10 cases; −2.1 % and −0.8 % for α 0.1 with micro-roughness 0.05 (a lobe half as wide as the distribution) |
-| f. Many facets per pixel: the spread of D\* / D over pixels | 0.04 % at level 12, 10⁻⁶ at level 16; exactly 1 beyond level 20 |
+| f. Many facets per pixel: the spread of D\* / D over pixels | 0.15 % at level 11, 0.05 % at level 11.9; exactly 1 beyond level 12 |
 | g. (information) the paper's softened roulette, level 2.5 | average off by −0.2 ± 0.3 % |
 | h. The material: rough gold with glints on a plane tilted against all three coordinate planes, its BRDF averaged over the plane against the smooth gold's, for pixels of 0.004, 0.04 and 0.6 units; and with no pixel size | −0.9 ± 0.3 %, 0.0 ± 0.3 %, −0.06 ± 0.01 %; exactly the smooth BRDF |
 | i. The pixel's size at the hit: a plane 5 m in front of a pinhole camera, and an orthographic view, against closed forms | 0.2 % and 0.0 % (RGB build); 0.4 % and 0.2 % (spectral build: its noise) |
 | j. Sampling the facets: six moments (1, x, y, x², y², xy) of the drawn half vectors against the same moments of the density, at levels −1.5, 0.6, 2.4 (stretched footprint, weight 0.6) and 4.3 | within 4 standard errors + 0.002; the share of draws that give a sample (100, 100, 55.6, 75.6 %) equals the density's integral |
 | k. The material's reflectance under uniform light at one place, estimated by `sample()` with and without the facets' sampling, three pixel sizes | equal within the errors (0.4 % or better) in both builds |
+| l. The footprint beyond the first hit: through a 10 cm sheet of smooth glass the plane at 5 m sees the pixel's size of a 5 m ray (times the sheet's transmittance) and no blur; through rough glass (roughness 0.2) a blur | 1.1 % off (RGB build), 0.0 % (spectral); blur 0; blur 0.39 and 0.44 m |
 
 The averages are unbiased estimates, so they are judged by their standard error (4 standard errors plus 0.3 %); the energy loss is an
 intended approximation and is judged by a bound (2 %).

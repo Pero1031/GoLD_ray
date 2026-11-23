@@ -265,8 +265,9 @@ namespace rayt {
         /// Glints (docs/GLINTS.md): the GGX distribution becomes a finite number of facets, `params.density` per square unit of the scene
         /// (the roughness in `params` is replaced by this material's: call it after the roughness is set). The facets are laid out in
         /// world space on the three coordinate planes (no texture coordinates needed), and seen through a pixel filter whose standard
-        /// deviation is `filterPixels`. Only where the surface knows its pixel's size (seen directly by the camera, with
-        /// PathIntegrator::setPixelFootprints); elsewhere the smooth distribution, which the facets average to.
+        /// deviation is `filterPixels`, widened by what the path's earlier bounces blur (SurfaceInteraction::pathBlur). Only where the
+        /// surface knows its pixel's size (PathIntegrator::setPixelFootprints); elsewhere the smooth distribution, which the facets
+        /// average to.
         void setGlints(GlintParams params, Real filterPixels) {
             params.alphaX = alpha_x;
             params.alphaY = alpha_y;

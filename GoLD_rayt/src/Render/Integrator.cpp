@@ -262,6 +262,18 @@ namespace rayt {
     // The path
     // ------------------------------------------------------------------------------------------------
 
+    namespace {
+        /// Hands the pixel's footprint at a hit (SurfaceInteraction::pixelSpacing, pathBlur) to the ray that leaves it; `lobeSigma`
+        /// is the angular width the bounce adds (0: the same ray, or a mirror). Nothing where the footprint is unknown.
+        inline void carryFootprint(Ray& next, const Ray& before, const SurfaceInteraction& rec, Real lobeSigma) {
+            if (!(rec.pixelSpacing > Real(0))) return;
+            next.pixelSpacing0 = rec.pixelSpacing;
+            next.pixelSpread = before.pixelSpread;
+            next.pathBlur0 = rec.pathBlur;
+            next.pathBlurSpread = std::sqrt(before.pathBlurSpread * before.pathBlurSpread + lobeSigma * lobeSigma);
+        }
+    }   // namespace
+
     Spectrum PathIntegrator::Li(Ray r, const Scene& scene, SampledWavelengths& filmLambda, PathAOV* aov, PathStokes* stokes) const {
         // The wavelengths the path carries. A fluorescent surface changes the first of them (light that leaves it at the camera's
         // wavelength came in at a shorter one), while the film must record the wavelength the camera sampled: filmLambda keeps it,
@@ -280,8 +292,11 @@ namespace rayt {
 
             const bool hit = scene.hit(r, rec);
             // a camera ray tells the surface how large its pixel is here (0 = unknown)
-            if (hit && (r.pixelSpread > Real(0) || r.pixelSpacing0 > Real(0)))
-                rec.pixelSpacing = r.pixelSpacing0 + rec.t * glm::length(r.d) * r.pixelSpread;
+            if (hit && (r.pixelSpread > Real(0) || r.pixelSpacing0 > Real(0))) {
+                const Real dist = rec.t * glm::length(r.d);
+                rec.pixelSpacing = r.pixelSpacing0 + dist * r.pixelSpread;
+                rec.pathBlur = r.pathBlur0 + dist * r.pathBlurSpread;
+            }
 
             // ========== A captured cloud of Gaussians (docs/CAPTURE.md) ==========
             // Emits what the capture saw and absorbs; a backdrop that paths fly through (outside any medium).
@@ -319,10 +334,9 @@ namespace rayt {
 
             // A boundary with no optical effect (the surface of a fog): cross it, switching the medium. Not a bounce.
             if (m_mediaNee && rec.matPtr->isNullInterface() && ++st.passThrough < 64) {
-                const Real spread = r.pixelSpread;
+                const Ray before = r;
                 r = nextRay(rec, r.d);
-                r.pixelSpacing0 = rec.pixelSpacing;   // still the camera's ray
-                r.pixelSpread = spread;
+                carryFootprint(r, before, rec, Real(0));   // the same ray goes on
                 --depth;
                 continue;
             }
@@ -331,10 +345,9 @@ namespace rayt {
             {
                 const Real opacity = rec.matPtr->opacity(rec);
                 if (opacity < Real(1) && sampling::Random() >= opacity && ++st.passThrough < 64) {
-                    const Real spread = r.pixelSpread;
+                    const Ray before = r;
                     r = rec.SpawnRay(r.d);
-                    r.pixelSpacing0 = rec.pixelSpacing;   // still the camera's ray
-                    r.pixelSpread = spread;
+                    carryFootprint(r, before, rec, Real(0));   // the same ray goes on
                     --depth;   // not a scattering event
                     continue;
                 }
@@ -371,7 +384,13 @@ namespace rayt {
             if (!updateThroughput(rec, *bsdfSample, r.medium, depth, st)) break;
             if (st.pol.on && !st.pol.done) updatePolarization(rec, -r.d, *bsdfSample, lambda, st);
 
+            // The pixel's footprint goes on with the path. A perfect mirror or smooth glass hands it on unchanged (as a flat one
+            // would; the curvature of the surface and the bending at a refraction are ignored); any other bounce spreads the path
+            // over its lobe, whose angular width is taken from the density of the sample: 1 / sqrt(2 pi pdf), the standard deviation
+            // of a Gaussian lobe with that peak.
+            const Ray before = r;
             r = nextRay(rec, bsdfSample->wi);
+            carryFootprint(r, before, rec, bsdfSample->isSpecular() ? Real(0) : Real(1) / std::sqrt(Real(2) * constants::PI * std::max(bsdfSample->pdf, Real(1e-12))));
         }
 
         if (stokes) for (int k = 0; k < 4; ++k) stokes->S[k] = st.pol.S[k];

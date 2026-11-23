@@ -5,6 +5,7 @@
 #include "Core/Sampling.hpp"
 #include "Geometry/Quad.hpp"
 #include "IO/ComplexIorLoader.hpp"
+#include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/GlintNDF.hpp"
@@ -86,12 +87,15 @@ namespace {
     /// A surface that glows with the size of its pixel: what a camera ray tells the hit (SurfaceInteraction::pixelSpacing).
     class PixelSizeProbe final : public Material {
     public:
+        explicit PixelSizeProbe(bool blur = false) : m_blur(blur) {}
         Spectrum eval(const SurfaceInteraction&, const Vector3&, const Vector3&, const SampledWavelengths&, TransportMode) const override { return Spectrum(0.0); }
         std::optional<BSDFSample> sample(const SurfaceInteraction&, const Vector3&, const Point2&, const SampledWavelengths&, TransportMode) const override { return std::nullopt; }
         Real pdf(const SurfaceInteraction&, const Vector3&, const Vector3&, const SampledWavelengths&) const override { return 0; }
         Spectrum emitted(const SurfaceInteraction& rec, const Vector3&, const SampledWavelengths& lambda) const override {
-            return RgbToIlluminantSpectrum(Vector3(rec.pixelSpacing), lambda);
+            return RgbToIlluminantSpectrum(Vector3(m_blur ? rec.pathBlur : rec.pixelSpacing), lambda);
         }
+    private:
+        bool m_blur;   // glow with the blur of the path's earlier bounces instead
     };
 
 }   // namespace
@@ -235,14 +239,14 @@ int RunGlintTests(const CliOptions&) {
         all = Report("e  energy against the smooth distribution, averaged over the surface (12 cases; within 2 %)", worst < 0.02, detail) && all;
     }
 
-    // (f) A pixel that holds very many facets sees the smooth distribution: the spread of D* / D over pixels at levels 12 and 16, and
+    // (f) A pixel that holds very many facets sees the smooth distribution: the spread of D* / D over pixels at levels 11 and 11.9, and
     //     exactly 1 beyond the last level.
     {
         GlintParams p;
         const GlintNDF ndf(p);
         std::string detail;
         double worst = 0;
-        for (const Real level : { Real(12), Real(16) }) {
+        for (const Real level : { Real(11), Real(11.9) }) {
             const GlintFootprint fp = Footprint(ndf, level);
             Rng rng(11);
             double s2 = 0;
@@ -444,6 +448,35 @@ int RunGlintTests(const CliOptions&) {
         all = Report("i  the pixel's size at the hit: pinhole and orthographic cameras against closed forms (1 %), 0 when not asked for",
             std::fabs(gotP / expectP - 1) < 0.01 && std::fabs(gotO / expectO - 1) < 0.01 && off == 0,
             "pinhole " + Num(gotP, 5) + " (expected " + Num(expectP, 5) + "), orthographic " + Num(gotO, 5) + " (expected " + Num(expectO, 5) + "), off " + Num(off)) && all;
+    }
+
+    // (l) The footprint beyond the first hit: through a sheet of smooth glass (10 cm, 2 m in front of the camera), the plane at 5 m still sees
+    //     5 x 2 tan(18 deg) / 9 (times the sheet's transmittance 2n / (n^2 + 1) = 0.923, as the probe glows through it) and no blur; through rough glass
+    //     the path has spread, and the blur is positive.
+    {
+        const int n = 9;
+        auto centre = [&](Real roughness, bool blur) {
+            auto world = std::make_shared<Aggregate>();
+            auto glass = std::make_shared<Dielectric>(Real(1.5), roughness);
+            world->add(std::make_shared<Quad>(Point3(-50, -50, -2), Vector3(100, 0, 0), Vector3(0, 100, 0), glass));        // into the sheet
+            world->add(std::make_shared<Quad>(Point3(-50, -50, Real(-2.1)), Vector3(0, 100, 0), Vector3(100, 0, 0), glass));  // out of it
+            world->add(std::make_shared<Quad>(Point3(-50, -50, -5), Vector3(100, 0, 0), Vector3(0, 100, 0), std::make_shared<PixelSizeProbe>(blur)));
+            auto scene = std::make_shared<Scene>(world);
+            scene->finalize("uniform");
+            auto camera = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 36.0, 1.0, 0.0, 5.0);
+            Film film(n, n);
+            PathIntegrator integrator(camera, 4, 2048);
+            integrator.setPixelFootprints(true);
+            sampling::SetRunSeed(20261124);
+            integrator.render(*scene, film);
+            const Vector3 v = film.getData()[static_cast<size_t>(n / 2) * n + n / 2];
+            return double(0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z);
+        };
+        const double expect = 0.923 * 5 * 2 * std::tan(18 * 3.14159265358979323846 / 180) / n;
+        const double size = centre(0, false), blurSmooth = centre(0, true), blurRough = centre(Real(0.2), true);
+        all = Report("l  the footprint beyond the first hit: through smooth glass the pixel's size at the plane (2 %) and no blur; through rough glass a blur",
+            std::fabs(size / expect - 1) < 0.02 && blurSmooth == 0 && blurRough > 0.05,
+            "size " + Num(size, 4) + " (expected " + Num(expect, 4) + "), blur behind smooth glass " + Num(blurSmooth) + ", behind rough glass " + Num(blurRough, 3)) && all;
     }
 
     std::cout << "[Glints] RESULT: " << (all ? "PASS" : "FAIL") << "\n";
