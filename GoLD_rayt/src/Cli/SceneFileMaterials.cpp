@@ -53,6 +53,26 @@ SpectrumSpec ParseSpectrum(const json& v, const std::string& where) {
 
 } // namespace
 
+    /// "glints" of a metal (a conductor, or the metal base of a layered material): { "density", "microRoughness", "filter", "seed", "sampling" }.
+    void ReadGlints(const json& m, const std::string& where, MaterialSpec& s) {
+        if (!m.contains("glints")) return;
+        const json& g = m.at("glints");
+        const std::string gw = where + ".glints";
+        if (!g.is_object()) Fail(gw, "must be an object: { \"density\": facets per square unit, \"microRoughness\", \"filter\", \"seed\", \"sampling\" }");
+        CheckKeys(g, { "density", "microRoughness", "filter", "seed", "sampling" }, gw);
+        s.glints = true;
+        Optional<double>(g, "density", gw, s.glintDensity, ReadNumber);
+        Optional<double>(g, "microRoughness", gw, s.glintMicroRoughness, ReadNumber);
+        Optional<double>(g, "filter", gw, s.glintFilter, ReadNumber);
+        double seed = 0;
+        Optional<double>(g, "seed", gw, seed, ReadNumber);
+        s.glintSeed = static_cast<int>(seed);
+        Optional<bool>(g, "sampling", gw, s.glintSampling, ReadBool);
+        if (!(s.glintDensity > 0)) Fail(gw + ".density", "must be above 0 (facets per square unit of the scene)");
+        if (!(s.glintMicroRoughness > 0 && s.glintMicroRoughness <= 0.5)) Fail(gw + ".microRoughness", "must be above 0 and at most 0.5 (radians)");
+        if (!(s.glintFilter > 0 && s.glintFilter <= 4)) Fail(gw + ".filter", "must be above 0 and at most 4 (pixels)");
+    }
+
 MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     if (!m.is_object() || !m.contains("type")) Fail(where, "must be an object with a \"type\" (diffuse, conductor, layered, dielectric, thinFilm, hair, skin, measured, mix or emission)");
     const std::string type = ReadString(m.at("type"), where + ".type");
@@ -155,23 +175,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
     else if (type == "conductor") {
         CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering", "glints" }, where);
         s.type = MaterialSpec::Type::Conductor;
-        if (m.contains("glints")) {   // "glints": { "density", "microRoughness", "filter", "seed" }
-            const json& g = m.at("glints");
-            const std::string gw = where + ".glints";
-            if (!g.is_object()) Fail(gw, "must be an object: { \"density\": facets per square unit, \"microRoughness\", \"filter\", \"seed\" }");
-            CheckKeys(g, { "density", "microRoughness", "filter", "seed", "sampling" }, gw);
-            s.glints = true;
-            Optional<double>(g, "density", gw, s.glintDensity, ReadNumber);
-            Optional<double>(g, "microRoughness", gw, s.glintMicroRoughness, ReadNumber);
-            Optional<double>(g, "filter", gw, s.glintFilter, ReadNumber);
-            double seed = 0;
-            Optional<double>(g, "seed", gw, seed, ReadNumber);
-            s.glintSeed = static_cast<int>(seed);
-            Optional<bool>(g, "sampling", gw, s.glintSampling, ReadBool);
-            if (!(s.glintDensity > 0)) Fail(gw + ".density", "must be above 0 (facets per square unit of the scene)");
-            if (!(s.glintMicroRoughness > 0 && s.glintMicroRoughness <= 0.5)) Fail(gw + ".microRoughness", "must be above 0 and at most 0.5 (radians)");
-            if (!(s.glintFilter > 0 && s.glintFilter <= 4)) Fail(gw + ".filter", "must be above 0 and at most 4 (pixels)");
-        }
+        ReadGlints(m, where, s);
         Optional<std::string>(m, "metal", where, s.metal, ReadString);
         Optional<std::string>(m, "table", where, s.table, ReadString);
         Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
@@ -210,7 +214,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         const json& b = m.at("base");
         const std::string bw = where + ".base";
         if (!b.is_object()) Fail(bw, "must be an object (albedo or reflectanceTexture, or metal / table / reflectance, with roughness)");
-        CheckKeys(b, { "albedo", "reflectanceTexture", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, bw);
+        CheckKeys(b, { "albedo", "reflectanceTexture", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering", "glints" }, bw);
         if (b.contains("albedo")) s.albedo = ReadColor(b.at("albedo"), bw + ".albedo");
         Optional<std::string>(b, "reflectanceTexture", bw, s.reflectanceTexture, ReadString);   // a diffuse base with a measured reflectance per texel (.sptex)
         Optional<std::string>(b, "metal", bw, s.metal, ReadString);
@@ -224,6 +228,8 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(b, "anisotropy", bw, s.anisotropy, ReadNumber);
         Optional<double>(b, "rotation", bw, s.rotation, ReadNumber);
         Optional<bool>(b, "multipleScattering", bw, s.multipleScattering, ReadBool);
+        ReadGlints(b, bw, s);   // flakes under the coat (a metal base only)
+        if (s.glints && !s.baseIsConductor) Fail(bw + ".glints", "needs a metal base (metal, table or reflectance)");
         if (s.roughness < 0 || s.roughness > 1) Fail(bw + ".roughness", "must be between 0 and 1");
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(bw + ".anisotropy", "must be between -1 and 1");
     }

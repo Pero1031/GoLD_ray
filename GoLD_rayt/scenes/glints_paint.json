@@ -1,0 +1,23 @@
+{
+ "comment": "Glints under a clear coat (docs/GLINTS.md): metallic paint as a layered material, silver flakes under a tinted lacquer. Left: the base without flakes (the smooth distribution). Middle: 2 million flakes per square metre under a red lacquer. Right: 200 000 under a blue one. Lit by a sunrise sky and one small lamp. No denoiser.",
+ "options": {"width": 960, "height": 400, "spp": 256, "depth": 6},
+ "camera": {"from": [0, 0.7, 3.6], "at": [0, 0.42, 0], "up": [0, 1, 0], "fov": 24},
+ "environment": {"type": "hdr", "scale": 0.6},
+ "materials": {
+  "ground": {"type": "diffuse", "albedo": [0.18, 0.18, 0.19]},
+  "plain": {"type": "layered", "coat": {"ior": 1.5, "roughness": 0.03, "tint": [0.85, 0.12, 0.10]},
+            "base": {"metal": "Ag", "roughness": 0.35}},
+  "red": {"type": "layered", "coat": {"ior": 1.5, "roughness": 0.03, "tint": [0.85, 0.12, 0.10]},
+          "base": {"metal": "Ag", "roughness": 0.35, "glints": {"density": 2e6, "microRoughness": 0.02}}},
+  "blue": {"type": "layered", "coat": {"ior": 1.5, "roughness": 0.03, "tint": [0.10, 0.22, 0.85]},
+           "base": {"metal": "Ag", "roughness": 0.35, "glints": {"density": 2e5, "microRoughness": 0.02}}},
+  "lamp": {"type": "emission", "spectrum": {"blackbody": 5500}, "radiance": 60000}
+ },
+ "objects": [
+  {"shape": "quad", "corner": [-20, 0, 20], "edge1": [40, 0, 0], "edge2": [0, 0, -40], "material": "ground"},
+  {"shape": "sphere", "center": [-1.1, 0.45, 0], "radius": 0.45, "material": "plain"},
+  {"shape": "sphere", "center": [0, 0.45, 0], "radius": 0.45, "material": "red"},
+  {"shape": "sphere", "center": [1.1, 0.45, 0], "radius": 0.45, "material": "blue"},
+  {"shape": "sphere", "center": [1.5, 2.6, 3.0], "radius": 0.03, "material": "lamp"}
+ ]
+}

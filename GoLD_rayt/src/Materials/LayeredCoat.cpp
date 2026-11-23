@@ -188,10 +188,26 @@ namespace rayt {
             const SampledWavelengths& lambda;
             SurfaceInteraction rec;
 
-            Base(const Material* m, const Spectrum& r, const SampledWavelengths& l, const UV& uv) : mat(m), R(r), lambda(l) {
+            Base(const Material* m, const Spectrum& r, const SampledWavelengths& l, const SurfaceInteraction& hit, const frame::Frame& frame)
+                : mat(m), R(r), lambda(l) {
                 rec.n = rec.gn = Vector3(0, 0, 1);
                 rec.dpdu = Vector3(1, 0, 0);   // the local x axis is the tangent of the base's anisotropy
-                rec.uv = uv;                   // a textured base (a measured reflectance image) looks up the hit point's texel
+                rec.uv = hit.uv;               // a textured base (a measured reflectance image) looks up the hit point's texel
+                // a base with glints (docs/GLINTS.md): where the hit is, how large its pixel is, and how its local frame sits in the world
+                rec.p = hit.p;
+                rec.pixelSpacing = hit.pixelSpacing;
+                rec.pathBlur = hit.pathBlur;
+                rec.localFrame = &frame;
+            }
+            /// The base as the walk meets it again after a reflection inside the coat: without the pixel's footprint, so that a base
+            /// with glints answers with its smooth distribution there. The glints of the first meeting are the picture; those of the
+            /// later ones carry a few percent of the light, and each would multiply the walk's weight by another factor with a
+            /// heavy tail (single evaluations a billion times the mean were measured). An approximation: the product of two
+            /// glinty reflections is replaced by a glinty one times an average one.
+            Base withoutFootprint() const {
+                Base b = *this;
+                b.rec.pixelSpacing = 0;
+                return b;
             }
             Spectrum f(const Vector3& wo, const Vector3& wi) const {
                 if (wo.z <= Real(0) || wi.z <= Real(0)) return Spectrum(0.0);
@@ -300,7 +316,8 @@ namespace rayt {
 
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
-        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
+        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec, frame);
+        const Base baseLater = base.withoutFootprint();
         const Spectrum sigma = coatDepth(m_p, lambda);
         const int N = std::max(m_p.samples, 1);
 
@@ -325,14 +342,15 @@ namespace rayt {
                 beta = beta * transmittance(sigma, w);               // down to the base
 
                 // Next event estimation: from the base straight out through the coat along the pre-sampled wis direction.
-                const Spectrum fb = base.f(-w, -wis->wi);
+                const Base& b = depth == 0 ? base : baseLater;   // glints at the first meeting with the base only (see Base)
+                const Spectrum fb = b.f(-w, -wis->wi);
                 if (maxOf(fb) > Real(0)) {
-                    const Real wt = powerHeuristic(wis->pdf, base.pdf(-w, -wis->wi));
+                    const Real wt = powerHeuristic(wis->pdf, b.pdf(-w, -wis->wi));
                     f = f + beta * fb * transmittance(sigma, wis->wi) * (std::abs(wis->wi.z) * wt * wis->f / wis->pdf);
                 }
 
                 // Scatter at the base.
-                const auto bs = base.sample(-w, sampling::Random2D());
+                const auto bs = b.sample(-w, sampling::Random2D());
                 if (!bs || maxOf(bs->f) <= Real(0)) break;
                 beta = beta * bs->f * (std::abs(bs->wi.z) / bs->pdf);
                 w = bs->wi;                                          // travelling up
@@ -368,7 +386,8 @@ namespace rayt {
 
         const bool radiance = (mode == TransportMode::Radiance);
         const Top top{ m_p.ior, Ggx{ m_alpha } };
-        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec.uv);
+        const Base base(m_base.get(), m_albedo.reflectance(lambda), lambda, rec, frame);
+        const Base baseLater = base.withoutFootprint();
         const Spectrum sigma = coatDepth(m_p, lambda);
 
         Vector3 exitDir;
@@ -391,7 +410,7 @@ namespace rayt {
                 }
                 if (w.z == Real(0)) return std::nullopt;
                 beta = beta * transmittance(sigma, w);              // down to the base
-                const auto bs = base.sample(-w, sampling::Random2D());
+                const auto bs = (depth == 0 ? base : baseLater).sample(-w, sampling::Random2D());
                 if (!bs || maxOf(bs->f) <= Real(0)) return std::nullopt;
                 beta = beta * bs->f * (std::abs(bs->wi.z) / bs->pdf);
                 w = bs->wi;                                         // travelling up

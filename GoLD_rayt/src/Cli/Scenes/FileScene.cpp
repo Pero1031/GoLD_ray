@@ -422,6 +422,15 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             auto base = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy), Real(m.coatIor));
             base->setTangentRotation(Real(m.rotation));
             base->setMultipleScattering(m.multipleScattering);
+            if (m.glints) {
+                GlintParams gp;
+                gp.density = Real(m.glintDensity);
+                gp.microRoughness = Real(m.glintMicroRoughness);
+                gp.seed = static_cast<std::uint32_t>(m.glintSeed);
+                base->setGlints(gp, Real(m.glintFilter));
+                base->setGlintSampling(m.glintSampling);
+                out.pixelFootprints = true;
+            }
             materials[name] = std::make_shared<LayeredCoat>(lp, base);
             break;
         }

@@ -1,8 +1,8 @@
 # Glints: a GGX distribution made of a finite number of facets
 
-**Status:** stage 4 of 5. The distribution (`Microfacet/GlintNDF`) is an option of the rough metal (`"glints"` on a `conductor`,
+**Status:** the five planned stages are done. The distribution (`Microfacet/GlintNDF`) is an option of the rough metal (`"glints"` on a `conductor`,
 section 3), with its own sampling where a pixel holds few facets, also in mirror images and behind glass; `--scene glints` checks
-them. Next: more scenes (lamé, flakes under a clear coat).
+them. It also works as the base of a layered material: flakes under a clear coat.
 
 ![Three gold spheres of the same roughness: smooth, 300 000 facets per square metre, 10 million](img/glints_spheres.png)
 
@@ -114,6 +114,25 @@ density (facets per unit area of texture space), a seed for another arrangement.
   (per time, the plain sampling wins), so the facets are sampled only below level 1.5. The weakness is step 2: the cell is chosen
   without knowing how much its facets weigh under the pixel. Under a small lamp the mixed sampling is a little noisier than the
   plain one (8 % against 4 % on the upper half at 3 × 10³), because the lamp is found by light sampling either way.
+- **Under a clear coat** (`"glints"` in the metal `base` of a `layered` material: metallic paint). The coat's random walk evaluates
+  the base in its own local frame, so it hands the base the hit's place, its footprint and that frame (`SurfaceInteraction::
+  localFrame`); the facets stay laid out in the world. Two approximations. The footprint's ellipse is built with the direction
+  inside the coat, so it is a little shorter at grazing views than the pixel's. And **only the walk's first meeting with the base
+  has glints**; after a reflection inside the coat the base answers with its smooth distribution. Without that, every further
+  meeting multiplies the walk's weight by another heavy-tailed factor: single evaluations a billion times the mean were measured
+  (the average of 2 million evaluations was 737 ± 734 where it should be 0.42). With it the averages are 0.418 to 0.421 in all four
+  cases tried (two pixel sizes, with and without the facets' sampling), and the later meetings carry only a few percent of the light.
+
+  ![Three spheres in metallic paint: without flakes, 2 million flakes per square metre under red lacquer, 200 000 under blue](img/glints_paint.png)
+
+  (`scenes/glints_paint.json`, spectral build, 256 spp, 191 s. Silver of roughness 0.35 under a tinted coat; the left sphere has the
+  smooth distribution.)
+- **A mesh without texture coordinates:**
+
+  ![A statue in gold glitter](img/glints_erato.png)
+
+  (`scenes/glints_erato.json`, spectral build, 256 spp, 190 s: rough gold as 3 × 10⁶ facets per m² on the Erato scan (Geoffrey Marchal,
+  CC BY 4.0, `assets/Meshes/erato/CREDITS.md`; the mesh is not in the repository), under two small lamps and a large dim one.)
 - **No denoiser.** It takes single bright pixels for noise.
 - Pictures without glints are unchanged: three scene files rendered before and after with the same seed are identical byte for byte.
 
@@ -126,7 +145,7 @@ density (facets per unit area of texture space), a seed for another arrangement.
 - **Path tracing is left as future work** in the paper (it would need the pixel's footprint carried along the path). That part will be
   this renderer's own.
 
-## 5. Checks (`--scene glints`, both builds, about 7 minutes)
+## 5. Checks (`--scene glints`, both builds, about 8 minutes)
 
 | Check | Result |
 |---|---|
@@ -142,6 +161,7 @@ density (facets per unit area of texture space), a seed for another arrangement.
 | j. Sampling the facets: six moments (1, x, y, x², y², xy) of the drawn half vectors against the same moments of the density, at levels −1.5, 0.6, 2.4 (stretched footprint, weight 0.6) and 4.3 | within 4 standard errors + 0.002; the share of draws that give a sample (100, 100, 55.6, 75.6 %) equals the density's integral |
 | k. The material's reflectance under uniform light at one place, estimated by `sample()` with and without the facets' sampling, three pixel sizes | equal within the errors (0.4 % or better) in both builds |
 | l. The footprint beyond the first hit: through a 10 cm sheet of smooth glass the plane at 5 m sees the pixel's size of a 5 m ray (times the sheet's transmittance) and no blur; through rough glass (roughness 0.2) a blur | 1.1 % off (RGB build), 0.0 % (spectral); blur 0; blur 0.39 and 0.44 m |
+| m. Flakes under a clear coat: the layered BRDF (coat of index 1.5 over rough gold) averaged over the tilted plane, with against without glints in the base, two pixel sizes | 0.2 ± 0.6 % and 0.07 ± 0.08 % (RGB build), 0.4 ± 0.6 % and 0.11 ± 0.06 % (spectral) |
 
 The averages are unbiased estimates, so they are judged by their standard error (4 standard errors plus 0.3 %); the energy loss is an
 intended approximation and is judged by a bound (2 %).

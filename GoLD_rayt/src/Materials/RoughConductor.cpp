@@ -32,10 +32,18 @@ namespace rayt {
         if (l1 > Real(1e-6)) t1 /= l1;
         else t1 = glm::normalize(glm::cross(n, std::abs(n.x) < Real(0.9) ? Vector3(1, 0, 0) : Vector3(0, 1, 0)));
         const Vector3 t2 = glm::cross(t1, n);
-        const Vector3 a = t1 * r, b = t2 * (r / std::max(std::abs(glm::dot(n, wo)), Real(0.02)));
+        Vector3 a = t1 * r, b = t2 * (r / std::max(std::abs(glm::dot(n, wo)), Real(0.02)));
+        // under a clear coat the record is in the coat's local frame (and wo is the direction inside the coat, so the ellipse is a
+        // little shorter at grazing views than the pixel's): the facets are still laid out in the world
+        Vector3 nWorld = n;
+        if (rec.localFrame) {
+            a = rec.localFrame->localToWorld(a);
+            b = rec.localFrame->localToWorld(b);
+            nWorld = rec.localFrame->localToWorld(n);
+        }
         // Three arrangements of facets, one on each coordinate plane of the world, mixed by a roulette with the weights |n_k| / sum
         // (the paper's extension to surfaces without texture coordinates). A plane the surface is nearly perpendicular to is left out.
-        Vector3 w(std::abs(n.x), std::abs(n.y), std::abs(n.z));
+        Vector3 w(std::abs(nWorld.x), std::abs(nWorld.y), std::abs(nWorld.z));
         for (int k = 0; k < 3; ++k) if (w[k] < Real(0.02)) w[k] = 0;
         w /= w.x + w.y + w.z;
         Real selectSum = 0;

@@ -1,0 +1,22 @@
+{
+  // Glints on a mesh without texture coordinates (docs/GLINTS.md): Erato (a 3D scan, CC BY 4.0, see assets/Meshes/erato/CREDITS.md;
+  // the mesh is not in the repository) in gold glitter: rough gold as 3 million facets per square metre, lit by two small tungsten
+  // lamps and a large dim one. The same gold without "glints" is the smooth statue of erato_gold.json. No denoiser.
+  "options": { "width": 600, "height": 800, "spp": 256 },
+  "camera": { "from": [0.15, 0.34, 1.05], "at": [0.0, 0.27, 0.0], "fov": 30 },
+  "materials": {
+    "glitter": { "type": "conductor", "metal": "Au", "roughness": 0.35, "glints": { "density": 3e6, "microRoughness": 0.015 } },
+    "floor": { "type": "diffuse", "albedo": 0.15 },
+    "key":   { "type": "emission", "spectrum": "tungsten", "radiance": 1500 },
+    "fill":  { "type": "emission", "spectrum": "tungsten", "radiance": 3 },
+    "rim":   { "type": "emission", "spectrum": "tungsten", "radiance": 900 }
+  },
+  "objects": [
+    { "shape": "mesh", "file": "assets/Meshes/erato/erato_clean.obj", "scale": 0.0133, "rotate": { "axis": [0, 1, 0], "degrees": 90 },
+      "translate": [-0.031, 0.0169, 0.001], "material": "glitter" },
+    { "shape": "sphere", "center": [0, -100, 0], "radius": 100, "material": "floor" },
+    { "shape": "sphere", "center": [-0.6, 0.65, 0.8], "radius": 0.03, "material": "key" },
+    { "shape": "sphere", "center": [0.9, 0.40, 0.9], "radius": 0.35, "material": "fill" },
+    { "shape": "sphere", "center": [0.5, 0.50, -0.7], "radius": 0.03, "material": "rim" }
+  ]
+}

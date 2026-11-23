@@ -20,6 +20,8 @@
 
 namespace rayt {
 
+    namespace frame { struct Frame; }
+
     // Forward declaration to avoid circular dependency.
     // Note: Already declared in Core/Forward.hpp, but listed here for clarity.
     class Material;
@@ -82,6 +84,7 @@ namespace rayt {
         Real surfScatter = Real(0);          // Reflectance of the white local scatter of flaking skin here (Materials/SkinScatter.hpp), set by Material::perturbShading.
         Vector3 nl = Vector3(0.0);           // Normal of a layer of make-up on top where it differs from n (it levels the relief below it, Materials/CosmeticLayer.hpp); zero = the same as n.
         Real pixelSpacing = Real(0);         // Distance between the rays of neighbouring pixels here, across the ray (0 = unknown): the footprint of glints (docs/GLINTS.md).
+        const frame::Frame* localFrame = nullptr;   // Set where n, gn and the directions of this record are in a local frame while p is in the world (the base under a clear coat, Materials/LayeredCoat): the frame that takes them to the world, for patterns laid out in world space (glints).
         Real pathBlur = Real(0);             // Standard deviation, across the ray, of the blur the path's earlier bounces add to that footprint (0 for a camera ray and after mirrors).
         Real rayOffset = constants::RAY_EPSILON;   // Distance a spawned ray's origin is moved off the surface (a hair fiber, thinner than 25 * RAY_EPSILON, sets it smaller).
         std::array<Real, 4> reemitAlbedo{ Real(-1), Real(-1), Real(-1), Real(-1) };   // Fluorescence: per wavelength of the path, the albedo of this vertex once Material::reemit chose the excitation wavelengths; [0] < 0 = not chosen.

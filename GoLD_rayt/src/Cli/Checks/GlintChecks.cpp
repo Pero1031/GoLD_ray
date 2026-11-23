@@ -6,6 +6,7 @@
 #include "Geometry/Quad.hpp"
 #include "IO/ComplexIorLoader.hpp"
 #include "Materials/Dielectric.hpp"
+#include "Materials/LayeredCoat.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/GlintNDF.hpp"
@@ -434,8 +435,9 @@ int RunGlintTests(const CliOptions&) {
         const int n = 9;
         auto centre = [&](const std::shared_ptr<Camera>& camera, bool on) {
             Film film(n, n);
-            PathIntegrator integrator(camera, 2, 64);
+            PathIntegrator integrator(camera, 2, 1024);
             integrator.setPixelFootprints(on);
+            sampling::SetRunSeed(20261124);
             integrator.render(*scene, film);
             const Vector3 v = film.getData()[static_cast<size_t>(n / 2) * n + n / 2];
             return double(0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z);
@@ -477,6 +479,54 @@ int RunGlintTests(const CliOptions&) {
         all = Report("l  the footprint beyond the first hit: through smooth glass the pixel's size at the plane (2 %) and no blur; through rough glass a blur",
             std::fabs(size / expect - 1) < 0.02 && blurSmooth == 0 && blurRough > 0.05,
             "size " + Num(size, 4) + " (expected " + Num(expect, 4) + "), blur behind smooth glass " + Num(blurSmooth) + ", behind rough glass " + Num(blurRough, 3)) && all;
+    }
+
+    // (m) Flakes under a clear coat: a layered material (coat of index 1.5 over rough gold) with and without glints in its base, on
+    //     the tilted plane: the BRDF averaged over the plane (the coat's evaluation is itself a random walk, so both sides are
+    //     averages). The base lives in the coat's local frame; the facets must still be laid out in the world.
+    {
+        auto goldTable = std::make_shared<color::ComplexIorTable>();
+        std::string err;
+        if (!io::loadComplexIor_RefractiveIndexInfoCsv("assets/Metal_data/Johnson_Au.csv", *goldTable, &err))
+            all = Report("m  flakes under a clear coat (cannot read the gold table: " + err + ")", false, "") && all;
+        else {
+            auto smoothBase = std::make_shared<RoughConductor>(goldTable, Real(0.3), Real(0), Real(1.5));
+            auto glintBase = std::make_shared<RoughConductor>(goldTable, Real(0.3), Real(0), Real(1.5));
+            GlintParams gp;
+            gp.density = Real(1e4);
+            gp.microRoughness = Real(0.03);
+            glintBase->setGlints(gp, Real(0.5));
+            LayeredCoat::Params lp;
+            lp.roughness = Real(0.1);
+            const LayeredCoat smooth(lp, smoothBase), glinty(lp, glintBase);
+            const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+            const Vector3 n = glm::normalize(Vector3(1, 2, 3));
+            const Vector3 t1 = glm::normalize(glm::cross(n, Vector3(0, 0, 1))), t2 = glm::cross(n, t1);
+            const Vector3 wo = glm::normalize(n * std::cos(Real(0.44)) + t1 * std::sin(Real(0.44)));
+            const Vector3 wi = glm::normalize(n * std::cos(Real(0.70)) + (t1 * Real(-0.8) + t2 * Real(0.6)) * std::sin(Real(0.70)));
+            SurfaceInteraction rec;
+            rec.n = rec.gn = n;
+            rec.wo = wo;
+            auto average = [&](const LayeredCoat& m, Real spacing, std::uint64_t seed) {
+                return Average([&](Rng& rng) {
+                    SurfaceInteraction r = rec;
+                    r.p = Point3(5, -3, 2) + t1 * (rng() * Real(40)) + t2 * (rng() * Real(40));
+                    r.pixelSpacing = spacing;
+                    return double(m.eval(r, wo, wi, lambda, TransportMode::Radiance)[0]);
+                }, seed, 0.0, 3000000);
+            };
+            bool ok = true;
+            std::string detail;
+            int index = 0;
+            for (const Real spacing : { Real(0.004), Real(0.04) }) {
+                const Mean a = average(glinty, spacing, 1100 + index), b = average(smooth, spacing, 1150 + index);
+                ok = ok && std::fabs(a.mean - b.mean) < 4 * std::hypot(a.error, b.error) + 0.005 * b.mean;
+                detail += std::string(index ? "; " : "") + "pixel " + Num(spacing) + ": " + Num((a.mean / b.mean - 1) * 100, 2) + " +- "
+                    + Num(std::hypot(a.error, b.error) / b.mean * 100, 2) + " %";
+                ++index;
+            }
+            all = Report("m  flakes under a clear coat: the layered BRDF averaged over a tilted plane against the same without flakes (4 standard errors + 0.5 %)", ok, detail) && all;
+        }
     }
 
     std::cout << "[Glints] RESULT: " << (all ? "PASS" : "FAIL") << "\n";
