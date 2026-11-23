@@ -67,6 +67,7 @@ int RunSssTests(const CliOptions& opt);
 
 int RunVolumeTests(const CliOptions& opt);
 int RunFluorescenceTests(const CliOptions& opt);   // Checks/FluorescenceChecks.cpp
+int RunGlintTests(const CliOptions& opt);          // Checks/GlintChecks.cpp
 
 // Layered coat checks (--scene layered): closed form of a smooth coat over a diffuse base, eval() against sample(), energy, reciprocity.
 int RunLayeredTests(const CliOptions& opt);

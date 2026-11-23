@@ -1,0 +1,229 @@
+/**
+ * @file Microfacet/GlintNDF.cpp
+ * @brief The glinty GGX distribution of Kemppinen et al. 2025 (see the header and docs/GLINTS.md).
+ */
+
+#include "pch.h"
+
+#include "Microfacet/GlintNDF.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+#include "Core/Constants.hpp"
+#include "Core/Math.hpp"
+
+namespace rayt {
+
+    namespace {
+
+        /// splitmix64: a well-mixed 64-bit value from a 64-bit state.
+        inline std::uint64_t Mix(std::uint64_t z) {
+            z += 0x9E3779B97F4A7C15ull;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            return z ^ (z >> 31);
+        }
+
+        /// The random numbers of one facet: seeded by its cell (two spatial and two angular indices), its level and the arrangement.
+        struct FacetRandom {
+            std::uint64_t s;
+            FacetRandom(std::int64_t ix, std::int64_t iy, std::int64_t ax, std::int64_t ay, int level, std::uint32_t seed) {
+                s = Mix(static_cast<std::uint64_t>(ix));
+                s = Mix(s ^ static_cast<std::uint64_t>(iy));
+                s = Mix(s ^ static_cast<std::uint64_t>(ax));
+                s = Mix(s ^ static_cast<std::uint64_t>(ay));
+                s = Mix(s ^ (static_cast<std::uint64_t>(static_cast<std::uint32_t>(level)) << 32 | seed));
+            }
+            Real next() {
+                s = Mix(s);
+                return static_cast<Real>(s >> 11) * Real(1.0 / 9007199254740992.0);   // 53 bits: [0, 1)
+            }
+        };
+
+        /// The mass of a 1D Gaussian (mean x, standard deviation sigma) between a and b.
+        inline Real GaussMass(Real a, Real b, Real x, Real sigma) {
+            const Real k = Real(1) / (sigma * Real(1.4142135623730951));
+            return Real(0.5) * (std::erf((b - x) * k) - std::erf((a - x) * k));
+        }
+
+    }   // namespace
+
+    /// One evaluation's constants: the query in grid units (level 0 cells of side 1) and in the disc.
+    struct GlintNDF::Query {
+        Real gx, gy;            ///< the texture point
+        Real sxx, sxy, syy;     ///< the filter's covariance
+        Real ixx, ixy, iyy;     ///< its inverse
+        Real norm;              ///< 1 / (2 pi sqrt(det))
+        Real hx, hy;            ///< half extents of the box that holds kFilterReach standard deviations
+        Real sigmaMax;          ///< the standard deviation along the major axis
+        Point2 xa;              ///< T(wh)
+        Real sigmaA;            ///< the lobe's standard deviation in the disc
+    };
+
+    GlintNDF::GlintNDF(const GlintParams& params) : m_p(params) {
+        m_p.alphaX = std::max(m_p.alphaX, Real(1e-4));
+        m_p.alphaY = std::max(m_p.alphaY, Real(1e-4));
+        m_p.microRoughness = std::max(m_p.microRoughness, Real(1e-6));
+        m_p.density = std::max(m_p.density, Real(1e-12));
+        m_p.angularCells = std::clamp(m_p.angularCells, 1, 8);
+        m_p.rouletteSoftness = std::clamp(m_p.rouletteSoftness, Real(0), Real(0.5));
+    }
+
+    Real GlintNDF::smoothD(const Vector3& wh) const {
+        if (!(wh.z > Real(0))) return 0;
+        // D = det M / (pi |M w|^4) with M = diag(1/ax, 1/ay, 1): the GGX distribution
+        const Real x = wh.x / m_p.alphaX, y = wh.y / m_p.alphaY;
+        const Real n2 = x * x + y * y + wh.z * wh.z;
+        return Real(1) / (constants::PI * m_p.alphaX * m_p.alphaY * n2 * n2);
+    }
+
+    Point2 GlintNDF::toDisc(const Vector3& wh) const {
+        Vector3 s(wh.x / m_p.alphaX, wh.y / m_p.alphaY, wh.z);
+        s /= glm::length(s);
+        const Real k = Real(0.5) / std::sqrt(Real(1) + s.z);
+        return Point2(Real(0.5) + s.x * k, Real(0.5) + s.y * k);
+    }
+
+    Vector3 GlintNDF::fromDisc(const Point2& u) const {
+        const Real px = Real(2) * (u.x - Real(0.5)), py = Real(2) * (u.y - Real(0.5));
+        const Real r2 = std::min(px * px + py * py, Real(1));
+        const Real k = std::sqrt(Real(2) - r2);
+        const Vector3 m(m_p.alphaX * px * k, m_p.alphaY * py * k, Real(1) - r2);
+        const Real len = glm::length(m);
+        return len > Real(0) ? m / len : Vector3(0, 0, 1);
+    }
+
+    Real GlintNDF::jacobian(const Vector3& wh) const {
+        const Real x = wh.x / m_p.alphaX, y = wh.y / m_p.alphaY;
+        const Real n = std::sqrt(x * x + y * y + wh.z * wh.z);
+        return Real(1) / (Real(8) * m_p.alphaX * m_p.alphaY * n * n * n);
+    }
+
+    Real GlintNDF::level(const GlintFootprint& fp) const {
+        const Real tr = (fp.xx + fp.yy) * m_p.density, det = (fp.xx * fp.yy - fp.xy * fp.xy) * m_p.density * m_p.density;
+        const Real lmax = Real(0.5) * (tr + std::sqrt(std::max(tr * tr - Real(4) * det, Real(0))));
+        if (!(lmax > Real(0))) return -std::numeric_limits<Real>::infinity();
+        return std::log2(kCellsPerSigma * std::sqrt(lmax));
+    }
+
+    Real GlintNDF::levelSum(const Query& q, int level, Real weight, bool exhaustive) const {
+        const Real cell = std::ldexp(Real(1), level);                  // side of a spatial cell
+        const std::int64_t resA = std::int64_t(1) << level;            // angular cells per side
+        const Real invResA = Real(1) / static_cast<Real>(resA);
+        // the angular block summed facet by facet: the cells nearest to T(wh), within the unit square
+        std::int64_t a0x = 0, a1x = resA - 1, a0y = 0, a1y = resA - 1;
+        if (!exhaustive) {
+            const Real back = Real(0.5) * static_cast<Real>(m_p.angularCells - 1);
+            a0x = static_cast<std::int64_t>(std::floor(q.xa.x * static_cast<Real>(resA) - back));
+            a0y = static_cast<std::int64_t>(std::floor(q.xa.y * static_cast<Real>(resA) - back));
+            a1x = std::min(a0x + m_p.angularCells - 1, resA - 1);
+            a1y = std::min(a0y + m_p.angularCells - 1, resA - 1);
+            a0x = std::max<std::int64_t>(a0x, 0);
+            a0y = std::max<std::int64_t>(a0y, 0);
+        }
+        const Real reach = exhaustive ? Real(1.5) : Real(1);
+        const std::int64_t i0x = static_cast<std::int64_t>(std::floor((q.gx - reach * q.hx) / cell));
+        const std::int64_t i1x = static_cast<std::int64_t>(std::floor((q.gx + reach * q.hx) / cell));
+        const std::int64_t i0y = static_cast<std::int64_t>(std::floor((q.gy - reach * q.hy) / cell));
+        const std::int64_t i1y = static_cast<std::int64_t>(std::floor((q.gy + reach * q.hy) / cell));
+        const Real invVarA = Real(1) / (q.sigmaA * q.sigmaA);
+        const Real normA = invVarA / (Real(2) * constants::PI);
+        const Real eps = m_p.rouletteSoftness;
+        Real sum = 0;
+        for (std::int64_t iy = i0y; iy <= i1y; ++iy)
+            for (std::int64_t ix = i0x; ix <= i1x; ++ix)
+                for (std::int64_t ay = a0y; ay <= a1y; ++ay)
+                    for (std::int64_t ax = a0x; ax <= a1x; ++ax) {
+                        FacetRandom rnd(ix, iy, ax, ay, level, m_p.seed);
+                        // the roulette between the two levels: on average the level's weight
+                        Real keep = 1;
+                        const Real r = rnd.next();
+                        if (!exhaustive) {
+                            if (eps > Real(0)) {
+                                const Real lo = std::max(Real(0), r - eps), hi = std::min(Real(1), r + eps);
+                                const Real t = std::clamp((weight - lo) / (hi - lo), Real(0), Real(1));
+                                keep = t * t * (Real(3) - Real(2) * t);
+                            }
+                            else keep = r < weight ? Real(1) : Real(0);
+                            if (keep == Real(0)) continue;
+                        }
+                        // the facet's normal: a point of its angular cell, a facet only inside the disc
+                        const Real ux = (static_cast<Real>(ax) + rnd.next()) * invResA, uy = (static_cast<Real>(ay) + rnd.next()) * invResA;
+                        if (math::sqr(ux - Real(0.5)) + math::sqr(uy - Real(0.5)) >= Real(0.25)) continue;
+                        const Real dax = q.xa.x - ux, day = q.xa.y - uy;
+                        const Real ea = Real(0.5) * (dax * dax + day * day) * invVarA;
+                        if (ea > Real(40)) continue;
+                        // its place: a point of its spatial cell
+                        const Real dx = q.gx - (static_cast<Real>(ix) + rnd.next()) * cell, dy = q.gy - (static_cast<Real>(iy) + rnd.next()) * cell;
+                        const Real es = Real(0.5) * (q.ixx * dx * dx + Real(2) * q.ixy * dx * dy + q.iyy * dy * dy);
+                        if (es > Real(40)) continue;
+                        sum += keep * normA * q.norm * std::exp(-ea - es);
+                    }
+        if (exhaustive) return sum;
+        // the other facets by their expectation: the lobe's mass over the unit square minus the block
+        const Real bx0 = static_cast<Real>(a0x) * invResA, bx1 = static_cast<Real>(a1x + 1) * invResA;
+        const Real by0 = static_cast<Real>(a0y) * invResA, by1 = static_cast<Real>(a1y + 1) * invResA;
+        const Real whole = GaussMass(0, 1, q.xa.x, q.sigmaA) * GaussMass(0, 1, q.xa.y, q.sigmaA);
+        const Real block = a1x >= a0x && a1y >= a0y ? GaussMass(bx0, bx1, q.xa.x, q.sigmaA) * GaussMass(by0, by1, q.xa.y, q.sigmaA) : Real(0);
+        return sum + weight * std::max(whole - block, Real(0));
+    }
+
+    namespace {
+        /// Fills the query's spatial part; false for a footprint without area.
+        template <class Q>
+        bool SpatialQuery(Q& q, const Point2& uv, const GlintFootprint& fp, Real density) {
+            const Real res = std::sqrt(density);
+            q.gx = uv.x * res;
+            q.gy = uv.y * res;
+            q.sxx = fp.xx * density;
+            q.sxy = fp.xy * density;
+            q.syy = fp.yy * density;
+            const Real tr = q.sxx + q.syy;
+            if (!(tr > Real(0))) return false;
+            // a footprint seen edge-on has no width: give it a little, so that the filter stays a function
+            Real det = q.sxx * q.syy - q.sxy * q.sxy;
+            if (det < Real(1e-8) * tr * tr) {
+                const Real add = Real(1e-4) * tr;
+                q.sxx += add;
+                q.syy += add;
+                det = q.sxx * q.syy - q.sxy * q.sxy;
+            }
+            q.ixx = q.syy / det;
+            q.iyy = q.sxx / det;
+            q.ixy = -q.sxy / det;
+            q.norm = Real(1) / (Real(2) * constants::PI * std::sqrt(det));
+            q.hx = GlintNDF::kFilterReach * std::sqrt(q.sxx);
+            q.hy = GlintNDF::kFilterReach * std::sqrt(q.syy);
+            const Real t2 = q.sxx + q.syy;
+            q.sigmaMax = std::sqrt(Real(0.5) * (t2 + std::sqrt(std::max(t2 * t2 - Real(4) * det, Real(0)))));
+            return true;
+        }
+    }   // namespace
+
+    Real GlintNDF::ratio(const Vector3& wh, const Point2& uv, const GlintFootprint& fp) const {
+        if (!(wh.z > Real(0))) return 0;
+        Query q;
+        if (!SpatialQuery(q, uv, fp, m_p.density)) return 1;
+        const Real lambda = std::log2(kCellsPerSigma * q.sigmaMax);
+        if (!(lambda < Real(kMaxLevel))) return 1;
+        q.xa = toDisc(wh);
+        q.sigmaA = m_p.microRoughness * std::sqrt(jacobian(wh));
+        if (lambda <= Real(0)) return levelSum(q, 0, 1, false);
+        const int l0 = static_cast<int>(std::floor(lambda));
+        const Real w1 = lambda - static_cast<Real>(l0);
+        Real sum = levelSum(q, l0, Real(1) - w1, false);
+        if (w1 > Real(0)) sum += levelSum(q, l0 + 1, w1, false);
+        return sum;
+    }
+
+    Real GlintNDF::ratioExhaustive(const Vector3& wh, const Point2& uv, const GlintFootprint& fp, int level) const {
+        if (!(wh.z > Real(0))) return 0;
+        Query q;
+        if (!SpatialQuery(q, uv, fp, m_p.density)) return 1;
+        q.xa = toDisc(wh);
+        q.sigmaA = m_p.microRoughness * std::sqrt(jacobian(wh));
+        return levelSum(q, std::clamp(level, 0, 10), 1, true);
+    }
+
+} // namespace rayt
