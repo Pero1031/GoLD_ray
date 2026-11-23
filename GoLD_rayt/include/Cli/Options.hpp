@@ -204,6 +204,8 @@ struct CliOptions {
     Real nits = 0;                         // --nits K : a radiance whose Y is 1 has the luminance K cd/m^2 (the scale for --iso; 0 = not given)
     std::string tonemap = "reinhard";      // --tonemap reinhard|clip : Reinhard's curve, or linear up to white and clipped above it
     std::string mask;                      // --mask A[,B..] : also write <out>_mask.png, the share of each pixel that objects of these scene-file materials cover
+    bool toon = false;                     // --toon : experimental cel shading with outlines instead of path tracing (Render/ToonIntegrator.hpp)
+    double toonLine = 1.0;                 // --toon-line PX : outline width in pixels (0: none)
     bool depthMap = false;                 // --depth-map : also write <out>_depth.pfm, the distance of the first surface along the view axis (Render/MaskDepth.hpp)
     std::string cameraResponse;            // --camera-response FILE : the film as this camera sees (CSV of wavelength, R, G, B; spectral build)
     std::string sensor;                    // --sensor default|key=value,... : the pictures as a sensor records them (shot and read noise, full well, ADC;

@@ -155,7 +155,8 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
         std::vector<char> lifted(editableMesh->p.size(), 0);
         for (const auto& pm : model.materials) {
             const bool overlayName = !pm.name.empty() && pm.name.back() == '+';
-            if (pm.diffuse.w <= Real(0.001) || !(pm.alphaFromMorph && (overlayName || pm.diffuse.w < Real(0.999)))) continue;
+            const bool toonOverlay = opt.toon && overlayName && !pm.alphaFromMorph;   // --toon draws the '+' layers over the surface
+            if (pm.diffuse.w <= Real(0.001) || !(toonOverlay || (pm.alphaFromMorph && (overlayName || pm.diffuse.w < Real(0.999))))) continue;
             for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
                 const size_t v = static_cast<size_t>(editableMesh->indices[static_cast<size_t>(i)]);
                 if (!lifted[v]) { editableMesh->p[v] += editableMesh->n[v] * Real(5e-4); lifted[v] = 1; }
@@ -172,6 +173,52 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
         std::cout << "[PMX] subsurface scattering on the skin materials (scale " << opt.sssScale << ")\n";
     }
     int skippedOverlay = 0, skippedHidden = 0, alphaMaterials = 0, missingTextures = 0, translucentLayers = 0;
+    auto loadTexture = [&](int index) -> std::shared_ptr<Texture2D> {
+        if (index < 0 || index >= static_cast<int>(model.textures.size())) return nullptr;
+        auto it = textureCache.find(index);
+        if (it == textureCache.end()) {
+            std::string rel = model.textures[static_cast<size_t>(index)];
+            std::replace(rel.begin(), rel.end(), '\\', '/');
+            it = textureCache.emplace(index, Texture2D::load(files[pick].parent_path() / PathFromUtf8(rel))).first;
+            if (!it->second) { ++missingTextures; std::cout << "[PMX] could not load texture " << rel << "\n"; }
+        }
+        return it->second;
+    };
+    // --toon: the model's own recipe per material (Render/ToonIntegrator.hpp), and the head that the face normals come from
+    auto toonLooks = opt.toon ? std::make_shared<ToonLooks>() : nullptr;
+    auto nameHas = [](const io::PmxMaterial& pm, std::initializer_list<const char*> keys) {
+        for (const char* k : keys) if (pm.name.find(k) != std::string::npos || pm.nameEn.find(k) != std::string::npos) return true;
+        return false;
+    };
+    auto isOverlay = [](const io::PmxMaterial& pm) { return !pm.name.empty() && pm.name.back() == '+'; };
+    auto isHair = [&](const io::PmxMaterial& pm) { return !isOverlay(pm) && nameHas(pm, { "\xE9\xAB\xAA", "\xE9\xAB\xAE", "\xE5\x8F\x91", "hair", "Hair" }); };   // 髪 髮 发
+    Vector3 faceLo(1e30), faceHi(-1e30), faceForward(0.0);
+    bool haveFace = false;
+    if (toonLooks) {
+        for (const auto& pm : model.materials) {
+            if (isOverlay(pm) || !nameHas(pm, { "\xE9\xA2\x9C", "\xE9\xA1\x94", "face", "Face" })) continue;   // 颜 顔
+            for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
+                const size_t v = static_cast<size_t>(mesh->indices[static_cast<size_t>(i)]);
+                faceLo = glm::min(faceLo, mesh->p[v]);
+                faceHi = glm::max(faceHi, mesh->p[v]);
+                faceForward += mesh->n[v];
+                haveFace = true;
+            }
+        }
+    }
+    // The head as an ellipsoid: as wide as the face, its front at the face's front, a little deeper than it is wide
+    Vector3 headCenter(0.0), headRadii(1.0);
+    if (haveFace && glm::length(faceForward) > Real(0)) {
+        faceForward = glm::normalize(faceForward);
+        const Vector3 half = (faceHi - faceLo) * Real(0.5), mid = (faceHi + faceLo) * Real(0.5);
+        const Real r = std::max(half.x, half.z) * Real(1.1);
+        const Real depth = std::abs(glm::dot(half, glm::abs(faceForward)));
+        headCenter = mid + faceForward * (depth - r);
+        headRadii = Vector3(r, half.y * Real(1.15), r);
+        std::cout << "[Toon] face normals from an ellipsoid round the head: centre (" << headCenter.x << ", " << headCenter.y << ", "
+            << headCenter.z << "), radii (" << headRadii.x << ", " << headRadii.y << ", " << headRadii.z << ")\n";
+    }
+    else haveFace = false;
     for (const auto& pm : model.materials) {
         if (pm.diffuse.w <= Real(0.001)) { ++skippedHidden; continue; }   // fully transparent material
         // MMD models stack extra layers on top of the real surface and switch them with morphs; names
@@ -180,19 +227,10 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
         // real surface as opaque diffuse, so they are left out unless --pmx-all.
         const bool overlayName = !pm.name.empty() && pm.name.back() == '+';
         bool translucent = pm.alphaFromMorph && (overlayName || pm.diffuse.w < Real(0.999));
-        if (overlayName && !pm.alphaFromMorph && !opt.pmxAll) { ++skippedOverlay; continue; }
+        const bool toonOverlay = toonLooks && overlayName && !pm.alphaFromMorph;   // --toon: alpha blended over the surface
+        if (overlayName && !pm.alphaFromMorph && !opt.pmxAll && !toonOverlay) { ++skippedOverlay; continue; }
 
-        std::shared_ptr<Texture2D> tex;
-        if (pm.texture >= 0) {
-            auto it = textureCache.find(pm.texture);
-            if (it == textureCache.end()) {
-                std::string rel = model.textures[static_cast<size_t>(pm.texture)];
-                std::replace(rel.begin(), rel.end(), '\\', '/');
-                it = textureCache.emplace(pm.texture, Texture2D::load(files[pick].parent_path() / PathFromUtf8(rel))).first;
-                if (!it->second) { ++missingTextures; std::cout << "[PMX] could not load texture " << rel << "\n"; }
-            }
-            tex = it->second;
-        }
+        const std::shared_ptr<Texture2D> tex = loadTexture(pm.texture);
 
         const RgbColor baseColor(SrgbToLinear(pm.diffuse.x), SrgbToLinear(pm.diffuse.y), SrgbToLinear(pm.diffuse.z));
         std::shared_ptr<Material> mat;
@@ -205,7 +243,39 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
         else {
             mat = MakePmxMaterial(pm, baseColor, tex, opt.pmxMatte, skinProfile);
         }
-        const bool cutout = tex && tex->hasAlpha() && !translucent;   // a translucent layer uses the texture alpha as opacity instead
+        if (toonOverlay) mat = std::make_shared<Lambertian>(baseColor, tex);
+        if (toonLooks) {
+            ToonLook L;
+            L.diffuse = Vector3(pm.diffuse.x, pm.diffuse.y, pm.diffuse.z);
+            L.ambient = pm.ambient;
+            L.specular = pm.specular;
+            L.shininess = pm.shininess;
+            L.alpha = std::clamp(pm.diffuse.w, Real(0), Real(1));
+            L.texture = tex;
+            if (pm.sphereMode == 1 || pm.sphereMode == 2) { L.sphere = loadTexture(pm.sphereTexture); L.sphereMode = pm.sphereMode; }
+            if (!pm.sharedToon) L.toon = loadTexture(pm.toon);   // the model's own ramp; the shared toon01..10 of MMD are not here: toonShadow
+            L.edge = (pm.flags & 0x10u) != 0;
+            L.edgeColor = Vector3(pm.edgeColor.x, pm.edgeColor.y, pm.edgeColor.z);
+            L.edgeSize = pm.edgeSize;
+            L.overlay = toonOverlay;
+            L.hair = isHair(pm);
+            L.showThroughHair = !overlayName && nameHas(pm, { "\xE7\x9C\x89", "brow", "Brow" });   // 眉
+            if (haveFace && !overlayName && !L.hair) {   // the face and what lies in it (eyes, brows, mouth): normals from the head
+                int inside = 0, all = 0;
+                const Vector3 pad = (faceHi - faceLo) * Real(0.1);
+                for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
+                    const Vector3& q = mesh->p[static_cast<size_t>(mesh->indices[static_cast<size_t>(i)])];
+                    ++all;
+                    if (glm::all(glm::greaterThanEqual(q, faceLo - pad)) && glm::all(glm::lessThanEqual(q, faceHi + pad))) ++inside;
+                }
+                if (all > 0 && inside >= all * 9 / 10) { L.faceNormals = true; L.faceCenter = headCenter; L.faceRadii = headRadii; }
+            }
+            (*toonLooks)[mat.get()] = L;
+            std::cout << "[Toon]   " << pm.name << (L.overlay ? "  overlay" : "") << (L.faceNormals ? "  face normals" : "") << (L.hair ? "  hair" : "")
+                << (L.showThroughHair ? "  brow" : "") << (L.toon ? "  own toon" : "") << (L.sphere ? (L.sphereMode == 2 ? "  spa" : "  sph") : "")
+                << (L.edge ? "  edge " + std::to_string(L.edgeSize) : std::string("  no edge")) << "\n";
+        }
+        const bool cutout = tex && tex->hasAlpha() && !translucent && !toonOverlay;   // a translucent layer uses the texture alpha as opacity instead
         if (cutout) ++alphaMaterials;
         for (int t = pm.firstIndex / 3; t < (pm.firstIndex + pm.indexCount) / 3; ++t) {
             const Vector3 e1 = mesh->p[static_cast<size_t>(mesh->indices[3 * t + 1])] - mesh->p[static_cast<size_t>(mesh->indices[3 * t])];
@@ -213,7 +283,7 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
             if (glm::length(glm::cross(e1, e2)) < 1e-12) continue;   // degenerate triangle
             auto tri = std::make_shared<Triangle>(mesh, static_cast<size_t>(t), mat);
             if (cutout) tri->setAlphaTexture(tex, Real(0.5));
-            if (translucent) tri->setCastsShadow(false);
+            if (translucent || toonOverlay) tri->setCastsShadow(false);
             prims.push_back(tri);
         }
     }
@@ -223,6 +293,7 @@ std::optional<int> BuildPmx(SceneContext& ctx, SceneSetup& out) {
         << " textures loaded (" << texBytes / (1024 * 1024) << " MB), " << alphaMaterials << " materials with alpha cut-outs, skipped "
         << skippedOverlay << " overlay ('+') and " << skippedHidden << " fully transparent materials, " << translucentLayers << " translucent layers\n";
     worldList->add(std::make_shared<BVH>(std::move(prims)));
+    out.toonLooks = toonLooks;
     worldList->add(std::make_shared<Sphere>(Point3(0, -100, 0), 100.0, matFloor));
     // Framing: the picture is 3:4 with a 35 degree vertical field of view; a wide pose (a raised leg) is
     // fitted by its width as well as its height.

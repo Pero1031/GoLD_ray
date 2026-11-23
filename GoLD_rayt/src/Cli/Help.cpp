@@ -60,6 +60,7 @@ void PrintHelp(std::ostream& out) {
         << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
         << "  --mask A[,B..]    <out>_mask.png: the share of each pixel that objects of these materials (names in the scene file) cover, as the camera\n"
         << "                    sees them first (edges anti-aliased, through the lens and shutter; linear gray, 16 bit with --bits 16; .pfm if --out is)\n"
+        << "  --toon  --toon-line PX   experimental cel shading with outlines (PX: line width, 0 = none) instead of path tracing\n"
         << "  --depth-map       <out>_depth.pfm: distance of the first surface along the view axis through each pixel centre (0 = none)\n"
         << "  --camera-response FILE   the film as this camera sees (spectral build): its R, G, B sensitivities (CSV of wavelength, R, G, B),\n"
         << "                    balanced to D65 (--wb: to the scene's light) and mapped to sRGB by a fitted colour matrix, instead of the CIE\n"

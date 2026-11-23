@@ -21,6 +21,7 @@
 #include "Materials/Lambertian.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/SpecularBody.hpp"
+#include "Render/ToonIntegrator.hpp"
 #include "Scene/Aggregate.hpp"
 #include "Cli/Options.hpp"
 #include "Cli/SceneDescription.hpp"
@@ -118,6 +119,7 @@ struct SceneSetup {
     std::function<bool(const RenderResult&)> afterSave;          // after saving; false = a check failed (exit code 2)
     bool checksPassed = true;                                    // self-checks that run while the scene is built (mesh)
     std::shared_ptr<const GaussianSplats> splats;                // a captured cloud of Gaussians (Geometry/GaussianSplats.hpp), seen by paths as a backdrop
+    std::shared_ptr<const ToonLooks> toonLooks;                  // --toon: the materials with their own recipe (an MMD model's), see Render/ToonIntegrator.hpp
     std::map<std::string, const Material*> namedMaterials;       // the materials of a scene file by name (--mask); empty for the built-in scenes
 };
 

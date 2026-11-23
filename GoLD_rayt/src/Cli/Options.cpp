@@ -32,6 +32,8 @@ bool ApplyOutputArg(const std::string& a, const std::function<std::string(const 
     else if (a == "--tonemap") o.tonemap = value("--tonemap");
     else if (a == "--mask") o.mask = value("--mask");
     else if (a == "--depth-map") o.depthMap = true;
+    else if (a == "--toon") o.toon = true;
+    else if (a == "--toon-line") { o.toonLine = std::stod(value("--toon-line")); o.toon = true; }
     else if (a == "--camera-response") o.cameraResponse = value("--camera-response");
     else if (a == "--sensor") o.sensor = value("--sensor");
     else if (a == "--spectral-image") {   // STEP or STEP,FIRST,LAST (nm)

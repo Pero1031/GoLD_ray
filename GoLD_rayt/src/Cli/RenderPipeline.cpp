@@ -14,6 +14,7 @@
 #include "Render/LensSystem.hpp"
 #include "Render/LensFlare.hpp"
 #include "Render/Integrator.hpp"
+#include "Render/ToonIntegrator.hpp"
 #include "Render/MaskDepth.hpp"
 #include "Render/Sensor.hpp"
 #include "IO/DngWriter.hpp"
@@ -725,7 +726,14 @@ int RenderScene(CliOptions& opt) {
 
     // ---- render and save ----
     std::cout << "[Render] Start PBR rendering..." << std::endl;
-    if (causticPasses > 1) {
+    if (opt.toon) {
+        ToonSettings ts;
+        ts.lineWidth = Real(opt.toonLine);
+        ts.looks = setup.toonLooks;
+        ToonIntegrator(camera, opt.spp, ts).render(*scene, film);
+        opt.tonemap = "clip";   // a display-referred picture in [0, 1]
+    }
+    else if (causticPasses > 1) {
         // The noise of a photon map is frozen: more samples per pixel re-read the same photons and do not remove it. Independent
         // photon sets per pass decorrelate it, so the average of the passes improves by 1/sqrt(passes) at the memory of one set.
         // The last pass renders into `film` (so the denoiser features come from it); the earlier ones go to a scratch film.
@@ -765,7 +773,7 @@ int RenderScene(CliOptions& opt) {
         vbpt.render(film);
     }
     else integrator->render(*scene, film);
-    if (traceOn) {   // add the light-traced caustic image (already an average radiance per pixel)
+    if (traceOn && !opt.toon) {   // add the light-traced caustic image (already an average radiance per pixel)
         const Real inv = Real(1) / Real(causticPasses);
         for (int y = 0; y < imageHeight; ++y)
             for (int x = 0; x < imageWidth; ++x) {
