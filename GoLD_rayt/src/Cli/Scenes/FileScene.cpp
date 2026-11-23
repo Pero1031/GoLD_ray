@@ -281,6 +281,14 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             auto metal = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy));
             metal->setTangentRotation(Real(m.rotation));
             metal->setMultipleScattering(m.multipleScattering);
+            if (m.glints) {
+                GlintParams gp;
+                gp.density = Real(m.glintDensity);
+                gp.microRoughness = Real(m.glintMicroRoughness);
+                gp.seed = static_cast<std::uint32_t>(m.glintSeed);
+                metal->setGlints(gp, Real(m.glintFilter));
+                out.pixelFootprints = true;
+            }
             materials[name] = metal;
             break;
         }

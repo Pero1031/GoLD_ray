@@ -715,6 +715,7 @@ int RenderScene(CliOptions& opt) {
     }
     else if (opt.causticTrace) std::cout << "[Caustics] --caustic-trace needs the photon map (--caustics N > 0, caustic method photons): ignored\n";
     integrator->setSpecularNee(specularNee.get());
+    if (setup.pixelFootprints) integrator->setPixelFootprints(true);
     if (setup.mediaNee || opt.mediaNee) integrator->setMediaNee(true);   // the fog is lit by next event estimation, its boundary does not block shadow rays
     std::cout << "[Integrator] PathIntegrator created (maxDepth="
         << opt.maxDepth << ", spp=" << opt.spp << ").\n";

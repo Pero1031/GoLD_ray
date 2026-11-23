@@ -20,6 +20,33 @@ namespace rayt {
         return f;
     }
 
+    Real RoughConductor::glintRatio(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& whLocal) const {
+        if (!m_glint || !(rec.pixelSpacing > Real(0))) return 1;
+        // The pixel's filter on the surface: a disc across the ray (radius = the filter's standard deviation), projected along the ray
+        // onto the tangent plane: an ellipse with its long axis in the plane of incidence.
+        const Vector3 n = rec.gn;
+        const Real r = m_glintFilter * rec.pixelSpacing;
+        Vector3 t1 = glm::cross(n, wo);
+        const Real l1 = glm::length(t1);
+        if (l1 > Real(1e-6)) t1 /= l1;
+        else t1 = glm::normalize(glm::cross(n, std::abs(n.x) < Real(0.9) ? Vector3(1, 0, 0) : Vector3(0, 1, 0)));
+        const Vector3 t2 = glm::cross(t1, n);
+        const Vector3 a = t1 * r, b = t2 * (r / std::max(std::abs(glm::dot(n, wo)), Real(0.02)));
+        // Three arrangements of facets, one on each coordinate plane of the world, mixed by a roulette with the weights |n_k| / sum
+        // (the paper's extension to surfaces without texture coordinates). A plane the surface is nearly perpendicular to is left out.
+        Vector3 w(std::abs(n.x), std::abs(n.y), std::abs(n.z));
+        for (int k = 0; k < 3; ++k) if (w[k] < Real(0.02)) w[k] = 0;
+        w /= w.x + w.y + w.z;
+        Real ratio = 0;
+        for (int k = 0; k < 3; ++k) {
+            if (!(w[k] > Real(0))) continue;
+            const int i = (k + 1) % 3, j = (k + 2) % 3;
+            const GlintFootprint fp{ a[i] * a[i] + b[i] * b[i], a[i] * a[j] + b[i] * b[j], a[j] * a[j] + b[j] * b[j] };
+            ratio += m_glint->ratio(whLocal, Point2(rec.p[i], rec.p[j]), fp, w[k], static_cast<std::uint32_t>(k + 1));
+        }
+        return ratio;
+    }
+
     Spectrum RoughConductor::eval(const SurfaceInteraction& rec,
         const Vector3& wo, const Vector3& wi,
         const SampledWavelengths& lambda,
@@ -52,6 +79,7 @@ namespace rayt {
 
         // 4. Evaluate Terms
         Real D = dist.D(wh_local);
+        if (m_glint) D *= glintRatio(rec, wo, wh_local);
         Real G = dist.G(wo_local, wi_local);
 
         Real cosThetaD = std::abs(glm::dot(wi, wh));

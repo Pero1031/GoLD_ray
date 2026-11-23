@@ -1,9 +1,18 @@
 // Glint checks (--scene glints): the glinty GGX distribution (Microfacet/GlintNDF.hpp, docs/GLINTS.md).
 #include "pch.h"
 #include "Cli/Checks.hpp"
+#include "Color/SpectralConversion.hpp"
 #include "Core/Sampling.hpp"
+#include "Geometry/Quad.hpp"
+#include "IO/ComplexIorLoader.hpp"
+#include "Materials/RoughConductor.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/GlintNDF.hpp"
+#include "Render/Camera.hpp"
+#include "Render/Film.hpp"
+#include "Render/Integrator.hpp"
+#include "Scene/Aggregate.hpp"
+#include "Scene/Scene.hpp"
 
 #include <random>
 #include <sstream>
@@ -73,6 +82,17 @@ namespace {
     }
 
     Point2 RandomUv(Rng& rng) { return Point2(rng() * Real(64), rng() * Real(64)); }
+
+    /// A surface that glows with the size of its pixel: what a camera ray tells the hit (SurfaceInteraction::pixelSpacing).
+    class PixelSizeProbe final : public Material {
+    public:
+        Spectrum eval(const SurfaceInteraction&, const Vector3&, const Vector3&, const SampledWavelengths&, TransportMode) const override { return Spectrum(0.0); }
+        std::optional<BSDFSample> sample(const SurfaceInteraction&, const Vector3&, const Point2&, const SampledWavelengths&, TransportMode) const override { return std::nullopt; }
+        Real pdf(const SurfaceInteraction&, const Vector3&, const Vector3&, const SampledWavelengths&) const override { return 0; }
+        Spectrum emitted(const SurfaceInteraction& rec, const Vector3&, const SampledWavelengths& lambda) const override {
+            return RgbToIlluminantSpectrum(Vector3(rec.pixelSpacing), lambda);
+        }
+    };
 
 }   // namespace
 
@@ -250,6 +270,80 @@ int RunGlintTests(const CliOptions&) {
         const Vector3 w = Direction(10, 50);
         const Mean m = Average([&](Rng& rng) { return double(soft.ratio(w, RandomUv(rng), fp)); }, 21, 0.003, 20000000);
         std::cout << "[Glints]   g  (information) softened roulette, level 2.5: the average is off by " << Num((m.mean - 1) * 100, 2) << " +- " << Num(m.error * 100, 2) << " %\n";
+    }
+
+    // (h) The material: a rough gold with glints on a plane tilted against all three coordinate planes (three arrangements of
+    //     facets, mixed by a roulette), seen through a pixel of a given size: its BRDF averaged over the plane against the smooth
+    //     gold's. And where the pixel's size is unknown, the smooth BRDF itself.
+    {
+        auto goldTable = std::make_shared<color::ComplexIorTable>();
+        std::string err;
+        if (!io::loadComplexIor_RefractiveIndexInfoCsv("assets/Metal_data/Johnson_Au.csv", *goldTable, &err))
+            all = Report("h  the material (cannot read the gold table: " + err + ")", false, "") && all;
+        else {
+            RoughConductor smooth(goldTable, Real(0.3)), glinty(goldTable, Real(0.3));
+            smooth.setMultipleScattering(false);
+            glinty.setMultipleScattering(false);
+            GlintParams gp;
+            gp.density = Real(1e4);
+            gp.microRoughness = Real(0.03);
+            glinty.setGlints(gp, Real(0.5));
+            const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+            const Vector3 n = glm::normalize(Vector3(1, 2, 3));
+            const Vector3 t1 = glm::normalize(glm::cross(n, Vector3(0, 0, 1))), t2 = glm::cross(n, t1);
+            // view and light 25 and 40 deg from the normal, not in one plane with it
+            const Vector3 wo = glm::normalize(n * std::cos(Real(0.44)) + t1 * std::sin(Real(0.44)));
+            const Vector3 wi = glm::normalize(n * std::cos(Real(0.70)) + (t1 * Real(-0.8) + t2 * Real(0.6)) * std::sin(Real(0.70)));
+            SurfaceInteraction rec;
+            rec.n = rec.gn = n;
+            rec.wo = wo;
+            const Real reference = smooth.eval(rec, wo, wi, lambda, TransportMode::Radiance)[0];
+            bool ok = reference > Real(0);
+            std::string detail;
+            int index = 0;
+            for (const Real spacing : { Real(0.004), Real(0.04), Real(0.6) }) {
+                const Mean m = Average([&](Rng& rng) {
+                    SurfaceInteraction r = rec;
+                    r.p = Point3(5, -3, 2) + t1 * (rng() * Real(40)) + t2 * (rng() * Real(40));
+                    r.pixelSpacing = spacing;
+                    return double(glinty.eval(r, wo, wi, lambda, TransportMode::Radiance)[0] / reference);
+                }, 500 + index, 0.003, 40000000);
+                ok = ok && std::fabs(m.mean - 1) < 4 * m.error + 0.003 && m.error < 0.01;
+                detail += "pixel " + Num(spacing) + ": " + Num((m.mean - 1) * 100, 2) + " +- " + Num(m.error * 100, 2) + " %; ";
+                ++index;
+            }
+            rec.p = Point3(1, 2, 3);
+            const Real unknown = glinty.eval(rec, wo, wi, lambda, TransportMode::Radiance)[0];
+            all = Report("h  the material on a tilted plane: its BRDF averaged over the plane against the smooth gold's (4 standard errors + 0.3 %); the smooth BRDF where the pixel's size is unknown",
+                ok && unknown == reference, detail + "unknown pixel: " + (unknown == reference ? "the same" : "different")) && all;
+        }
+    }
+
+    // (i) The pixel's size that a camera ray hands to the surface: a plane 5 m in front of a pinhole camera (36 deg high, 9 pixels)
+    //     sees, at the picture's centre, 5 x 2 tan(18 deg) / 9; in an orthographic view 2 m high, 2 / 9 at any distance.
+    {
+        auto probe = std::make_shared<PixelSizeProbe>();
+        auto world = std::make_shared<Aggregate>();
+        world->add(std::make_shared<Quad>(Point3(-50, -50, -5), Vector3(100, 0, 0), Vector3(0, 100, 0), probe));
+        auto scene = std::make_shared<Scene>(world);
+        scene->finalize("uniform");
+        const int n = 9;
+        auto centre = [&](const std::shared_ptr<Camera>& camera, bool on) {
+            Film film(n, n);
+            PathIntegrator integrator(camera, 2, 64);
+            integrator.setPixelFootprints(on);
+            integrator.render(*scene, film);
+            const Vector3 v = film.getData()[static_cast<size_t>(n / 2) * n + n / 2];
+            return double(0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z);
+        };
+        auto pinhole = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 36.0, 1.0, 0.0, 5.0);
+        auto ortho = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 36.0, 1.0, 0.0, 5.0);
+        ortho->setOrthographic(2);
+        const double expectP = 5 * 2 * std::tan(18 * 3.14159265358979323846 / 180) / n, expectO = 2.0 / n;
+        const double gotP = centre(pinhole, true), gotO = centre(ortho, true), off = centre(pinhole, false);
+        all = Report("i  the pixel's size at the hit: pinhole and orthographic cameras against closed forms (1 %), 0 when not asked for",
+            std::fabs(gotP / expectP - 1) < 0.01 && std::fabs(gotO / expectO - 1) < 0.01 && off == 0,
+            "pinhole " + Num(gotP, 5) + " (expected " + Num(expectP, 5) + "), orthographic " + Num(gotO, 5) + " (expected " + Num(expectO, 5) + "), off " + Num(off)) && all;
     }
 
     std::cout << "[Glints] RESULT: " << (all ? "PASS" : "FAIL") << "\n";

@@ -1,8 +1,12 @@
 # Glints: a GGX distribution made of a finite number of facets
 
-**Status:** stage 1 of 5. The distribution itself and its checks are in (`Microfacet/GlintNDF`, `--scene glints`). It is not yet a
-material: nothing renders with it. Next: a material seen directly by the camera (the pixel's footprint from the camera ray), importance
-sampling, later bounces, example scenes.
+**Status:** stage 2 of 5. The distribution (`Microfacet/GlintNDF`) is an option of the rough metal (`"glints"` on a `conductor`,
+section 3) for surfaces the camera sees directly; `--scene glints` checks both. Next: importance sampling, later bounces, more scenes.
+
+![Three gold spheres of the same roughness: smooth, 300 000 facets per square metre, 10 million](img/glints_spheres.png)
+
+(`scenes/glints_spheres.json`, spectral build, 256 spp, 88 s. The same gold and the same roughness 0.3 three times, under two small
+lamps: the smooth distribution, 3 × 10⁵ facets per m² and 10⁷. The grain on the lower halves is the floor's light in single facets.)
 
 A smooth microfacet model says how much of the surface faces each direction, as if every pixel held infinitely many facets. Metallic
 paint, lamé and pearl pigments hold few enough for single facets to flash. The glinty distribution keeps the smooth model's average
@@ -53,16 +57,40 @@ density (facets per unit area of texture space), a seed for another arrangement.
 - **The error function** is the standard library's, not a rational approximation.
 - Not yet here: anisotropic facets, coloured facets, surfaces without texture coordinates (triplanar), importance sampling.
 
-## 3. What the model does not do (the paper's own statements)
+## 3. In the renderer
+
+- **Scene file.** A `conductor` takes `"glints": { "density", "microRoughness", "filter", "seed" }`: facets per square unit of the
+  scene (metres), the width of one facet's lobe in radians (default 0.01), the pixel filter's standard deviation in pixels (default
+  0.5), another arrangement. The roughness is the conductor's own. Only D changes: Fresnel, masking and the multiple-scattering
+  compensation are those of the smooth metal, and so is the sampling (stage 3 will sample the facets).
+- **The pixel's size** comes from the camera (`PathIntegrator::setPixelFootprints`, switched on by a scene with glints): once per
+  pixel, the rays of the pixel's centre and of its two neighbours through the same point of the lens give the spacing of neighbouring
+  rays at the lens and its growth with distance (any camera: pinhole, real lens, orthographic). A camera ray carries the two numbers,
+  the hit turns them into a length (`SurfaceInteraction::pixelSpacing`), and the material makes the filter from it: a disc across the
+  ray, projected along the ray onto the surface (an ellipse, long in the plane of incidence; the cosine is held above 0.02).
+- **No texture coordinates.** The facets are laid out in world space on the three coordinate planes: three arrangements, each seen
+  through the footprint projected onto its plane, mixed by a roulette with the weights |n_k| / Σ|n| (the paper's triplanar extension;
+  a plane the surface is nearly perpendicular to is left out). Spheres, quads and meshes without UVs work alike. The density is per
+  area of the coordinate plane, so a surface tilted against all three carries somewhat fewer facets per area than one that faces an
+  axis (by |n_k| for each arrangement).
+- **Only where the camera looks directly.** A ray that has bounced does not know a pixel's size, and the material answers with the
+  smooth distribution: the facets' average, so the picture's energy is the same and only the glints are missing in reflections
+  (stage 4). A camera ray keeps its pixel through the boundary of a fog and through a see-through layer.
+- **The pixel is filtered twice**: by the facets' filter and by the samples spread over the pixel. A glint is therefore a little
+  wider than the filter says. A smaller `filter` gives sharper glints and needs more samples.
+- **No denoiser.** It takes single bright pixels for noise.
+- Pictures without glints are unchanged: three scene files rendered before and after with the same seed are identical byte for byte.
+
+## 4. What the model does not do (the paper's own statements)
 
 - **It does not conserve energy exactly.** Lobes of facets near the disc's rim reach outside it, and the expectation is taken over the
-  square that holds the disc. The loss grows when the micro-roughness is not small against the roughness (section 4).
+  square that holds the disc. The loss grows when the micro-roughness is not small against the roughness (section 5).
 - **Roughness and micro-roughness are not independent.** A micro-roughness near the roughness itself blurs the highlight: physically
   sensible, but the two must be chosen together.
 - **Path tracing is left as future work** in the paper (it would need the pixel's footprint carried along the path). That part will be
   this renderer's own.
 
-## 4. Checks (`--scene glints`, both builds, about 3 minutes)
+## 5. Checks (`--scene glints`, both builds, about 4 minutes)
 
 | Check | Result |
 |---|---|
@@ -73,6 +101,8 @@ density (facets per unit area of texture space), a seed for another arrangement.
 | e. Energy against the smooth distribution (half vectors drawn from D cos θ, averaged over the surface): α 0.1 / 0.3 / 0.6, micro-roughness 0.01 / 0.05, levels 1.5 / 6.5 | within the error in 10 cases; −2.1 % and −0.8 % for α 0.1 with micro-roughness 0.05 (a lobe half as wide as the distribution) |
 | f. Many facets per pixel: the spread of D\* / D over pixels | 0.04 % at level 12, 10⁻⁶ at level 16; exactly 1 beyond level 20 |
 | g. (information) the paper's softened roulette, level 2.5 | average off by −0.2 ± 0.3 % |
+| h. The material: rough gold with glints on a plane tilted against all three coordinate planes, its BRDF averaged over the plane against the smooth gold's, for pixels of 0.004, 0.04 and 0.6 units; and with no pixel size | −0.9 ± 0.3 %, 0.0 ± 0.3 %, −0.06 ± 0.01 %; exactly the smooth BRDF |
+| i. The pixel's size at the hit: a plane 5 m in front of a pinhole camera, and an orthographic view, against closed forms | 0.2 % and 0.0 % (RGB build); 0.4 % and 0.2 % (spectral build: its noise) |
 
 The averages are unbiased estimates, so they are judged by their standard error (4 standard errors plus 0.3 %); the energy loss is an
 intended approximation and is judged by a bound (2 %).

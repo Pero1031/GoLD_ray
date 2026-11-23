@@ -62,6 +62,14 @@ namespace rayt {
         Real time = 0.0;
 
         /**
+         * @brief The pixel this ray belongs to, for materials that filter over the pixel (glints, docs/GLINTS.md): the distance between
+         * the rays of neighbouring pixels, across the ray, is pixelSpacing0 + t * |d| * pixelSpread. Both 0 = unknown (any ray that is not
+         * a camera ray).
+         */
+        Real pixelSpacing0 = 0.0;
+        Real pixelSpread = 0.0;
+
+        /**
          * @brief Default constructor.
          * Initializes an invalid ray with infinite range.
          */

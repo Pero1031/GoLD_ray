@@ -28,8 +28,8 @@ namespace rayt {
         /// The random numbers of one facet: seeded by its cell (two spatial and two angular indices), its level and the arrangement.
         struct FacetRandom {
             std::uint64_t s;
-            FacetRandom(std::int64_t ix, std::int64_t iy, std::int64_t ax, std::int64_t ay, int level, std::uint32_t seed) {
-                s = Mix(static_cast<std::uint64_t>(ix));
+            FacetRandom(std::int64_t ix, std::int64_t iy, std::int64_t ax, std::int64_t ay, int level, std::uint32_t seed, std::uint32_t stream) {
+                s = Mix(static_cast<std::uint64_t>(ix) ^ (static_cast<std::uint64_t>(stream) << 48));
                 s = Mix(s ^ static_cast<std::uint64_t>(iy));
                 s = Mix(s ^ static_cast<std::uint64_t>(ax));
                 s = Mix(s ^ static_cast<std::uint64_t>(ay));
@@ -107,7 +107,7 @@ namespace rayt {
         return std::log2(kCellsPerSigma * std::sqrt(lmax));
     }
 
-    Real GlintNDF::levelSum(const Query& q, int level, Real weight, bool exhaustive) const {
+    Real GlintNDF::levelSum(const Query& q, int level, Real weight, bool exhaustive, std::uint32_t stream) const {
         const Real cell = std::ldexp(Real(1), level);                  // side of a spatial cell
         const std::int64_t resA = std::int64_t(1) << level;            // angular cells per side
         const Real invResA = Real(1) / static_cast<Real>(resA);
@@ -135,7 +135,7 @@ namespace rayt {
             for (std::int64_t ix = i0x; ix <= i1x; ++ix)
                 for (std::int64_t ay = a0y; ay <= a1y; ++ay)
                     for (std::int64_t ax = a0x; ax <= a1x; ++ax) {
-                        FacetRandom rnd(ix, iy, ax, ay, level, m_p.seed);
+                        FacetRandom rnd(ix, iy, ax, ay, level, m_p.seed, stream);
                         // the roulette between the two levels: on average the level's weight
                         Real keep = 1;
                         const Real r = rnd.next();
@@ -201,19 +201,19 @@ namespace rayt {
         }
     }   // namespace
 
-    Real GlintNDF::ratio(const Vector3& wh, const Point2& uv, const GlintFootprint& fp) const {
-        if (!(wh.z > Real(0))) return 0;
+    Real GlintNDF::ratio(const Vector3& wh, const Point2& uv, const GlintFootprint& fp, Real weight, std::uint32_t stream) const {
+        if (!(wh.z > Real(0)) || !(weight > Real(0))) return 0;
         Query q;
-        if (!SpatialQuery(q, uv, fp, m_p.density)) return 1;
+        if (!SpatialQuery(q, uv, fp, m_p.density)) return weight;
         const Real lambda = std::log2(kCellsPerSigma * q.sigmaMax);
-        if (!(lambda < Real(kMaxLevel))) return 1;
+        if (!(lambda < Real(kMaxLevel))) return weight;
         q.xa = toDisc(wh);
         q.sigmaA = m_p.microRoughness * std::sqrt(jacobian(wh));
-        if (lambda <= Real(0)) return levelSum(q, 0, 1, false);
+        if (lambda <= Real(0)) return levelSum(q, 0, weight, false, stream);
         const int l0 = static_cast<int>(std::floor(lambda));
         const Real w1 = lambda - static_cast<Real>(l0);
-        Real sum = levelSum(q, l0, Real(1) - w1, false);
-        if (w1 > Real(0)) sum += levelSum(q, l0 + 1, w1, false);
+        Real sum = levelSum(q, l0, weight * (Real(1) - w1), false, stream);
+        if (w1 > Real(0)) sum += levelSum(q, l0 + 1, weight * w1, false, stream);
         return sum;
     }
 
@@ -223,7 +223,7 @@ namespace rayt {
         if (!SpatialQuery(q, uv, fp, m_p.density)) return 1;
         q.xa = toDisc(wh);
         q.sigmaA = m_p.microRoughness * std::sqrt(jacobian(wh));
-        return levelSum(q, std::clamp(level, 0, 10), 1, true);
+        return levelSum(q, std::clamp(level, 0, 10), 1, true, 0);
     }
 
 } // namespace rayt

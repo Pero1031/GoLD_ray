@@ -107,6 +107,7 @@ struct SceneSetup {
     std::string lightSampler;                                    // how next-event estimation picks a light, when the scene needs a specific one (empty = --light-sampler)
     CausticTarget causticTarget;
     CausticSetup caustics;                                       // the scene's defaults for the photon map and the manifold NEE
+    bool pixelFootprints = false;                                // a material filters over the pixel (glints): camera rays carry their pixel's size
     bool mediaNee = false;                                       // the fog is lit by next event estimation at every collision, and its boundary does not block shadow rays (as --media-nee)
     const PointLight* bptLight = nullptr;                        // fogspot: the lamp and the fog, for --lvc (VolumeBPT)
     const Medium* bptMedium = nullptr;

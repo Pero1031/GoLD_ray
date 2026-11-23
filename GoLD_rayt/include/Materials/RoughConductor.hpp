@@ -24,6 +24,7 @@
 #include "Materials/Material.hpp"
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/GGXAlbedo.hpp"
+#include "Microfacet/GlintNDF.hpp"
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
@@ -54,6 +55,11 @@ namespace rayt {
         Real alpha_y;   // Roughness Y (same as X if isotropic)
         Vector3 m_f0Rgb = Vector3(1.0);   // normal-incidence reflectance in RGB (denoiser albedo AOV)
         Real m_rotation = Real(0);        // rotation of the roughness axes about the normal (radians), anisotropic only
+        std::shared_ptr<const GlintNDF> m_glint;   // the distribution as a finite number of facets (setGlints), or none
+        Real m_glintFilter = Real(0.5);            // the pixel filter's standard deviation in pixels
+
+        /// D* / D of the glinty distribution at the hit for a pixel seen along wo (1 without glints or without a known pixel size).
+        Real glintRatio(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& whLocal) const;
 
         /// Shading frame: x along the surface tangent (rec.dpdu) rotated by m_rotation, when the roughness is anisotropic; any frame otherwise.
         frame::Frame shadingFrame(const SurfaceInteraction& rec) const;
@@ -239,6 +245,19 @@ namespace rayt {
         /// tangent (`SurfaceInteraction::dpdu`: the circles of latitude on a sphere, the first edge of a quad, increasing u on a mesh).
         /// anisotropy > 0: rougher along x (the highlight stretches along it); < 0: smoother along x, as on a metal brushed along x.
         void setTangentRotation(Real degrees) { m_rotation = degrees * constants::PI / Real(180); }
+
+        /// Glints (docs/GLINTS.md): the GGX distribution becomes a finite number of facets, `params.density` per square unit of the scene
+        /// (the roughness in `params` is replaced by this material's: call it after the roughness is set). The facets are laid out in
+        /// world space on the three coordinate planes (no texture coordinates needed), and seen through a pixel filter whose standard
+        /// deviation is `filterPixels`. Only where the surface knows its pixel's size (seen directly by the camera, with
+        /// PathIntegrator::setPixelFootprints); elsewhere the smooth distribution, which the facets average to.
+        void setGlints(GlintParams params, Real filterPixels) {
+            params.alphaX = alpha_x;
+            params.alphaY = alpha_y;
+            m_glint = std::make_shared<const GlintNDF>(params);
+            m_glintFilter = std::max(filterPixels, Real(1e-3));
+        }
+        bool hasGlints() const { return m_glint != nullptr; }
 
         /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
         void setMultipleScattering(bool enabled) {

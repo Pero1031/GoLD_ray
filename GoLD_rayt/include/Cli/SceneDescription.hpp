@@ -78,6 +78,11 @@ struct MaterialSpec {
     bool multipleScattering = true;                // conductor: Kulla-Conty compensation
     double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)
     double rotation = 0;                           // conductor: degrees, rotates the tangent about the normal
+    bool glints = false;                           // conductor: "glints": the roughness as a finite number of facets (docs/GLINTS.md)
+    double glintDensity = 1e6;                     //   facets per square unit of the scene
+    double glintMicroRoughness = 0.01;             //   the width of one facet's lobe (radians of the half vector)
+    double glintFilter = 0.5;                      //   the pixel filter's standard deviation, in pixels
+    int glintSeed = 0;                             //   another arrangement of the facets
     // layered: a clear coat over a base (Materials/LayeredCoat.hpp). The base reuses albedo (diffuse) or metal / table / reflectance + roughness (conductor).
     double coatIor = 1.5;
     double coatRoughness = 0.1;

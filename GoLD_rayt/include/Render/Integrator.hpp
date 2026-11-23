@@ -108,6 +108,10 @@ namespace rayt {
          */
         void setMediaNee(bool on) { m_mediaNee = on; }
 
+        /// Camera rays carry their pixel's size (Ray::pixelSpacing0, pixelSpread), which the hit hands to the material
+        /// (SurfaceInteraction::pixelSpacing): for materials that filter over the pixel (glints). Off by default: two more camera rays per pixel.
+        void setPixelFootprints(bool on) { m_pixelFootprints = on; }
+
         /// Specular manifold NEE for point lights seen through a flat-faced glass body (null = off). It adds the caustic of
         /// those lights at every non-specular vertex, computed exactly; do not use it together with a caustic photon map.
         void setSpecularNee(const SpecularNee* nee) { m_specularNee = nee; }
@@ -139,6 +143,7 @@ namespace rayt {
         bool m_skipDirectCaustics = false;
         const SpecularNee* m_specularNee = nullptr;
         bool m_mediaNee = false;
+        bool m_pixelFootprints = false;
 
         /// The photon map traces scattering media: a path's gather and its drop rule treat them like air.
         bool mediaTraced() const;

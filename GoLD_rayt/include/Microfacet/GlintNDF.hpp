@@ -61,8 +61,9 @@ namespace rayt {
         /// whose filter has the covariance `footprint` on the surface.
         Real D(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint) const { return smoothD(wh) * ratio(wh, uv, footprint); }
 
-        /// D* / D: 1 on average over the surface.
-        Real ratio(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint) const;
+        /// D* / D: 1 on average over the surface. With `weight` below 1 every facet is kept by a roulette of that probability (and the
+        /// expectation scaled): `weight` on average, for a surface that mixes several arrangements (`stream` tells them apart).
+        Real ratio(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint, Real weight = Real(1), std::uint32_t stream = 0) const;
 
         /// For the checks: every facet of one level summed one by one (no roulette, no expectation); D* / D of that level alone.
         Real ratioExhaustive(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint, int level) const;
@@ -83,7 +84,7 @@ namespace rayt {
 
     private:
         struct Query;
-        Real levelSum(const Query& q, int level, Real weight, bool exhaustive) const;
+        Real levelSum(const Query& q, int level, Real weight, bool exhaustive, std::uint32_t stream) const;
 
         GlintParams m_p;
     };

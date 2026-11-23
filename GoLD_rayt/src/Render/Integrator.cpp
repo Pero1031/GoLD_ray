@@ -105,6 +105,25 @@ namespace rayt {
                 Vector3 pixelStokes[4] = { Vector3(0.0), Vector3(0.0), Vector3(0.0), Vector3(0.0) };
                 std::fill(pixelSpectral.begin(), pixelSpectral.end(), Real(0));
 
+                // The pixel's size along its rays (setPixelFootprints): from the rays of this pixel's centre and of its two neighbours,
+                // through the same point of the lens. A ray the lens blocks leaves it unknown.
+                Real pixelSpacing0 = 0, pixelSpread = 0;
+                if (m_pixelFootprints) {
+                    const Point2 lensCentre(0.5, 0.5);
+                    const Real uc = (Real(i) + Real(0.5)) / Real(width), vc = (Real(j) + Real(0.5)) / Real(height);
+                    Real w0 = 1, wx = 1, wy = 1;
+                    const Ray c0 = m_camera->getRay(uc, vc, lensCentre, Real(0), kReferenceWavelengthNm, &w0);
+                    const Ray cx = m_camera->getRay(uc + Real(1) / Real(width), vc, lensCentre, Real(0), kReferenceWavelengthNm, &wx);
+                    const Ray cy = m_camera->getRay(uc, vc + Real(1) / Real(height), lensCentre, Real(0), kReferenceWavelengthNm, &wy);
+                    if (w0 > Real(0) && wx > Real(0) && wy > Real(0)) {
+                        const Vector3 d0 = glm::normalize(c0.d);
+                        pixelSpread = std::sqrt(glm::length(glm::normalize(cx.d) - d0) * glm::length(glm::normalize(cy.d) - d0));
+                        // across the ray: the part of the origins' offset that is not along it
+                        const Vector3 ox = cx.o - c0.o, oy = cy.o - c0.o;
+                        pixelSpacing0 = std::sqrt(glm::length(ox - d0 * glm::dot(ox, d0)) * glm::length(oy - d0 * glm::dot(oy, d0)));
+                    }
+                }
+
                 for (int s = 0; s < m_spp; ++s) {
                     // Jitter for anti-aliasing
                     Real u = (Real(i) + sampling::Random()) / Real((width));
@@ -125,6 +144,8 @@ namespace rayt {
                     Ray r = m_camera->getRay(u, v, lensSample, timeSample, lambda[0], &camW);
                     if (m_camera->chromatic()) lambda.terminateSecondary();
                     if (camW <= Real(0) && !wantAOVs) continue;   // nothing to trace: the sample adds no light
+                    r.pixelSpacing0 = pixelSpacing0;
+                    r.pixelSpread = pixelSpread;
                     PathAOV aov;
                     PathStokes stokes;
                     stokes.xRef = m_camera->right();
@@ -258,6 +279,9 @@ namespace rayt {
             SurfaceInteraction rec;
 
             const bool hit = scene.hit(r, rec);
+            // a camera ray tells the surface how large its pixel is here (0 = unknown)
+            if (hit && (r.pixelSpread > Real(0) || r.pixelSpacing0 > Real(0)))
+                rec.pixelSpacing = r.pixelSpacing0 + rec.t * glm::length(r.d) * r.pixelSpread;
 
             // ========== A captured cloud of Gaussians (docs/CAPTURE.md) ==========
             // Emits what the capture saw and absorbs; a backdrop that paths fly through (outside any medium).
@@ -295,7 +319,10 @@ namespace rayt {
 
             // A boundary with no optical effect (the surface of a fog): cross it, switching the medium. Not a bounce.
             if (m_mediaNee && rec.matPtr->isNullInterface() && ++st.passThrough < 64) {
+                const Real spread = r.pixelSpread;
                 r = nextRay(rec, r.d);
+                r.pixelSpacing0 = rec.pixelSpacing;   // still the camera's ray
+                r.pixelSpread = spread;
                 --depth;
                 continue;
             }
@@ -304,7 +331,10 @@ namespace rayt {
             {
                 const Real opacity = rec.matPtr->opacity(rec);
                 if (opacity < Real(1) && sampling::Random() >= opacity && ++st.passThrough < 64) {
+                    const Real spread = r.pixelSpread;
                     r = rec.SpawnRay(r.d);
+                    r.pixelSpacing0 = rec.pixelSpacing;   // still the camera's ray
+                    r.pixelSpread = spread;
                     --depth;   // not a scattering event
                     continue;
                 }

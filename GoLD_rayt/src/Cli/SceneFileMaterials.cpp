@@ -153,8 +153,24 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             Fail(where, "takes one of \"albedo\" (RGB), \"reflectance\" (a CSV of R(wavelength)), \"reflectanceTexture\" (a .sptex spectral image) or \"fading\" (a measured series over time), not several");
     }
     else if (type == "conductor") {
-        CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering" }, where);
+        CheckKeys(m, { "type", "metal", "table", "reflectance", "roughness", "anisotropy", "rotation", "multipleScattering", "glints" }, where);
         s.type = MaterialSpec::Type::Conductor;
+        if (m.contains("glints")) {   // "glints": { "density", "microRoughness", "filter", "seed" }
+            const json& g = m.at("glints");
+            const std::string gw = where + ".glints";
+            if (!g.is_object()) Fail(gw, "must be an object: { \"density\": facets per square unit, \"microRoughness\", \"filter\", \"seed\" }");
+            CheckKeys(g, { "density", "microRoughness", "filter", "seed" }, gw);
+            s.glints = true;
+            Optional<double>(g, "density", gw, s.glintDensity, ReadNumber);
+            Optional<double>(g, "microRoughness", gw, s.glintMicroRoughness, ReadNumber);
+            Optional<double>(g, "filter", gw, s.glintFilter, ReadNumber);
+            double seed = 0;
+            Optional<double>(g, "seed", gw, seed, ReadNumber);
+            s.glintSeed = static_cast<int>(seed);
+            if (!(s.glintDensity > 0)) Fail(gw + ".density", "must be above 0 (facets per square unit of the scene)");
+            if (!(s.glintMicroRoughness > 0 && s.glintMicroRoughness <= 0.5)) Fail(gw + ".microRoughness", "must be above 0 and at most 0.5 (radians)");
+            if (!(s.glintFilter > 0 && s.glintFilter <= 4)) Fail(gw + ".filter", "must be above 0 and at most 4 (pixels)");
+        }
         Optional<std::string>(m, "metal", where, s.metal, ReadString);
         Optional<std::string>(m, "table", where, s.table, ReadString);
         Optional<std::string>(m, "reflectance", where, s.reflectance, ReadString);
