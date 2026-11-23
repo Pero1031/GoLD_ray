@@ -159,7 +159,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             const json& g = m.at("glints");
             const std::string gw = where + ".glints";
             if (!g.is_object()) Fail(gw, "must be an object: { \"density\": facets per square unit, \"microRoughness\", \"filter\", \"seed\" }");
-            CheckKeys(g, { "density", "microRoughness", "filter", "seed" }, gw);
+            CheckKeys(g, { "density", "microRoughness", "filter", "seed", "sampling" }, gw);
             s.glints = true;
             Optional<double>(g, "density", gw, s.glintDensity, ReadNumber);
             Optional<double>(g, "microRoughness", gw, s.glintMicroRoughness, ReadNumber);
@@ -167,6 +167,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
             double seed = 0;
             Optional<double>(g, "seed", gw, seed, ReadNumber);
             s.glintSeed = static_cast<int>(seed);
+            Optional<bool>(g, "sampling", gw, s.glintSampling, ReadBool);
             if (!(s.glintDensity > 0)) Fail(gw + ".density", "must be above 0 (facets per square unit of the scene)");
             if (!(s.glintMicroRoughness > 0 && s.glintMicroRoughness <= 0.5)) Fail(gw + ".microRoughness", "must be above 0 and at most 0.5 (radians)");
             if (!(s.glintFilter > 0 && s.glintFilter <= 4)) Fail(gw + ".filter", "must be above 0 and at most 4 (pixels)");

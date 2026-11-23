@@ -58,8 +58,24 @@ namespace rayt {
         std::shared_ptr<const GlintNDF> m_glint;   // the distribution as a finite number of facets (setGlints), or none
         Real m_glintFilter = Real(0.5);            // the pixel filter's standard deviation in pixels
 
+        bool m_glintSampling = true;               // half of the samples are drawn from the facets' lobes
+
+        /// The arrangements of facets under the pixel at a hit: one per coordinate plane the surface is not nearly perpendicular to.
+        struct GlintPlanes {
+            int count = 0;
+            int stream[3];            ///< which arrangement (1, 2, 3 for the planes across x, y, z)
+            Real weight[3];           ///< its share of the facets (the roulette of the mix): |n_k| / sum
+            Real select[3];           ///< the probability that sampling picks it (0 where its footprint is beyond the last level)
+            Point2 uv[3];
+            GlintFootprint fp[3];
+            bool samplable = false;
+        };
+        /// False without glints or where the pixel's size is unknown.
+        bool glintPlanes(const SurfaceInteraction& rec, const Vector3& wo, GlintPlanes& planes) const;
         /// D* / D of the glinty distribution at the hit for a pixel seen along wo (1 without glints or without a known pixel size).
         Real glintRatio(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& whLocal) const;
+        /// The share of samples drawn from the facets (0 where that cannot be done).
+        Real glintSampleShare(const GlintPlanes& planes) const { return m_glintSampling && planes.samplable ? Real(0.5) : Real(0); }
 
         /// Shading frame: x along the surface tangent (rec.dpdu) rotated by m_rotation, when the roughness is anisotropic; any frame otherwise.
         frame::Frame shadingFrame(const SurfaceInteraction& rec) const;
@@ -258,6 +274,9 @@ namespace rayt {
             m_glintFilter = std::max(filterPixels, Real(1e-3));
         }
         bool hasGlints() const { return m_glint != nullptr; }
+        /// Glints: draw half of the samples from the facets' lobes (on by default), or all from the smooth distribution. Both are
+        /// unbiased; the first has far less noise under large lights.
+        void setGlintSampling(bool on) { m_glintSampling = on; }
 
         /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
         void setMultipleScattering(bool enabled) {

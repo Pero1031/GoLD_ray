@@ -20,8 +20,8 @@ namespace rayt {
         return f;
     }
 
-    Real RoughConductor::glintRatio(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& whLocal) const {
-        if (!m_glint || !(rec.pixelSpacing > Real(0))) return 1;
+    bool RoughConductor::glintPlanes(const SurfaceInteraction& rec, const Vector3& wo, GlintPlanes& planes) const {
+        if (!m_glint || !(rec.pixelSpacing > Real(0))) return false;
         // The pixel's filter on the surface: a disc across the ray (radius = the filter's standard deviation), projected along the ray
         // onto the tangent plane: an ellipse with its long axis in the plane of incidence.
         const Vector3 n = rec.gn;
@@ -37,13 +37,28 @@ namespace rayt {
         Vector3 w(std::abs(n.x), std::abs(n.y), std::abs(n.z));
         for (int k = 0; k < 3; ++k) if (w[k] < Real(0.02)) w[k] = 0;
         w /= w.x + w.y + w.z;
-        Real ratio = 0;
+        Real selectSum = 0;
         for (int k = 0; k < 3; ++k) {
             if (!(w[k] > Real(0))) continue;
-            const int i = (k + 1) % 3, j = (k + 2) % 3;
-            const GlintFootprint fp{ a[i] * a[i] + b[i] * b[i], a[i] * a[j] + b[i] * b[j], a[j] * a[j] + b[j] * b[j] };
-            ratio += m_glint->ratio(whLocal, Point2(rec.p[i], rec.p[j]), fp, w[k], static_cast<std::uint32_t>(k + 1));
+            const int i = (k + 1) % 3, j = (k + 2) % 3, c = planes.count++;
+            planes.stream[c] = k + 1;
+            planes.weight[c] = w[k];
+            planes.uv[c] = Point2(rec.p[i], rec.p[j]);
+            planes.fp[c] = GlintFootprint{ a[i] * a[i] + b[i] * b[i], a[i] * a[j] + b[i] * b[j], a[j] * a[j] + b[j] * b[j] };
+            planes.select[c] = m_glint->samplable(planes.fp[c]) ? w[k] : Real(0);
+            selectSum += planes.select[c];
         }
+        planes.samplable = selectSum > Real(0);
+        if (planes.samplable) for (int c = 0; c < planes.count; ++c) planes.select[c] /= selectSum;
+        return true;
+    }
+
+    Real RoughConductor::glintRatio(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& whLocal) const {
+        GlintPlanes planes;
+        if (!glintPlanes(rec, wo, planes)) return 1;
+        Real ratio = 0;
+        for (int c = 0; c < planes.count; ++c)
+            ratio += m_glint->ratio(whLocal, planes.uv[c], planes.fp[c], planes.weight[c], static_cast<std::uint32_t>(planes.stream[c]));
         return ratio;
     }
 
@@ -115,13 +130,33 @@ namespace rayt {
         // with probability 1 - E(mu_o), the energy the GGX lobe cannot account for.
         const Real pMs = m_msActive ? (Real(1) - eAt(wo_local.z)) : Real(0);
         Point2 uLobe = u;
+        // Glints: a share of the samples from the lobes of the facets under the pixel (its own random numbers: more than two).
+        bool useGlint = false;
+        GlintPlanes planes;
+        if (m_glint && glintPlanes(rec, wo, planes)) {
+            const Real pGlint = glintSampleShare(planes);
+            if (pGlint > Real(0)) {
+                if (uLobe.x < pGlint) useGlint = true;
+                else uLobe.x = (uLobe.x - pGlint) / (Real(1) - pGlint);
+            }
+        }
         bool useMs = false;
-        if (pMs > Real(0)) {
-            if (u.x < pMs) { useMs = true; uLobe.x = u.x / pMs; }
-            else { uLobe.x = (u.x - pMs) / (Real(1) - pMs); }
+        if (!useGlint && pMs > Real(0)) {
+            if (uLobe.x < pMs) { useMs = true; uLobe.x = uLobe.x / pMs; }
+            else { uLobe.x = (uLobe.x - pMs) / (Real(1) - pMs); }
         }
 
-        if (useMs) {
+        if (useGlint) {
+            int c = 0;
+            Real pick = sampling::Random();
+            while (c + 1 < planes.count && pick >= planes.select[c]) pick -= planes.select[c++];
+            Vector3 wh_local;
+            if (!(planes.select[c] > Real(0))
+                || !m_glint->sample(planes.uv[c], planes.fp[c], planes.weight[c], static_cast<std::uint32_t>(planes.stream[c]), [] { return sampling::Random(); }, wh_local))
+                return std::nullopt;
+            bsdfSample.wi = math::reflectOutward(wo, frame.localToWorld(wh_local));
+        }
+        else if (useMs) {
             const Real r = math::safe_sqrt(uLobe.x);
             const Real phi = Real(2) * constants::PI * uLobe.y;
             const Vector3 wi_ms(r * std::cos(phi), r * std::sin(phi), math::safe_sqrt(Real(1) - uLobe.x));
@@ -218,10 +253,23 @@ namespace rayt {
         const Real pdfGgx = (dot_wo_wh > Real(0.0)) ? pdf_wh / (Real(4) * dot_wo_wh) : Real(0.0);
 
         // Mixture with the multiple-scattering lobe (cosine-weighted), chosen with probability 1 - E(mu_o).
-        if (!m_msActive) return pdfGgx;
-        const Real pMs = Real(1) - eAt(wo_local.z);
-        const Real pdfMs = std::max(glm::dot(rec.n, wi), Real(0)) / constants::PI;
-        return (Real(1) - pMs) * pdfGgx + pMs * pdfMs;
+        Real pdfSmooth = pdfGgx;
+        if (m_msActive) {
+            const Real pMs = Real(1) - eAt(wo_local.z);
+            const Real pdfMs = std::max(glm::dot(rec.n, wi), Real(0)) / constants::PI;
+            pdfSmooth = (Real(1) - pMs) * pdfGgx + pMs * pdfMs;
+        }
+        // Glints: and with the samples drawn from the facets' lobes (see sample()).
+        GlintPlanes planes;
+        if (!m_glint || !glintPlanes(rec, wo, planes)) return pdfSmooth;
+        const Real pGlint = glintSampleShare(planes);
+        if (!(pGlint > Real(0))) return pdfSmooth;
+        Real pdfWh = 0;
+        for (int c = 0; c < planes.count; ++c)
+            if (planes.select[c] > Real(0))
+                pdfWh += planes.select[c] * m_glint->pdf(wh_local, planes.uv[c], planes.fp[c], planes.weight[c], static_cast<std::uint32_t>(planes.stream[c]));
+        const Real pdfGlint = (dot_wo_wh > Real(0.0)) ? pdfWh / (Real(4) * dot_wo_wh) : Real(0.0);
+        return pGlint * pdfGlint + (Real(1) - pGlint) * pdfSmooth;
     }
 
 } // namespace rayt

@@ -319,6 +319,106 @@ int RunGlintTests(const CliOptions&) {
         }
     }
 
+    // (j) Sampling the facets: the half vectors that sample() draws against the density pdf() claims, at one place on the surface.
+    //     Six moments over the disc (1, x, y, x^2, y^2, xy) of the drawn points against the same moments of the density integrated
+    //     with uniform points of the unit square; the first is the share of draws that give a sample.
+    {
+        GlintParams p;
+        p.microRoughness = Real(0.02);
+        const GlintNDF ndf(p);
+        bool ok = true;
+        std::string detail;
+        int index = 0;
+        struct Case { Real level, aspect; };
+        for (const Case& c : { Case{ Real(-1.5), 1 }, Case{ Real(0.6), 1 }, Case{ Real(2.4), 4 }, Case{ Real(4.3), 1 } }) {
+            const GlintFootprint fp = Footprint(ndf, c.level, c.aspect, Real(0.5));
+            const Point2 uv(Real(3.21), Real(7.77));
+            const Real weight = index == 2 ? Real(0.6) : Real(1);
+            const std::uint32_t stream = static_cast<std::uint32_t>(index);
+            auto moments = [](const Point2& x, double m[6]) {
+                m[0] = 1; m[1] = x.x; m[2] = x.y; m[3] = x.x * x.x; m[4] = x.y * x.y; m[5] = x.x * x.y;
+            };
+            double s[6] = {}, s2[6] = {}, t[6] = {}, t2[6] = {};
+            const int n = 3000000;
+            Rng rng(700 + index), rng2(800 + index);
+            const std::function<Real()> draw = [&rng] { return rng(); };
+            for (int i = 0; i < n; ++i) {
+                Vector3 wh;
+                if (ndf.sample(uv, fp, weight, stream, draw, wh)) {
+                    double m[6];
+                    moments(ndf.toDisc(wh), m);
+                    for (int k = 0; k < 6; ++k) { s[k] += m[k]; s2[k] += m[k] * m[k]; }
+                }
+                const Point2 x(rng2(), rng2());
+                if (math::sqr(x.x - Real(0.5)) + math::sqr(x.y - Real(0.5)) < Real(0.25)) {
+                    const Vector3 w = ndf.fromDisc(x);
+                    const double density = double(ndf.pdf(w, uv, fp, weight, stream) / ndf.jacobian(w));   // per area of the disc
+                    double m[6];
+                    moments(x, m);
+                    for (int k = 0; k < 6; ++k) { const double v = density * m[k]; t[k] += v; t2[k] += v * v; }
+                }
+            }
+            double worst = 0;
+            for (int k = 0; k < 6; ++k) {
+                const double a = s[k] / n, b = t[k] / n;
+                const double ea = std::sqrt(std::max(s2[k] / n - a * a, 0.0) / n), eb = std::sqrt(std::max(t2[k] / n - b * b, 0.0) / n);
+                const double excess = std::fabs(a - b) - 4 * std::hypot(ea, eb) - 0.002;
+                worst = std::max(worst, excess);
+                ok = ok && excess < 0;
+            }
+            detail += std::string(index ? "; " : "") + "level " + Num(c.level) + ": " + Num(s[0] / n * 100, 3) + " % of the draws give a sample, the density integrates to "
+                + Num(t[0] / n * 100, 3) + " %";
+            ++index;
+        }
+        all = Report("j  sampling the facets: six moments of the drawn half vectors against the density's (4 levels; 4 standard errors + 0.002)", ok, detail) && all;
+    }
+
+    // (k) The material's sample() with and without the facets' sampling: two estimators of the same reflectance under uniform light
+    //     (the BRDF x cosine / density, averaged), at one place on the tilted plane; and how much less the first one varies.
+    {
+        auto goldTable = std::make_shared<color::ComplexIorTable>();
+        std::string err;
+        if (!io::loadComplexIor_RefractiveIndexInfoCsv("assets/Metal_data/Johnson_Au.csv", *goldTable, &err))
+            all = Report("k  the material's sampling (cannot read the gold table: " + err + ")", false, "") && all;
+        else {
+            const SampledWavelengths lambda = SampledWavelengths::sampleVisible(Real(0.37));
+            const Vector3 n = glm::normalize(Vector3(1, 2, 3));
+            const Vector3 t1 = glm::normalize(glm::cross(n, Vector3(0, 0, 1)));
+            const Vector3 wo = glm::normalize(n * std::cos(Real(0.44)) + t1 * std::sin(Real(0.44)));
+            bool ok = true;
+            std::string detail;
+            int index = 0;
+            for (const Real spacing : { Real(0.002), Real(0.004), Real(0.012) }) {
+                RoughConductor facets(goldTable, Real(0.3)), smoothOnly(goldTable, Real(0.3));
+                GlintParams gp;
+                gp.density = Real(1e4);
+                gp.microRoughness = Real(0.01);
+                facets.setGlints(gp, Real(0.5));
+                smoothOnly.setGlints(gp, Real(0.5));
+                smoothOnly.setGlintSampling(false);
+                SurfaceInteraction rec;
+                rec.n = rec.gn = n;
+                rec.wo = wo;
+                rec.p = Point3(Real(1.3), Real(-0.4), Real(2.2));
+                rec.pixelSpacing = spacing;
+                auto estimate = [&](const RoughConductor& m, std::uint64_t seed) {
+                    return Average([&](Rng& rng) {
+                        const auto bs = m.sample(rec, wo, Point2(rng(), rng()), lambda, TransportMode::Radiance);
+                        if (!bs) return 0.0;
+                        return double(bs->f[0] * std::max(glm::dot(n, bs->wi), Real(0)) / bs->pdf);
+                    }, seed, 0.004, 4000000);
+                };
+                const Mean a = estimate(facets, 900 + index), b = estimate(smoothOnly, 950 + index);
+                ok = ok && std::fabs(a.mean - b.mean) < 4 * std::hypot(a.error, b.error) + 0.003 * b.mean;
+                const double sdA = a.error * std::sqrt(double(a.n)), sdB = b.error * std::sqrt(double(b.n));
+                detail += std::string(index ? "; " : "") + "pixel " + Num(spacing) + ": " + Num(a.mean, 4) + " +- " + Num(a.error, 2) + " against " + Num(b.mean, 4) + " +- " + Num(b.error, 2)
+                    + ", standard deviation per sample " + Num(sdA) + " against " + Num(sdB);
+                ++index;
+            }
+            all = Report("k  the material's reflectance under uniform light, sampled with and without the facets' sampling (3 pixel sizes; 4 standard errors + 0.3 %)", ok, detail) && all;
+        }
+    }
+
     // (i) The pixel's size that a camera ray hands to the surface: a plane 5 m in front of a pinhole camera (36 deg high, 9 pixels)
     //     sees, at the picture's centre, 5 x 2 tan(18 deg) / 9; in an orthographic view 2 m high, 2 / 9 at any distance.
     {

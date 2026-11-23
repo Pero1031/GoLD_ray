@@ -82,6 +82,7 @@ struct MaterialSpec {
     double glintDensity = 1e6;                     //   facets per square unit of the scene
     double glintMicroRoughness = 0.01;             //   the width of one facet's lobe (radians of the half vector)
     double glintFilter = 0.5;                      //   the pixel filter's standard deviation, in pixels
+    bool glintSampling = true;                     //   draw half of the samples from the facets (false: all from the smooth distribution)
     int glintSeed = 0;                             //   another arrangement of the facets
     // layered: a clear coat over a base (Materials/LayeredCoat.hpp). The base reuses albedo (diffuse) or metal / table / reflectance + roughness (conductor).
     double coatIor = 1.5;

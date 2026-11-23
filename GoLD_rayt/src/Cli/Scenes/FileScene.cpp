@@ -287,6 +287,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 gp.microRoughness = Real(m.glintMicroRoughness);
                 gp.seed = static_cast<std::uint32_t>(m.glintSeed);
                 metal->setGlints(gp, Real(m.glintFilter));
+                metal->setGlintSampling(m.glintSampling);
                 out.pixelFootprints = true;
             }
             materials[name] = metal;

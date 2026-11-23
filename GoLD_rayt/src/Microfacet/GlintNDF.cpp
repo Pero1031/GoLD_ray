@@ -217,6 +217,197 @@ namespace rayt {
         return sum;
     }
 
+    // ---------------------------------------------------------------------------------------------------------------------------
+    // Importance sampling (docs/GLINTS.md, section 3). The paper's procedure has no density that can be written down exactly, so
+    // this is another one with the same aim, to put samples inside the facets' lobes:
+    //   1. a level, with the probabilities of the blend between the two levels;
+    //   2. an angular cell of that level, uniformly over the unit square (probability 4^-level);
+    //   3. a facet of that cell among the spatial cells under the pixel, in proportion to its weight c_i (the pixel filter at the
+    //      facet, times the roulette that keeps it);
+    //   4. a point of the disc from the facet's proposal: its Gaussian lobe cut to the square window of half width
+    //      h = min(4 sigma, half an angular cell) around the facet (uniform in the window where it is narrower than sigma).
+    // The window keeps the density exact and cheap: a point can only come from facets of the 2 x 2 angular cells nearest to it,
+    //      p(x) = Sum_levels w_l 4^-l Sum_cells (1 / C_cell) Sum_i c_i q_i(x),   C_cell = Sum_i c_i,
+    // the same cells the evaluation visits. An empty cell or a point outside the disc gives no sample: the density integrates to
+    // less than 1, which an estimator that divides by it does not mind. The far facets' expectation is not sampled here (the
+    // smooth distribution's sampling covers it).
+    // ---------------------------------------------------------------------------------------------------------------------------
+
+    namespace {
+        struct Facet {
+            Real c = 0;        ///< the facet's weight under the pixel (the filter's Gaussian without its constant, times the roulette)
+            Real ux = 0, uy = 0;
+        };
+
+        /// The proposal of a facet at (ux, uy): its standard deviation and its window.
+        struct Proposal {
+            Real sigma, h;
+            bool uniform;
+            Real density(Real dx, Real dy) const {
+                if (std::abs(dx) > h || std::abs(dy) > h) return 0;
+                if (uniform) return Real(1) / (Real(4) * h * h);
+                const Real m = std::erf(h / (sigma * Real(1.4142135623730951)));
+                return std::exp(Real(-0.5) * (dx * dx + dy * dy) / (sigma * sigma)) / (Real(2) * constants::PI * sigma * sigma * m * m);
+            }
+        };
+    }   // namespace
+
+    Real GlintNDF::jacobianAtDisc(const Point2& u) const {
+        const Real px = Real(2) * (u.x - Real(0.5)), py = Real(2) * (u.y - Real(0.5));
+        const Real r2 = std::min(px * px + py * py, Real(1));
+        const Real k2 = Real(2) - r2;
+        // |M^-1 s|^3 / (8 ax ay) for the hemisphere normal s = (px k, py k, 1 - r2)
+        const Real n2 = (math::sqr(m_p.alphaX * px) + math::sqr(m_p.alphaY * py)) * k2 + math::sqr(Real(1) - r2);
+        return n2 * std::sqrt(n2) / (Real(8) * m_p.alphaX * m_p.alphaY);
+    }
+
+    namespace {
+        /// The facet of one cell (spatial ix, iy; angular ax, ay), as the evaluation generates it; false where there is none under the
+        /// pixel (dropped by the roulette, outside the disc, beyond the filter).
+        template <class Q>
+        bool MakeFacet(const Q& q, std::int64_t ix, std::int64_t iy, std::int64_t ax, std::int64_t ay, int level, Real weight, Real eps,
+            std::uint32_t seed, std::uint32_t stream, Facet& f) {
+            const Real cell = std::ldexp(Real(1), level), invResA = std::ldexp(Real(1), -level);
+            FacetRandom rnd(ix, iy, ax, ay, level, seed, stream);
+            const Real r = rnd.next();
+            Real keep;
+            if (eps > Real(0)) {
+                const Real lo = std::max(Real(0), r - eps), hi = std::min(Real(1), r + eps);
+                const Real t = std::clamp((weight - lo) / (hi - lo), Real(0), Real(1));
+                keep = t * t * (Real(3) - Real(2) * t);
+            }
+            else keep = r < weight ? Real(1) : Real(0);
+            if (keep == Real(0)) return false;
+            f.ux = (static_cast<Real>(ax) + rnd.next()) * invResA;
+            f.uy = (static_cast<Real>(ay) + rnd.next()) * invResA;
+            if (math::sqr(f.ux - Real(0.5)) + math::sqr(f.uy - Real(0.5)) >= Real(0.25)) return false;
+            const Real dx = q.gx - (static_cast<Real>(ix) + rnd.next()) * cell, dy = q.gy - (static_cast<Real>(iy) + rnd.next()) * cell;
+            const Real es = Real(0.5) * (q.ixx * dx * dx + Real(2) * q.ixy * dx * dy + q.iyy * dy * dy);
+            if (es > Real(40)) return false;
+            f.c = keep * std::exp(-es);
+            return true;
+        }
+    }   // namespace
+
+    Real GlintNDF::levelPdf(const Query& q, int level, Real weight, std::uint32_t stream, const Point2& x) const {
+        const Real cell = std::ldexp(Real(1), level);
+        const std::int64_t resA = std::int64_t(1) << level;
+        const Real invResA = Real(1) / static_cast<Real>(resA);
+        const std::int64_t a0x = static_cast<std::int64_t>(std::floor(x.x * static_cast<Real>(resA) - Real(0.5)));
+        const std::int64_t a0y = static_cast<std::int64_t>(std::floor(x.y * static_cast<Real>(resA) - Real(0.5)));
+        const std::int64_t i0x = static_cast<std::int64_t>(std::floor((q.gx - q.hx) / cell)), i1x = static_cast<std::int64_t>(std::floor((q.gx + q.hx) / cell));
+        const std::int64_t i0y = static_cast<std::int64_t>(std::floor((q.gy - q.hy) / cell)), i1y = static_cast<std::int64_t>(std::floor((q.gy + q.hy) / cell));
+        Real p = 0;
+        for (std::int64_t ay = std::max<std::int64_t>(a0y, 0); ay <= std::min(a0y + 1, resA - 1); ++ay)
+            for (std::int64_t ax = std::max<std::int64_t>(a0x, 0); ax <= std::min(a0x + 1, resA - 1); ++ax) {
+                Real total = 0, here = 0;
+                for (std::int64_t iy = i0y; iy <= i1y; ++iy)
+                    for (std::int64_t ix = i0x; ix <= i1x; ++ix) {
+                        Facet f;
+                        if (!MakeFacet(q, ix, iy, ax, ay, level, weight, m_p.rouletteSoftness, m_p.seed, stream, f)) continue;
+                        total += f.c;
+                        const Real sigma = m_p.microRoughness * std::sqrt(jacobianAtDisc(Point2(f.ux, f.uy)));
+                        const Real h = std::min(Real(4) * sigma, Real(0.5) * invResA);
+                        here += f.c * Proposal{ sigma, h, h < sigma }.density(x.x - f.ux, x.y - f.uy);
+                    }
+                if (total > Real(0)) p += here / total;
+            }
+        return p * invResA * invResA;
+    }
+
+    bool GlintNDF::levelSample(const Query& q, int level, Real weight, std::uint32_t stream, const std::function<Real()>& rnd, Point2& x) const {
+        const Real cell = std::ldexp(Real(1), level);
+        const std::int64_t resA = std::int64_t(1) << level;
+        const Real invResA = Real(1) / static_cast<Real>(resA);
+        const std::int64_t ax = std::min(static_cast<std::int64_t>(rnd() * static_cast<Real>(resA)), resA - 1);
+        const std::int64_t ay = std::min(static_cast<std::int64_t>(rnd() * static_cast<Real>(resA)), resA - 1);
+        const std::int64_t i0x = static_cast<std::int64_t>(std::floor((q.gx - q.hx) / cell)), i1x = static_cast<std::int64_t>(std::floor((q.gx + q.hx) / cell));
+        const std::int64_t i0y = static_cast<std::int64_t>(std::floor((q.gy - q.hy) / cell)), i1y = static_cast<std::int64_t>(std::floor((q.gy + q.hy) / cell));
+        // the cell's facets under the pixel: one of them in proportion to its weight (a reservoir of one)
+        Real total = 0;
+        Facet chosen;
+        const Real pick = rnd();
+        // two passes keep the choice a plain inversion of the cumulative weights
+        for (int pass = 0; pass < 2; ++pass) {
+            Real run = 0;
+            bool done = false;
+            for (std::int64_t iy = i0y; iy <= i1y && !done; ++iy)
+                for (std::int64_t ix = i0x; ix <= i1x && !done; ++ix) {
+                    Facet f;
+                    if (!MakeFacet(q, ix, iy, ax, ay, level, weight, m_p.rouletteSoftness, m_p.seed, stream, f)) continue;
+                    if (pass == 0) total += f.c;
+                    else {
+                        run += f.c;
+                        chosen = f;
+                        if (run >= pick * total) done = true;
+                    }
+                }
+            if (pass == 0 && !(total > Real(0))) return false;
+        }
+        const Real sigma = m_p.microRoughness * std::sqrt(jacobianAtDisc(Point2(chosen.ux, chosen.uy)));
+        const Real h = std::min(Real(4) * sigma, Real(0.5) * invResA);
+        Real dx, dy;
+        if (h < sigma) {
+            dx = (Real(2) * rnd() - Real(1)) * h;
+            dy = (Real(2) * rnd() - Real(1)) * h;
+        }
+        else {
+            // the Gaussian, drawn again while it falls outside the window (at least 46 % fall inside)
+            int tries = 0;
+            do {
+                const Real r = sigma * std::sqrt(Real(-2) * std::log(std::max(Real(1) - rnd(), Real(1e-300))));
+                const Real phi = Real(2) * constants::PI * rnd();
+                dx = r * std::cos(phi);
+                dy = r * std::sin(phi);
+            } while ((std::abs(dx) > h || std::abs(dy) > h) && ++tries < 200);
+            if (tries >= 200) return false;
+        }
+        x = Point2(chosen.ux + dx, chosen.uy + dy);
+        return math::sqr(x.x - Real(0.5)) + math::sqr(x.y - Real(0.5)) < Real(0.25);
+    }
+
+    bool GlintNDF::samplable(const GlintFootprint& fp) const {
+        const Real l = level(fp);
+        return std::isfinite(l) && l < kSampleLevel;
+    }
+
+    bool GlintNDF::sample(const Point2& uv, const GlintFootprint& fp, Real weight, std::uint32_t stream, const std::function<Real()>& rnd, Vector3& wh) const {
+        Query q;
+        if (!(weight > Real(0)) || !SpatialQuery(q, uv, fp, m_p.density)) return false;
+        const Real lambda = std::log2(kCellsPerSigma * q.sigmaMax);
+        if (!(lambda < Real(kMaxLevel))) return false;
+        Point2 x;
+        if (lambda <= Real(0)) {
+            if (!levelSample(q, 0, weight, stream, rnd, x)) return false;
+        }
+        else {
+            const int l0 = static_cast<int>(std::floor(lambda));
+            const Real w1 = lambda - static_cast<Real>(l0);
+            const bool upper = rnd() < w1;
+            if (!levelSample(q, upper ? l0 + 1 : l0, weight * (upper ? w1 : Real(1) - w1), stream, rnd, x)) return false;
+        }
+        wh = fromDisc(x);
+        return wh.z > Real(0);
+    }
+
+    Real GlintNDF::pdf(const Vector3& wh, const Point2& uv, const GlintFootprint& fp, Real weight, std::uint32_t stream) const {
+        if (!(wh.z > Real(0)) || !(weight > Real(0))) return 0;
+        Query q;
+        if (!SpatialQuery(q, uv, fp, m_p.density)) return 0;
+        const Real lambda = std::log2(kCellsPerSigma * q.sigmaMax);
+        if (!(lambda < Real(kMaxLevel))) return 0;
+        const Point2 x = toDisc(wh);
+        Real p;
+        if (lambda <= Real(0)) p = levelPdf(q, 0, weight, stream, x);
+        else {
+            const int l0 = static_cast<int>(std::floor(lambda));
+            const Real w1 = lambda - static_cast<Real>(l0);
+            p = (Real(1) - w1) * levelPdf(q, l0, weight * (Real(1) - w1), stream, x);
+            if (w1 > Real(0)) p += w1 * levelPdf(q, l0 + 1, weight * w1, stream, x);
+        }
+        return p * jacobian(wh);   // from area in the disc to solid angle of the half vector
+    }
+
     Real GlintNDF::ratioExhaustive(const Vector3& wh, const Point2& uv, const GlintFootprint& fp, int level) const {
         if (!(wh.z > Real(0))) return 0;
         Query q;

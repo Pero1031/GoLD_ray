@@ -28,6 +28,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 
 #include "Core/Types.hpp"
 
@@ -68,6 +69,18 @@ namespace rayt {
         /// For the checks: every facet of one level summed one by one (no roulette, no expectation); D* / D of that level alone.
         Real ratioExhaustive(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint, int level) const;
 
+        /// Draws a half vector from the lobes of the facets under the pixel (`rnd` gives uniform numbers in [0, 1)); false where it
+        /// finds none. `weight` and `stream` as in ratio(). See the .cpp for the procedure.
+        bool sample(const Point2& uv, const GlintFootprint& footprint, Real weight, std::uint32_t stream, const std::function<Real()>& rnd, Vector3& wh) const;
+
+        /// The density of sample()'s half vectors per solid angle. It integrates to the share of draws that give a sample.
+        Real pdf(const Vector3& wh, const Point2& uv, const GlintFootprint& footprint, Real weight = Real(1), std::uint32_t stream = 0) const;
+
+        /// Whether sampling the facets pays for this footprint: only while the pixel holds few facets (below level kSampleLevel).
+        /// With more of them the smooth distribution's sampling finds the lobes often enough, and the density costs more than it saves
+        /// (measured on scenes/glints_spheres.json: docs/GLINTS.md).
+        bool samplable(const GlintFootprint& footprint) const;
+
         /// The level (real-valued) the footprint asks for; negative when the pixel is smaller than a cell of level 0.
         Real level(const GlintFootprint& footprint) const;
 
@@ -77,14 +90,19 @@ namespace rayt {
         Vector3 fromDisc(const Point2& u) const;
         /// Area in the disc per solid angle of the micro-normal: det M / (8 |M w|^3).
         Real jacobian(const Vector3& wh) const;
+        /// The same Jacobian at a point of the disc.
+        Real jacobianAtDisc(const Point2& u) const;
 
         static constexpr int kMaxLevel = 20;        ///< beyond it a pixel holds so many facets that the distribution is the smooth one
         static constexpr Real kCellsPerSigma = 4;   ///< a cell of the chosen level is 2 to 4 standard deviations of the filter wide
+        static constexpr Real kSampleLevel = Real(1.5);   ///< the facets are sampled below this level (about 3 facets per pixel)
         static constexpr Real kFilterReach = 4;     ///< the spatial cells within this many standard deviations are visited
 
     private:
         struct Query;
         Real levelSum(const Query& q, int level, Real weight, bool exhaustive, std::uint32_t stream) const;
+        Real levelPdf(const Query& q, int level, Real weight, std::uint32_t stream, const Point2& x) const;
+        bool levelSample(const Query& q, int level, Real weight, std::uint32_t stream, const std::function<Real()>& rnd, Point2& x) const;
 
         GlintParams m_p;
     };
