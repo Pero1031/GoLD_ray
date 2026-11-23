@@ -71,7 +71,7 @@ A form-2 file is rendered as the scene named `file`. `"scene"` and `"objects"` c
 - **Physical exposure.** `iso` (the ISO speed): the f-number, the `shutter` and the ISO speed set the brightness of the picture as in a camera (f/16 is 64 times darker than f/2 at the same shutter). It needs `fStop` (or a `lens`), `shutter` and the option `nits` (`"options": { "nits": 100 }`: the luminance in cd/m² of a radiance whose Y is 1). See [`CAMERA.md`](CAMERA.md).
 - **Diffraction.** `diffraction` (0 or omitted = off, 1 = the real size, up to 100 = enlarged that many times): the star of bright points from the aperture's shape (`fStop` required; the spikes follow `blades` and `bladeRotation`). See [`CAMERA.md`](CAMERA.md).
 - **Ghosts.** `ghosts`: `"coated"` (a single anti-reflection coating on every glass-air surface), `"uncoated"` (bare glass) or `"off"`:
-  the lens flare of the scene's lights through a real lens (`lens` required). See [`CAMERA.md`](CAMERA.md).
+  the lens flare of the scene's lights and of an environment map's sun through a real lens (`lens` required). See [`CAMERA.md`](CAMERA.md).
 - **Command line.** `--lens`, `--ortho`, `--diffraction`, `--ghosts`, `--focal-length`, `--fstop`, `--focus-dist`, `--focus-at`, `--blades`, `--blade-rotation`, `--distortion K1[,K2]`, `--lateral-ca`, `--axial-ca`, `--vignette`, `--vignette-dist`, `--natural-vignette`, `--shutter T` (seconds, or `1/60`), `--cam-velocity x,y,z`, `--pan YAW[,PITCH]` and `--iso S` override the values in the file (they also work with built-in scenes).
 
 **Materials (`type`)**

@@ -5,6 +5,8 @@
 #include "Color/ColorSpace.hpp"
 #include "Geometry/Quad.hpp"
 #include "Geometry/Sphere.hpp"
+#include "IO/EnvMap.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Materials/Lambertian.hpp"
 #include "Lights/PointLight.hpp"
 #include "Render/LensFlare.hpp"
@@ -602,6 +604,82 @@ int RunCameraTests() {
             worstChannel < 0.005 && totalOff < 0.005 && blockOff < 0.03,
             "singlet off by " + fmt(worstChannel * 100) + " %; double-Gauss total off by " + fmt(totalOff * 100) + " %, blocks by " + fmt(blockOff * 100)
                 + " % of the brightest" + (error.empty() ? "" : " (" + error + ")"));
+    }
+
+    // (u) The ghosts of an environment map's sun: a 512 x 256 map of a dim sky (0.2) with a block of 3 x 3 texels of radiance 5e5, 8 deg
+    //     off the axis of the coated double-Gauss, against a point light 1 km away in the block's direction whose intensity gives the
+    //     lens the irradiance of the block (its radiance times its texels' solid angles, summed here): the totals (0.5 %) and the light
+    //     in 6 x 4 blocks of the picture (3 % of the brightest block), summed over R, G and B. A map without a sun (the sky alone, whose
+    //     brightest texels fill the 2 deg cap) must still give a finite picture.
+    {
+        const Real pi = Real(3.14159265358979323846);
+        const int ew = 512, eh = 256, fw = 72, fh = 48;
+        const Real a = Real(8) * pi / 180, sunL = 5e5;
+        std::vector<Vector3> px(static_cast<size_t>(ew) * eh, Vector3(0.2));
+        // the texel that holds the direction (sin a, 0, -cos a): u = (atan2(z, x) + pi) / 2 pi, the row just below the horizon
+        const int sx = static_cast<int>((std::atan2(-std::cos(a), std::sin(a)) + pi) / (2 * pi) * ew), sy = eh / 2;
+        Real irradiance = 0;
+        for (int y = sy - 1; y <= sy + 1; ++y)
+            for (int x = sx - 1; x <= sx + 1; ++x) {
+                px[static_cast<size_t>(y) * ew + x] = Vector3(sunL);
+                irradiance += sunL * (2 * pi / ew) * (pi / eh) * std::sin(pi * (Real(y) + Real(0.5)) / eh);
+            }
+        const Real phi = (Real(sx) + Real(0.5)) / ew * 2 * pi - pi, theta = pi * (Real(sy) + Real(0.5)) / eh;
+        const Vector3 sunDir(std::sin(theta) * std::cos(phi), std::cos(theta), std::sin(theta) * std::sin(phi));
+        std::string error;
+        auto dg = LensSystem::load("assets/Lenses/dgauss_50mm.txt", error);
+        Real totalOff = 1, blockOff = 1;
+        bool finite = false;
+        if (dg) {
+            dg->setFNumber(4);
+            dg->setStopShape(6, Real(0.2));
+            dg->focus(10.0);
+            dg->prepare(Real(0.036), Real(0.024));
+            auto cam = std::make_shared<Camera>(Point3(0.0), Point3(0, 0, -1), Vector3(0, 1, 0), 40.0, 1.5, 0.0, 10.0);
+            cam->setLensSystem(dg);
+            auto emptyScene = [&]() {
+                auto world = std::make_shared<Aggregate>();
+                world->add(std::make_shared<Quad>(Point3(-50, -50, 20), Vector3(100, 0, 0), Vector3(0, 100, 0), std::make_shared<Lambertian>(RgbColor(Vector3(0.0)))));
+                return std::make_shared<Scene>(world);
+            };
+            auto envScene = emptyScene();
+            envScene->setEnvLight(std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(ew, eh, std::move(px))), 1.0));
+            envScene->finalize("uniform");
+            const Real dist = 1000;
+            auto pointScene = emptyScene();
+            pointScene->addLight(std::make_shared<PointLight>(Point3(sunDir * dist), RgbColor(1.0, 1.0, 1.0), irradiance * dist * dist));
+            pointScene->finalize("uniform");
+            LensFlareSettings fs;
+            fs.wavelengths = 4;
+            const auto sun = RenderLensFlare(*envScene, *cam, fw, fh, fs);
+            const auto point = RenderLensFlare(*pointScene, *cam, fw, fh, fs);
+            Real ts = 0, tp = 0, bmax = 0, bdiff = 0;
+            for (int by = 0; by < 4; ++by)
+                for (int bx = 0; bx < 6; ++bx) {
+                    Real s = 0, p = 0;
+                    for (int y = by * fh / 4; y < (by + 1) * fh / 4; ++y)
+                        for (int x = bx * fw / 6; x < (bx + 1) * fw / 6; ++x) {
+                            const Vector3& vs = sun[static_cast<size_t>(y) * fw + x];
+                            const Vector3& vp = point[static_cast<size_t>(y) * fw + x];
+                            s += vs.x + vs.y + vs.z;
+                            p += vp.x + vp.y + vp.z;
+                        }
+                    ts += s; tp += p;
+                    bmax = std::max(bmax, std::fabs(p));
+                    bdiff = std::max(bdiff, std::fabs(s - p));
+                }
+            totalOff = tp > 0 ? std::fabs(ts / tp - 1) : 1;
+            blockOff = bmax > 0 ? bdiff / bmax : 1;
+            auto skyScene = emptyScene();
+            skyScene->setEnvLight(std::make_shared<EnvLight>(std::make_shared<EnvMap>(Image(64, 32, std::vector<Vector3>(64 * 32, Vector3(0.2)))), 1.0));
+            skyScene->finalize("uniform");
+            finite = true;
+            for (const Vector3& v : RenderLensFlare(*skyScene, *cam, fw, fh, fs)) finite = finite && std::isfinite(v.x + v.y + v.z);
+        }
+        report("u  ghosts: an environment map's sun against a point light of the same irradiance in its direction",
+            totalOff < 0.005 && blockOff < 0.03 && finite,
+            "total off by " + fmt(totalOff * 100) + " %, blocks by " + fmt(blockOff * 100) + " % of the brightest"
+                + (finite ? "" : "; the sky alone gives a picture that is not finite") + (error.empty() ? "" : " (" + error + ")"));
     }
 
     // (m) The double-Gauss in a camera at the origin looking down -z: the weight averages 1 at the film centre and falls in the corner

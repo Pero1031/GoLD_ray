@@ -126,6 +126,54 @@ namespace rayt {
         /// Luminance averaged over the sphere (solid-angle weighted), before any light scale.
         Real averageLuminance() const { return m_avgLuminance; }
 
+        /**
+         * @brief The map's sun: the texels within `radius` (radians) of the brightest one whose luminance exceeds `fraction` of it.
+         * @param direction  their luminance-weighted mean direction (unit, toward the sun)
+         * @param irradiance their radiance times their solid angle, summed (RGB): the irradiance they give a plane facing them
+         * @param spread     the largest angle between a texel of the sun and `direction`
+         * @return false for an empty map
+         */
+        bool brightSpot(Real fraction, Real radius, Vector3& direction, Vector3& irradiance, Real& spread) const {
+            const int w = m_img.width(), h = m_img.height();
+            if (!m_img.isValid() || w <= 0 || h <= 0) return false;
+            int bx = 0, by = 0;
+            Real top = -1;
+            for (int y = 0; y < h; ++y)
+                for (int x = 0; x < w; ++x) {
+                    const Real l = luminance(m_img.at(x, y));
+                    if (l > top) { top = l; bx = x; by = y; }
+                }
+            if (!(top > Real(0))) return false;
+            auto dirOf = [&](int x, int y) { return uvToDir((Real(x) + Real(0.5)) / Real(w), Real(1) - (Real(y) + Real(0.5)) / Real(h)); };
+            const Vector3 peak = dirOf(bx, by);
+            const Real cosRadius = std::cos(radius);
+            // the texels near the peak: a window of rows and columns wide enough for `radius` (the columns widen toward the poles)
+            const int dy = static_cast<int>(std::ceil(radius / constants::PI * Real(h))) + 1;
+            Vector3 dirSum(0.0);
+            irradiance = Vector3(0.0);
+            std::vector<Vector3> dirs;
+            for (int y = std::max(0, by - dy); y <= std::min(h - 1, by + dy); ++y) {
+                const Real sinTheta = std::max(sinThetaFromV(Real(1) - (Real(y) + Real(0.5)) / Real(h)), Real(1e-6));
+                const int dx = std::min(w / 2, static_cast<int>(std::ceil(radius / (Real(2) * constants::PI * sinTheta) * Real(w))) + 1);
+                const Real dOmega = (Real(2) * constants::PI / Real(w)) * (constants::PI / Real(h)) * sinTheta;
+                for (int i = -dx; i <= dx; ++i) {
+                    const int x = ((bx + i) % w + w) % w;
+                    const Vector3 rgb = m_img.at(x, y);
+                    const Real l = luminance(rgb);
+                    if (l <= fraction * top) continue;
+                    const Vector3 d = dirOf(x, y);
+                    if (glm::dot(d, peak) < cosRadius) continue;
+                    irradiance += rgb * dOmega;
+                    dirSum += d * (l * dOmega);
+                    dirs.push_back(d);
+                }
+            }
+            direction = glm::normalize(dirSum);
+            spread = 0;
+            for (const Vector3& d : dirs) spread = std::max(spread, std::acos(std::clamp(glm::dot(d, direction), Real(-1), Real(1))));
+            return true;
+        }
+
     private:
         Image m_img;
 

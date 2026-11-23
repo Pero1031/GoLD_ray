@@ -19,7 +19,8 @@
  *
  * Approximations: a light is a parallel beam over the lens (its direction from the lens's centre; the lens is millimetres across);
  * the light reaches the lens or not as a whole (one shadow ray); the reflectances are those of unpolarized light at each interface
- * (the polarization picked up at the first reflection is not carried to the second); environment lights are left out.
+ * (the polarization picked up at the first reflection is not carried to the second). An environment map casts the ghosts of its sun
+ * only (EnvMap::brightSpot: the texels within 2 deg of the brightest above 1 % of it, as one beam), not of the rest of its sky.
  */
 
 #pragma once

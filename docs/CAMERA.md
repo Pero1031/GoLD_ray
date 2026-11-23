@@ -80,7 +80,8 @@ more is left out (weaker by another R², 10⁻³ to 10⁻⁴).
 - **Traced from the lights.** A camera path rarely takes the two reflections and never reaches a point light, so the ghosts are traced
   from the lights after the picture is rendered (Hullin, Eisemann, Seidel and Lee 2011, traced exactly here instead of their polynomial
   fits). For every light (an area light as up to four points, one when they lie within 0.25° of each other), every pair of surfaces and a
-  set of wavelength bands, a parallel beam crosses the lens: a coarse 48 × 48 grid over the entrance finds where its light gets
+  set of wavelength bands, a parallel beam crosses the lens (an environment map gives one beam, its sun: the texels within 2° of the
+  brightest one that are brighter than 1 % of it, with their summed irradiance and mean direction; the rest of the sky casts no ghosts): a coarse 48 × 48 grid over the entrance finds where its light gets
   through, a fine 192 × 192 grid over that box is traced through the ghost's path without the clear apertures
   (`LensSystem::traceGhost`), and its cells become triangles on the film. A triangle spreads its cell's light over its area; the points
   where its rays crossed the stop and how near they came to each rim are interpolated and tested per sub-pixel, so a ghost keeps the
@@ -253,7 +254,8 @@ light's colour through 32 bands). The 45 ghosts of the coated double-Gauss at f/
 an estimate that sends one ray through each of 400 × 400 jittered strata of the entrance and lets it land in one pixel with its exact
 clipping: the totals agree within 0.02 % and every block of a 6 × 4 division of the picture within 0.11 % of the brightest. (With
 random instead of stratified rays the two first differed by 6 %: the random estimate's noise, shared by every ghost through the same
-random points.)
+random points.) An environment map's sun (3 × 3 texels of a 512 × 256 map, 8° off the axis) gives the ghosts of a point light with the
+same irradiance in its direction: totals within 0.005 %, blocks within 0.008 %.
 
 Diffraction, also in `--scene camera`: the transform of the aperture (disc, 6 and 7 blades) against a direct sum over it (7 × 10⁻⁵ of the
 area); the Airy disc holds 83.8 % of the light inside its first dark ring and disc and heptagon nearly all of it within 60 λN; an enlarged
@@ -297,7 +299,8 @@ The aberrations, the polygonal aperture, the vignetting and the motion blur have
   shading correction and no maker's tone curve (each a maker's own design); the display mapping (`--tonemap`, the sRGB curve) follows.
 - Physical exposure ignores the glass's transmittance (a real lens passes about 90 %: its T-stop is a little slower than its f-number); the sensor's noise and full well come with `--sensor`. It sets the exposure of the centre from the focus distance and the f-number at the d line.
 - The ghosts: a light is a parallel beam over the lens (its direction from the lens's centre) that reaches the lens or not as a whole
-  (one shadow ray); environment lights cast none; light reflected four times or more, the reflection of the sensor itself, scattering
+  (one shadow ray); of an environment map only the sun casts ghosts, as one beam (without a sun, the map's
+  brightest patch); light reflected four times or more, the reflection of the sensor itself, scattering
   in the lens (veiling glare) and the rays a coarse grid cell misses (a passing region thinner than 1/48 of the entrance) are left out;
   the reflectances are the unpolarized ones at each interface (the polarization of the first reflection is not carried to the second);
   multilayer coatings and filters' dichroic stacks are not modelled (their designs are not published). Only for a real lens. The

@@ -1,0 +1,13 @@
+{
+ "comment": "A real sunrise over the sea (the Umhlanga Sunrise HDRI of Poly Haven, CC0, not in the repository for its size: put its 16k .hdr in assets/env/polyhaven/) photographed through the double-Gauss at f/8 with seven blades: the star of the sun is the aperture's diffraction, the ghosts are the light the coated lens surfaces reflect twice (docs/CAMERA.md).",
+ "options": {"width": 1280, "height": 720, "spp": 64, "depth": 4, "denoise": true},
+ "camera": {"from": [0, 0, 0], "at": [0.758, -0.045, 0.651], "up": [0, 1, 0], "lens": "assets/Lenses/dgauss_50mm.txt", "fStop": 8, "blades": 7,
+            "diffraction": 1, "ghosts": "coated", "focusDistance": 1000},
+ "environment": {"type": "hdr", "file": "assets/env/polyhaven/umhlanga_sunrise_16k.hdr", "scale": 1.0},
+ "materials": {
+  "hidden": {"type": "diffuse", "albedo": [0.5, 0.5, 0.5]}
+ },
+ "objects": [
+  {"shape": "sphere", "center": [-5, 0, -5], "radius": 0.01, "material": "hidden"}
+ ]
+}

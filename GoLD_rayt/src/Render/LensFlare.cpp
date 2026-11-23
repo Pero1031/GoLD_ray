@@ -14,6 +14,7 @@
 
 #include "Color/SpectralConversion.hpp"
 #include "Core/SampledWavelengths.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Lights/Light.hpp"
 #include "Render/Camera.hpp"
 #include "Scene/Scene.hpp"
@@ -109,9 +110,54 @@ namespace rayt {
             ctx.p = camera.lensPointToWorld(Point3(0, 0, su.zTop));
             ctx.gn = Vector3(0.0);
             int points = 0;
+            // a light point's beams to f: the spectral build's bands one by one (each bent its own way), the RGB build's all at once
+            auto emit = [&](const BeamSet& set) {
+                ++points;
+#if defined(RAYT_SPECTRAL_MODE)
+                for (int k = 0; k < bands; ++k) {
+                    if (set.rgb[static_cast<size_t>(k)] == Vector3(0.0)) continue;
+                    f(BeamSet{ set.dir, { set.nm[static_cast<size_t>(k)] }, { set.rgb[static_cast<size_t>(k)] } });
+                }
+#else
+                f(set);
+#endif
+            };
             for (const auto& light : scene.allLights()) {
                 const LightType type = light->type();
-                if (type == LightType::Infinite) continue;
+                if (type == LightType::Infinite) {
+                    // an environment map: its sun (the texels within 2 deg of the brightest above 1 % of it) as one beam; the rest of the
+                    // sky casts no ghosts here
+                    const auto* env = dynamic_cast<const EnvLight*>(light.get());
+                    Vector3 sunDir, sunE;
+                    Real spread = 0;
+                    if (!env || !env->envMap() || !env->envMap()->brightSpot(Real(0.01), Real(2) * Real(3.14159265358979323846) / Real(180), sunDir, sunE, spread))
+                        continue;
+                    sunE *= env->scale();
+                    const Vector3 dir = glm::normalize(camera.worldDirToLens(-sunDir));
+                    if (scene.occluded(Ray(ctx.p, sunDir)) || !(dir.z < Real(-1e-6))) continue;
+                    BeamSet set;
+                    set.dir = dir;
+                    set.nm = bandNm;
+                    set.rgb.assign(static_cast<size_t>(bands), Vector3(0.0));
+                    for (int k0 = 0; k0 < bands; k0 += kSpectralSamples) {
+                        SampledWavelengths lambda;
+                        for (int q = 0; q < kSpectralSamples; ++q) {
+                            lambda.lambda[static_cast<size_t>(q)] = bandNm[static_cast<size_t>(std::min(k0 + q, bands - 1))];
+                            lambda.pdf[static_cast<size_t>(q)] = Real(1) / (hi - lo);
+                        }
+                        const Spectrum e = RgbToIlluminantSpectrum(sunE, lambda);   // as the map's radiance is turned into a spectrum
+#if defined(RAYT_SPECTRAL_MODE)
+                        for (int q = 0; q < kSpectralSamples && k0 + q < bands; ++q)
+                            set.rgb[static_cast<size_t>(k0 + q)] = bandWeight[static_cast<size_t>(k0 + q)] * (e[q] / su.gc);
+#else
+                        const Vector3 rgbE = SpectrumToRGB(e, lambda) / su.gc;
+                        for (int k = 0; k < bands; ++k) set.rgb[static_cast<size_t>(k)] = rgbE * bandWeight[static_cast<size_t>(k)];
+                        break;
+#endif
+                    }
+                    emit(set);
+                    continue;
+                }
                 const bool delta = type == LightType::DeltaPosition || type == LightType::DeltaDirection;
                 const int m = delta ? 1 : std::max(1, st.lightSamples);
                 const int side = static_cast<int>(std::ceil(std::sqrt(double(m))));
@@ -161,17 +207,7 @@ namespace rayt {
                     merged.dir = glm::normalize(dirSum);
                     sets.assign(1, merged);
                 }
-                for (const BeamSet& set : sets) {
-                    ++points;
-#if defined(RAYT_SPECTRAL_MODE)
-                    for (int k = 0; k < bands; ++k) {
-                        if (set.rgb[static_cast<size_t>(k)] == Vector3(0.0)) continue;
-                        f(BeamSet{ set.dir, { set.nm[static_cast<size_t>(k)] }, { set.rgb[static_cast<size_t>(k)] } });
-                    }
-#else
-                    f(set);
-#endif
-                }
+                for (const BeamSet& set : sets) emit(set);
             }
             return points;
         }
