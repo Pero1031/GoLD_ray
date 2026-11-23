@@ -94,6 +94,8 @@ more is left out (weaker by another R², 10⁻³ to 10⁻⁴).
   traces one path for all bands, so its ghosts take the coating's colour but no dispersion.
 - **Cost.** The double-Gauss with two small lamps in a 640 × 360 picture: about 2 s in the RGB build, 18 s in the spectral build (eight
   bands each); it grows with the number of lights, of surfaces (pairs) and the area the ghosts cover.
+- **Examples.** `scenes/lens_flare.json` (two small lamps at night through the double-Gauss) and `scenes/beach_sunrise_flare.json` (the
+  sun of an HDR sky; the map is not in the repository).
 
 ### Physical exposure (`--iso S --nits K`, camera `"iso"`; `Render/Exposure.hpp`)
 

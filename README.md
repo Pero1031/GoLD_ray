@@ -125,6 +125,11 @@ and under a lamp.
 
 <img src="docs/img/gallery_gilt_leather.png" alt="The same gilt leather under daylight and under a 3200 K lamp; in each, the left half is gold leaf and the right half silver leaf under a yellow varnish, and the two halves look alike" width="820">
 
+**Metallic paint** (`scenes/glints_paint.json`): the flakes under the lacquer flash one by one. Left, the same paint as a smooth
+average ([details](docs/GLINTS.md)).
+
+<img src="docs/img/glints_paint.png" alt="Three spheres in metallic paint: a smooth red one, a red one with fine flakes and a blue one with coarser flakes that sparkle" width="720">
+
 **Faded paper under an LED mix**: dye papers measured as they faded under simulated sunlight (a lab measurement, not in this repository);
 a mat kept the border of each sheet at its first color.
 
@@ -188,7 +193,7 @@ GoLD_rayt.exe --scene metals                                            :: a sel
 ```
 
 A scene file describes materials, shapes, meshes, lights and the camera as JSON ([docs/SCENE_FILE.md](docs/SCENE_FILE.md)).
-Main options (`--help` lists all):
+Main options (`--help` lists more):
 
 | Option | Meaning |
 |---|---|
@@ -208,16 +213,16 @@ Main options (`--help` lists all):
 
 - **Path tracing** with next-event estimation, multiple importance sampling and Russian roulette; Embree or an own SAH BVH; Intel OIDN.
 - **Materials**: diffuse, rough and anisotropic metals with multiple-scattering compensation, rough and dispersive glass, thin films,
-  layered clear coats, measured BRDF tables (hpBRDF), fluorescent surfaces, a mix of two materials by a mask, hair fibers, skin
+  layered clear coats, glints from single flakes, measured BRDF tables (hpBRDF), fluorescent surfaces, a mix of two materials by a mask, hair fibers, skin
   (relief, pigment, oily and dry patches, water, lotion, foundation: [skin](docs/SKIN.md), [make-up](docs/COSMETICS.md)), fading dyes.
 - **Translucency**: scattering media with colored coefficients and noise densities, tabulated phase functions (Mie), subsurface
   scattering by a profile or a random walk ([details](docs/SSS.md)).
 - **Geometry**: spheres, rectangles, triangle meshes (OBJ, PLY, STL, PMX), surfaces of revolution, an ocean from a wave spectrum
   ([details](docs/WATER.md)), hair curves, 3D Gaussian Splatting point clouds.
 - **Camera** ([details](docs/CAMERA.md)): thin lens with polygonal aperture, real lens prescriptions with the glasses of their patents,
-  aberrations, vignetting, diffraction, motion blur, an orthographic view, physical exposure, a camera's spectral sensitivities, a sensor
+  aberrations, vignetting, diffraction, lens flare (ghosts), motion blur, an orthographic view, physical exposure, a camera's spectral sensitivities, a sensor
   model (shot and read noise, ISO, ADC, Bayer mosaic and demosaicing) that writes a DNG raw file, white balance and auto white balance.
-- **Polarization**: Stokes vectors through glass, water, metals and thin films, and a polarized clear sky ([details](docs/POLARIZATION.md)).
+- **Polarization**: Stokes vectors through glass, water, metals and thin films, a polarized clear sky and a polarized screen ([details](docs/POLARIZATION.md)).
 - **Light transport**: caustic photon map, manifold next-event estimation, bidirectional path tracing with vertex merging ([details](docs/LVC_BPT.md)).
 
 How the code is organized: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -226,7 +231,7 @@ How the code is organized: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Verification
 
-Every feature has a self-check (`--scene furnace`, `metals`, `lights`, `volume`, `fluorescence`, `hair`, `polarization`, `film`, ...;
+Every feature has a self-check (`--scene furnace`, `metals`, `lights`, `volume`, `fluorescence`, `glints`, `hair`, `polarization`, `film`, ...;
 `--list-scenes` lists them all) that compares the renderer with closed forms, independent integrations or white furnaces, prints
 `OK` / `FAIL` per case and runs in both builds.
 
