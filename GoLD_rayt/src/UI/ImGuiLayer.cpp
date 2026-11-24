@@ -17,7 +17,9 @@
 #include <string>
 
 #include <GLFW/glfw3.h>
+#include <filesystem>
 #include <imgui.h>
+#include <imgui_internal.h>   // DockBuilder: the default arrangement of the windows
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 
@@ -44,42 +46,40 @@ void ImGuiLayer::init(GLFWwindow* window) {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    // Determine scale from DPI (fallback if unavailable)
+    // The monitor's scale (Windows' "scale and layout": 1 at 100 %, 1.5 at 150 % ...)
     float xs = 1.0f, ys = 1.0f;
     glfwGetWindowContentScale(window, &xs, &ys);
-    float scale = (xs + ys) * 0.5f;
+    m_dpiScale = std::max(1.0f, (xs + ys) * 0.5f);
 
-    // Fix for environments that return 1.0 even on high-DPI screens:
-    // Ensure minimum readability.
-    if (scale < 1.25f) scale = 2.0f;  // Preference: could be 1.5f, etc.
+    // A real font, rasterized at the size it is shown (the built-in one is a small bitmap font that blurs when scaled):
+    // Meiryo (Latin, kana, kanji) with Microsoft YaHei merged in for the simplified Chinese of model and material names.
+    m_fontScale = m_dpiScale;
+    const float px = 17.0f * m_fontScale;
+    bool haveFont = false;
+    if (std::filesystem::exists("C:/Windows/Fonts/meiryo.ttc")) {
+        haveFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/meiryo.ttc", px, nullptr, io.Fonts->GetGlyphRangesJapanese()) != nullptr;
+        if (haveFont && std::filesystem::exists("C:/Windows/Fonts/msyh.ttc")) {
+            ImFontConfig merge;
+            merge.MergeMode = true;
+            io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", px, &merge, io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
+        }
+    }
+    if (!haveFont) {
+        ImFontConfig cfg;
+        cfg.SizePixels = 13.0f * m_fontScale;
+        io.Fonts->AddFontDefault(&cfg);
+    }
+    io.Fonts->Build();
 
-    applyUiScale(scale); 
+    m_baseStyle = new ImGuiStyle(ImGui::GetStyle());
+    applyUiScale();
 }
 
-/**
- * @brief Applies a global UI scale factor to fonts and style elements.
- *
- * Calculates the ratio between the new scale and the previously applied scale
- * to prevent cumulative scaling errors when resizing or changing monitors.
- *
- * @param newScale The target scale factor (e.g., 2.0 for 200% scaling).
- */
-void ImGuiLayer::applyUiScale(float newScale) {
-    if (newScale <= 0.0f) return;
-
-    // Calculate ratio to avoid accumulation issues
-    float ratio = newScale / m_uiScale;
-    m_uiScale = newScale;
-
-    ImGuiIO& io = ImGui::GetIO();
-    io.FontGlobalScale *= ratio;
-    ImGui::GetStyle().ScaleAllSizes(ratio);
-
-    // Build default font if none exists
-    if (io.Fonts->Fonts.empty()) {
-        io.Fonts->AddFontDefault();
-        io.Fonts->Build();
-    }
+void ImGuiLayer::applyUiScale() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    style = *m_baseStyle;
+    style.ScaleAllSizes(m_dpiScale * m_userScale);
+    ImGui::GetIO().FontGlobalScale = m_dpiScale * m_userScale / m_fontScale;
 }
 
 /**
@@ -92,9 +92,8 @@ void ImGuiLayer::applyUiScale(float newScale) {
  * @param yscale The new y-axis scale factor.
  */
 void ImGuiLayer::onContentScaleChanged(float xscale, float yscale) {
-    float scale = (xscale + yscale) * 0.5f;
-    if (scale < 1.25f) scale = 2.0f; // Fallback logic
-    applyUiScale(scale);
+    m_dpiScale = std::max(1.0f, (xscale + yscale) * 0.5f);
+    applyUiScale();
 }
 
 /**
@@ -146,6 +145,20 @@ void ImGuiLayer::draw(RenderSettings& s) {
 
     // Actual DockSpace ID
     ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+    // The arrangement: the settings on the left, the viewport on the right (at start, and on "Reset layout"; a layout saved
+    // in imgui.ini from another screen could leave windows larger than the window or outside it)
+    if (m_resetLayout || s.requestLayoutReset) {
+        ImGui::DockBuilderRemoveNode(dockspace_id);
+        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
+        ImGuiID left = 0, right = 0;
+        ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.30f, &left, &right);
+        ImGui::DockBuilderDockWindow("Render Settings", left);
+        ImGui::DockBuilderDockWindow("Viewport", right);
+        ImGui::DockBuilderFinish(dockspace_id);
+        m_resetLayout = false;
+        s.requestLayoutReset = false;
+    }
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
     // 2. Draw Content Windows
@@ -156,6 +169,10 @@ void ImGuiLayer::draw(RenderSettings& s) {
     ImGui::Text("Application Average: %.3f ms/frame (%.1f FPS)",
         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
     ImGui::Text("Render mode: %s  (compile-time switch: Core/RenderMode.hpp)", rayt::kRenderModeName);
+    ImGui::SliderFloat("UI scale", &s.uiScale, 0.6f, 2.5f, "x %.2f");
+    if (ImGui::IsItemDeactivatedAfterEdit() && s.uiScale != m_userScale) { m_userScale = s.uiScale; applyUiScale(); }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset layout")) s.requestLayoutReset = true;
     ImGui::Separator();
 
     if (ImGui::Combo("View", &s.mode, "Path tracing (spheres)\0MMD preview (OpenGL, toon)\0") && s.mode == 1 && !s.pmxNames.empty())
@@ -259,6 +276,8 @@ void ImGuiLayer::endFrame() {
  * @brief Shuts down ImGui and releases backend resources.
  */
 void ImGuiLayer::shutdown() {
+    delete m_baseStyle;
+    m_baseStyle = nullptr;
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

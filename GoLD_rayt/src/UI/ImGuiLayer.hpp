@@ -7,6 +7,7 @@
 
 struct GLFWwindow;
 struct RenderSettings;
+struct ImGuiStyle;
 
 /**
  * @brief Handles the lifecycle and rendering of the ImGui-based user interface.
@@ -61,12 +62,12 @@ public:
     void onContentScaleChanged(float xscale, float yscale);
 
 private:
-    /**
-     * @brief Internal helper to apply the global font and style scaling.
-     * @param newScale The target scaling factor (e.g., 1.0 for 100%, 1.5 for 150%).
-     */
-    void applyUiScale(float newScale);
+    /// Sizes the style and the font for the monitor's scale times the user's (the "UI scale" slider).
+    void applyUiScale();
 
-    /// Current UI scaling factor.
-    float m_uiScale = 1.0f;
+    float m_dpiScale = 1.0f;    ///< the monitor's content scale (at least 1)
+    float m_userScale = 1.0f;   ///< the "UI scale" slider
+    float m_fontScale = 1.0f;   ///< the scale the font was rasterized for
+    bool m_resetLayout = true;  ///< arrange the windows (settings left, viewport right) on the next frame
+    ImGuiStyle* m_baseStyle = nullptr;   ///< the unscaled style
 };

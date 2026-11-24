@@ -18,6 +18,10 @@ enum class ViewMode {
 };
 
 struct RenderSettings {
+    // The window
+    float uiScale = 1.0f;            // times the monitor's scale (text and widgets)
+    bool requestLayoutReset = false; // put the settings back on the left and the viewport on the right
+
     // What the viewport shows
     int mode = 0;                    // 0 = path tracing (spheres), 1 = MMD preview (OpenGL, toon)
 
