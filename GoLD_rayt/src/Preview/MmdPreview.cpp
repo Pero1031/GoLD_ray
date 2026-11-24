@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <ctime>
+#include <fstream>
 #include <iostream>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -348,17 +350,28 @@ void main() {
         return id;
     }
 
+    std::shared_ptr<Texture2D> MmdPreview::texture(int index) {
+        if (index < 0 || index >= static_cast<int>(m_rest.textures.size())) return nullptr;
+        if (const auto it = m_textureCache.find(index); it != m_textureCache.end()) return it->second;
+        std::string rel = m_rest.textures[static_cast<size_t>(index)];
+        std::replace(rel.begin(), rel.end(), '\\', '/');
+        auto tex = Texture2D::load(m_dir / cli::PathFromUtf8(rel));
+        if (!tex) std::cout << "[Preview] could not load texture " << rel << "\n";
+        m_textureCache[index] = tex;
+        return tex;
+    }
+
     bool MmdPreview::load(const std::filesystem::path& pmx, const std::filesystem::path& pose, std::string* error) {
         const auto t0 = std::chrono::steady_clock::now();
         if (!ensurePrograms(error)) return false;
 
         io::PmxModel model;
         if (!io::loadPmx(pmx, model, error)) return false;
+        io::VpdPose vpd;
         if (!pose.empty()) {
-            io::VpdPose vpd;
             std::string poseErr;
             if (!io::loadVpd(pose, vpd, &poseErr)) { if (error) *error = "pose: " + poseErr; return false; }
-            // the expression entries of the pose file, then the bones (as the ray tracer's PMX scene)
+            // the expression entries of the pose file (as the ray tracer's PMX scene); their bone offsets join the pose
             std::map<int, Real> weights;
             for (const auto& [name, w] : vpd.morphs)
                 for (size_t i = 0; i < model.morphs.size(); ++i)
@@ -366,27 +379,107 @@ void main() {
             std::vector<io::VpdBone> morphBones;
             if (!weights.empty()) model = io::applyMorphs(model, weights, &morphBones);
             io::mergePoseBones(vpd, morphBones);
-            model = io::applyPose(model, vpd);
         }
 
+        release();
+        m_rest = std::move(model);
+        m_dir = pmx.parent_path();
+        m_textureCache.clear();
+        m_name = m_rest.name;
+        m_undo.clear();
+
+        // the local transforms of the pose file, by bone name
+        const size_t nb = m_rest.bones.size();
+        m_animT.assign(nb, Vector3(0.0));
+        m_animQ.assign(nb, glm::dquat(1, 0, 0, 0));
+        m_globalRot.assign(nb, glm::dquat(1, 0, 0, 0));
+        std::map<std::string, size_t> byName;
+        for (size_t i = 0; i < nb; ++i) byName.emplace(m_rest.bones[i].name, i);
+        for (const auto& vb : vpd.bones) {
+            const auto it = byName.find(vb.name);
+            if (it == byName.end()) continue;
+            m_animT[it->second] = vb.translation;
+            m_animQ[it->second] = glm::normalize(glm::dquat(vb.qw, vb.qx, vb.qy, vb.qz));
+        }
+
+        // the rest pose fixes the shift into the renderer's space, the material ranges and the winding
         Vector3 size(1.0);
-        const auto mesh = cli::PmxToMesh(model, Real(0), &m_height, &size);
-        m_name = model.name;
+        const auto restMesh = cli::PmxToMesh(m_rest, Real(0), &m_height, &size, &m_shift);
+        double agree = 0;
+        for (size_t t = 0; t + 2 < restMesh->indices.size(); t += 3) {
+            const int i0 = restMesh->indices[t], i1 = restMesh->indices[t + 1], i2 = restMesh->indices[t + 2];
+            const Vector3& a = restMesh->p[static_cast<size_t>(i0)];
+            const Vector3 fn = glm::cross(restMesh->p[static_cast<size_t>(i1)] - a, restMesh->p[static_cast<size_t>(i2)] - a);
+            agree += glm::dot(fn, restMesh->n[static_cast<size_t>(i0)] + restMesh->n[static_cast<size_t>(i1)] + restMesh->n[static_cast<size_t>(i2)]);
+        }
+        m_ccwFront = agree >= 0;
 
-        std::map<int, std::shared_ptr<Texture2D>> cache;
-        auto loadTexture = [&](int index) -> std::shared_ptr<Texture2D> {
-            if (index < 0 || index >= static_cast<int>(model.textures.size())) return nullptr;
-            if (const auto it = cache.find(index); it != cache.end()) return it->second;
-            std::string rel = model.textures[static_cast<size_t>(index)];
-            std::replace(rel.begin(), rel.end(), '\\', '/');
-            auto tex = Texture2D::load(pmx.parent_path() / cli::PathFromUtf8(rel));
-            if (!tex) std::cout << "[Preview] could not load texture " << rel << "\n";
-            cache[index] = tex;
-            return tex;
-        };
-        const std::vector<ToonLook> looks = cli::MakePmxToonLooks(model, *mesh, loadTexture, false);
+        const std::vector<ToonLook> looks = cli::MakePmxToonLooks(m_rest, *restMesh, [this](int i) { return texture(i); }, false);
+        std::vector<unsigned int> indices(restMesh->indices.begin(), restMesh->indices.end());
+        glGenVertexArrays(1, &m_vao);
+        glGenBuffers(1, &m_vbo);
+        glGenBuffers(1, &m_ebo);
+        glBindVertexArray(m_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(restMesh->p.size() * 8 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(unsigned int)), indices.data(), GL_STATIC_DRAW);
+        for (int a = 0; a < 3; ++a) glEnableVertexAttribArray(a);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+        glBindVertexArray(0);
+        m_indexCount = static_cast<int>(indices.size());
 
-        // vertices: position, normal, uv (float)
+        for (size_t k = 0; k < m_rest.materials.size(); ++k) {
+            const auto& pm = m_rest.materials[k];
+            DrawRange r;
+            r.first = pm.firstIndex;
+            r.count = pm.indexCount;
+            r.look = looks[k];
+            r.doubleSided = pm.doubleSided();
+            r.hidden = pm.diffuse.w <= Real(0.001);
+            r.texture = uploadTexture(r.look.texture, false);
+            r.sphere = uploadTexture(r.look.sphere, true);
+            r.toon = uploadTexture(r.look.toon, true);
+            m_ranges.push_back(r);
+        }
+
+        m_bones.assign(nb, PreviewBone());
+        for (size_t i = 0; i < nb; ++i) {
+            const auto& b = m_rest.bones[i];
+            m_bones[i].name = b.name;
+            m_bones[i].parent = b.parent;
+            m_bones[i].handle = (b.flags & 0x8u) && (b.flags & 0x10u) && b.rotatable() && !b.isIk();   // visible, operable, rotatable
+        }
+        applyCurrentPose();
+
+        m_loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        std::cout << "[Preview] " << m_name << ": " << restMesh->p.size() << " vertices, " << m_indexCount / 3 << " triangles, "
+            << m_ranges.size() << " materials, " << m_glTextures.size() << " textures, " << nb << " bones, height " << m_height << " m; "
+            << (m_ccwFront ? "counter-clockwise" : "clockwise") << " front faces; " << m_loadMs << " ms (a pose update " << m_poseMs << " ms)\n";
+        return true;
+    }
+
+    void MmdPreview::applyCurrentPose() {
+        const auto t0 = std::chrono::steady_clock::now();
+        const size_t nb = m_rest.bones.size();
+        io::VpdPose vpd;
+        for (size_t i = 0; i < nb; ++i) {
+            const glm::dquat& q = m_animQ[i];
+            if (m_animT[i] == Vector3(0.0) && std::abs(q.w) > Real(1) - Real(1e-12)) continue;
+            io::VpdBone vb;
+            vb.name = m_rest.bones[i].name;
+            vb.translation = m_animT[i];
+            vb.qx = q.x; vb.qy = q.y; vb.qz = q.z; vb.qw = q.w;
+            vpd.bones.push_back(vb);
+        }
+        io::PoseReport report;
+        const io::PmxModel posed = vpd.bones.empty() ? m_rest : io::applyPose(m_rest, vpd, &report);
+        Real height = 1;
+        Vector3 size(1.0);
+        const auto mesh = cli::PmxToMesh(posed, Real(0), &height, &size, nullptr, &m_shift);
+
         std::vector<float> verts;
         verts.reserve(mesh->p.size() * 8);
         m_lo = Vector3(1e30);
@@ -399,51 +492,117 @@ void main() {
             m_lo = glm::min(m_lo, p);
             m_hi = glm::max(m_hi, p);
         }
-        std::vector<unsigned int> indices(mesh->indices.begin(), mesh->indices.end());
-
-        // Which winding do the front faces have after the conversion (mirrored z)? The one whose face normal agrees with the vertex normals.
-        double agree = 0;
-        for (size_t t = 0; t + 2 < indices.size(); t += 3) {
-            const Vector3& a = mesh->p[indices[t]];
-            const Vector3 fn = glm::cross(mesh->p[indices[t + 1]] - a, mesh->p[indices[t + 2]] - a);
-            agree += glm::dot(fn, mesh->n[indices[t]] + mesh->n[indices[t + 1]] + mesh->n[indices[t + 2]]);
-        }
-        m_ccwFront = agree >= 0;
-
-        release();
-        glGenVertexArrays(1, &m_vao);
-        glGenBuffers(1, &m_vbo);
-        glGenBuffers(1, &m_ebo);
-        glBindVertexArray(m_vao);
         glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(verts.size() * sizeof(float)), verts.data(), GL_STATIC_DRAW);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indices.size() * sizeof(unsigned int)), indices.data(), GL_STATIC_DRAW);
-        for (int a = 0; a < 3; ++a) glEnableVertexAttribArray(a);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-        glBindVertexArray(0);
-        m_indexCount = static_cast<int>(indices.size());
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(verts.size() * sizeof(float)), verts.data());
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        for (size_t k = 0; k < model.materials.size(); ++k) {
-            const auto& pm = model.materials[k];
-            DrawRange r;
-            r.first = pm.firstIndex;
-            r.count = pm.indexCount;
-            r.look = looks[k];
-            r.doubleSided = pm.doubleSided();
-            r.hidden = pm.diffuse.w <= Real(0.001);
-            r.texture = uploadTexture(r.look.texture, false);
-            r.sphere = uploadTexture(r.look.sphere, true);
-            r.toon = uploadTexture(r.look.toon, true);
-            m_ranges.push_back(r);
+        // the head ellipsoid of the face normals follows the head
+        const std::vector<ToonLook> looks = cli::MakePmxToonLooks(posed, *mesh, [this](int i) { return texture(i); }, false);
+        for (size_t k = 0; k < m_ranges.size() && k < looks.size(); ++k) {
+            m_ranges[k].look.faceCenter = looks[k].faceCenter;
+            m_ranges[k].look.faceRadii = looks[k].faceRadii;
         }
-        m_loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-        std::cout << "[Preview] " << m_name << ": " << mesh->p.size() << " vertices, " << m_indexCount / 3 << " triangles, "
-            << m_ranges.size() << " materials, " << m_glTextures.size() << " textures, height " << m_height << " m; "
-            << (m_ccwFront ? "counter-clockwise" : "clockwise") << " front faces; " << m_loadMs << " ms\n";
+
+        // the joints in the renderer's space (MMD's z mirrored, 8 cm per unit, the rest pose's shift) and the global rotations
+        for (size_t i = 0; i < nb; ++i) {
+            const Vector3 rest = Vector3(m_rest.bones[i].position);
+            Vector3 q = rest;
+            if (!report.skin.empty()) q = Vector3(report.skin[i] * glm::dvec4(rest, 1.0));
+            m_bones[i].position = Vector3(q.x, q.y, -q.z) * Real(0.08) + m_shift;
+            m_globalRot[i] = report.skin.empty() ? glm::dquat(1, 0, 0, 0) : glm::normalize(glm::quat_cast(glm::dmat3(report.skin[i])));
+        }
+        m_poseMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    }
+
+    void MmdPreview::rotateBone(int bone, const glm::dquat& rotation) {
+        if (bone < 0 || bone >= static_cast<int>(m_animQ.size())) return;
+        // The renderer's space is MMD's with z mirrored: a rotation about axis a by angle t becomes one about (ax, ay, -az) by -t,
+        // i.e. the quaternion (x, y, z, w) -> (-x, -y, z, w).
+        const glm::dquat delta(rotation.w, -rotation.x, -rotation.y, rotation.z);
+        // world rotation D at the joint: local' = P^-1 D P local, P = the parent's global rotation (a grant multiplies on the right)
+        const int parent = m_rest.bones[static_cast<size_t>(bone)].parent;
+        const glm::dquat P = (parent >= 0 && parent < static_cast<int>(m_globalRot.size())) ? m_globalRot[static_cast<size_t>(parent)] : glm::dquat(1, 0, 0, 0);
+        m_animQ[static_cast<size_t>(bone)] = glm::normalize(glm::inverse(P) * delta * P * m_animQ[static_cast<size_t>(bone)]);
+        applyCurrentPose();
+    }
+
+    void MmdPreview::resetBone(int bone) {
+        if (bone < 0 || bone >= static_cast<int>(m_animQ.size())) return;
+        m_animQ[static_cast<size_t>(bone)] = glm::dquat(1, 0, 0, 0);
+        m_animT[static_cast<size_t>(bone)] = Vector3(0.0);
+        applyCurrentPose();
+    }
+
+    void MmdPreview::resetPose() {
+        std::fill(m_animQ.begin(), m_animQ.end(), glm::dquat(1, 0, 0, 0));
+        std::fill(m_animT.begin(), m_animT.end(), Vector3(0.0));
+        applyCurrentPose();
+    }
+
+    void MmdPreview::pushUndo() {
+        m_undo.emplace_back(m_animT, m_animQ);
+        if (m_undo.size() > 100) m_undo.erase(m_undo.begin());
+    }
+
+    bool MmdPreview::undo() {
+        if (m_undo.empty()) return false;
+        m_animT = m_undo.back().first;
+        m_animQ = m_undo.back().second;
+        m_undo.pop_back();
+        applyCurrentPose();
         return true;
+    }
+
+    bool MmdPreview::savePose(const std::filesystem::path& file, std::string* error) const {
+        // The bone names in Shift-JIS as MMD writes them; UTF-8 if one of them has no Shift-JIS spelling (the ray tracer reads both).
+        auto toSjis = [](const std::string& utf8, bool& lossless) {
+            const int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+            std::wstring w(static_cast<size_t>(std::max(0, wlen)), L'\0');
+            if (wlen > 0) MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), w.data(), wlen);
+            BOOL usedDefault = FALSE;
+            const int len = WideCharToMultiByte(932, 0, w.data(), wlen, nullptr, 0, nullptr, &usedDefault);
+            std::string out(static_cast<size_t>(std::max(0, len)), '\0');
+            if (len > 0) WideCharToMultiByte(932, 0, w.data(), wlen, out.data(), len, nullptr, &usedDefault);
+            if (usedDefault) lossless = false;
+            return out;
+        };
+        std::vector<size_t> posed;
+        for (size_t i = 0; i < m_animQ.size(); ++i)
+            if (m_animT[i] != Vector3(0.0) || std::abs(m_animQ[i].w) < Real(1) - Real(1e-12)) posed.push_back(i);
+        bool sjis = true;
+        std::vector<std::string> names;
+        for (size_t i : posed) names.push_back(toSjis(m_rest.bones[i].name, sjis));
+        bool modelSjis = true;
+        const std::string model = toSjis(m_rest.name, modelSjis);
+        if (!sjis) { names.clear(); for (size_t i : posed) names.push_back(m_rest.bones[i].name); }
+
+        std::error_code ec;
+        std::filesystem::create_directories(file.parent_path(), ec);
+        std::ofstream f(file, std::ios::binary);
+        if (!f) { if (error) *error = "cannot write " + cli::PathToUtf8(file); return false; }
+        char line[512];
+        f << "Vocaloid Pose Data file\r\n\r\n" << ((sjis && modelSjis) ? model : m_rest.name) << ".osm;\t\t// parent file\r\n"
+          << posed.size() << ";\t\t\t\t// number of bones\r\n\r\n";
+        for (size_t k = 0; k < posed.size(); ++k) {
+            const size_t i = posed[k];
+            const Vector3& t = m_animT[i];
+            const glm::dquat& q = m_animQ[i];
+            f << "Bone" << k << "{" << names[k] << "\r\n";
+            std::snprintf(line, sizeof(line), "  %f,%f,%f;\t\t\t\t// trans x,y,z\r\n", t.x, t.y, t.z);
+            f << line;
+            std::snprintf(line, sizeof(line), "  %f,%f,%f,%f;\t\t// Quaternion x,y,z,w\r\n}\r\n\r\n", q.x, q.y, q.z, q.w);
+            f << line;
+        }
+        std::cout << "[Preview] pose saved: " << cli::PathToUtf8(file) << " (" << posed.size() << " bones, " << (sjis ? "Shift-JIS" : "UTF-8") << ")\n";
+        return true;
+    }
+
+    glm::dmat4 MmdPreview::viewProjection(int width, int height, const OrbitCamera& camera) {
+        const glm::dvec3 eye = camera.eye(), target = camera.target;
+        const glm::dmat4 view = glm::lookAt(eye, target, glm::dvec3(0, 1, 0));
+        const double nearZ = std::max(0.01, double(camera.distance) * 0.02);
+        const glm::dmat4 proj = glm::perspective(glm::radians(double(camera.vfov)), double(width) / double(std::max(1, height)), nearZ, double(camera.distance) * 20.0);
+        return proj * view;
     }
 
     OrbitCamera MmdPreview::framingCamera() const {

@@ -165,7 +165,8 @@ std::vector<ToonLook> MakePmxToonLooks(const io::PmxModel& m, const TriangleMesh
     return looks;
 }
 
-std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize) {
+std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize,
+    Vector3* outShift, const Vector3* fixedShift) {
     constexpr Real kScale = 0.08;
     auto mesh = std::make_shared<TriangleMesh>();
     const Real yaw = glm::radians(yawDegrees), cy = std::cos(yaw), sy = std::sin(yaw);
@@ -180,7 +181,8 @@ std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, 
         lo = glm::min(lo, p);
         hi = glm::max(hi, p);
     }
-    const Vector3 shift(-(lo.x + hi.x) / 2, -lo.y, -(lo.z + hi.z) / 2);
+    const Vector3 shift = fixedShift ? *fixedShift : Vector3(-(lo.x + hi.x) / 2, -lo.y, -(lo.z + hi.z) / 2);
+    if (outShift) *outShift = shift;
     for (auto& p : mesh->p) p += shift;
     mesh->indices = m.indices;
     if (outHeight) *outHeight = hi.y - lo.y;

@@ -208,7 +208,20 @@ void ImGuiLayer::draw(RenderSettings& s) {
         ImGui::SliderFloat("Outline width", &s.previewEdgeScale, 0.0f, 4.0f, "x %.1f");
         if (ImGui::Button("Frame the model")) s.requestCameraReset = true;
         ImGui::Separator();
-        ImGui::TextWrapped("Viewport: left drag turns the camera, right or middle drag moves it, the wheel zooms.");
+
+        // --- posing ---
+        ImGui::Checkbox("Show bones", &s.showBones);
+        ImGui::Text("Bone: %s", s.selectedBone.empty() ? "(click a dot in the viewport)" : s.selectedBone.c_str());
+        if (ImGui::Button("Undo (Ctrl+Z)")) s.requestUndo = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Reset bone")) s.requestResetBone = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Reset pose")) s.requestResetPose = true;
+        if (ImGui::Button("Save pose (.vpd)")) s.requestSavePose = true;
+        if (!s.poseStatus.empty()) ImGui::TextWrapped("%s", s.poseStatus.c_str());
+        ImGui::Separator();
+        ImGui::TextWrapped("Viewport: drag a bone's dot to turn it in the picture plane (Shift: tilt it toward or away from you); "
+            "drag elsewhere to turn the camera, right or middle drag moves it, the wheel zooms.");
         if (!s.previewStatus.empty()) ImGui::TextWrapped("%s", s.previewStatus.c_str());
         ImGui::End(); // End Render Settings
         ImGui::End(); // End MainDockSpace

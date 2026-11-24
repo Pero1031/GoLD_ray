@@ -58,5 +58,8 @@ std::vector<ToonLook> MakePmxToonLooks(const io::PmxModel& m, const TriangleMesh
 
 /// PMX -> TriangleMesh in the renderer's convention (right-handed, +Y up, metres, feet on y = 0, x/z centered).
 /// MMD is left-handed with 1 unit ~ 8 cm; mirroring z fixes the handedness, yaw (degrees) turns the model about +Y.
-std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize = nullptr);
+/// The shift that puts the feet on y = 0 and centres x / z comes from this model's own extent, unless `fixedShift` gives it
+/// (an interactive tool keeps the rest pose's, so that a posed model does not jump); `outShift` receives the one used.
+std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize = nullptr,
+    Vector3* outShift = nullptr, const Vector3* fixedShift = nullptr);
 } // namespace rayt::cli

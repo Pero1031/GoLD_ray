@@ -162,6 +162,11 @@ private:
     std::unique_ptr<rayt::preview::MmdPreview> m_preview;
     rayt::preview::OrbitCamera m_orbit;
     std::vector<std::filesystem::path> m_pmxFiles, m_poseFiles;   // m_poseFiles[0] is empty (the rest pose)
+    int m_selectedBone = -1;          ///< the bone the panel's buttons act on
+    int m_dragBone = -1;              ///< the bone being turned by the mouse (-1: the camera is)
+
+    /// The panel's posing requests: undo, reset, save.
+    void handlePoseRequests();
 
     // UI & Settings
     ImGuiLayer m_uiLayer;

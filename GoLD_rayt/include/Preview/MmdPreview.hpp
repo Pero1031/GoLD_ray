@@ -11,6 +11,11 @@
  * camera of the preview can be handed to the ray tracer.
  *
  * Not drawn: the eyebrows seen through the fringe and the rim light of the toon render.
+ *
+ * Posing (forward kinematics): every bone keeps a local translation and rotation in MMD's space, as a pose file holds them;
+ * rotateBone() turns a bone about its joint by a rotation given in the renderer's space, the model is skinned again
+ * (io::applyPose, cli::PmxToMesh with the rest pose's shift, so that it does not jump) and its vertices uploaded. The pose
+ * is saved as a .vpd that MMD and the ray tracer (--pose) read. IK chains are not solved: IK bones are not offered.
  */
 
 #pragma once
@@ -23,7 +28,10 @@
 #include <string>
 #include <vector>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include "Core/Types.hpp"
+#include "IO/PmxLoader.hpp"
 #include "Render/ToonIntegrator.hpp"
 
 namespace rayt::preview {
@@ -48,6 +56,14 @@ namespace rayt::preview {
         bool floor = true;
         Real edgeScale = 1;           ///< times the model's edge sizes
         Vector3 background = Vector3(0.62, 0.66, 0.74);
+    };
+
+    /// A bone as the preview shows it: where its joint is now (the renderer's space) and whether the user may turn it.
+    struct PreviewBone {
+        std::string name;
+        Vector3 position = Vector3(0.0);
+        int parent = -1;
+        bool handle = false;   ///< visible, operable and rotatable in the model, and not an IK bone
     };
 
     class MmdPreview {
@@ -79,6 +95,23 @@ namespace rayt::preview {
         const std::string& modelName() const { return m_name; }
         /// Milliseconds of the last load: reading, posing, converting, uploading.
         double loadMilliseconds() const { return m_loadMs; }
+        /// Milliseconds of the last pose update: skinning, converting, uploading.
+        double poseMilliseconds() const { return m_poseMs; }
+
+        // ---- posing ----
+        const std::vector<PreviewBone>& bones() const { return m_bones; }
+        /// Turns bone `bone` about its joint by `rotation` (the renderer's space, world axes) and skins the model again.
+        void rotateBone(int bone, const glm::dquat& rotation);
+        void resetBone(int bone);
+        void resetPose();
+        /// Keeps the current pose for undo(); call it once before an edit (a drag, a reset).
+        void pushUndo();
+        bool undo();
+        bool canUndo() const { return !m_undo.empty(); }
+        /// Writes the pose as an MMD pose file (Shift-JIS when every bone name has a Shift-JIS spelling, else UTF-8).
+        bool savePose(const std::filesystem::path& file, std::string* error) const;
+        /// The matrix the picture was drawn with (for projecting the bones onto it).
+        static glm::dmat4 viewProjection(int width, int height, const OrbitCamera& camera);
 
     private:
         struct DrawRange {
@@ -90,6 +123,9 @@ namespace rayt::preview {
         };
 
         void release();
+        /// Skins the rest model with the current local transforms, uploads the vertices, moves the bones and the head ellipsoid.
+        void applyCurrentPose();
+        std::shared_ptr<Texture2D> texture(int index);
         bool ensurePrograms(std::string* error);
         void ensureTargets(int width, int height);
         GLuint uploadTexture(const std::shared_ptr<const Texture2D>& tex, bool clampToEdge);
@@ -104,7 +140,18 @@ namespace rayt::preview {
         std::vector<DrawRange> m_ranges;
         std::map<const Texture2D*, GLuint> m_glTextures;
         std::vector<std::shared_ptr<const Texture2D>> m_keepTextures;
-        double m_loadMs = 0;
+        double m_loadMs = 0, m_poseMs = 0;
+
+        // posing (MMD's space)
+        io::PmxModel m_rest;                       ///< the model with the pose file's expression applied, unposed
+        std::vector<Vector3> m_animT;              ///< local translation per bone
+        std::vector<glm::dquat> m_animQ;           ///< local rotation per bone
+        std::vector<glm::dquat> m_globalRot;       ///< global rotation per bone in the last pose (MMD's space)
+        std::vector<std::pair<std::vector<Vector3>, std::vector<glm::dquat>>> m_undo;
+        std::vector<PreviewBone> m_bones;
+        Vector3 m_shift = Vector3(0.0);            ///< PmxToMesh's shift of the rest pose
+        std::filesystem::path m_dir;               ///< the model's folder (textures)
+        std::map<int, std::shared_ptr<Texture2D>> m_textureCache;
 
         // floor
         GLuint m_floorVao = 0, m_floorVbo = 0;

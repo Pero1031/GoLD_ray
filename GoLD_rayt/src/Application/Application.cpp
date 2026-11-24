@@ -349,6 +349,7 @@ void App::frame() {
         loadPreviewModel();
         m_settings.requestModelLoad = false;
     }
+    if (preview) handlePoseRequests();
     if (preview && m_settings.requestCameraReset && m_preview && m_preview->loaded()) {
         m_orbit = m_preview->framingCamera();
         m_settings.requestCameraReset = false;
@@ -395,6 +396,7 @@ void App::frame() {
 }
 
 void App::findMmdFiles() {
+    const std::filesystem::path current = (m_settings.pmx >= 0 && m_settings.pmx < static_cast<int>(m_pmxFiles.size())) ? m_pmxFiles[static_cast<size_t>(m_settings.pmx)] : std::filesystem::path();
     m_pmxFiles = cli::FindPmxFiles();
     m_settings.pmxNames.clear();
     size_t largest = 0;
@@ -404,6 +406,7 @@ void App::findMmdFiles() {
         if (std::filesystem::file_size(m_pmxFiles[i], ec) > std::filesystem::file_size(m_pmxFiles[largest], ec)) largest = i;
     }
     m_settings.pmx = static_cast<int>(largest);   // the largest file, as the ray tracer's PMX scene picks by default
+    for (size_t i = 0; i < m_pmxFiles.size(); ++i) if (!current.empty() && m_pmxFiles[i] == current) m_settings.pmx = static_cast<int>(i);   // a rescan keeps the model
     m_poseFiles.assign(1, std::filesystem::path());
     m_settings.poseNames.assign(1, "(rest pose)");
     for (const auto& f : cli::FindMmdFiles("pose", ".vpd")) {
@@ -420,6 +423,8 @@ void App::loadPreviewModel() {
     const auto& pmx = m_pmxFiles[static_cast<size_t>(std::clamp(m_settings.pmx, 0, static_cast<int>(m_pmxFiles.size()) - 1))];
     const auto& pose = m_poseFiles[static_cast<size_t>(std::clamp(m_settings.pose, 0, static_cast<int>(m_poseFiles.size()) - 1))];
     std::string error;
+    m_selectedBone = m_dragBone = -1;
+    m_settings.selectedBone.clear();
     if (m_preview->load(pmx, pose, &error)) {
         char buf[256];
         std::snprintf(buf, sizeof(buf), "Loaded in %.0f ms (read, pose, convert, upload); height %.2f m.", m_preview->loadMilliseconds(), double(m_preview->modelHeight()));
@@ -429,6 +434,50 @@ void App::loadPreviewModel() {
     else {
         m_settings.previewStatus = "Could not load: " + error;
         std::cerr << "[Preview] " << m_settings.previewStatus << "\n";
+    }
+}
+
+void App::handlePoseRequests() {
+    RenderSettings& s = m_settings;
+    if (!m_preview || !m_preview->loaded()) { s.requestUndo = s.requestResetBone = s.requestResetPose = s.requestSavePose = false; return; }
+    if (s.requestUndo) {
+        s.poseStatus = m_preview->undo() ? "Undone." : "Nothing to undo.";
+        s.requestUndo = false;
+    }
+    if (s.requestResetBone) {
+        if (m_selectedBone >= 0) { m_preview->pushUndo(); m_preview->resetBone(m_selectedBone); s.poseStatus = "Bone reset: " + s.selectedBone; }
+        s.requestResetBone = false;
+    }
+    if (s.requestResetPose) {
+        m_preview->pushUndo();
+        m_preview->resetPose();
+        s.poseStatus = "Every bone at rest.";
+        s.requestResetPose = false;
+    }
+    if (s.requestSavePose) {
+        const std::time_t now = std::time(nullptr);
+        std::tm local{};
+        localtime_s(&local, &now);
+        char stamp[32];
+        std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &local);
+        // MMD_model/pose/gui, next to the models
+        std::filesystem::path mmd = "../MMD_model";
+        for (std::filesystem::path d = m_pmxFiles.empty() ? std::filesystem::path() : m_pmxFiles.front().parent_path(); !d.empty() && d.has_relative_path(); d = d.parent_path()) {
+            if (d.filename() == "MMD_model") { mmd = d; break; }
+            if (d == d.parent_path()) break;
+        }
+        const std::filesystem::path file = mmd / "pose" / "gui" / (std::string("pose_") + stamp + ".vpd");
+        std::string error;
+        if (m_preview->savePose(file, &error)) {
+            // the new file joins the list, selected (without loading it again: it is what is shown)
+            findMmdFiles();
+            std::error_code ec;
+            for (size_t i = 1; i < m_poseFiles.size(); ++i)
+                if (std::filesystem::equivalent(m_poseFiles[i], file, ec)) s.pose = static_cast<int>(i);
+            s.poseStatus = "Saved MMD_model/pose/gui/" + file.filename().string() + " (ray tracer: --scene pmx --pose-index " + std::to_string(s.pose - 1) + ").";
+        }
+        else s.poseStatus = "Could not save: " + error;
+        s.requestSavePose = false;
     }
 }
 
@@ -449,8 +498,88 @@ void App::drawViewport() {
             o.edgeScale = m_settings.previewEdgeScale;
             m_preview->render(w, h, m_orbit, o);
             ImGui::Image((void*)(intptr_t)m_preview->texture(), avail, ImVec2(0, 1), ImVec2(1, 0));   // OpenGL rows run from the bottom
-            if (ImGui::IsItemHovered()) {
-                const ImGuiIO& io = ImGui::GetIO();
+            const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();
+            const bool hovered = ImGui::IsItemHovered();
+            const ImGuiIO& io = ImGui::GetIO();
+
+            // ---- the bones: dots on the joints, lines to the parents; a click on a dot selects it, a drag turns it ----
+            const glm::dmat4 vp = preview::MmdPreview::viewProjection(w, h, m_orbit);
+            const auto& bones = m_preview->bones();
+            std::vector<ImVec2> screen(bones.size());
+            std::vector<char> onScreen(bones.size(), 0);
+            for (size_t i = 0; i < bones.size(); ++i) {
+                const glm::dvec4 c = vp * glm::dvec4(bones[i].position, 1.0);
+                if (c.w <= 1e-6) continue;
+                screen[i] = ImVec2(r0.x + float((c.x / c.w * 0.5 + 0.5) * (r1.x - r0.x)), r0.y + float((0.5 - c.y / c.w * 0.5) * (r1.y - r0.y)));
+                onScreen[i] = 1;
+            }
+            const float dotR = std::max(3.0f, ImGui::GetFontSize() * 0.22f);
+            int nearest = -1;
+            float nearestD2 = (dotR * 2.2f) * (dotR * 2.2f);
+            if (m_settings.showBones && hovered) {
+                for (size_t i = 0; i < bones.size(); ++i) {
+                    if (!bones[i].handle || !onScreen[i]) continue;
+                    const float dx = screen[i].x - io.MousePos.x, dy = screen[i].y - io.MousePos.y;
+                    if (dx * dx + dy * dy < nearestD2) { nearestD2 = dx * dx + dy * dy; nearest = static_cast<int>(i); }
+                }
+            }
+            if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                m_dragBone = nearest;
+                if (nearest >= 0) {
+                    m_selectedBone = nearest;
+                    m_settings.selectedBone = bones[static_cast<size_t>(nearest)].name;
+                    m_preview->pushUndo();
+                }
+            }
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) m_dragBone = -1;
+            if (m_dragBone >= 0 && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) && onScreen[static_cast<size_t>(m_dragBone)]) {
+                const Vector3 fwd = m_orbit.forward();
+                const Vector3 right = glm::normalize(glm::cross(fwd, Vector3(0, 1, 0)));
+                const Vector3 up = glm::cross(right, fwd);
+                const Vector3 toViewer = -fwd;
+                glm::dquat q(1, 0, 0, 0);
+                if (io.KeyShift) {
+                    // tilt: a trackball about the joint; the side facing the viewer follows the mouse
+                    const Vector3 d = right * Real(io.MouseDelta.x) - up * Real(io.MouseDelta.y);
+                    const Vector3 axis = glm::cross(toViewer, d);
+                    const Real len = glm::length(axis);
+                    if (len > Real(1e-9)) q = glm::angleAxis(glm::radians(Real(0.5)) * glm::length(d), axis / len);
+                }
+                else {
+                    // in the picture plane: the angle the mouse sweeps round the joint's dot (screen y runs down)
+                    const ImVec2 c = screen[static_cast<size_t>(m_dragBone)];
+                    const ImVec2 a(io.MousePos.x - io.MouseDelta.x - c.x, io.MousePos.y - io.MouseDelta.y - c.y), b(io.MousePos.x - c.x, io.MousePos.y - c.y);
+                    if (a.x * a.x + a.y * a.y > 16.0f && b.x * b.x + b.y * b.y > 16.0f) {
+                        const Real angle = std::atan2(Real(a.x) * Real(-b.y) - Real(-a.y) * Real(b.x), Real(a.x) * Real(b.x) + Real(a.y) * Real(b.y));
+                        q = glm::angleAxis(angle, toViewer);
+                    }
+                }
+                m_preview->rotateBone(m_dragBone, q);
+                char buf[160];
+                std::snprintf(buf, sizeof(buf), "Turning %s: the pose updates in %.1f ms.", bones[static_cast<size_t>(m_dragBone)].name.c_str(), m_preview->poseMilliseconds());
+                m_settings.poseStatus = buf;
+            }
+            if (m_settings.showBones) {
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->PushClipRect(r0, r1, true);
+                for (size_t i = 0; i < bones.size(); ++i) {
+                    if (!bones[i].handle || !onScreen[i]) continue;
+                    const int p = bones[i].parent;
+                    if (p >= 0 && onScreen[static_cast<size_t>(p)]) dl->AddLine(screen[static_cast<size_t>(p)], screen[i], IM_COL32(40, 60, 120, 160), 1.5f);
+                }
+                for (size_t i = 0; i < bones.size(); ++i) {
+                    if (!bones[i].handle || !onScreen[i]) continue;
+                    const bool sel = static_cast<int>(i) == m_selectedBone, hot = static_cast<int>(i) == nearest;
+                    const ImU32 fill = sel ? IM_COL32(255, 150, 30, 255) : hot ? IM_COL32(120, 200, 255, 255) : IM_COL32(60, 110, 230, 220);
+                    dl->AddCircleFilled(screen[i], sel ? dotR * 1.4f : dotR, fill);
+                    dl->AddCircle(screen[i], sel ? dotR * 1.4f : dotR, IM_COL32(255, 255, 255, 200), 0, 1.0f);
+                }
+                if (nearest >= 0 && m_dragBone < 0) ImGui::SetTooltip("%s", bones[static_cast<size_t>(nearest)].name.c_str());
+                dl->PopClipRect();
+            }
+            if (hovered && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) m_settings.requestUndo = true;
+
+            if (hovered && m_dragBone < 0) {
                 if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                     m_orbit.yaw -= Real(io.MouseDelta.x) * Real(0.35);
                     m_orbit.pitch = std::clamp(m_orbit.pitch + Real(io.MouseDelta.y) * Real(0.35), Real(-89), Real(89));
@@ -603,6 +732,58 @@ bool App::selfTest(bool keepSavedFiles) {
                 rayt::io::WriteImage8("gui_preview_selftest.png", w, h, 3, rgb);
                 std::cout << "[SelfTest] kept gui_preview_selftest.png\n";
             }
+
+            // Posing: turn the left arm 30 degrees about the axis toward the viewer; its child joint must land where that
+            // rotation about the shoulder puts it (the mirrored z of MMD's space and the parent's frame both enter here).
+            const auto& bones = m_preview->bones();
+            int arm = -1, child = -1;
+            for (size_t i = 0; i < bones.size(); ++i) if (bones[i].name == "\xE5\xB7\xA6\xE8\x85\x95") arm = static_cast<int>(i);   // 左腕
+            for (size_t i = 0; i < bones.size() && arm >= 0; ++i)
+                if (bones[i].parent == arm && glm::length(bones[i].position - bones[static_cast<size_t>(arm)].position) > Real(0.05)) { child = static_cast<int>(i); break; }
+            if (arm >= 0 && child >= 0) {
+                const Vector3 pivot = bones[static_cast<size_t>(arm)].position, before = bones[static_cast<size_t>(child)].position;
+                const glm::dquat q = glm::angleAxis(glm::radians(Real(30)), -m_orbit.forward());
+                m_preview->pushUndo();
+                m_preview->rotateBone(arm, q);
+                const Vector3 expected = pivot + q * (before - pivot);
+                const Real err = glm::length(m_preview->bones()[static_cast<size_t>(child)].position - expected);
+                check("turning the left arm moves its child joint as the rotation says", err < Real(1e-6),
+                    bones[static_cast<size_t>(child)].name + " off by " + std::to_string(err * 1000) + " mm, pose update " + std::to_string(m_preview->poseMilliseconds()) + " ms");
+                frame();
+                if (keepSavedFiles) {
+                    GLint pw = 0, ph = 0;
+                    glBindTexture(GL_TEXTURE_2D, m_preview->texture());
+                    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &pw);
+                    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &ph);
+                    std::vector<unsigned char> pp(static_cast<size_t>(pw) * static_cast<size_t>(ph) * 4), rgb(static_cast<size_t>(pw) * static_cast<size_t>(ph) * 3);
+                    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pp.data());
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                    for (int y = 0; y < ph; ++y)
+                        for (int x = 0; x < pw; ++x)
+                            for (int c = 0; c < 3; ++c)
+                                rgb[(static_cast<size_t>(y) * pw + x) * 3 + c] = pp[(static_cast<size_t>(ph - 1 - y) * pw + x) * 4 + c];
+                    rayt::io::WriteImage8("gui_pose_selftest.png", pw, ph, 3, rgb);
+                    std::cout << "[SelfTest] kept gui_pose_selftest.png\n";
+                }
+
+                // save -> load gives the same pose; undo gives the rest back
+                const Vector3 posed = m_preview->bones()[static_cast<size_t>(child)].position;
+                const std::filesystem::path vpd = "gui_pose_selftest.vpd";
+                std::string err2;
+                const bool saved = m_preview->savePose(vpd, &err2);
+                const auto& pmx = m_pmxFiles[static_cast<size_t>(m_settings.pmx)];
+                const bool reloaded = saved && m_preview->load(pmx, vpd, &err2);
+                const Real roundTrip = reloaded ? glm::length(m_preview->bones()[static_cast<size_t>(child)].position - posed) : Real(1);
+                check("a saved pose loads back the same", reloaded && roundTrip < Real(1e-5), std::to_string(roundTrip * 1000) + " mm " + err2);
+                if (!keepSavedFiles) { std::error_code ec; std::filesystem::remove(vpd, ec); }
+                else std::cout << "[SelfTest] kept gui_pose_selftest.vpd\n";
+                m_preview->load(pmx, std::filesystem::path(), &err2);
+                m_preview->pushUndo();
+                m_preview->rotateBone(arm, q);
+                m_preview->undo();
+                check("undo puts the arm back", glm::length(m_preview->bones()[static_cast<size_t>(child)].position - before) < Real(1e-9));
+            }
+            else check("the model has a left arm bone with a child joint", false);
         }
         m_settings.mode = 0;
     }

@@ -40,6 +40,15 @@ struct RenderSettings {
     float previewEdgeScale = 1.0f;
     std::string previewStatus;       // read-only: what was loaded, how long it took
 
+    // --- posing in the MMD preview ---
+    bool showBones = true;
+    std::string selectedBone;        // read-only: the name of the selected bone ("" = none)
+    bool requestUndo = false;
+    bool requestResetBone = false;
+    bool requestResetPose = false;
+    bool requestSavePose = false;
+    std::string poseStatus;          // read-only: the last pose edit or save
+
     // Render control
     bool paused = false;
     bool requestReset = false;
