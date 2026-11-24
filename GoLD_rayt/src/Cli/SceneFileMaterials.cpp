@@ -768,6 +768,24 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         s.fluorescentFile = ReadString(m.at("file"), where + ".file");
         Optional<bool>(m, "fluorescence", where, s.fluorescence, ReadBool);
     }
+    else if (type == "leaf") {   // { "type": "leaf", "chlorophyll": 40, "carotenoids": 8, "anthocyanins": 0, "N": 1.5, "roughness": 0.55 } (docs/LEAF.md)
+        CheckKeys(m, { "type", "N", "chlorophyll", "carotenoids", "anthocyanins", "brown", "water", "dryMatter", "roughness", "roughnessBack" }, where);
+        s.type = MaterialSpec::Type::Leaf;
+        Optional<double>(m, "N", where, s.leafN, ReadNumber);
+        Optional<double>(m, "chlorophyll", where, s.leafChl, ReadNumber);
+        Optional<double>(m, "carotenoids", where, s.leafCar, ReadNumber);
+        Optional<double>(m, "anthocyanins", where, s.leafAnt, ReadNumber);
+        Optional<double>(m, "brown", where, s.leafBrown, ReadNumber);
+        Optional<double>(m, "water", where, s.leafEwt, ReadNumber);
+        Optional<double>(m, "dryMatter", where, s.leafLma, ReadNumber);
+        Optional<double>(m, "roughness", where, s.leafRoughTop, ReadNumber);
+        Optional<double>(m, "roughnessBack", where, s.leafRoughBottom, ReadNumber);
+        if (s.leafN < 1) Fail(where + ".N", "must be 1 or more (the number of plates)");
+        for (double v : { s.leafChl, s.leafCar, s.leafAnt, s.leafBrown, s.leafEwt, s.leafLma })
+            if (v < 0) Fail(where, "contents must not be negative");
+        for (double v : { s.leafRoughTop, s.leafRoughBottom })
+            if (v <= 0 || v > 1) Fail(where, "roughness must be in (0, 1]");
+    }
     else if (type == "mix") {   // { "type": "mix", "a": "gold", "b": "leather", "mask": "mask.png" } or "weight": 0.3 instead of the mask
         CheckKeys(m, { "type", "a", "b", "mask", "weight" }, where);
         s.type = MaterialSpec::Type::Mix;

@@ -15,6 +15,7 @@
 #include "Materials/CoatedDiffuse.hpp"
 #include "Materials/DiffuseLight.hpp"
 #include "Materials/Fluorescent.hpp"
+#include "Materials/Leaf.hpp"
 #include "Materials/Hair.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/MeasuredHpBRDF.hpp"
@@ -335,6 +336,24 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
                 << "; the RGB build cannot shift wavelengths and draws that color"
 #endif
                 << "\n";
+            materials[name] = mat;
+            break;
+        }
+        case MaterialSpec::Type::Leaf: {   // PROSPECT's reflection and transmission, a GGX cuticle on both faces (Materials/Leaf.hpp)
+            std::string err;
+            auto table = leaf::ProspectTable::standard(&err);
+            if (!table) {
+                std::cerr << "[SceneFile] material \"" << name << "\": " << err << "\n";
+                return 1;
+            }
+            leaf::Pigments p;
+            p.N = Real(m.leafN); p.chl = Real(m.leafChl); p.car = Real(m.leafCar); p.ant = Real(m.leafAnt);
+            p.brown = Real(m.leafBrown); p.ewt = Real(m.leafEwt); p.lma = Real(m.leafLma);
+            auto mat = std::make_shared<Leaf>(table, p, Real(m.leafRoughTop), Real(m.leafRoughBottom));
+            const Vector3 r = mat->rgbReflectance(), t = mat->rgbTransmittance();
+            std::cout << "[SceneFile] material \"" << name << "\": leaf (N " << p.N << ", chlorophyll " << p.chl << ", carotenoids " << p.car
+                << ", anthocyanins " << p.ant << ", brown " << p.brown << "), linear sRGB under D65: reflectance (" << r.x << ", " << r.y << ", "
+                << r.z << "), transmittance (" << t.x << ", " << t.y << ", " << t.z << ")\n";
             materials[name] = mat;
             break;
         }

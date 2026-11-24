@@ -67,6 +67,7 @@ int RunSssTests(const CliOptions& opt);
 
 int RunVolumeTests(const CliOptions& opt);
 int RunFluorescenceTests(const CliOptions& opt);   // Checks/FluorescenceChecks.cpp
+int RunLeafTests(const CliOptions& opt);           // Checks/LeafChecks.cpp
 int RunGlintTests(const CliOptions& opt);          // Checks/GlintChecks.cpp
 int RunMultiBounceTests(const CliOptions& opt);    // Checks/MultiBounceChecks.cpp
 int RunMultiBounceGoldStudy(const CliOptions& opt); // Checks/MultiBounceChecks.cpp (study, writes a CSV)

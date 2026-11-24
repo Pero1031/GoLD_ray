@@ -63,6 +63,15 @@ The literature values behind the lotion and emulsion model are listed separately
 - Q. Hua, V. Tázlar, A. Fichet, A. Wilkie, "Efficient Storage and Importance Sampling for Fluorescent Reflectance", *Computer Graphics Forum* 42(1), 47-59, 2023, doi:10.1111/cgf.14716. Fluorescent reflectance in a spectral renderer; the source cited here for the RIT database.
 - ASTM E2152, "Standard Practice for Computing the Colors of Fluorescent Objects from Bispectral Photometric Data". The definition of the matrix (the standard itself was not read).
 
+**Leaves**
+
+- T. Kruk, M. Noizet, L. Lucas, "A Biophysical Approach to Foliage Rendering: Time-Dependent BSDF for Aging Leaves", EGSR 2026 (Symposium Track), doi:10.2312/sr.20261005. The leaf material: PROSPECT's diffuse lobes under a GGX cuticle (with the first face's reflection no longer counted twice).
+- S. Jacquemoud, F. Baret, "PROSPECT: A model of leaf optical properties spectra", *Remote Sensing of Environment* 34(2), 75-91, 1990. The plate model.
+- J.-B. Féret, A. A. Gitelson, S. D. Noble, S. Jacquemoud, "PROSPECT-D: Towards modeling leaf optical properties through a complete lifecycle", *Remote Sensing of Environment* 193, 204-215, 2017. The anthocyanins and the pigment coefficients; the anthocyanin estimates of the ANGERS leaves.
+- J.-B. Féret, K. Berger, F. de Boissieu, Z. Malenovský, "PROSPECT-PRO for estimating content of nitrogen-containing leaf proteins and other carbon-based constituents", *Remote Sensing of Environment* 252, 112173, 2021. The coefficient table used (dataSpec_PRO_v2.txt of the R package `prospect`, GPL-3, downloaded, not redistributed).
+- J.-B. Féret, C. François, G. P. Asner, A. A. Gitelson, R. E. Martin, L. P. R. Bidel, S. L. Ustin, G. le Maire, S. Jacquemoud, "PROSPECT-4 and 5: Advances in the leaf optical properties model separating photosynthetic pigments", *Remote Sensing of Environment* 112(6), 3030-3043, 2008. The ANGERS database (measured reflectance, transmittance and pigments; downloaded, not redistributed).
+- W. A. Allen, H. W. Gausman, A. J. Richardson, J. R. Thomas, "Interaction of isotropic light with a compact plant leaf", *J. Opt. Soc. Am.* 59(10), 1376-1379, 1969; F. Stern, "Transmission of isotropic radiation across an interface between two dielectrics", *Applied Optics* 3(1), 111-113, 1964; G. G. Stokes, "On the intensity of the light reflected from or transmitted through a pile of plates", *Proc. R. Soc. Lond.* 11, 545-556, 1862. The steps of the plate model (as written in the R package).
+
 **Layered materials and gloss**
 
 - W. Jakob, E. d'Eon, O. Jakob, S. Marschner, "A Comprehensive Framework for Rendering Layered Materials", *ACM TOG* 33(4), Article 118, 2014 (SIGGRAPH). The framework of layered materials; `LayeredCoat` sums the round trips in the layers by a random walk, as the `LayeredBxDF` of PBRT v4 does ([GLOSS.md](GLOSS.md)).

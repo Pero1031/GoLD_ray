@@ -42,7 +42,7 @@ struct WrinkleLevelSpec {
 };
 
 struct MaterialSpec {
-    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin, Measured, Mix, Fluorescent };
+    enum class Type { Diffuse, Conductor, Dielectric, Emission, ThinFilm, Layered, Hair, Skin, Measured, Mix, Fluorescent, Leaf };
     Type type = Type::Diffuse;
     std::string mixA, mixB;                        // mix: the names of the two materials (Materials/MixMaterial.hpp)
     std::string mixMask;                           //   an image on the uv; its red channel is the weight of A (gray 128 = 0.5) ...
@@ -50,6 +50,8 @@ struct MaterialSpec {
     std::string measuredFile;                      // measured: a PCA-compressed hpBRDF table (.hpbpca, Materials/MeasuredHpBRDF.hpp)
     std::string fluorescentFile;                   // fluorescent: a bispectral matrix (Labsphere .BFC, Materials/Fluorescent.hpp)
     bool fluorescence = true;                      //   false: the same surface without its fluorescence
+    double leafN = 1.5, leafChl = 40, leafCar = 8, leafAnt = 0, leafBrown = 0, leafEwt = 0.01, leafLma = 0.009;   // leaf: PROSPECT's structure and contents (Materials/Prospect.hpp)
+    double leafRoughTop = 0.55, leafRoughBottom = 0.75;   //   perceptual GGX roughness of the upper and the lower face
     double alphaSample = 0.1;                      //   GGX alpha of the sampling lobe (only the noise depends on it)
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...
