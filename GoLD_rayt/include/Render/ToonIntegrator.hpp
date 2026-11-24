@@ -23,6 +23,7 @@
  * then average to the pixel, so the lines are anti-aliased.
  *
  * The result is a display-referred picture in [0, 1] (save it with --tonemap clip; the CLI does this itself).
+ * The CLI offers the mode in the RGB build only (it paints display colors; spectra add nothing).
  */
 
 #pragma once

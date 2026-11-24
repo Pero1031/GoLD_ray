@@ -563,6 +563,10 @@ ImageSize ComputeImageSize(const CliOptions& opt) {
 int RenderScene(CliOptions& opt) {
     const SceneDef* def = FindScene(opt.scene);
     if (!def) { std::cerr << "[Scene] unknown scene: " << opt.scene << "\n"; return 1; }
+#if defined(RAYT_SPECTRAL_MODE)
+    // The toon mode paints display colors: it has no use for spectra and lives in the RGB build only.
+    if (opt.toon) { std::cerr << "[Toon] --toon is a mode of the RGB build (out\\cli or out\\cli-dev)\n"; return 1; }
+#endif
     const ImageSize size = ComputeImageSize(opt);
     const int imageWidth = size.width;
     const int imageHeight = size.height;
