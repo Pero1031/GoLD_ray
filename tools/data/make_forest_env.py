@@ -2,13 +2,16 @@
 A dark forest behind a close-up, as an environment map (latitude-longitude, Radiance .hdr): the background of a photograph of
 leaves taken with an open aperture, where the trees far behind are only dark green and the sunlit leaves among them become discs.
 
-  python tools/data/make_forest_env.py out.hdr [--width 4096] [--seed 3] [--spots 260] [--gain 1]
+  python tools/data/make_forest_env.py out.hdr [--width 4096] [--seed 3] [--spots 260] [--gain 1] [--trunks 10]
 
   - Ground below the horizon: dark brown. Canopy above: dark green, made uneven by large soft blobs.
-  - Middle-sized soft patches of dim, sunlit green.
+  - Middle-sized soft patches: sunlit foliage far behind, a warm olive haze.
   - Small bright spots (0.1 to 0.5 degrees): sunlit leaves and gaps to the sky. They are smaller than the blur of the lens,
     so each becomes a disc in the shape of the aperture. Most lie in the half of the sky behind the subject (-z), the camera's
     usual direction in the scene files; a few lie elsewhere.
+  - Tree trunks: dark vertical bands, 1.6 to 8 degrees wide, with a lighter edge on one side; most spots are behind them,
+    a quarter in front. Far behind a close-up, a trunk is blurred about as much as at infinity, so a band in the map is
+    as good as a trunk in the scene.
 
 The map follows the engine's convention (y up, u = (atan2(z, x) + pi) / 2 pi, top row = zenith); linear sRGB. The sun is not in
 the map: give the scene a small sphere light.
@@ -40,6 +43,7 @@ def main():
     ap.add_argument("--seed", type=int, default=3)
     ap.add_argument("--spots", type=int, default=260)
     ap.add_argument("--gain", type=float, default=1.0, help="multiplies the spots and patches")
+    ap.add_argument("--trunks", type=int, default=10, help="tree trunks: dark vertical bands")
     args = ap.parse_args()
     rng = np.random.default_rng(args.seed)
     w = args.width
@@ -90,17 +94,37 @@ def main():
     # large dark unevenness of the canopy
     n = 40
     add_blobs(random_dir(n, 30), rng.uniform(6, 18, n), rng.uniform(0.3, 1.0, (n, 1)) * np.array([0.008, 0.014, 0.003]), True)
-    # middle-sized soft patches of sunlit green
-    n = 60
-    hues = np.array([[0.035, 0.060, 0.010], [0.050, 0.055, 0.012], [0.025, 0.050, 0.015]])
+    # middle-sized soft patches: sunlit foliage far behind, a warm olive haze
+    n = 70
+    hues = np.array([[0.060, 0.058, 0.014], [0.045, 0.055, 0.012], [0.070, 0.055, 0.016]])
     cols = hues[rng.integers(0, 3, n)] * rng.lognormal(0, 0.6, (n, 1)) * args.gain
-    add_blobs(random_dir(n, 50), rng.uniform(1.0, 4.0, n), cols, True)
-    # small bright spots
+    add_blobs(random_dir(n, 60), rng.uniform(1.5, 5.0, n), cols, True)
+    # small bright spots: sunlit leaves and gaps to the sky; most of them behind the trunks
     n = args.spots
-    hues = np.array([[0.55, 0.80, 0.15], [0.75, 0.80, 0.20], [0.95, 0.80, 0.35], [0.80, 0.88, 0.95]])
-    pick = rng.choice(4, n, p=[0.45, 0.30, 0.15, 0.10])
+    hues = np.array([[0.60, 0.72, 0.18], [0.80, 0.78, 0.25], [0.95, 0.80, 0.40], [0.85, 0.88, 0.85]])
+    pick = rng.choice(4, n, p=[0.35, 0.35, 0.20, 0.10])
     cols = hues[pick] * np.exp(rng.uniform(math.log(0.4), math.log(6.0), (n, 1))) * args.gain
-    add_blobs(random_dir(n, int(n * 0.85)), rng.uniform(0.1, 0.5, n), cols, False)
+    spot_dirs = random_dir(n, int(n * 0.85))
+    spot_r = rng.uniform(0.1, 0.5, n)
+    front = rng.random(n) < 0.25
+    add_blobs(spot_dirs[~front], spot_r[~front], cols[~front], False)
+
+    # tree trunks: dark vertical bands (a lens focused near blurs them into soft columns)
+    az = np.arctan2(dirs[..., 0], -dirs[..., 2])
+    el = np.arcsin(np.clip(dirs[..., 1], -1, 1))
+    bark = np.array([0.005, 0.0035, 0.002])
+    for _ in range(args.trunks):
+        a0 = math.radians(rng.uniform(-60, 60))
+        hw = math.radians(rng.uniform(0.8, 4.0))         # half-width: near trunks wide, far ones thin
+        lean = rng.uniform(-0.08, 0.08)
+        foot = math.radians(rng.uniform(-12, -3))
+        d = az - (a0 + lean * el)
+        d = (d + math.pi) % (2 * math.pi) - math.pi
+        px = 2 * math.pi / w
+        m = np.clip((hw - np.abs(d)) / px + 0.5, 0, 1) * (el > foot)
+        rim = np.clip(1 - np.abs(d - hw * 0.85) / (0.15 * hw + px), 0, 1) * m * (d > 0)   # the sunlit edge
+        img[:] = img * (1 - m[..., None]) + m[..., None] * bark * rng.uniform(0.6, 1.6) + rim[..., None] * np.array([0.03, 0.022, 0.008])
+    add_blobs(spot_dirs[front], spot_r[front], cols[front], False)
 
     write_hdr(args.out, img.astype(np.float32))
     print(f"{w} x {h} -> {args.out}; mean {img.mean():.4f}, max {img.max():.2f}")

@@ -21,6 +21,11 @@ Prepares a scanned leaf (photogrammetry) for the leaf material (docs/LEAF.md).
       petioles, the small ones are tips of lobes and teeth, which stay leaf. leaves.obj gets the sheet's faces outside the
       twig; twig.obj gets the scan's faces (both surfaces: a closed tube) over it. With --each, every leaf is also written to a file
       of its own (leaves_0.obj, leaves_1.obj ..., from left to right), so that each can have its own colour.
+
+  python tools/data/leaf_scan.py extend twig.obj branch.obj [--end -x] [--toward -0.6 -0.8 0] [--length 14] [--thicken 3]
+      A scanned sprig ends in a cut. This continues it: a tube that starts inside the twig's end with the twig's radius and
+      direction (fitted to its last --fit units), thickens and turns towards --toward, with a slow wobble and slightly uneven
+      bark, so that the branch can run out of the picture. Smooth normals and uv (around, along).
 """
 import argparse
 import os
@@ -143,6 +148,100 @@ def split(args):
         Image.fromarray(rgb[::-1]).save(args.preview)
 
 
+def extend(args):
+    """A tapered, gently curved tube that continues the twig from its cut end (so the branch can leave the picture)."""
+    v, _, _ = read_obj(args.twig)
+    axis = {"x": 0, "y": 1, "z": 2}[args.end[1]]
+    sign = -1.0 if args.end[0] == "-" else 1.0
+    tip = v[np.argmax(sign * v[:, axis])]
+    near = v[np.linalg.norm(v - tip, axis=1) < args.fit]
+    c = near.mean(axis=0)
+    d0 = np.linalg.svd(near - c)[2][0]
+    if np.dot(d0, tip - c) < 0:
+        d0 = -d0
+    # the end of the twig's axis, and its radius: distance of the last points from the axis
+    last = near[np.dot(near - c, d0) > np.dot(tip - c, d0) - 0.3]
+    rel = last - c
+    r0 = float(np.percentile(np.linalg.norm(rel - np.outer(rel @ d0, d0), axis=1), 75))
+    p0 = c + d0 * float(np.max((near - c) @ d0))
+    toward = np.array(args.toward, float)
+    toward /= np.linalg.norm(toward)
+
+    rng = np.random.default_rng(args.seed)
+    L = args.length
+    rings = int(np.ceil((L + args.overlap) / args.step)) + 1
+    s_all = np.linspace(-args.overlap, L, rings)
+    # direction: from the twig's own towards `toward`, smoothly; plus a slow wobble
+    wob = [rng.normal(size=3) for _ in range(4)]
+    pts, dirs = [p0 - d0 * args.overlap], []
+    for i, s in enumerate(s_all):
+        t = max(0.0, s) / L
+        w = t * t * (3 - 2 * t)
+        d = (1 - w) * d0 + w * toward
+        for k, a in enumerate(wob):
+            d = d + args.wobble * a * np.sin((k + 1) * np.pi * t + k)
+        d /= np.linalg.norm(d)
+        dirs.append(d)
+        if i > 0:
+            pts.append(pts[-1] + d * (s_all[i] - s_all[i - 1]))
+    pts, dirs = np.array(pts), np.array(dirs)
+    # frames by parallel transport
+    n = np.cross(dirs[0], [0.0, 0.0, 1.0] if abs(dirs[0][2]) < 0.9 else [1.0, 0.0, 0.0])
+    n /= np.linalg.norm(n)
+    frames = []
+    for d in dirs:
+        n = n - d * np.dot(n, d)
+        n /= np.linalg.norm(n)
+        frames.append((n, np.cross(d, n)))
+    sides = args.sides
+    ang = 2 * np.pi * np.arange(sides) / sides
+    # bark: ridges along the branch (higher harmonics around it, drifting slowly along it) and lumps
+    ridges = [(k, rng.normal(), rng.uniform(0, 2 * np.pi), rng.normal() * 0.6) for k in range(3, 14)]
+    lumps = [(k, rng.normal(), rng.uniform(0, 2 * np.pi), rng.normal() * 3.0) for k in range(1, 4)]
+    # nodes: swellings where buds and side shoots were, every --node units on average
+    nodes = []
+    s_node = args.node * rng.uniform(0.3, 1.0)
+    while s_node < L:
+        nodes.append((s_node, rng.uniform(0.6, 1.0) * args.node_swell, rng.uniform(0, 2 * np.pi)))
+        s_node += args.node * rng.uniform(0.6, 1.4)
+    verts, uvs = [], []
+    for i, s in enumerate(s_all):
+        t = max(0.0, s) / L
+        r = r0 * (1 + (args.thicken - 1) * t ** args.grow)
+        n1, n2 = frames[i]
+        for j, a in enumerate(ang):
+            ridge = sum(c * np.sin(k * a + p + drift * s / max(r, 1e-6) * 0.05) for k, c, p, drift in ridges) / np.sqrt(len(ridges))
+            lump = sum(c * np.sin(k * a + p + drift * s) for k, c, p, drift in lumps) / np.sqrt(len(lumps))
+            node = sum(sw * np.exp(-((s - sn) / (2.0 * r)) ** 2) * (0.6 + 0.4 * np.cos(a - pa)) for sn, sw, pa in nodes)
+            rr = r * (1 + args.rough * ridge * min(1.0, 4 * t) + 0.5 * args.rough * lump + node)
+            verts.append(pts[i] + rr * (np.cos(a) * n1 + np.sin(a) * n2))
+            uvs.append((j / sides, s / L))
+    verts = np.array(verts)
+    # smooth normals from the faces (the bark's relief included)
+    faces = []
+    for i in range(rings - 1):
+        for j in range(sides):
+            a_, b_ = i * sides + j, i * sides + (j + 1) % sides
+            faces += [(a_, b_, b_ + sides), (a_, b_ + sides, a_ + sides)]
+    faces = np.array(faces)
+    fn = np.cross(verts[faces[:, 1]] - verts[faces[:, 0]], verts[faces[:, 2]] - verts[faces[:, 0]])
+    norms = np.zeros_like(verts)
+    for c in range(3):
+        np.add.at(norms, faces[:, c], fn)
+    norms /= np.maximum(np.linalg.norm(norms, axis=1, keepdims=True), 1e-12)
+    centre = np.repeat(pts, sides, axis=0)
+    if np.mean(np.sum(norms * (verts - centre), axis=1)) < 0:
+        norms = -norms
+    with open(args.output, "w") as out:
+        out.write(f"# branch continuing {os.path.basename(args.twig)} from its end {np.round(p0, 3).tolist()}, radius {r0:.4f} -> {r0 * args.thicken:.4f}, length {L}\n")
+        np.savetxt(out, np.array(verts), fmt="v %.6f %.6f %.6f")
+        np.savetxt(out, np.array(norms), fmt="vn %.6f %.6f %.6f")
+        np.savetxt(out, np.array(uvs), fmt="vt %.6f %.6f")
+        f = faces + 1
+        np.savetxt(out, np.stack([f, f, f], axis=2).reshape(-1, 9), fmt="f %d/%d/%d %d/%d/%d %d/%d/%d")
+    print(f"end {np.round(p0, 3).tolist()}, direction {np.round(d0, 3).tolist()}, radius {r0:.4f} -> {args.output} ({rings} rings)")
+
+
 def sheet(args):
     v, vt, f = read_obj(args.input)
     axis = {"x": 0, "y": 1, "z": 2}[args.axis]
@@ -251,8 +350,25 @@ def main():
     t.add_argument("--axis", default="z", choices=["x", "y", "z"])
     t.add_argument("--each", action="store_true", help="also write each leaf on its own: leaves_0.obj, leaves_1.obj ... (left to right)")
     t.add_argument("--preview", help="PNG of the mask: leaf red, thin yellow, twig blue")
+    e = sub.add_parser("extend")
+    e.add_argument("twig")
+    e.add_argument("output")
+    e.add_argument("--end", default="-x", choices=["-x", "+x", "-y", "+y", "-z", "+z"], help="the cut end is the twig's extreme point this way")
+    e.add_argument("--toward", type=float, nargs=3, default=[-0.6, -0.8, 0.0], help="direction the branch turns to (mesh coordinates)")
+    e.add_argument("--length", type=float, default=14.0)
+    e.add_argument("--thicken", type=float, default=3.0, help="radius at the far end / radius at the cut")
+    e.add_argument("--fit", type=float, default=1.0, help="the twig's direction is fitted to its points this near the end")
+    e.add_argument("--overlap", type=float, default=0.15, help="the tube starts this far inside the twig")
+    e.add_argument("--wobble", type=float, default=0.08)
+    e.add_argument("--grow", type=float, default=0.8, help="radius grows as (s / length)^grow: below 1 it thickens quickly near the cut")
+    e.add_argument("--rough", type=float, default=0.06, help="relief of the bark (fraction of the radius)")
+    e.add_argument("--node", type=float, default=3.0, help="mean distance between nodes (swellings)")
+    e.add_argument("--node-swell", type=float, default=0.15, help="how much a node swells (fraction of the radius)")
+    e.add_argument("--step", type=float, default=0.05)
+    e.add_argument("--sides", type=int, default=20)
+    e.add_argument("--seed", type=int, default=1)
     args = ap.parse_args()
-    {"sheet": sheet, "pigments": pigments, "split": split}[args.cmd](args)
+    {"sheet": sheet, "pigments": pigments, "split": split, "extend": extend}[args.cmd](args)
 
 
 if __name__ == "__main__":
