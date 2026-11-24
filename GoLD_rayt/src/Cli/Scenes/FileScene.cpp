@@ -349,10 +349,20 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             leaf::Pigments p;
             p.N = Real(m.leafN); p.chl = Real(m.leafChl); p.car = Real(m.leafCar); p.ant = Real(m.leafAnt);
             p.brown = Real(m.leafBrown); p.ewt = Real(m.leafEwt); p.lma = Real(m.leafLma);
-            auto mat = std::make_shared<Leaf>(table, p, Real(m.leafRoughTop), Real(m.leafRoughBottom));
+            std::shared_ptr<const Texture2D> map;
+            if (!m.leafPigmentMap.empty()) {
+                map = Texture2D::load(m.leafPigmentMap);
+                if (!map) {
+                    std::cerr << "[SceneFile] material \"" << name << "\": cannot read the pigment map " << m.leafPigmentMap << std::endl;
+                    return 1;
+                }
+            }
+            const std::array<Real, 4> scale = { Real(m.leafScale[0]), Real(m.leafScale[1]), Real(m.leafScale[2]), Real(m.leafScale[3]) };
+            auto mat = std::make_shared<Leaf>(table, p, Real(m.leafRoughTop), Real(m.leafRoughBottom), map, scale);
             const Vector3 r = mat->rgbReflectance(), t = mat->rgbTransmittance();
             std::cout << "[SceneFile] material \"" << name << "\": leaf (N " << p.N << ", chlorophyll " << p.chl << ", carotenoids " << p.car
-                << ", anthocyanins " << p.ant << ", brown " << p.brown << "), linear sRGB under D65: reflectance (" << r.x << ", " << r.y << ", "
+                << ", anthocyanins " << p.ant << ", brown " << p.brown << (map ? "; contents per texel from " + m.leafPigmentMap : std::string())
+                << ", scale " << scale[0] << " " << scale[1] << " " << scale[2] << " " << scale[3] << "), linear sRGB under D65: reflectance (" << r.x << ", " << r.y << ", "
                 << r.z << "), transmittance (" << t.x << ", " << t.y << ", " << t.z << ")\n";
             materials[name] = mat;
             break;

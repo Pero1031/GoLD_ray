@@ -27,14 +27,21 @@
 #include "Core/Interaction.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Prospect.hpp"
+#include "Core/Texture.hpp"
+#include <array>
+#include <vector>
 
 namespace rayt {
 
     class Leaf : public Material {
     public:
         /// `roughnessTop` / `roughnessBottom`: perceptual GGX roughness of the upper (front-face) and the lower (back-face) side, alpha = roughness^2.
+        /// `pigmentMap` (optional): the contents per texel, an RGBA image read as numbers (tools/data/leaf_scan.py pigments): chlorophyll / 80,
+        /// carotenoids / 20, anthocyanins / 40 (ug/cm^2), brown pigments (0..1); N, water and dry matter stay those of `pigments`.
+        /// `scale` multiplies chlorophyll, carotenoids, anthocyanins and brown pigments (of the map or of `pigments`).
         Leaf(std::shared_ptr<const leaf::ProspectTable> table, const leaf::Pigments& pigments, Real roughnessTop = Real(0.55),
-            Real roughnessBottom = Real(0.75));
+            Real roughnessBottom = Real(0.75), std::shared_ptr<const Texture2D> pigmentMap = nullptr,
+            const std::array<Real, 4>& scale = { 1, 1, 1, 1 });
 
         Spectrum eval(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths& lambda,
             TransportMode mode = TransportMode::Radiance) const override;
@@ -46,6 +53,8 @@ namespace rayt {
         Spectrum evalDiffuse(const SurfaceInteraction& rec, const Vector3& wo, const Vector3& wi, const SampledWavelengths& lambda) const;
 
         const leaf::Pigments& pigments() const { return m_p; }
+        /// The contents at a hit (the map's, or the constant ones), with the scale applied.
+        leaf::Pigments pigmentsAt(const SurfaceInteraction& rec) const;
         /// Linear sRGB of the leaf's reflectance R and transmittance T under D65 (PROSPECT, isotropic light).
         Vector3 rgbReflectance() const { return m_rgbR; }
         Vector3 rgbTransmittance() const { return m_rgbT; }
@@ -77,6 +86,13 @@ namespace rayt {
         Vector3 m_rgbRd, m_rgbTd;            // the RGB build's lobes: Rd and T as linear sRGB
         Real m_n550 = Real(1.47);
         CuticleTable m_esTop, m_esBottom;
+        std::shared_ptr<const Texture2D> m_map;
+        std::array<Real, 4> m_scale{ 1, 1, 1, 1 };
+        // The RGB build with a map: Rd and T as linear sRGB on a grid over the four map channels (interpolated per hit).
+        static constexpr int kGrid[4] = { 11, 7, 11, 6 };
+        std::vector<Vector3> m_gridRd, m_gridT;
+        void buildRgbGrid();
+        void rgbFromGrid(const std::array<Real, 4>& texel, Vector3& rd, Vector3& t) const;
     };
 
 } // namespace rayt

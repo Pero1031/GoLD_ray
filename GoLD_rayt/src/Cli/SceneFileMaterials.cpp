@@ -769,7 +769,8 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<bool>(m, "fluorescence", where, s.fluorescence, ReadBool);
     }
     else if (type == "leaf") {   // { "type": "leaf", "chlorophyll": 40, "carotenoids": 8, "anthocyanins": 0, "N": 1.5, "roughness": 0.55 } (docs/LEAF.md)
-        CheckKeys(m, { "type", "N", "chlorophyll", "carotenoids", "anthocyanins", "brown", "water", "dryMatter", "roughness", "roughnessBack" }, where);
+        CheckKeys(m, { "type", "N", "chlorophyll", "carotenoids", "anthocyanins", "brown", "water", "dryMatter", "roughness", "roughnessBack",
+            "pigmentMap", "pigmentScale" }, where);
         s.type = MaterialSpec::Type::Leaf;
         Optional<double>(m, "N", where, s.leafN, ReadNumber);
         Optional<double>(m, "chlorophyll", where, s.leafChl, ReadNumber);
@@ -780,6 +781,15 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(m, "dryMatter", where, s.leafLma, ReadNumber);
         Optional<double>(m, "roughness", where, s.leafRoughTop, ReadNumber);
         Optional<double>(m, "roughnessBack", where, s.leafRoughBottom, ReadNumber);
+        Optional<std::string>(m, "pigmentMap", where, s.leafPigmentMap, ReadString);
+        if (m.contains("pigmentScale")) {
+            const json& a = m.at("pigmentScale");
+            if (!a.is_array() || a.size() != 4) Fail(where + ".pigmentScale", "must be 4 numbers: chlorophyll, carotenoids, anthocyanins, brown");
+            for (int i = 0; i < 4; ++i) {
+                s.leafScale[i] = ReadNumber(a[size_t(i)], where + ".pigmentScale");
+                if (s.leafScale[i] < 0) Fail(where + ".pigmentScale", "must not be negative");
+            }
+        }
         if (s.leafN < 1) Fail(where + ".N", "must be 1 or more (the number of plates)");
         for (double v : { s.leafChl, s.leafCar, s.leafAnt, s.leafBrown, s.leafEwt, s.leafLma })
             if (v < 0) Fail(where, "contents must not be negative");

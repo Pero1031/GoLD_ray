@@ -33,14 +33,18 @@ namespace rayt {
 #endif
     }
 
-    Leaf::Leaf(std::shared_ptr<const leaf::ProspectTable> table, const leaf::Pigments& pigments, Real roughnessTop, Real roughnessBottom)
+    Leaf::Leaf(std::shared_ptr<const leaf::ProspectTable> table, const leaf::Pigments& pigments, Real roughnessTop, Real roughnessBottom,
+        std::shared_ptr<const Texture2D> pigmentMap, const std::array<Real, 4>& scale)
         : m_table(std::move(table)), m_p(pigments)
         , m_alphaTop(MicrofacetDistribution::roughnessToAlpha(roughnessTop))
         , m_alphaBottom(MicrofacetDistribution::roughnessToAlpha(roughnessBottom))
+        , m_map(std::move(pigmentMap)), m_scale(scale)
     {
+        leaf::Pigments constant = m_p;   // the colour reported (and the RGB build's colour without a map)
+        constant.chl *= m_scale[0]; constant.car *= m_scale[1]; constant.ant *= m_scale[2]; constant.brown *= m_scale[3];
         color::SpectralCurve R, T, Rd, Td;
         for (int nm = 360; nm <= 830; ++nm) {
-            const leaf::ReflTrans rt = leaf::prospect(*m_table, m_p, Real(nm));
+            const leaf::ReflTrans rt = leaf::prospect(*m_table, constant, Real(nm));
             R.add(Real(nm), rt.R);
             T.add(Real(nm), rt.T);
             Rd.add(Real(nm), std::max(rt.R - (Real(1) - rt.t12), Real(0)));
@@ -54,6 +58,65 @@ namespace rayt {
         m_n550 = m_table->at(Real(550)).n;
         m_esTop = cuticleTable(m_alphaTop, m_n550);
         m_esBottom = cuticleTable(m_alphaBottom, m_n550);
+#if !defined(RAYT_SPECTRAL_MODE)
+        if (m_map) buildRgbGrid();
+#endif
+    }
+
+    leaf::Pigments Leaf::pigmentsAt(const SurfaceInteraction& rec) const {
+        leaf::Pigments p = m_p;
+        if (m_map) {
+            const std::array<Real, 4> t = m_map->raw(rec.uv.x, rec.uv.y);
+            p.chl = t[0] * Real(80); p.car = t[1] * Real(20); p.ant = t[2] * Real(40); p.brown = t[3];
+        }
+        p.chl *= m_scale[0]; p.car *= m_scale[1]; p.ant *= m_scale[2]; p.brown *= m_scale[3];
+        return p;
+    }
+
+    void Leaf::buildRgbGrid() {
+        const size_t n = size_t(kGrid[0]) * kGrid[1] * kGrid[2] * kGrid[3];
+        m_gridRd.assign(n, Vector3(0.0));
+        m_gridT.assign(n, Vector3(0.0));
+        for (size_t idx = 0; idx < n; ++idx) {
+            size_t r = idx;
+            Real x[4];
+            for (int c = 3; c >= 0; --c) { x[c] = Real(r % size_t(kGrid[c])) / Real(kGrid[c] - 1); r /= size_t(kGrid[c]); }
+            leaf::Pigments p = m_p;
+            p.chl = x[0] * Real(80) * m_scale[0]; p.car = x[1] * Real(20) * m_scale[1];
+            p.ant = x[2] * Real(40) * m_scale[2]; p.brown = x[3] * m_scale[3];
+            color::SpectralCurve Rd, Td;
+            for (int nm = 360; nm <= 830; nm += 5) {
+                const leaf::ReflTrans rt = leaf::prospect(*m_table, p, Real(nm));
+                Rd.add(Real(nm), std::max(rt.R - (Real(1) - rt.t12), Real(0)));
+                Td.add(Real(nm), rt.T);
+            }
+            Rd.finalize(); Td.finalize();
+            m_gridRd[idx] = glm::max(color::reflectanceCurveToRgb(Rd), Vector3(0.0));
+            m_gridT[idx] = glm::max(color::reflectanceCurveToRgb(Td), Vector3(0.0));
+        }
+    }
+
+    void Leaf::rgbFromGrid(const std::array<Real, 4>& texel, Vector3& rd, Vector3& t) const {
+        int i0[4];
+        Real f[4];
+        for (int c = 0; c < 4; ++c) {
+            const Real x = std::clamp(texel[size_t(c)], Real(0), Real(1)) * Real(kGrid[c] - 1);
+            i0[c] = std::min(int(x), kGrid[c] - 2);
+            f[c] = x - Real(i0[c]);
+        }
+        rd = Vector3(0.0); t = Vector3(0.0);
+        for (int corner = 0; corner < 16; ++corner) {
+            Real w = 1;
+            size_t idx = 0;
+            for (int c = 0; c < 4; ++c) {
+                const int b = (corner >> c) & 1;
+                w *= b ? f[c] : Real(1) - f[c];
+                idx = idx * size_t(kGrid[c]) + size_t(i0[c] + b);
+            }
+            if (w == 0) continue;
+            rd += w * m_gridRd[idx];
+            t += w * m_gridT[idx];
+        }
     }
 
     Leaf::CuticleTable Leaf::cuticleTable(Real alpha, Real n) {
@@ -92,19 +155,22 @@ namespace rayt {
         return e[i] + (e[i + 1] - e[i]) * f;
     }
 
-    Leaf::Optics Leaf::opticsAt(const SurfaceInteraction& /*rec*/, const SampledWavelengths& lambda) const {
+    Leaf::Optics Leaf::opticsAt(const SurfaceInteraction& rec, const SampledWavelengths& lambda) const {
         Optics o;
 #if defined(RAYT_SPECTRAL_MODE)
+        const leaf::Pigments p = pigmentsAt(rec);
         for (int i = 0; i < kSpectralSamples; ++i) {
-            const leaf::ReflTrans rt = leaf::prospect(*m_table, m_p, lambda[i]);
+            const leaf::ReflTrans rt = leaf::prospect(*m_table, p, lambda[i]);
             o.Rd[i] = std::max(rt.R - (Real(1) - rt.t12), Real(0));
             o.T[i] = rt.T;
             o.t12[i] = rt.t12;
             o.n[i] = rt.n;
         }
 #else
-        o.Rd = RgbColor(m_rgbRd).reflectance(lambda);
-        o.T = RgbColor(m_rgbTd).reflectance(lambda);
+        Vector3 rd = m_rgbRd, t = m_rgbTd;
+        if (m_map) rgbFromGrid(m_map->raw(rec.uv.x, rec.uv.y), rd, t);
+        o.Rd = RgbColor(rd).reflectance(lambda);
+        o.T = RgbColor(t).reflectance(lambda);
         o.t12 = Spectrum(leaf::tav(Real(90), m_n550));   // one index for the three channels: t12 must belong to the index of F
         o.n = Spectrum(m_n550);
 #endif

@@ -52,6 +52,8 @@ struct MaterialSpec {
     bool fluorescence = true;                      //   false: the same surface without its fluorescence
     double leafN = 1.5, leafChl = 40, leafCar = 8, leafAnt = 0, leafBrown = 0, leafEwt = 0.01, leafLma = 0.009;   // leaf: PROSPECT's structure and contents (Materials/Prospect.hpp)
     double leafRoughTop = 0.55, leafRoughBottom = 0.75;   //   perceptual GGX roughness of the upper and the lower face
+    std::string leafPigmentMap;                    //   contents per texel (RGBA: chl / 80, car / 20, ant / 40, brown; tools/data/leaf_scan.py pigments)
+    double leafScale[4] = { 1, 1, 1, 1 };          //   multiplies chlorophyll, carotenoids, anthocyanins, brown pigments
     double alphaSample = 0.1;                      //   GGX alpha of the sampling lobe (only the noise depends on it)
     Vector3 albedo = Vector3(0.5);                 // diffuse
     std::string metal;                             // conductor: Au | Ag | Cu (the Johnson & Christy tables in assets/Metal_data) ...

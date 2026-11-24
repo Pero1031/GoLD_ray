@@ -449,3 +449,5 @@ docs/HANDOFF.md
 # Leaf data (tools/data/leaf_optics.py): the PROSPECT coefficient table (GPL-3) and the ANGERS leaf database, kept locally
 /GoLD_rayt/assets/Leaf/prospect/
 /GoLD_rayt/assets/Leaf/angers/
+# Scanned maple (CC0, ffish.asia / floraZia.com; 95 MB zip, converted meshes and maps): kept locally
+/GoLD_rayt/assets/Meshes/maple/

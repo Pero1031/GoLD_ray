@@ -38,6 +38,23 @@ Code: `Materials/Prospect` (the model), `Materials/Leaf` (the BSDF).
 - The upper and the lower face have their own roughness (default 0.55 and 0.75). The diffuse lobes are the same on both faces, as in
   PROSPECT.
 
+## Scanned leaves
+
+A photogrammetry scan gives the shape: the leaves, the petioles and the twig. Its photographed colour also shows where the pigments
+are: lighter veins, yellower margins, spots.
+
+1. `tools/data/gltf_to_obj.py scene.gltf out/` writes the scan's meshes as OBJ with uv, and saves its textures.
+2. `tools/data/leaf_scan.py sheet in.obj out.obj` keeps the upper surface. A scan closes each leaf into a thin shell; the material
+   is a single sheet that reflects and transmits.
+3. `tools/data/leaf_scan.py pigments texture.jpg map.png` estimates the contents of each texel. It compares the colour with PROSPECT's
+   diffuse reflectance (without the first face, since a scan's texture has no gloss) over a grid of mixtures, nearest in CIELAB, up
+   to one global brightness factor. The material reads the result as `pigmentMap`.
+
+The colour of a photo fixes only three numbers per texel, and the white of the scan is unknown. The estimate gets the pattern right:
+less anthocyanin along the veins, brown spots. Its carotenoids came out too low for a red maple leaf (a median of 1 µg/cm², where 5–10
+is usual), which turns the backlit leaf pink. `pigmentScale` corrects such overall levels. On the CC0 scan of a Japanese maple
+(ffish.asia / floraZia.com), carotenoids × 10 and anthocyanins × 2.2 give the deep red of a backlit leaf.
+
 ## Checks (`--scene leaf`, both builds, ~30 s)
 
 | | check | result |
@@ -65,6 +82,6 @@ red leaves, where the anthocyanin contents are estimates, not measurements.
 ## Limits
 
 - PROSPECT is symmetric: real leaves are lighter underneath (the spongy mesophyll), and the cuticle may differ.
-- One set of contents per material for now; contents that vary over the leaf (veins, margins, age) are the next step.
+- Contents over the leaf come from a scan's colour, not yet from a model of ageing (the paper's vein and edge distances and time profiles).
 - The diffuse lobes are Lambertian. A leaf's transmission is slightly forward-peaked, and real veins and hairs scatter
   anisotropically.

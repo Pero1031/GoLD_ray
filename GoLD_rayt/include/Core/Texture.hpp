@@ -88,6 +88,25 @@ namespace rayt {
             return a;
         }
 
+        /// The stored values as numbers in [0, 1] (no sRGB decoding), bilinearly filtered: for maps of quantities, not colours.
+        std::array<Real, 4> raw(Real u, Real v) const {
+            std::array<Real, 4> out{ 0, 0, 0, 0 };
+            if (m_w <= 0 || m_h <= 0) return out;
+            const Real x = (u - std::floor(u)) * Real(m_w) - Real(0.5);
+            const Real y = (v - std::floor(v)) * Real(m_h) - Real(0.5);
+            const int x0 = static_cast<int>(std::floor(x)), y0 = static_cast<int>(std::floor(y));
+            const Real fx = x - Real(x0), fy = y - Real(y0);
+            for (int dy = 0; dy < 2; ++dy)
+                for (int dx = 0; dx < 2; ++dx) {
+                    const Real w = (dx ? fx : Real(1) - fx) * (dy ? fy : Real(1) - fy);
+                    const int px = ((x0 + dx) % m_w + m_w) % m_w;
+                    const int py = ((y0 + dy) % m_h + m_h) % m_h;
+                    const unsigned char* t = &m_rgba[(static_cast<size_t>(py) * static_cast<size_t>(m_w) + static_cast<size_t>(px)) * 4];
+                    for (int c = 0; c < 4; ++c) out[static_cast<size_t>(c)] += w * (t[c] / Real(255));
+                }
+            return out;
+        }
+
     private:
         static const std::array<float, 256>& srgbTable() {
             static const std::array<float, 256> table = [] {
