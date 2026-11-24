@@ -49,11 +49,18 @@ are: lighter veins, yellower margins, spots.
 3. `tools/data/leaf_scan.py pigments texture.jpg map.png` estimates the contents of each texel. It compares the colour with PROSPECT's
    diffuse reflectance (without the first face, since a scan's texture has no gloss) over a grid of mixtures, nearest in CIELAB, up
    to one global brightness factor. The material reads the result as `pigmentMap`.
+4. `tools/data/leaf_scan.py split scan.obj sheet.obj leaves.obj twig.obj --each` separates the twig and the petioles (the parts of
+   the sheet, seen from above, narrower than `--width`) from the leaves. The twig keeps both surfaces of the scan, a closed tube for
+   an opaque bark material; with `--each` every leaf also goes to a file of its own, so that each can have its own colour.
 
 The colour of a photo fixes only three numbers per texel, and the white of the scan is unknown. The estimate gets the pattern right:
 less anthocyanin along the veins, brown spots. Its carotenoids came out too low for a red maple leaf (a median of 1 µg/cm², where 5–10
 is usual), which turns the backlit leaf pink. `pigmentScale` corrects such overall levels. On the CC0 scan of a Japanese maple
-(ffish.asia / floraZia.com), carotenoids × 10 and anthocyanins × 2.2 give the deep red of a backlit leaf.
+(ffish.asia / floraZia.com), carotenoids × 10 and anthocyanins × 2.2 give the deep red of a backlit leaf. The same map with fewer
+anthocyanins gives the other leaves of an autumn branch: about × 1.5 scarlet, × 0.3 orange, none (with chlorophyll × 0.4) yellow.
+
+`tools/data/make_forest_env.py` writes a background for such a close-up: an environment map of a dark forest with small sunlit spots,
+which an open aperture turns into discs.
 
 ## Checks (`--scene leaf`, both builds, ~30 s)
 
