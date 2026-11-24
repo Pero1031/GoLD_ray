@@ -69,6 +69,8 @@ namespace rayt {
         int width() const { return m_w; }
         int height() const { return m_h; }
         bool hasAlpha() const { return m_hasAlpha; }
+        /// The texels as stored: 8-bit sRGB RGBA, row 0 = top (e.g. for uploading to OpenGL).
+        const std::vector<unsigned char>& rgba8() const { return m_rgba; }
 
         /// Linear RGB, bilinearly filtered.
         Vector3 rgb(Real u, Real v) const {

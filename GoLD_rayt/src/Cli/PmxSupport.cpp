@@ -92,6 +92,79 @@ std::shared_ptr<Material> MakePmxMaterial(const io::PmxMaterial& pm, const RgbCo
     return std::make_shared<Lambertian>(base, tex);
 }
 
+std::vector<ToonLook> MakePmxToonLooks(const io::PmxModel& m, const TriangleMesh& mesh,
+    const std::function<std::shared_ptr<Texture2D>(int)>& loadTexture, bool log)
+{
+    auto nameHas = [](const io::PmxMaterial& pm, std::initializer_list<const char*> keys) {
+        for (const char* k : keys) if (pm.name.find(k) != std::string::npos || pm.nameEn.find(k) != std::string::npos) return true;
+        return false;
+    };
+    auto isOverlay = [](const io::PmxMaterial& pm) { return !pm.name.empty() && pm.name.back() == '+'; };
+    auto isHair = [&](const io::PmxMaterial& pm) { return !isOverlay(pm) && nameHas(pm, { "\xE9\xAB\xAA", "\xE9\xAB\xAE", "\xE5\x8F\x91", "hair", "Hair" }); };   // 髪 髮 发
+
+    // The head as an ellipsoid: as wide as the face, its front at the face's front, a little deeper than it is wide
+    Vector3 faceLo(1e30), faceHi(-1e30), faceForward(0.0);
+    bool haveFace = false;
+    for (const auto& pm : m.materials) {
+        if (isOverlay(pm) || !nameHas(pm, { "\xE9\xA2\x9C", "\xE9\xA1\x94", "face", "Face" })) continue;   // 颜 顔
+        for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
+            const size_t v = static_cast<size_t>(mesh.indices[static_cast<size_t>(i)]);
+            faceLo = glm::min(faceLo, mesh.p[v]);
+            faceHi = glm::max(faceHi, mesh.p[v]);
+            faceForward += mesh.n[v];
+            haveFace = true;
+        }
+    }
+    Vector3 headCenter(0.0), headRadii(1.0);
+    if (haveFace && glm::length(faceForward) > Real(0)) {
+        faceForward = glm::normalize(faceForward);
+        const Vector3 half = (faceHi - faceLo) * Real(0.5), mid = (faceHi + faceLo) * Real(0.5);
+        const Real r = std::max(half.x, half.z) * Real(1.1);
+        const Real depth = std::abs(glm::dot(half, glm::abs(faceForward)));
+        headCenter = mid + faceForward * (depth - r);
+        headRadii = Vector3(r, half.y * Real(1.15), r);
+        if (log) std::cout << "[Toon] face normals from an ellipsoid round the head: centre (" << headCenter.x << ", " << headCenter.y << ", "
+            << headCenter.z << "), radii (" << headRadii.x << ", " << headRadii.y << ", " << headRadii.z << ")\n";
+    }
+    else haveFace = false;
+
+    std::vector<ToonLook> looks(m.materials.size());
+    for (size_t k = 0; k < m.materials.size(); ++k) {
+        const io::PmxMaterial& pm = m.materials[k];
+        const bool overlayName = isOverlay(pm);
+        ToonLook& L = looks[k];
+        L.diffuse = Vector3(pm.diffuse.x, pm.diffuse.y, pm.diffuse.z);
+        L.ambient = pm.ambient;
+        L.specular = pm.specular;
+        L.shininess = pm.shininess;
+        L.alpha = std::clamp(pm.diffuse.w, Real(0), Real(1));
+        L.texture = loadTexture(pm.texture);
+        if (pm.sphereMode == 1 || pm.sphereMode == 2) { L.sphere = loadTexture(pm.sphereTexture); L.sphereMode = pm.sphereMode; }
+        if (!pm.sharedToon) L.toon = loadTexture(pm.toon);   // the model's own ramp; the shared toon01..10 of MMD are not here: toonShadow
+        L.edge = (pm.flags & 0x10u) != 0;
+        L.edgeColor = Vector3(pm.edgeColor.x, pm.edgeColor.y, pm.edgeColor.z);
+        L.edgeSize = pm.edgeSize;
+        L.overlay = overlayName && !pm.alphaFromMorph;
+        L.hair = isHair(pm);
+        L.showThroughHair = !overlayName && nameHas(pm, { "\xE7\x9C\x89", "brow", "Brow" });   // 眉
+        if (haveFace && !overlayName && !L.hair) {   // the face and what lies in it (eyes, brows, mouth): normals from the head
+            int inside = 0, all = 0;
+            const Vector3 pad = (faceHi - faceLo) * Real(0.1);
+            for (int i = pm.firstIndex; i < pm.firstIndex + pm.indexCount; ++i) {
+                const Vector3& q = mesh.p[static_cast<size_t>(mesh.indices[static_cast<size_t>(i)])];
+                ++all;
+                if (glm::all(glm::greaterThanEqual(q, faceLo - pad)) && glm::all(glm::lessThanEqual(q, faceHi + pad))) ++inside;
+            }
+            if (all > 0 && inside >= all * 9 / 10) { L.faceNormals = true; L.faceCenter = headCenter; L.faceRadii = headRadii; }
+        }
+        if (log && pm.diffuse.w > Real(0.001))
+            std::cout << "[Toon]   " << pm.name << (L.overlay ? "  overlay" : "") << (L.faceNormals ? "  face normals" : "") << (L.hair ? "  hair" : "")
+                << (L.showThroughHair ? "  brow" : "") << (L.toon ? "  own toon" : "") << (L.sphere ? (L.sphereMode == 2 ? "  spa" : "  sph") : "")
+                << (L.edge ? "  edge " + std::to_string(L.edgeSize) : std::string("  no edge")) << "\n";
+    }
+    return looks;
+}
+
 std::shared_ptr<TriangleMesh> PmxToMesh(const io::PmxModel& m, Real yawDegrees, Real* outHeight, Vector3* outSize) {
     constexpr Real kScale = 0.08;
     auto mesh = std::make_shared<TriangleMesh>();

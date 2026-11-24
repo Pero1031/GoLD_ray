@@ -63,6 +63,10 @@
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
+// MMD files (lists for the preview)
+#include "Cli/PmxSupport.hpp"
+#include "IO/ImageWriter.hpp"
+
 using namespace rayt; // Convenience: avoid qualifying with rayt:: in this .cpp
 
 // -----------------------------------------------------------------------------
@@ -122,6 +126,7 @@ App::App(int width, int height, const char* title)
 }
 
 App::~App() {
+    m_preview.reset();   // its OpenGL objects go while the context exists
     m_uiLayer.shutdown();
     glDeleteTextures(1, &m_renderTexture);
     glfwDestroyWindow(m_window);
@@ -149,6 +154,7 @@ void App::init() {
     std::cout << "CWD = " << std::filesystem::current_path() << std::endl;
     loadMaterials();
     buildScene();
+    findMmdFiles();
 
     // --------------------------------------------------
     // 3. Camera, film, integrator
@@ -337,6 +343,17 @@ void App::frame() {
         m_settings.requestReset = true;
     }
 
+    // MMD preview: load what the settings ask for; the path tracer rests meanwhile
+    const bool preview = (m_settings.mode == 1);
+    if (preview && m_settings.requestModelLoad) {
+        loadPreviewModel();
+        m_settings.requestModelLoad = false;
+    }
+    if (preview && m_settings.requestCameraReset && m_preview && m_preview->loaded()) {
+        m_orbit = m_preview->framingCamera();
+        m_settings.requestCameraReset = false;
+    }
+
     bool textureDirty = false;
     if (m_settings.requestReset) {
         m_film->clear();
@@ -345,7 +362,7 @@ void App::frame() {
         textureDirty = true;
     }
 
-    if (!m_settings.paused) {
+    if (!m_settings.paused && !preview) {
         for (int i = 0; i < m_settings.sppPerFrame && m_currentSpp < m_settings.targetSpp; ++i) {
             m_integrator->renderOnePass(*m_scene, *m_film, m_currentSpp);
             ++m_currentSpp;
@@ -366,20 +383,7 @@ void App::frame() {
     m_uiLayer.beginFrame();
     m_uiLayer.draw(m_settings);
 
-    {
-        ImGui::Begin("Viewport");
-        // Keep the aspect ratio of the image and center it in the window.
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const float aspect = static_cast<float>(m_width) / static_cast<float>(m_height);
-        ImVec2 size = avail;
-        if (size.x / aspect > size.y) size.x = size.y * aspect; else size.y = size.x / aspect;
-        if (size.x > 1.0f && size.y > 1.0f) {
-            ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail.x - size.x) * 0.5f,
-                                       ImGui::GetCursorPosY() + (avail.y - size.y) * 0.5f));
-            ImGui::Image((void*)(intptr_t)m_renderTexture, size, ImVec2(0, 0), ImVec2(1, 1));
-        }
-        ImGui::End();
-    }
+    drawViewport();
 
     int w, h;
     glfwGetFramebufferSize(m_window, &w, &h);
@@ -388,6 +392,92 @@ void App::frame() {
 
     m_uiLayer.endFrame();
     glfwSwapBuffers(m_window);
+}
+
+void App::findMmdFiles() {
+    m_pmxFiles = cli::FindPmxFiles();
+    m_settings.pmxNames.clear();
+    size_t largest = 0;
+    for (size_t i = 0; i < m_pmxFiles.size(); ++i) {
+        m_settings.pmxNames.push_back(cli::PathToUtf8(m_pmxFiles[i].parent_path().filename()) + " / " + cli::PathToUtf8(m_pmxFiles[i].filename()));
+        std::error_code ec;
+        if (std::filesystem::file_size(m_pmxFiles[i], ec) > std::filesystem::file_size(m_pmxFiles[largest], ec)) largest = i;
+    }
+    m_settings.pmx = static_cast<int>(largest);   // the largest file, as the ray tracer's PMX scene picks by default
+    m_poseFiles.assign(1, std::filesystem::path());
+    m_settings.poseNames.assign(1, "(rest pose)");
+    for (const auto& f : cli::FindMmdFiles("pose", ".vpd")) {
+        m_poseFiles.push_back(f);
+        m_settings.poseNames.push_back(cli::PathToUtf8(f.parent_path().filename()) + " / " + cli::PathToUtf8(f.filename()));
+    }
+    std::cout << "[Preview] " << m_pmxFiles.size() << " model(s) and " << (m_poseFiles.size() - 1) << " pose file(s) in MMD_model\n";
+}
+
+void App::loadPreviewModel() {
+    if (m_pmxFiles.empty()) return;
+    if (!m_preview) m_preview = std::make_unique<preview::MmdPreview>();
+    const bool first = !m_preview->loaded();
+    const auto& pmx = m_pmxFiles[static_cast<size_t>(std::clamp(m_settings.pmx, 0, static_cast<int>(m_pmxFiles.size()) - 1))];
+    const auto& pose = m_poseFiles[static_cast<size_t>(std::clamp(m_settings.pose, 0, static_cast<int>(m_poseFiles.size()) - 1))];
+    std::string error;
+    if (m_preview->load(pmx, pose, &error)) {
+        char buf[256];
+        std::snprintf(buf, sizeof(buf), "Loaded in %.0f ms (read, pose, convert, upload); height %.2f m.", m_preview->loadMilliseconds(), double(m_preview->modelHeight()));
+        m_settings.previewStatus = buf;
+        if (first) m_settings.requestCameraReset = true;
+    }
+    else {
+        m_settings.previewStatus = "Could not load: " + error;
+        std::cerr << "[Preview] " << m_settings.previewStatus << "\n";
+    }
+}
+
+void App::drawViewport() {
+    ImGui::Begin("Viewport");
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    if (m_settings.mode == 1 && m_preview) {
+        // The preview fills the window at the framebuffer's resolution; the mouse drives the orbit camera.
+        const ImVec2 scale = ImGui::GetIO().DisplayFramebufferScale;
+        const int w = std::max(1, static_cast<int>(avail.x * scale.x)), h = std::max(1, static_cast<int>(avail.y * scale.y));
+        if (avail.x > 1.0f && avail.y > 1.0f) {
+            preview::PreviewOptions o;
+            o.lightAzimuth = m_settings.lightAzimuth;
+            o.lightElevation = m_settings.lightElevation;
+            o.shadows = m_settings.previewShadows;
+            o.edges = m_settings.previewEdges;
+            o.floor = m_settings.previewFloor;
+            o.edgeScale = m_settings.previewEdgeScale;
+            m_preview->render(w, h, m_orbit, o);
+            ImGui::Image((void*)(intptr_t)m_preview->texture(), avail, ImVec2(0, 1), ImVec2(1, 0));   // OpenGL rows run from the bottom
+            if (ImGui::IsItemHovered()) {
+                const ImGuiIO& io = ImGui::GetIO();
+                if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                    m_orbit.yaw -= Real(io.MouseDelta.x) * Real(0.35);
+                    m_orbit.pitch = std::clamp(m_orbit.pitch + Real(io.MouseDelta.y) * Real(0.35), Real(-89), Real(89));
+                }
+                if (ImGui::IsMouseDragging(ImGuiMouseButton_Right) || ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+                    const Vector3 fwd = m_orbit.forward();
+                    const Vector3 right = glm::normalize(glm::cross(fwd, Vector3(0, 1, 0)));
+                    const Vector3 up = glm::cross(right, fwd);
+                    const Real k = m_orbit.distance * Real(2) * std::tan(glm::radians(m_orbit.vfov * Real(0.5))) / Real(std::max(1.0f, avail.y));
+                    m_orbit.target += (-right * Real(io.MouseDelta.x) + up * Real(io.MouseDelta.y)) * k;
+                }
+                if (io.MouseWheel != 0.0f) m_orbit.distance = std::max(Real(0.05), m_orbit.distance * std::pow(Real(0.88), Real(io.MouseWheel)));
+            }
+        }
+    }
+    else {
+        // Keep the aspect ratio of the image and center it in the window.
+        const float aspect = static_cast<float>(m_width) / static_cast<float>(m_height);
+        ImVec2 size = avail;
+        if (size.x / aspect > size.y) size.x = size.y * aspect; else size.y = size.x / aspect;
+        if (size.x > 1.0f && size.y > 1.0f) {
+            ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + (avail.x - size.x) * 0.5f,
+                                       ImGui::GetCursorPosY() + (avail.y - size.y) * 0.5f));
+            ImGui::Image((void*)(intptr_t)m_renderTexture, size, ImVec2(0, 0), ImVec2(1, 1));
+        }
+    }
+    ImGui::End();
 }
 
 bool App::selfTest(bool keepSavedFiles) {
@@ -472,6 +562,50 @@ bool App::selfTest(bool keepSavedFiles) {
     m_settings.targetSpp = spp;
     frame();
     check("the sample limit stops the accumulation", m_currentSpp == spp);
+
+    // The MMD preview: the first switch loads the default model; the picture differs from the plain background.
+    if (!m_pmxFiles.empty()) {
+        m_settings.mode = 1;
+        m_settings.requestModelLoad = true;
+        const auto t0 = std::chrono::steady_clock::now();
+        frame();
+        check("the MMD preview loads a model", m_preview && m_preview->loaded(), m_settings.previewStatus);
+        if (m_preview && m_preview->loaded()) {
+            for (int i = 0; i < 3; ++i) frame();
+            const int frames = 30;
+            const auto t1 = std::chrono::steady_clock::now();
+            for (int i = 0; i < frames; ++i) frame();
+            const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / frames;
+            // read the preview's texture: some texels must differ clearly from the background
+            GLint w = 0, h = 0;
+            glBindTexture(GL_TEXTURE_2D, m_preview->texture());
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &w);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &h);
+            std::vector<unsigned char> px(static_cast<size_t>(w) * static_cast<size_t>(h) * 4);
+            glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            glBindTexture(GL_TEXTURE_2D, 0);
+            const preview::PreviewOptions defaults;
+            size_t differ = 0;
+            for (size_t i = 0; i + 3 < px.size(); i += 4) {
+                const int dr = std::abs(int(px[i]) - int(defaults.background.x * 255)), dg = std::abs(int(px[i + 1]) - int(defaults.background.y * 255));
+                if (dr + dg > 40) ++differ;
+            }
+            check("the preview draws the model", differ > px.size() / 4 / 50, std::to_string(w) + " x " + std::to_string(h) + ", "
+                + std::to_string(100.0 * double(differ) / double(std::max<size_t>(1, px.size() / 4))) + " % of the texels differ from the background");
+            std::cout << "[SelfTest] preview: " << ms << " ms per frame (incl. ImGui), first frame with loading "
+                << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms\n";
+            if (keepSavedFiles) {   // the preview as a PNG (rows flipped: OpenGL starts at the bottom)
+                std::vector<unsigned char> rgb(static_cast<size_t>(w) * static_cast<size_t>(h) * 3);
+                for (int y = 0; y < h; ++y)
+                    for (int x = 0; x < w; ++x)
+                        for (int c = 0; c < 3; ++c)
+                            rgb[(static_cast<size_t>(y) * w + x) * 3 + c] = px[(static_cast<size_t>(h - 1 - y) * w + x) * 4 + c];
+                rayt::io::WriteImage8("gui_preview_selftest.png", w, h, 3, rgb);
+                std::cout << "[SelfTest] kept gui_preview_selftest.png\n";
+            }
+        }
+        m_settings.mode = 0;
+    }
 
     std::cout << "[SelfTest] RESULT: " << (allPassed ? "PASS" : "FAIL") << std::endl;
     return allPassed;

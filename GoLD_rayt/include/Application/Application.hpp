@@ -7,6 +7,7 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -17,6 +18,7 @@
 #include "Render/Integrator.hpp" 
 #include "../src/UI/ImGuiLayer.hpp"
 #include "Core/RenderSettings.hpp"
+#include "Preview/MmdPreview.hpp"
 
 namespace rayt {
     class EnvLight;
@@ -121,6 +123,15 @@ private:
     /// Writes the accumulated image: PNG (with the exposure of the UI) and a linear HDR.
     void saveImage() const;
 
+    /// Finds the MMD models and pose files (MMD_model/) for the preview's lists.
+    void findMmdFiles();
+
+    /// Loads the model and pose chosen in the settings into the preview (mode 1).
+    void loadPreviewModel();
+
+    /// The viewport window: the path-traced image, or the MMD preview with the camera driven by the mouse.
+    void drawViewport();
+
 private:
     // Window management
     GLFWwindow* m_window = nullptr;   ///< Pointer to the GLFW window handle.
@@ -146,6 +157,11 @@ private:
     int m_currentSpp = 0;
     float m_shownExposure = 0.0f;       ///< exposure the texture was last converted with
     float m_appliedRoughness = 0.2f;    ///< roughness the center gold sphere currently has
+
+    // MMD preview (mode 1)
+    std::unique_ptr<rayt::preview::MmdPreview> m_preview;
+    rayt::preview::OrbitCamera m_orbit;
+    std::vector<std::filesystem::path> m_pmxFiles, m_poseFiles;   // m_poseFiles[0] is empty (the rest pose)
 
     // UI & Settings
     ImGuiLayer m_uiLayer;

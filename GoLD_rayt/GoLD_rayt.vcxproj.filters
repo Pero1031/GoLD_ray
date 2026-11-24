@@ -78,10 +78,16 @@
     <ClCompile Include="src\Render\ToonIntegrator.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="src\Preview\MmdPreview.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClInclude Include="include\Render\MaskDepth.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClInclude Include="include\Render\ToonIntegrator.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Preview\MmdPreview.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
     <ClCompile Include="src\Render\Diffraction.cpp">

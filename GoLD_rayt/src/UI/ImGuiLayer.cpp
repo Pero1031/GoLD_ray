@@ -158,6 +158,46 @@ void ImGuiLayer::draw(RenderSettings& s) {
     ImGui::Text("Render mode: %s  (compile-time switch: Core/RenderMode.hpp)", rayt::kRenderModeName);
     ImGui::Separator();
 
+    if (ImGui::Combo("View", &s.mode, "Path tracing (spheres)\0MMD preview (OpenGL, toon)\0") && s.mode == 1 && !s.pmxNames.empty())
+        s.requestModelLoad = s.requestModelLoad || s.previewStatus.empty();   // the first switch loads the model
+    ImGui::Separator();
+
+    if (s.mode == 1) {
+        // --- MMD preview ---
+        if (s.pmxNames.empty()) ImGui::TextWrapped("No .pmx file was found in MMD_model/.");
+        else {
+            auto combo = [&](const char* label, std::vector<std::string>& names, int& index) {
+                bool changed = false;
+                if (ImGui::BeginCombo(label, names[static_cast<size_t>(index)].c_str())) {
+                    for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+                        const bool selected = (i == index);
+                        if (ImGui::Selectable(names[static_cast<size_t>(i)].c_str(), selected) && !selected) { index = i; changed = true; }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                return changed;
+            };
+            if (combo("Model", s.pmxNames, s.pmx)) { s.requestModelLoad = true; s.requestCameraReset = true; }
+            if (combo("Pose", s.poseNames, s.pose)) s.requestModelLoad = true;
+        }
+        ImGui::SliderFloat("Light azimuth", &s.lightAzimuth, -180.0f, 180.0f, "%.0f deg");
+        ImGui::SliderFloat("Light elevation", &s.lightElevation, 0.0f, 90.0f, "%.0f deg");
+        ImGui::Checkbox("Shadows", &s.previewShadows);
+        ImGui::SameLine();
+        ImGui::Checkbox("Outlines", &s.previewEdges);
+        ImGui::SameLine();
+        ImGui::Checkbox("Floor", &s.previewFloor);
+        ImGui::SliderFloat("Outline width", &s.previewEdgeScale, 0.0f, 4.0f, "x %.1f");
+        if (ImGui::Button("Frame the model")) s.requestCameraReset = true;
+        ImGui::Separator();
+        ImGui::TextWrapped("Viewport: left drag turns the camera, right or middle drag moves it, the wheel zooms.");
+        if (!s.previewStatus.empty()) ImGui::TextWrapped("%s", s.previewStatus.c_str());
+        ImGui::End(); // End Render Settings
+        ImGui::End(); // End MainDockSpace
+        return;
+    }
+
     // --- Scene ---
     if (ImGui::Combo("Scene", &s.scene, "Gold spheres\0Glass spheres\0")) s.requestRebuild = true;
     if (ImGui::BeginCombo("Environment", s.envNames[static_cast<size_t>(s.env)].c_str())) {

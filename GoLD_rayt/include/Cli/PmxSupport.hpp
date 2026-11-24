@@ -2,6 +2,7 @@
 // MMD (PMX) helpers of the CLI: finding model / pose files, printing, converting a model to a mesh and materials.
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "IO/PmxLoader.hpp"
 #include "Materials/Material.hpp"
 #include "Materials/Subsurface.hpp"
+#include "Render/ToonIntegrator.hpp"
 
 namespace rayt::cli {
 
@@ -45,6 +47,14 @@ void PrintPmxInfo(const io::PmxModel& m, const std::filesystem::path& file);
 ///    specific to this model; --pmx-matte turns every preset off.
 ///  - toon ramps, sphere maps and edge lines are not used (shading comes from the lighting).
 std::shared_ptr<Material> MakePmxMaterial(const io::PmxMaterial& pm, const RgbColor& base, const std::shared_ptr<Texture2D>& tex, bool matte, const std::shared_ptr<const SubsurfaceProfile>& skinProfile = nullptr);
+
+/// The toon mode's recipe of every material of a PMX model (Render/ToonIntegrator.hpp), index = material index; shared by
+/// the toon render (--toon) and the window application's preview. From the file: colors, texture, sphere map, the model's own
+/// toon ramp, edge flag / color / size. Added: the '+' layers that no morph switches are overlays; hair and eyebrows are
+/// found by name (髪 髮 发 hair, 眉 brow); the face (颜 顔 face) and the materials lying in it get normals from an
+/// ellipsoid round the head. `loadTexture(i)` returns texture i of the model (null: missing). `log`: one line per material.
+std::vector<ToonLook> MakePmxToonLooks(const io::PmxModel& m, const TriangleMesh& mesh,
+    const std::function<std::shared_ptr<Texture2D>(int)>& loadTexture, bool log);
 
 /// PMX -> TriangleMesh in the renderer's convention (right-handed, +Y up, metres, feet on y = 0, x/z centered).
 /// MMD is left-handed with 1 unit ~ 8 cm; mirroring z fixes the handedness, yaw (degrees) turns the model about +Y.

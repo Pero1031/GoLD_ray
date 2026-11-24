@@ -18,6 +18,24 @@ enum class ViewMode {
 };
 
 struct RenderSettings {
+    // What the viewport shows
+    int mode = 0;                    // 0 = path tracing (spheres), 1 = MMD preview (OpenGL, toon)
+
+    // --- MMD preview (mode 1) ---
+    std::vector<std::string> pmxNames;     // filled at startup from MMD_model/**/*.pmx
+    int pmx = 0;
+    std::vector<std::string> poseNames{ "(rest pose)" };   // index 0 = none, then MMD_model/pose/**/*.vpd
+    int pose = 0;
+    bool requestModelLoad = false;   // the model or the pose changed: load again
+    bool requestCameraReset = false; // frame the whole model again
+    float lightAzimuth = 30.0f;      // degrees, 0 = from the front
+    float lightElevation = 50.0f;    // degrees above the horizon
+    bool previewShadows = true;
+    bool previewEdges = true;
+    bool previewFloor = true;
+    float previewEdgeScale = 1.0f;
+    std::string previewStatus;       // read-only: what was loaded, how long it took
+
     // Render control
     bool paused = false;
     bool requestReset = false;
