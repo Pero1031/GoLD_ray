@@ -30,6 +30,13 @@ namespace rayt::cli {
 
 namespace {
 
+    multibounce::Model MultipleScatteringModel(const std::string& name) {
+        if (name == "off") return multibounce::Model::Off;
+        if (name == "heitz") return multibounce::Model::Heitz;
+        if (name == "zhang") return multibounce::Model::Zhang;
+        return multibounce::Model::KullaConty;
+    }
+
 // Debugging aid: with the environment variable RAYT_WRINKLE_DUMP = file.png the height map of the wrinkle simulation is written as a picture
 // (dark = a valley), and RAYT_WRINKLE_DUMP_PORES = file.png writes the pore mask.
 void DumpWrinkleMap(const WrinkleField& field) {
@@ -280,7 +287,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             }
             auto metal = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy));
             metal->setTangentRotation(Real(m.rotation));
-            metal->setMultipleScattering(m.multipleScattering);
+            metal->setMultipleScatteringModel(MultipleScatteringModel(m.multipleScattering));
             if (m.glints) {
                 GlintParams gp;
                 gp.density = Real(m.glintDensity);
@@ -421,7 +428,7 @@ std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
             }
             auto base = std::make_shared<RoughConductor>(table, Real(m.roughness), Real(m.anisotropy), Real(m.coatIor));
             base->setTangentRotation(Real(m.rotation));
-            base->setMultipleScattering(m.multipleScattering);
+            base->setMultipleScatteringModel(MultipleScatteringModel(m.multipleScattering));
             if (m.glints) {
                 GlintParams gp;
                 gp.density = Real(m.glintDensity);

@@ -75,7 +75,7 @@ struct MaterialSpec {
     int fadingNoiseOctaves = 3, fadingNoiseSeed = 1;
     bool hasExposureField() const { return !fadingMap.empty() || fadingMat || fadingGradient || fadingNoiseAmount > 0; }
     double roughness = 0;                          // conductor, dielectric
-    bool multipleScattering = true;                // conductor: Kulla-Conty compensation
+    std::string multipleScattering = "kulla-conty"; // conductor: "off", "kulla-conty", "heitz", "zhang" (true / false = kulla-conty / off)
     double anisotropy = 0;                         // conductor: -1..1; > 0 rougher along the tangent, < 0 smoother (brushed along it)
     double rotation = 0;                           // conductor: degrees, rotates the tangent about the normal
     bool glints = false;                           // conductor: "glints": the roughness as a finite number of facets (docs/GLINTS.md)

@@ -47,6 +47,16 @@ inline std::string ReadString(const json& v, const std::string& where) {
     return v.get<std::string>();
 }
 
+// "multipleScattering" of a metal: true / false (the Kulla-Conty lobe / none), or the name of a model (docs/MULTIBOUNCE.md).
+inline std::string ReadMultipleScattering(const json& v, const std::string& where) {
+    if (v.is_boolean()) return v.get<bool>() ? "kulla-conty" : "off";
+    if (v.is_string()) {
+        const std::string s = v.get<std::string>();
+        if (s == "off" || s == "kulla-conty" || s == "heitz" || s == "zhang") return s;
+    }
+    Fail(where, "must be true, false, \"off\", \"kulla-conty\", \"heitz\" or \"zhang\"");
+}
+
 inline Vector3 ReadVec3(const json& v, const std::string& where) {
     if (!v.is_array() || v.size() != 3 || !v[0].is_number() || !v[1].is_number() || !v[2].is_number())
         Fail(where, "must be an array of three numbers, like [0, 1, 0]");

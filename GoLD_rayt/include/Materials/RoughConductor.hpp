@@ -25,6 +25,7 @@
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/GGXAlbedo.hpp"
 #include "Microfacet/GlintNDF.hpp"
+#include "Microfacet/MultiBounce.hpp"
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
@@ -87,8 +88,11 @@ namespace rayt {
         // adds it back (E = directional albedo of the single-scattering lobe, E_avg its cosine
         // average, F_avg the cosine-averaged Fresnel reflectance, per wavelength / RGB channel).
         // Anisotropic roughness uses the geometric-mean alpha for E (an approximation).
-        bool m_msActive = false;                              // true if compensation is on and needed
-        bool m_msEnabled = true;
+        // Heitz / Zhang (docs/MULTIBOUNCE.md): the multiple bounces are estimated by a random path on the microsurface at every
+        // evaluation instead (Microfacet/MultiBounce.hpp); the samples still come from the GGX lobe and the cosine lobe above.
+        bool m_msActive = false;                              // true if the Kulla-Conty lobe is on and needed
+        bool m_msStochastic = false;                          // true if the multiple bounces are estimated by Heitz's or Zhang's model
+        multibounce::Model m_msModel = multibounce::Model::KullaConty;
         Real m_eAvg = 0;
         std::array<Real, GGXAlbedoTable::kMu> m_eRow{};       // E(mu) at the table's mu nodes for this alpha
 #if defined(RAYT_SPECTRAL_MODE)
@@ -123,7 +127,9 @@ namespace rayt {
         void initMultipleScattering() {
             const Real alphaEff = std::sqrt(alpha_x * alpha_y);
             GGXAlbedoTable::get().row(alphaEff, m_eRow, m_eAvg);
-            m_msActive = m_msEnabled && (Real(1) - m_eAvg) > Real(1e-3);
+            const bool lossy = (Real(1) - m_eAvg) > Real(1e-3);
+            m_msActive = m_msModel == multibounce::Model::KullaConty && lossy;
+            m_msStochastic = (m_msModel == multibounce::Model::Heitz || m_msModel == multibounce::Model::Zhang) && lossy;
             if (!m_msActive) return;
 #if defined(RAYT_SPECTRAL_MODE)
             m_fmsLut.resize(etaLut.size());
@@ -281,9 +287,19 @@ namespace rayt {
 
         /// Turns the multiple-scattering compensation on / off (on by default). Off = plain single-scattering GGX.
         void setMultipleScattering(bool enabled) {
-            m_msEnabled = enabled;
+            setMultipleScatteringModel(enabled ? multibounce::Model::KullaConty : multibounce::Model::Off);
+        }
+
+        /// How the light that bounces more than once between the microfacets is counted (docs/MULTIBOUNCE.md): off, the Kulla-Conty
+        /// lobe (the default), or a random path on the microsurface at every evaluation (Heitz et al. 2016, Zhang et al. 2026).
+        void setMultipleScatteringModel(multibounce::Model model) {
+            m_msModel = model;
             initMultipleScattering();
         }
+        multibounce::Model multipleScatteringModel() const { return m_msModel; }
+
+        /// The multiple bounces alone (paths of two bounces or more), one random estimate of f, in the local frame. Heitz / Zhang only.
+        Spectrum stochasticMs(const Vector3& woLocal, const Vector3& wiLocal, const SampledWavelengths& lambda) const;
 
         /**
          * @brief Evaluates the BRDF for a given pair of directions.

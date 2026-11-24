@@ -115,7 +115,20 @@ namespace rayt {
 
         Spectrum f = (D * G * F) / denominator;
         if (m_msActive) f += msBrdf(cosThetaO, cosThetaI, lambda);
+        else if (m_msStochastic) f += stochasticMs(wo_local, wi_local, lambda);
         return f;
+    }
+
+    Spectrum RoughConductor::stochasticMs(const Vector3& woLocal, const Vector3& wiLocal, const SampledWavelengths& lambda) const {
+        if (!(woLocal.z > Real(0)) || !(wiLocal.z > Real(0))) return Spectrum(0.0);
+        const GGXDistribution dist(alpha_x, alpha_y);
+        auto fresnel = [&](Real c) { return fresnelAt(c, lambda); };
+        auto random = [] { return sampling::Random(); };
+        // rho = f cos(theta_o); the light arrives from wi and leaves towards wo (both models are reciprocal)
+        const Spectrum rho = m_msModel == multibounce::Model::Heitz
+            ? multibounce::heitzRho(dist, alpha_x, alpha_y, wiLocal, woLocal, fresnel, random, 2)
+            : multibounce::zhangRho(dist, alpha_x, alpha_y, wiLocal, woLocal, fresnel, random, 2);
+        return rho / woLocal.z;
     }
 
     std::optional<BSDFSample> RoughConductor::sample(const SurfaceInteraction& rec,
@@ -137,7 +150,7 @@ namespace rayt {
 
         // Choose the lobe: GGX single scattering, or the multiple-scattering lobe (cosine-weighted)
         // with probability 1 - E(mu_o), the energy the GGX lobe cannot account for.
-        const Real pMs = m_msActive ? (Real(1) - eAt(wo_local.z)) : Real(0);
+        const Real pMs = (m_msActive || m_msStochastic) ? (Real(1) - eAt(wo_local.z)) : Real(0);
         Point2 uLobe = u;
         // Glints: a share of the samples from the lobes of the facets under the pixel (its own random numbers: more than two).
         bool useGlint = false;
@@ -226,9 +239,25 @@ namespace rayt {
             pol::setInterface(out.m, i, a.rs, a.rp);
         }
 
-        if (m_msActive) {
-            const Spectrum fms = msBrdf(std::max(Real(0), glm::dot(rec.n, wo)), std::max(Real(0), glm::dot(rec.n, wi)), lambda);
-            const Spectrum f = eval(rec, wo, wi, lambda, TransportMode::Radiance);
+        if (m_msActive || m_msStochastic) {
+            Spectrum fms;
+            if (m_msActive) fms = msBrdf(std::max(Real(0), glm::dot(rec.n, wo)), std::max(Real(0), glm::dot(rec.n, wi)), lambda);
+            else {
+                const frame::Frame frame = shadingFrame(rec);
+                fms = stochasticMs(frame.worldToLocal(wo), frame.worldToLocal(wi), lambda);
+            }
+            // the single bounce alone, then the whole f (the stochastic part drawn once, above)
+            Spectrum f;
+            {
+                const frame::Frame frame = shadingFrame(rec);
+                const Vector3 woL = frame.worldToLocal(wo), wiL = frame.worldToLocal(wi);
+                const GGXDistribution dist(alpha_x, alpha_y);
+                Real D = dist.D(frame.worldToLocal(wh));
+                if (m_glint) D *= glintRatio(rec, wo, frame.worldToLocal(wh));
+                const Real denom = Real(4) * woL.z * wiL.z;
+                f = denom > Real(1e-6) ? fresnelAt(cosD, lambda) * (D * dist.G(woL, wiL) / denom) : Spectrum(0.0);
+                f += fms;
+            }
             for (int i = 0; i < pol::kN; ++i) {
                 if (!(f[i] > Real(0))) continue;
                 const Real w = std::clamp((f[i] - fms[i]) / f[i], Real(0), Real(1));   // the polarizing share of the lobe
@@ -263,7 +292,7 @@ namespace rayt {
 
         // Mixture with the multiple-scattering lobe (cosine-weighted), chosen with probability 1 - E(mu_o).
         Real pdfSmooth = pdfGgx;
-        if (m_msActive) {
+        if (m_msActive || m_msStochastic) {
             const Real pMs = Real(1) - eAt(wo_local.z);
             const Real pdfMs = std::max(glm::dot(rec.n, wi), Real(0)) / constants::PI;
             pdfSmooth = (Real(1) - pMs) * pdfGgx + pMs * pdfMs;

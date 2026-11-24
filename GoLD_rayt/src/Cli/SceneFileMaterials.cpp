@@ -185,7 +185,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(m, "roughness", where, s.roughness, ReadNumber);
         Optional<double>(m, "anisotropy", where, s.anisotropy, ReadNumber);
         Optional<double>(m, "rotation", where, s.rotation, ReadNumber);
-        Optional<bool>(m, "multipleScattering", where, s.multipleScattering, ReadBool);
+        Optional<std::string>(m, "multipleScattering", where, s.multipleScattering, ReadMultipleScattering);
         if (s.roughness < 0 || s.roughness > 1) Fail(where + ".roughness", "must be between 0 and 1");
         if (s.anisotropy < -1 || s.anisotropy > 1) Fail(where + ".anisotropy", "must be between -1 and 1");
     }
@@ -227,7 +227,7 @@ MaterialSpec ParseMaterial(const json& m, const std::string& where) {
         Optional<double>(b, "roughness", bw, s.roughness, ReadNumber);
         Optional<double>(b, "anisotropy", bw, s.anisotropy, ReadNumber);
         Optional<double>(b, "rotation", bw, s.rotation, ReadNumber);
-        Optional<bool>(b, "multipleScattering", bw, s.multipleScattering, ReadBool);
+        Optional<std::string>(b, "multipleScattering", bw, s.multipleScattering, ReadMultipleScattering);
         ReadGlints(b, bw, s);   // flakes under the coat (a metal base only)
         if (s.glints && !s.baseIsConductor) Fail(bw + ".glints", "needs a metal base (metal, table or reflectance)");
         if (s.roughness < 0 || s.roughness > 1) Fail(bw + ".roughness", "must be between 0 and 1");

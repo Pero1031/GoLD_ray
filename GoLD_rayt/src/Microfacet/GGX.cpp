@@ -69,9 +69,6 @@ namespace rayt {
         if (sin2Theta <= Real(0.0))
             return Real(0.0);
 
-        // tan^2(theta) = sin^2 / cos^2
-        Real tan2Theta = sin2Theta * math::safe_recip(math::sqr(absCosTheta));
-
         // For anisotropic GGX, effective alpha depends on azimuth of w.
         Real wxy2 = math::sqr(w.x) + math::sqr(w.y);
         Real ax2 = math::sqr(alpha_x);
@@ -85,8 +82,10 @@ namespace rayt {
             : ax2;
 
         // Smith GGX lambda:
-        // lambda = 0.5 * ( sqrt(1 + alpha^2 * tan^2(theta)) - 1 )
-        return Real(0.5) * (math::safe_sqrt(Real(1.0) + alpha2 * tan2Theta) - Real(1.0));
+        // lambda = 0.5 * ( sqrt(1 + alpha^2 * tan^2(theta)) - 1 ) = 0.5 * ( sqrt(cos^2 + alpha^2 sin^2) / |cos| - 1 )
+        // The second form divides by |cos| only: tan^2 through math::safe_recip capped lambda near ~500 for |cos| < 1e-3, which
+        // the multiple-bounce walks (Microfacet/MultiBounce.hpp) do reach; the projected area lambda |cos| then came out far too small.
+        return Real(0.5) * (math::safe_sqrt(math::sqr(absCosTheta) + alpha2 * sin2Theta) / absCosTheta - Real(1.0));
     }
 
     // -------------------------------------------------------------------------

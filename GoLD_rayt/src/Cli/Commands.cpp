@@ -29,6 +29,7 @@ const std::vector<Command>& Commands() {
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
         { { "fluorescence", "fluorescent material: the excitation sampler and reemit() against the matrix, a fluorescent sphere in an emitting sphere against R Le + Integral b Le" }, [](const CliOptions& o) { return RunFluorescenceTests(o); } },
         { { "glints", "glinty GGX distribution (a finite number of facets): the map to the disc, the facets of a level, the average over the surface, energy" }, [](const CliOptions& o) { return RunGlintTests(o); } },
+        { { "multibounce", "light bouncing between the facets of a rough metal: visible normals from below, Heitz 2016 walk, Zhang 2026 position-free model, furnace, sample = eval" }, [](const CliOptions& o) { return RunMultiBounceTests(o); } },
         { { "layered", "layered coat (clear coat over diffuse / gold): closed form, eval vs sample, energy, reciprocity; mix of two materials" }, [](const CliOptions& o) { return RunLayeredTests(o); } },
         { { "aniso", "anisotropic metal: tangent of the shapes, anisotropic GGX, rotation of the roughness axes" }, [](const CliOptions& o) { return RunAnisotropyTests(o); } },
         { { "relief", "skin micro-relief (furrows, pores): height field, bent normals, white furnace with and without" }, [](const CliOptions& o) { return RunReliefTests(o); } },
