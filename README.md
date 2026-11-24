@@ -212,7 +212,7 @@ Main options (`--help` lists more):
 ## Features
 
 - **Path tracing** with next-event estimation, multiple importance sampling and Russian roulette; Embree or an own SAH BVH; Intel OIDN.
-- **Materials**: diffuse, rough and anisotropic metals with multiple-scattering compensation, rough and dispersive glass, thin films,
+- **Materials**: diffuse, rough and anisotropic metals with the light that bounces between their facets ([multiple bounces](docs/MULTIBOUNCE.md)), rough and dispersive glass, thin films,
   layered clear coats, glints from single flakes, measured BRDF tables (hpBRDF), fluorescent surfaces, a mix of two materials by a mask, hair fibers, skin
   (relief, pigment, oily and dry patches, water, lotion, foundation: [skin](docs/SKIN.md), [make-up](docs/COSMETICS.md)), fading dyes.
 - **Translucency**: scattering media with colored coefficients and noise densities, tabulated phase functions (Mie), subsurface

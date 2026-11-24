@@ -1,0 +1,21 @@
+{
+  // Four very rough gold spheres (roughness 1 = GGX alpha 1), each counting the light that bounces between its microfacets
+  // differently (docs/MULTIBOUNCE.md): left to right, single bounce only, the Kulla-Conty lobe, Zhang et al. 2026, Heitz et al. 2016.
+  "options": { "width": 800, "spp": 256 },
+  "environment": { "type": "hdr" },
+  "camera": { "from": [0, 0.9, 3.4], "at": [0, -0.05, -1], "fov": 34 },
+  "materials": {
+    "single":      { "type": "conductor", "metal": "Au", "roughness": 1.0, "multipleScattering": "off" },
+    "kulla-conty": { "type": "conductor", "metal": "Au", "roughness": 1.0, "multipleScattering": "kulla-conty" },
+    "zhang":       { "type": "conductor", "metal": "Au", "roughness": 1.0, "multipleScattering": "zhang" },
+    "heitz":       { "type": "conductor", "metal": "Au", "roughness": 1.0, "multipleScattering": "heitz" },
+    "floor":       { "type": "diffuse", "albedo": 0.5 }
+  },
+  "objects": [
+    { "shape": "sphere", "center": [-1.8, 0, -1], "radius": 0.5, "material": "single" },
+    { "shape": "sphere", "center": [-0.6, 0, -1], "radius": 0.5, "material": "kulla-conty" },
+    { "shape": "sphere", "center": [ 0.6, 0, -1], "radius": 0.5, "material": "zhang" },
+    { "shape": "sphere", "center": [ 1.8, 0, -1], "radius": 0.5, "material": "heitz" },
+    { "shape": "sphere", "center": [0, -100.5, -1], "radius": 100, "material": "floor" }
+  ]
+}

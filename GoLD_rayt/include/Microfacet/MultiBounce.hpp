@@ -54,6 +54,22 @@ namespace rayt::multibounce {
     /// up[j] = e[j].z > 0. The term depends only on Lambda of each direction and on where the path first turns upward.
     Real zhangSegment(const Real* lam, const bool* up, int n);
 
+    /// zhangSegment for every sub-path of a path that grows one direction at a time. Setting direction j (re)computes the terms
+    /// of the sub-paths that end at j; those that end earlier are kept. zhangRho sets the new inner direction and then wo after
+    /// it at every bounce: two columns of O(k) terms instead of the whole table.
+    class ZhangSegmentTable {
+    public:
+        static constexpr int kMax = kMaxBounces + 2;
+        /// Direction j of the path: its Lambda and whether it goes up. Directions 0..j-1 must be set already.
+        void set(int j, Real lambda, bool goesUp);
+        /// The segment term of the sub-path from direction a to direction b (0 unless a goes down and b goes up).
+        Real at(int a, int b) const { return m_seg[a][b]; }
+    private:
+        Real m_lam[kMax] = {};
+        bool m_up[kMax] = {};
+        Real m_seg[kMax][kMax] = {};
+    };
+
     /// The vertex term of a bounce from the propagation direction dIn to dOut (Zhang et al., Eq. 16):
     /// F((-dIn).h) D(h) / (4 |dIn.z|) with h = normalize(-dIn + dOut).
     template <class FresnelFn>
@@ -75,7 +91,8 @@ namespace rayt::multibounce {
      * The path's inner directions are drawn from the visible normals of the previous direction; the last bounce is connected to
      * wo. Russian roulette from the bounce `rrDepth` on, with the segment term as the survival probability (their Alg. 1). It is
      * off by default (rrDepth = kMaxBounces): the segment term falls quickly along a path, so the few paths that survive carry
-     * large weights and the estimate becomes heavy-tailed (furnace tests in docs/MULTIBOUNCE.md); ten bounces cost little.
+     * large weights. In a rendering (tools/studies/multibounce_noise.py) it cut the time by a quarter and raised the noise variance
+     * sevenfold; a roulette on weight x segment term instead still doubled it. All ten bounces are cheaper overall.
      * @param fresnel Spectrum fresnel(Real cosThetaD): the Fresnel reflectance at a microfacet, per wavelength / channel.
      * @param random  Real random(): uniform numbers in [0, 1).
      * @param minOrder The shortest path counted (1: all; 2: multiple bounces only).
@@ -88,19 +105,17 @@ namespace rayt::multibounce {
         if (!(wi.z > Real(0)) || !(wo.z > Real(0))) return f;
         maxBounces = std::clamp(maxBounces, 1, kMaxBounces);
         Vector3 d[kMaxBounces + 1];
-        Real lam[kMaxBounces + 2];
-        bool up[kMaxBounces + 2];
+        ZhangSegmentTable table;
         const Real lamO = dist.lambda(wo);
         d[0] = -wi;
-        lam[0] = dist.lambda(wi);
-        up[0] = false;
+        table.set(0, dist.lambda(wi), false);
         // segment term of the path d[0..k] followed by wo (k + 1 bounces)
         auto segment = [&](int k) {
-            lam[k + 1] = lamO;
-            up[k + 1] = true;
-            return zhangSegment(lam, up, k + 1);
+            table.set(k + 1, lamO, true);
+            return table.at(0, k + 1);
         };
-        if (minOrder <= 1) f += vertexTerm(dist, d[0], wo, fresnel) * segment(0);
+        const Real s0 = segment(0);
+        if (minOrder <= 1) f += vertexTerm(dist, d[0], wo, fresnel) * s0;
 
         Spectrum weight(1.0);
         for (int k = 1; k < maxBounces; ++k) {
@@ -114,8 +129,7 @@ namespace rayt::multibounce {
             // vertex term / pdf of the sampled direction = F (projected area / |cos|)
             weight = weight * fresnel(c) * (projectedArea(dist, w) / std::abs(w.z));
             d[k] = dk;
-            lam[k] = dist.lambda(dk);
-            up[k] = dk.z > Real(0);
+            table.set(k, dist.lambda(dk), dk.z > Real(0));
             const Real s = segment(k);
             if (k >= rrDepth) {
                 const Real q = std::min(Real(1), s);

@@ -23,35 +23,38 @@ namespace rayt::multibounce {
         return len > Real(0) ? m / len : Vector3(0, 0, 1);
     }
 
-    Real zhangSegment(const Real* lam, const bool* up, int n) {
+    void ZhangSegmentTable::set(int b, Real lambda, bool goesUp) {
         // The term of a sub-path e[a..b] depends only on a and b (the paper proves it reciprocal, so a sub-path and its reverse
-        // agree): a table over (a, b). Type 3 needs the sub-paths without the first and without the last bounce, which always
-        // start downward and end upward again and are one bounce shorter.
-        constexpr int kMax = kMaxBounces + 2;
-        if (n < 1 || n + 1 > kMax) return 0;
-        // seg[a][b] for the sub-paths that start downward and end upward, shortest first
-        Real seg[kMax][kMax] = {};
-        for (int len = 1; len <= n; ++len) {
-            for (int a = 0; a + len <= n; ++a) {
-                const int b = a + len;
-                if (up[a] || !up[b]) continue;
-                Real r = 1;
-                if (len == 1) {
-                    r = Real(1) / (Real(1) + lam[a] + lam[b]);
+        // agree). Type 3 needs the sub-paths without the first bounce (same column, larger a: computed first) and without the
+        // last (the previous column), which always start downward and end upward again.
+        m_lam[b] = lambda;
+        m_up[b] = goesUp;
+        for (int a = b - 1; a >= 0; --a) {
+            Real r = 0;
+            if (!m_up[a] && m_up[b]) {
+                r = 1;
+                if (b - a == 1) {
+                    r = Real(1) / (Real(1) + m_lam[a] + m_lam[b]);
                 }
-                else if (!up[b - 1]) {           // type 1: turns upward at the last bounce
-                    for (int i = a; i < b; ++i) r /= Real(1) + lam[i] + lam[b];
+                else if (!m_up[b - 1]) {           // type 1: turns upward at the last bounce
+                    for (int i = a; i < b; ++i) r /= Real(1) + m_lam[i] + m_lam[b];
                 }
-                else if (up[a + 1]) {            // type 2: turns upward at the first bounce
-                    for (int i = a + 1; i <= b; ++i) r /= Real(1) + lam[i] + lam[a];
+                else if (m_up[a + 1]) {            // type 2: turns upward at the first bounce
+                    for (int i = a + 1; i <= b; ++i) r /= Real(1) + m_lam[i] + m_lam[a];
                 }
-                else {                           // type 3: in between (forward and inverse sub-paths, Eq. 25)
-                    r = (seg[a + 1][b] + seg[a][b - 1]) / ((Real(1) + lam[a]) * (Real(1) + lam[b]));
+                else {                             // type 3: in between (forward and inverse sub-paths, Eq. 25)
+                    r = (m_seg[a + 1][b] + m_seg[a][b - 1]) / ((Real(1) + m_lam[a]) * (Real(1) + m_lam[b]));
                 }
-                seg[a][b] = r;
             }
+            m_seg[a][b] = r;
         }
-        return seg[0][n];
+    }
+
+    Real zhangSegment(const Real* lam, const bool* up, int n) {
+        if (n < 1 || n + 1 > ZhangSegmentTable::kMax) return 0;
+        ZhangSegmentTable table;
+        for (int j = 0; j <= n; ++j) table.set(j, lam[j], up[j]);
+        return table.at(0, n);
     }
 
 } // namespace rayt::multibounce

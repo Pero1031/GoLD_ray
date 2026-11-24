@@ -7,7 +7,11 @@
 #include "Microfacet/GGX.hpp"
 #include "Microfacet/MultiBounce.hpp"
 
+#include <array>
 #include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <random>
 #include <sstream>
@@ -294,6 +298,108 @@ int RunMultiBounceTests(const CliOptions&) {
 
     std::cout << "[MultiBounce] RESULT: " << (all ? "PASS" : "FAIL") << "\n";
     return all ? 0 : 2;
+}
+
+// -----------------------------------------------------------------------------
+// Study (--scene multibounce-gold): the directional albedo of rough gold with each multiple-bounce model
+// -----------------------------------------------------------------------------
+//
+// Writes ../out/studies/multibounce/gold_albedo_<rgb|spectral>.csv: one row per (model, alpha, theta_i) with the albedo
+// E[f cos / pdf] of RoughConductor's own sample(), per RGB channel or per wavelength (380..810 nm every 10 nm). The paths are the
+// same for every group of wavelengths (common random numbers: the walks do not depend on the wavelength), so the spectra are smooth.
+// tools/studies/multibounce_gold.py turns them into colours.
+int RunMultiBounceGoldStudy(const CliOptions&) {
+    auto goldTable = std::make_shared<color::ComplexIorTable>();
+    std::string err;
+    if (!io::loadComplexIor_RefractiveIndexInfoCsv(AU_IOR_CSV_PATH, *goldTable, &err)) {
+        std::cerr << "[MultiBounce] cannot read the gold table: " << err << "\n";
+        return 1;
+    }
+    sampling::SetRunSeed(20261124);
+    const Real alphas[] = { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 };
+    const Real thetas[] = { 0, 60 };
+    const std::pair<mb::Model, const char*> models[] = {
+        { mb::Model::Off, "single" }, { mb::Model::KullaConty, "kulla-conty" }, { mb::Model::Zhang, "zhang" }, { mb::Model::Heitz, "heitz" } };
+#if defined(RAYT_SPECTRAL_MODE)
+    const char* mode = "spectral";
+    std::vector<Real> wl;
+    for (int l = 380; l <= 810; l += 10) wl.push_back(Real(l));
+    const int groups = int(wl.size()) / kSpectralSamples;
+    constexpr int channels = kSpectralSamples;
+#else
+    const char* mode = "rgb";
+    const int groups = 1;
+    constexpr int channels = 3;
+#endif
+    const long long n = 1000000;
+    constexpr int kBatches = 32;
+
+    std::filesystem::create_directories("../out/studies/multibounce");
+    const std::string path = std::string("../out/studies/multibounce/gold_albedo_") + mode + ".csv";
+    std::ofstream csv(path);
+    csv << "model,alpha,theta";
+#if defined(RAYT_SPECTRAL_MODE)
+    for (const Real l : wl) csv << "," << int(l);
+#else
+    csv << ",R,G,B";
+#endif
+    csv << "\n";
+
+    const auto start = std::chrono::steady_clock::now();
+    int config = 0;
+    for (const auto& [model, name] : models) {
+        for (const Real alpha : alphas) {
+            for (const Real theta : thetas) {
+                ++config;
+                RoughConductor gold(goldTable, std::sqrt(alpha));
+                gold.setMultipleScatteringModel(model);
+                SurfaceInteraction rec;
+                rec.n = rec.gn = Vector3(0, 0, 1);
+                const Vector3 wo = Direction(theta, 0);
+                rec.wo = wo;
+                csv << name << "," << alpha << "," << theta;
+                for (int g = 0; g < groups; ++g) {
+                    SampledWavelengths lambda;
+#if defined(RAYT_SPECTRAL_MODE)
+                    for (int i = 0; i < kSpectralSamples; ++i) lambda.lambda[size_t(i)] = wl[size_t(g * kSpectralSamples + i)];
+#endif
+                    std::vector<std::array<double, channels>> sums(kBatches);
+                    std::atomic<int> next{ 0 };
+                    std::vector<std::thread> pool;
+                    const int threads = std::max(1, std::min<int>(kBatches, int(std::thread::hardware_concurrency())));
+                    for (int t = 0; t < threads; ++t) {
+                        pool.emplace_back([&] {
+                            for (int b; (b = next++) < kBatches;) {
+                                sampling::SeedStream(91, std::uint64_t(config), std::uint64_t(b));   // the material's walks
+                                Rng rng(std::uint64_t(config) * 1000003 + std::uint64_t(b));            // the lobe choice and direction
+                                std::array<double, channels> acc{};
+                                for (long long i = 0; i < n / kBatches; ++i) {
+                                    const Point2 u(rng(), rng());
+                                    const auto s = gold.sample(rec, wo, u, lambda, TransportMode::Radiance);
+                                    if (!s) continue;
+                                    const double w = std::abs(s->wi.z) / s->pdf;
+                                    for (int c = 0; c < channels; ++c) acc[size_t(c)] += double(s->f[c]) * w;
+                                }
+                                sums[size_t(b)] = acc;
+                            }
+                        });
+                    }
+                    for (auto& th : pool) th.join();
+                    for (int c = 0; c < channels; ++c) {
+                        double total = 0;
+                        for (const auto& a : sums) total += a[size_t(c)];
+                        csv << "," << total / double((n / kBatches) * kBatches);
+                    }
+                }
+                csv << "\n";
+                csv.flush();
+            }
+        }
+        std::cout << "[MultiBounce] " << name << " done ("
+                  << std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() << " s)\n";
+    }
+    std::cout << "[MultiBounce] wrote " << path << "\n";
+    return 0;
 }
 
 } // namespace rayt::cli
