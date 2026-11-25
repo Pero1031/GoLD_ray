@@ -29,6 +29,7 @@ const std::vector<Command>& Commands() {
         { { "volume", "volumetric random walk checks" }, [](const CliOptions& o) { return RunVolumeTests(o); } },
         { { "fluorescence", "fluorescent material: the excitation sampler and reemit() against the matrix, a fluorescent sphere in an emitting sphere against R Le + Integral b Le" }, [](const CliOptions& o) { return RunFluorescenceTests(o); } },
         { { "leaf", "leaf material: PROSPECT against numpy, the BSDF under uniform light (= PROSPECT's R and T), reciprocity, sample = eval" }, [](const CliOptions& o) { return RunLeafTests(o); } },
+        { { "gpu", "GPU module: kernel code on the CPU = engine functions, on the GPU = CPU (random numbers bit for bit, float / double to rounding); SKIP without a CUDA device" }, [](const CliOptions& o) { return RunGpuTests(o); } },
         { { "glints", "glinty GGX distribution (a finite number of facets): the map to the disc, the facets of a level, the average over the surface, energy" }, [](const CliOptions& o) { return RunGlintTests(o); } },
         { { "multibounce", "light bouncing between the facets of a rough metal: visible normals from below, Heitz 2016 walk, Zhang 2026 position-free model, furnace, sample = eval" }, [](const CliOptions& o) { return RunMultiBounceTests(o); } },
         { { "multibounce-gold", "study: directional albedo of rough gold with each multiple-bounce model -> ../out/studies/multibounce/gold_albedo_<rgb|spectral>.csv" }, [](const CliOptions& o) { return RunMultiBounceGoldStudy(o); } },

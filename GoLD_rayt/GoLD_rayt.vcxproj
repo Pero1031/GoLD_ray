@@ -211,6 +211,16 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="src\Cli\Checks\GpuChecks.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
+    <ClCompile Include="src\Gpu\GpuDevice.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
+      <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">pch.h</PrecompiledHeaderFile>
+    </ClCompile>
     <ClCompile Include="src\Cli\Checks\LeafChecks.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64' And '$(RaytCli)' != 'true'">true</ExcludedFromBuild>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Use</PrecompiledHeader>
@@ -564,6 +574,13 @@
     <ClInclude Include="include\Materials\Fluorescent.hpp" />
     <ClInclude Include="include\Materials\Prospect.hpp" />
     <ClInclude Include="include\Materials\Leaf.hpp" />
+    <ClInclude Include="include\Gpu\GpuApi.h" />
+    <ClInclude Include="include\Gpu\GpuDevice.hpp" />
+    <ClInclude Include="include\Kernel\HostDevice.hpp" />
+    <ClInclude Include="include\Kernel\KernelMath.hpp" />
+    <ClInclude Include="include\Kernel\Rng.hpp" />
+    <ClInclude Include="include\Kernel\Sampling.hpp" />
+    <ClInclude Include="include\Kernel\SelfTest.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\FadingDye.hpp" />
     <ClInclude Include="include\Materials\FadingReflectance.hpp" />
