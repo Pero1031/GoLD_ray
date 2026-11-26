@@ -1,0 +1,55 @@
+// The OptiX programs of the kernel renderer (docs/GPU.md), compiled to PTX by tools/build_gpu.ps1 and embedded in the GPU module.
+//
+// A megakernel, as Mitsuba's GPU variants: the ray-generation program runs a whole camera path (kernel::tracePath, the same code
+// the CPU runs) and casts its rays with optixTrace; the closest-hit program only reports the hit (distance, barycentrics,
+// triangle), and shading happens back in the ray-generation program. One launch renders one sample of every pixel and adds it
+// to the accumulation buffer, so launches stay short (no display watchdog) and the sums are added in the same order as on the CPU.
+
+#include <optix.h>
+
+#include "LaunchParams.h"
+#include "Kernel/PathTracer.hpp"
+
+extern "C" {
+    __constant__ rayt::gpu::LaunchParams params;
+}
+
+namespace {
+
+    struct OptixTracer {
+        __device__ rayt::kernel::KHit closest(const rayt::kernel::V3& o, const rayt::kernel::V3& d, float tmin, float tmax) const {
+            unsigned int t = 0, b1 = 0, b2 = 0, prim = rayt::kernel::kNoHit;
+            optixTrace(params.handle, make_float3(o.x, o.y, o.z), make_float3(d.x, d.y, d.z), tmin, tmax, 0.0f, OptixVisibilityMask(255),
+                OPTIX_RAY_FLAG_DISABLE_ANYHIT, 0, 1, 0, t, b1, b2, prim);
+            return { __uint_as_float(t), __uint_as_float(b1), __uint_as_float(b2), prim };
+        }
+        __device__ bool occluded(const rayt::kernel::V3& o, const rayt::kernel::V3& d, float tmin, float tmax) const {
+            unsigned int blocked = 1;   // the shadow miss program clears it
+            optixTrace(params.handle, make_float3(o.x, o.y, o.z), make_float3(d.x, d.y, d.z), tmin, tmax, 0.0f, OptixVisibilityMask(255),
+                OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT, 0, 1, 1, blocked);
+            return blocked != 0;
+        }
+    };
+
+} // namespace
+
+extern "C" __global__ void __raygen__render() {
+    const uint3 idx = optixGetLaunchIndex();
+    const rayt::kernel::V3 L = rayt::kernel::tracePath(params.scene, OptixTracer{}, idx.x, idx.y, params.sample);
+    float* a = params.accum + 3 * (size_t(idx.y) * params.scene.width + idx.x);
+    a[0] += L.x;
+    a[1] += L.y;
+    a[2] += L.z;
+}
+
+extern "C" __global__ void __miss__radiance() { optixSetPayload_3(rayt::kernel::kNoHit); }
+
+extern "C" __global__ void __miss__shadow() { optixSetPayload_0(0); }
+
+extern "C" __global__ void __closesthit__radiance() {
+    const float2 b = optixGetTriangleBarycentrics();
+    optixSetPayload_0(__float_as_uint(optixGetRayTmax()));
+    optixSetPayload_1(__float_as_uint(b.x));
+    optixSetPayload_2(__float_as_uint(b.y));
+    optixSetPayload_3(optixGetPrimitiveIndex());
+}

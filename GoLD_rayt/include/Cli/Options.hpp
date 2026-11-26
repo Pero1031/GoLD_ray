@@ -224,6 +224,8 @@ struct CliOptions {
     Real pmxYaw = 0;                       // --pmx-yaw deg : turn the model about +Y
     bool noMs = false;                     // --no-ms : single-scattering GGX only (goldrough scene)
     std::string accel = "own";             // own | embree (triangle mesh intersection)
+    std::string device = "cpu";            // --device cpu | gpu | cpu-kernel : cpu = the engine (double, everything); gpu = the kernel renderer on the GPU
+                                           //   (float, a subset of the engine, docs/GPU.md); cpu-kernel = the same kernel renderer on the CPU (for comparison)
     std::string lightSampler = "spatial";  // uniform | power | spatial (light selection for NEE)
     std::string light = "tungsten";    // spd scene: d65 | tungsten | candle | led
     std::string metal = "Au";          // metalprobe scene: Au | Ag | Cu (Johnson tables)

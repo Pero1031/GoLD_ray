@@ -1,6 +1,7 @@
 // The common steps of rendering a scene: standard materials and environment, the scene builder, lights, caustics, camera, integrator,
 // render, save, denoise. What differs between the scenes is in src/Cli/Scenes.
 #include "pch.h"
+#include "Cli/KernelScenePack.hpp"
 #include "Cli/RenderPipeline.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/Tools.hpp"
@@ -700,6 +701,15 @@ int RenderScene(CliOptions& opt) {
     if (opt.aov || opt.denoise) film.enableAOVs();   // the denoiser uses them even if they are not written out
     if (opt.stokes) film.enableStokes();             // --stokes / --polarizer: the Stokes vector of every pixel (docs/POLARIZATION.md)
     if (opt.spectralStep > 0) EnableSpectralImage(opt, film);
+
+    // --device gpu | cpu-kernel: the kernel renderer (docs/GPU.md) draws the picture instead of the PathIntegrator; it is written as usual
+    if (opt.device != "cpu") {
+        if (const int exitCode = RenderOnKernel(opt, *camera, film)) return exitCode;
+        const ResolvedLens resolvedLens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
+        SaveOutputs(opt, film, false, diffraction, exposureStops, resolvedLens.iso, {});
+        std::cout << "[System] Finished." << std::endl;
+        return 0;
+    }
 
     // the scene's default path depth, unless --depth was given
     if (def->defaultMaxDepth > 0 && opt.maxDepth == MAX_DEPTH) opt.maxDepth = def->defaultMaxDepth;

@@ -2,7 +2,7 @@
 
 The renderer runs on the CPU. This document is about a second way to run it: **kernel code** that the CPU and the GPU both compile, with checks that the two agree. The CPU renderer stays the reference; features move into the kernel one at a time, each with a check.
 
-**State (2026-11-26): stage 0.** The kernel headers, the GPU module and `--scene gpu` exist. The GPU computes in float only; double is for the CPU. No image is rendered on the GPU yet.
+**State (2026-11-26): stage 1.** A scene file made of quads and triangle meshes, diffuse surfaces, emitting quads and a uniform environment renders on the GPU (`--device gpu`) and, with the same code, on the CPU (`--device cpu-kernel`). The two pictures are the same bits, and both converge to the engine's.
 
 ## 1. Design, and where each idea comes from
 
@@ -11,49 +11,70 @@ Before writing code I read how three renderers that run on both devices do it: M
 | Decision | GoLD_rayt | Taken from |
 |---|---|---|
 | One source for both devices | Header-only code under `include/Kernel`, every function marked `RAYT_HD` (`__host__ __device__` under nvcc, nothing under MSVC). No virtual functions, exceptions, heap, std containers or `thread_local` in it. | pbrt-v4 (`PBRT_CPU_GPU`), Cycles (`ccl_device`). Mitsuba reaches the same with a JIT compiler, which is far more machinery than this project needs. |
-| The GPU computes in float only | Kernel functions are templates on the scalar type. Their double versions (math overloads, double random numbers, the checks' references) exist on the CPU only; in device code the double overloads are deleted, and `build_gpu.ps1` makes ptxas reject any double instruction, which catches implicit promotions such as `x * 0.1` with a float `x`. | Cycles builds its CPU kernel with `-Werror=double-promotion`; pbrt-v4 defaults to `Float = float` and its double build is fragile on the GPU; Mitsuba always traces in float. |
-| The same float bits on both devices | The module is built with IEEE division and square root and **without implicit fused multiply-adds** (`--fmad=false`): an FMA happens only where kernel code writes `kfma`, on both devices. Sine and cosine are our own float polynomials (`ksincos`, the CEPHES algorithm as in Dr.Jit), because the C library's and CUDA's `sinf` / `cosf` differ in the last bits, and CUDA's falls back to double for huge angles (the guard above found it). | Dr.Jit: explicit FMAs and its own transcendental functions, so all of Mitsuba's backends compute the same thing. |
-| Fast math as an option | `build_gpu.ps1 -FastMath` (approximate division and square root, implicit FMAs, denormals flushed). Accurate enough (section 2), but no longer bit-identical to the CPU. Its speed will be measured in stage 1. | pbrt-v4 and Cycles build their GPU code with `--use_fast_math`. |
-| Precision on the CPU | The CPU renderer stays double. The kernel can run on the CPU in float (to pair with the GPU) or in double (to compare with the engine). | Mitsuba's `*_double` variants. |
-| CUDA is optional | The GPU code is a separate DLL, `GoLD_rayt_gpu.dll`, loaded at run time (`Gpu/GpuDevice.hpp`). The CLI builds and runs without CUDA; GPU checks print SKIP. A module of another interface version is refused. | Mitsuba and Cycles load the CUDA / OptiX driver at run time; Mitsuba's tests skip missing devices. |
-| Random numbers | A PCG32 stream per camera path, keyed by (run seed, pixel, sample) only (`Kernel/Rng.hpp`), so both devices draw the same numbers for the same sample. The engine's `thread_local` Mersenne Twister cannot run on a GPU. | Cycles (`path_rng_1D`), pbrt-v4 (stateless samplers). |
-| Materials (planned) | Plain data plus a `switch` on the type, instead of the virtual `Material`. The existing material classes become thin wrappers that call the kernel function, so each material keeps one implementation. | Cycles (closure structs and `switch`), pbrt-v4 (`TaggedPointer`). |
-| Integrator (planned) | A megakernel: one OptiX ray-generation program runs the whole path loop, and the hit program only reports the hit; shading runs in the ray-generation program. A wavefront integrator only if profiling asks for it. | Mitsuba (megakernel by default, no hit programs); Cycles runs the same per-path state machine on the CPU. |
-| Tests | A ladder, see section 2. | Mitsuba (`test_renders.py`: per-pixel z-test against a CPU reference, pass when 99.75 % of the pixels pass), and this project's Mitsuba comparison (`MITSUBA_CHECK.md`). |
+| The GPU computes in float only | Kernel functions are templates on the scalar type; their double versions exist on the CPU only, and in device code the double overloads are deleted. `build_gpu.ps1` makes ptxas reject any double instruction in the CUDA code and searches the OptiX PTX for one, which catches implicit promotions such as `x * 0.1` with a float `x`. | Cycles builds its CPU kernel with `-Werror=double-promotion`; pbrt-v4 defaults to `Float = float`; Mitsuba always traces in float. |
+| The same float bits on both devices | IEEE division and square root and **no implicit fused multiply-adds** (`--fmad=false`; an FMA only where kernel code writes `kfma`). Sine and cosine are our own float polynomials (`ksincos`, the CEPHES algorithm as in Dr.Jit), because the library versions differ in the last bits, and CUDA's falls back to double for huge angles (the guard above found it). | Dr.Jit: explicit FMAs and its own transcendental functions, so all of Mitsuba's backends compute the same thing. |
+| Fast math as an option | `build_gpu.ps1 -FastMath`. Accurate enough, but no longer bit-identical to the CPU, and only 5 % faster on the test scene (section 3). | pbrt-v4 and Cycles build their GPU code with `--use_fast_math`. |
+| CUDA is optional | The GPU code is a separate DLL, `GoLD_rayt_gpu.dll`, loaded at run time (`Gpu/GpuDevice.hpp`). The CLI builds and runs without CUDA; GPU checks print SKIP. A module of another interface version is refused. OptiX comes with the driver; only its headers are needed to build. | Mitsuba and Cycles load the CUDA / OptiX driver at run time; Mitsuba's tests skip missing devices. |
+| Random numbers | A PCG32 stream per camera path, keyed by (run seed, pixel, sample) only (`Kernel/Rng.hpp`). The engine's `thread_local` Mersenne Twister cannot run on a GPU. | Cycles (`path_rng_1D`), pbrt-v4 (stateless samplers). |
+| The scene | Flat arrays of plain numbers (`Kernel/KernelScene.hpp`), built from the scene file's description (`Cli/KernelScenePack`), not from the engine's objects. Materials are plain data with a type, chosen by a branch, not virtual classes. | Cycles (`KernelData` and flat arrays, closure structs with a `switch`), pbrt-v4 (`TaggedPointer`). |
+| Integrator | A megakernel: one OptiX ray-generation program runs a whole camera path (`kernel::tracePath`, the same function the CPU runs); the closest-hit program only reports the hit; one launch per sample adds that sample of every pixel to a sum, so launches stay short and the sums are added in the CPU's order. | Mitsuba (megakernel by default, no shading in hit programs); Cycles runs the same per-path state machine on the CPU. |
+| Hit points | Only the triangle is taken from the tracer (Embree on the CPU, OptiX on the GPU); the kernel recomputes the hit point with its own formula, and moves ray origins off surfaces in integer steps of the float representation (Wächter and Binder, Ray Tracing Gems ch. 6). | Cycles re-intersects the triangle to get a hit point it controls, and uses the same integer offset. |
+| Tests | A ladder, section 2. | Mitsuba (`test_renders.py`: per-pixel z-test against a CPU reference), and this project's Mitsuba comparison (`MITSUBA_CHECK.md`). |
+
+What the kernel renderer models (stage 1): quads, triangle meshes (OBJ / PLY / STL, with their transform) and lathes; diffuse surfaces with a constant albedo (smooth vertex normals as the engine uses them); emitting quads, one- or two-sided, sampled by next-event estimation (chosen by power, a uniform point on the quad) with the power heuristic against BSDF sampling; a uniform environment; a pinhole camera; the engine's path depth and Russian roulette; the RGB build. Anything else in a scene file or on the command line is refused with a list of what is missing (for example an environment map, a conductor, `--denoise`); `--device cpu` renders it.
 
 ## 2. Checks
 
-`--scene gpu` (both builds; 4096 cases with edges: u = 0, the poles of the basis, n.z = -0, total internal reflection, cos θ < 0):
+`--scene gpu` (both builds; the GPU parts print SKIP without the module or a device):
 
-1. **Kernel = engine, on the CPU in double.** Each kernel function mirrors an engine function (same formula, same order of operations), so their doubles must be the same bits: cosine-weighted hemisphere, uniform sphere, orthonormal basis, dielectric Fresnel. All bit-identical.
-2. **Random numbers, GPU = CPU, bit for bit.** Identical.
-3. **Floats, GPU = CPU, bit for bit**, per function. Measured on a Quadro M4000: 100 % identical. The float error against the double reference is then the same on both devices (cosine hemisphere 3.7e-7, uniform sphere 4.1e-7, basis 1.4e-7, Fresnel 1.0e-5).
+1. **Kernel = engine, on the CPU in double.** Each kernel sampling function mirrors an engine function (same formula, same order of operations), so their doubles must be the same bits: cosine-weighted hemisphere, uniform sphere, orthonormal basis, dielectric Fresnel; 4096 cases with edges. All bit-identical.
+2. **White furnace, kernel renderer on the CPU**: `scenes/gpu_box.json` with every albedo 1 and no lamp in a uniform environment of radiance 1, where every pixel converges to 1. Mean 1.00036 ± 0.00074.
+3. **Random numbers, GPU = CPU, bit for bit.**
+4. **Floats, GPU = CPU, bit for bit**, per function: 100 % identical on a Quadro M4000. (With `-FastMath`: the GPU's floats must be as close to the double reference as the CPU's; they are, 61 to 84 % bit-identical.)
+5. **White furnace on the GPU**: the same 1.00036 ± 0.00074 as on the CPU.
+6. **The test scene on the CPU kernel and on the GPU with the same seed: the same bits** in every pixel (`-FastMath`: the same mean within the noise).
 
-With `-FastMath` check 3 changes to "the GPU's floats are as close to the double reference as the CPU's (at most twice the CPU's error + 1e-7)". It passes, with 61 to 84 % of the values bit-identical; the basis error grows from 1.4e-7 to 2.5e-7, and the Fresnel error even shrinks (3.9e-6, fused multiply-adds round once instead of twice).
+A fixed tolerance on |GPU − CPU| in float would be the wrong test: just past the critical angle (glass to air, cos θ 0.7458 against a critical 0.7454) the Fresnel term takes the square root of a small number, which turns a rounding difference in its input into 1.4e-5 in its output. With the same operations on both devices the difference is zero instead.
 
-Why a fixed tolerance on |GPU − CPU| is the wrong test: just past the critical angle (glass to air, cos θ 0.7458 against a critical 0.7454) the Fresnel term takes the square root of a small number, which turns a rounding difference in its input into 1.4e-5 in its output. That is the problem's conditioning, not a device error. With the same operations on both devices the difference is zero instead.
+**Against the engine** (`tools/test/gpu_compare.py`, the method of `MITSUBA_CHECK.md`: each renderer draws the scene twice with independent seeds, the noise of each pixel comes from the difference of its two renders). `scenes/gpu_box.json`, 400 × 300, 1024 spp, blocks of 16 × 16 pixels, two sets of seeds:
 
-Planned image checks, each printing SKIP without a device:
+| Seeds | Image mean kernel / engine (R, G, B) | z of the means | Blocks with \|z\| > 3 | Median relative difference / noise |
+|---|---|---|---|---|
+| 1–4 | 1.00014, 1.00014, 1.00013 | 2.1, 2.0, 1.7 | 0.39 % | 0.049 % / 0.087 % |
+| 11–14 | 1.00002, 1.00002, 1.00004 | 0.3, 0.3, 0.4 | 0.77 % (1 of 173) | 0.060 % / 0.088 % |
 
-- the same scene and seed on the CPU kernel (float) and on the GPU, pixel by pixel (with the same float bits, paths can only diverge where Embree and OptiX disagree on a hit);
-- the GPU against the CPU renderer within the Monte Carlo noise, by the method of `MITSUBA_CHECK.md` (two independent renders give the noise; mean ratio ± standard error and the share of 16 × 16 blocks beyond 3 standard errors) and Mitsuba's per-pixel z-test;
-- white furnace scenes on the GPU.
+The difference changes sign between the two sets (mean block z +0.17 and −0.15) and stays within the noise: the float kernel converges to the double engine's picture. The background, which sees only the environment, differs by 1e-5: the rounding of summing 1024 float samples.
 
-## 3. Build and run
+## 3. Speed
+
+`scenes/gpu_box.json` (780 triangles), 400 × 300, 256 spp, depth 16, on this PC (i7-6700K, 8 threads; Quadro M4000, Maxwell, no RT cores):
+
+| Renderer | Render time |
+|---|---|
+| engine, `--device cpu` (double, every feature) | 18.2 s |
+| kernel on the CPU, `--device cpu-kernel` (float, Embree) | 4.4 s |
+| kernel on the GPU, `--device gpu` | 2.2 s (+ 0.3 s to set up OptiX) |
+| kernel on the GPU, built with `-FastMath` | 2.1 s |
+
+The GPU is twice as fast as the same kernel on the CPU here; the larger step from the engine to the kernel comes from float and from the much smaller set of features a path has to check. Fast math hardly helps: the time goes into ray traversal and memory, not arithmetic, so the bit-exact default costs about 5 %. A GPU with RT cores traverses rays in hardware; the ratio will look different there.
+
+## 4. Build and run
 
 ```
 powershell -ExecutionPolicy Bypass -File tools\build_cli.ps1 -Dev      # the CLI (no CUDA needed)
-powershell -ExecutionPolicy Bypass -File tools\build_gpu.ps1           # GoLD_rayt_gpu.dll next to it (8 s)
+powershell -ExecutionPolicy Bypass -File tools\build_gpu.ps1           # GoLD_rayt_gpu.dll next to it (about 10 s)
 cd GoLD_rayt
 ..\out\cli-dev\GoLD_rayt.exe --scene gpu
+..\out\cli-dev\GoLD_rayt.exe scenes\gpu_box.json --device gpu
 ```
 
-`build_gpu.ps1 -Arch 75,86,89` compiles machine code for other GPUs; `-FastMath` as above. PTX (the GPU's intermediate code) of the lowest architecture is always embedded, so a newer GPU runs the module too: its driver compiles the PTX on the first launch. The design is not tied to the current card. Recent Mitsuba already requires compute capability 7.5 (Turing) or newer, and CUDA 13 no longer compiles for Maxwell, so a Maxwell card like the M4000 needs CUDA 12.x.
+`build_gpu.ps1 -Arch 75,86,89` compiles machine code for other GPUs; `-FastMath` as above. PTX (the GPU's intermediate code) of the lowest architecture is always embedded, so a newer GPU runs the module too: its driver compiles the PTX on the first launch. The design is not tied to the current card. Recent Mitsuba already requires compute capability 7.5 (Turing) or newer, and CUDA 13 no longer compiles for Maxwell, so a Maxwell card like the M4000 needs CUDA 12.x. The OptiX SDK headers are found in `OPTIX_ROOT` (default: OptiX SDK 8.1.0).
 
-Writing kernel code: float constants as `T(0.1)`, never bare double literals (ptxas stops the build otherwise); `kfma` where a fused multiply-add is wanted; `ksin` / `kcos` / `ksincos` instead of the library's.
+Files: `include/Kernel/` (shared code: `HostDevice`, `KernelMath`, `Rng`, `Sampling`, `KernelScene`, `PathTracer`, `SelfTest`), `include/Gpu/` (the module's interface and loader), `GoLD_rayt/gpu/` (the module: `GpuModule.cu` CUDA, `OptixRender.cpp` OptiX host code, `OptixPrograms.cu` the OptiX programs), `src/Cli/KernelScenePack.cpp` (scene file to kernel scene, the CPU kernel renderer, `--device`), `src/Cli/Checks/GpuChecks.cpp`, `tools/build_gpu.ps1`, `tools/test/gpu_compare.py` (against the engine), `tools/test/pfm_compare.py` (two PFM pictures pixel by pixel).
 
-## 4. Next stages
+Writing kernel code: float constants as `T(0.1)`, never bare double literals (the build stops otherwise); `kfma` where a fused multiply-add is wanted; `ksin` / `kcos` / `ksincos` instead of the library's.
 
-1. **A minimal path tracer in the kernel:** triangle meshes, diffuse surfaces, area lights and a uniform environment, RGB. It runs on the CPU (OpenMP, Embree in float) and on the GPU (OptiX megakernel), with the image checks above, and the first timings (default against fast math).
-2. **Materials one at a time** (rough conductor, dielectric, coated diffuse, ...): the engine class calls the kernel function, the engine's renders stay the same, and eval / pdf / sample agree between the devices on fixed inputs (plus χ² of sample against pdf on the GPU).
-3. Spectral mode, textures, timing against the CPU renderer; a wavefront integrator only if the timings call for it.
+## 5. Next stages
+
+1. **Materials one at a time** (rough conductor, dielectric, coated diffuse, ...): the engine class calls the kernel function, the engine's renders stay the same, and eval / pdf / sample agree between the devices on fixed inputs (plus χ² of sample against pdf on the GPU). Then environment maps and textures.
+2. Spectral mode; timing on larger meshes (the scanned statues); a wavefront integrator only if the timings call for it.

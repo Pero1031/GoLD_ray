@@ -1,5 +1,6 @@
 // The scene "file": a scene written as data in a JSON file (see Cli/SceneFile.hpp and Cli/SceneDescription.hpp).
 #include "pch.h"
+#include "Cli/KernelScenePack.hpp"
 #include "Cli/Scenes.hpp"
 #include "Cli/LightPresets.hpp"
 #include "Cli/SceneParts.hpp"
@@ -122,6 +123,8 @@ bool MakeExposureField(const MaterialSpec& m, const std::string& name, ExposureF
 }
 
 } // namespace
+
+bool MakeEmissionSpectrum(const SpectrumSpec& s, EmissionSpectrum& out) { return MakeSpectrum(s, out); }
 
 std::optional<int> BuildFromDescription(SceneContext& ctx, SceneSetup& out) {
     const CliOptions& opt = ctx.opt;

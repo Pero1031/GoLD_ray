@@ -28,7 +28,7 @@ The flow of drawing one image:
 | `Geometry` | Sphere, quad, triangle mesh, hair curves and the generator, meshes of revolution and of the ocean, Gaussian particles (3DGS) |
 | `Scene` | `Hittable` (the common intersection interface), `Primitive` (bundles a shape, a material and a light), `Aggregate` (a list), `MovingObject` (motion blur), `Scene` (the whole: BVH, lights, environment, particles) |
 | `Accelerators` | BVH (own SAH) and Embree |
-| `Kernel`, `Gpu` | Kernel code that the CPU (MSVC) and the GPU (nvcc) both compile: `RAYT_HD` functions templated on the scalar type, random numbers keyed by (seed, pixel, sample). `Gpu/GpuDevice` loads the GPU module `GoLD_rayt_gpu.dll` (built from `GoLD_rayt/gpu/*.cu` by `tools/build_gpu.ps1`) at run time; `GPU.md` |
+| `Kernel`, `Gpu` | Kernel code that the CPU (MSVC) and the GPU (nvcc) both compile: `RAYT_HD` functions templated on the scalar type, random numbers keyed by (seed, pixel, sample). `Kernel/PathTracer` is the kernel renderer (the same path on the CPU and the GPU). `Gpu/GpuDevice` loads the GPU module `GoLD_rayt_gpu.dll` (CUDA + OptiX, built from `GoLD_rayt/gpu/` by `tools/build_gpu.ps1`) at run time; `GPU.md` |
 | `Render` | Path tracing (`Integrator.cpp`; the hooks for media, particles and caustics are also here), transmittance of shadow rays, exit search for subsurface scattering, caustic photon map, manifold NEE, a prototype of LVC-BPT, camera, film (the values of the written pictures), the mask and depth pass (`MaskDepth`), denoiser |
 | `IO` | OBJ, PLY, STL, PMX (model, morphs, pose), environment maps, CSV spectra, measured series of fading; `ImageWriter` encodes the image files (PNG 8 / 16 bit with cICP, BMP, JPG, PFM, HDR) |
 
@@ -59,7 +59,7 @@ The flow of drawing one image:
 | Caustics, manifold NEE, LVC-BPT | `Render/CausticPhotonMap`, `SpecularNee`, `VolumeBPT` | `LVC_BPT.md` |
 | Importing captured objects, 3DGS | `IO/PlyLoader`, `IO/StlLoader`, `Geometry/GaussianSplats`, `Cli/Scenes/FileScene` | `CAPTURE.md` |
 | Leaves (PROSPECT, a thin two-sided BSDF) | `Materials/Prospect`, `Materials/Leaf` | `LEAF.md` |
-| GPU (stage 0: kernel code, float-only GPU module, CPU-vs-GPU checks) | `Kernel/*`, `Gpu/*`, `gpu/GpuModule.cu`, `Cli/Checks/GpuChecks` | `GPU.md` |
+| GPU: `--device gpu / cpu-kernel` (kernel renderer, float, a subset of the engine), CPU-vs-GPU checks | `Kernel/*`, `Gpu/*`, `gpu/*`, `Cli/KernelScenePack`, `Cli/Checks/GpuChecks` | `GPU.md` |
 | Fluorescence (a measured bispectral matrix; the path changes its wavelength; light with ultraviolet) | `Materials/Fluorescent`, `Render/Integrator` (`Li` keeps the path's wavelengths apart from the film's), `Color/Illuminants` (`evaluateD65Full`) | `FLUORESCENCE.md` |
 | Polarization (Stokes, `--stokes`, `--polarizer`, `--sky-pol`, a polarized screen: `"polarizer"` on a quad light) | `Core/Polarization`, `Render/Integrator`, `Lights/EnvLight`, `Lights/AreaLight` | `POLARIZATION.md` |
 | Camera and film output (thin lens, real lens, ghosts, orthographic view, aberrations, diffraction, a camera's spectral sensitivity, exposure and tone map, mask, depth, spectral image) | `Render/Camera`, `Render/LensSystem`, `Render/LensFlare`, `Render/Diffraction`, `Color/CameraResponse`, `Render/Film`, `Render/MaskDepth`, `IO/ImageWriter`, `Cli/RenderPipeline` | `CAMERA.md` |

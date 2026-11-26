@@ -239,6 +239,24 @@ namespace rayt {
         Vector3 viewAxis() const { return -m_w; }
 
         /**
+         * @brief The film frame of a plain pinhole view, for renderers that only model that (the kernel renderer, docs/GPU.md).
+         *
+         * Film point (s, t) looks from `origin` toward lowerLeft + s horizontal + t vertical. Returns false (frame left as it is)
+         * when the camera is anything else: a real lens, an aperture, distortion or chromatic aberration, an orthographic view,
+         * vignetting, motion, or a medium around it.
+         */
+        bool pinholeFrame(Point3& origin, Point3& lowerLeft, Vector3& horizontal, Vector3& vertical) const {
+            if (m_lensSystem || m_lensRadius > Real(0) || m_distorted || m_lateralCA != Real(0) || m_axialCA != Real(0) || m_orthoHeight > Real(0) ||
+                m_naturalVignetting > Real(0) || m_barrelRadius > Real(0) || m_moving || m_medium)
+                return false;
+            origin = m_origin;
+            lowerLeft = m_lowerLeftCorner;
+            horizontal = m_horizontal;
+            vertical = m_vertical;
+            return true;
+        }
+
+        /**
          * @brief Projects a world point onto the film of the pinhole view (the lens is ignored): the inverse of generateRay().
          *
          * @param s, t     film coordinates in [0, 1) (as in generateRay)

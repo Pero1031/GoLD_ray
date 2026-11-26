@@ -1,6 +1,6 @@
-// The GPU module GoLD_rayt_gpu.dll (docs/GPU.md): CUDA device code for the kernel headers (include/Kernel) and the
-// C functions of Gpu/GpuApi.h. Built by tools/build_gpu.ps1; the CPU program loads it at run time.
-// The device code computes in float only: tools/build_gpu.ps1 makes ptxas reject double instructions.
+// The GPU module GoLD_rayt_gpu.dll (docs/GPU.md): the CUDA part (device query, the math test kernel of --scene gpu) and the C
+// functions of Gpu/GpuApi.h; the OptiX renderer is in OptixRender.cpp. Built by tools/build_gpu.ps1; the CPU program loads the
+// module at run time. The device code computes in float only: tools/build_gpu.ps1 makes ptxas reject double instructions.
 
 #include <cuda_runtime.h>
 
@@ -8,26 +8,18 @@
 #include <string.h>
 
 #include "Gpu/GpuApi.h"
+#include "GpuCommon.h"
 
-#define RAYT_GPU_EXPORT extern "C" __declspec(dllexport)
+using rayt::gpu::DeviceBuffer;
+using rayt::gpu::upload;
+using rayt::gpu::writeError;
 
 namespace {
-
-    void writeError(char* error, int errorSize, const char* what, cudaError_t e) {
-        if (error && errorSize > 0) snprintf(error, size_t(errorSize), "%s: %s (%s)", what, cudaGetErrorString(e), cudaGetErrorName(e));
-    }
 
     __global__ void mathTestKernel(const rayt::kernel::MathCase* cases, rayt::kernel::MathOut* out, int n) {
         const int i = blockIdx.x * blockDim.x + threadIdx.x;
         if (i < n) rayt::kernel::evalMathCase(cases[i], out[i]);
     }
-
-    /// Frees device memory when the function returns, also on an early error return.
-    template <class T> struct DeviceBuffer {
-        T* ptr = nullptr;
-        cudaError_t allocate(size_t count) { return cudaMalloc(reinterpret_cast<void**>(&ptr), count * sizeof(T)); }
-        ~DeviceBuffer() { if (ptr) cudaFree(ptr); }
-    };
 
 } // namespace
 
@@ -62,17 +54,13 @@ RAYT_GPU_EXPORT int raytGpuMathTest(const rayt::kernel::MathCase* cases, rayt::k
     if (n <= 0) return 0;
     DeviceBuffer<rayt::kernel::MathCase> dCases;
     DeviceBuffer<rayt::kernel::MathOut> dOut;
-    cudaError_t e = dCases.allocate(size_t(n));
-    if (e == cudaSuccess) e = dOut.allocate(size_t(n));
-    if (e != cudaSuccess) { writeError(error, errorSize, "cudaMalloc", e); return 1; }
-    e = cudaMemcpy(dCases.ptr, cases, size_t(n) * sizeof(*cases), cudaMemcpyHostToDevice);
-    if (e != cudaSuccess) { writeError(error, errorSize, "cudaMemcpy to the device", e); return 1; }
+    RAYT_CUDA(upload(dCases, cases, size_t(n)), "copying the cases");
+    RAYT_CUDA(dOut.allocate(size_t(n)), "cudaMalloc");
     const int block = 128;
     mathTestKernel<<<(n + block - 1) / block, block>>>(dCases.ptr, dOut.ptr, n);
-    e = cudaGetLastError();
-    if (e == cudaSuccess) e = cudaDeviceSynchronize();
-    if (e != cudaSuccess) { writeError(error, errorSize, "the math test kernel", e); return 1; }
-    e = cudaMemcpy(out, dOut.ptr, size_t(n) * sizeof(*out), cudaMemcpyDeviceToHost);
-    if (e != cudaSuccess) { writeError(error, errorSize, "cudaMemcpy to the host", e); return 1; }
+    RAYT_CUDA(cudaGetLastError(), "the math test kernel");
+    RAYT_CUDA(cudaDeviceSynchronize(), "the math test kernel");
+    RAYT_CUDA(cudaMemcpy(out, dOut.ptr, size_t(n) * sizeof(*out), cudaMemcpyDeviceToHost), "cudaMemcpy to the host");
     return 0;
 }
+

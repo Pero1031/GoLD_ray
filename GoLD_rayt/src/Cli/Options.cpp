@@ -191,6 +191,7 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             else if (a == "--cam-yaw") o.camYaw = std::stod(value("--cam-yaw"));
             else if (a == "--light-sampler") o.lightSampler = value("--light-sampler");
             else if (a == "--accel") o.accel = value("--accel");
+            else if (a == "--device") o.device = value("--device");
             else if (a == "--no-ms") o.noMs = true;
             else if (a == "--pmx-index") o.pmxIndex = std::stoi(value("--pmx-index"));
             else if (a == "--pmx-list") o.pmxList = true;
@@ -281,6 +282,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
             if (!(o.spectralStep > 0) || !(o.spectralFirst >= 360) || !(o.spectralLast <= 830) || !(bands >= 1) || std::fabs(bands - std::round(bands)) > 1e-6)
                 throw std::runtime_error("--spectral-image: STEP above 0 that divides LAST - FIRST, with 360 <= FIRST < LAST <= 830 nm");
         }
+        if (o.device != "cpu" && o.device != "gpu" && o.device != "cpu-kernel")
+            throw std::runtime_error("--device must be cpu, gpu or cpu-kernel");
         if (o.accel != "own" && o.accel != "embree")
             throw std::runtime_error("--accel must be own or embree");
         if (o.studioLook != "default" && o.studioLook != "warm" && o.studioLook != "cool" && o.studioLook != "dramatic" && o.studioLook != "soft")

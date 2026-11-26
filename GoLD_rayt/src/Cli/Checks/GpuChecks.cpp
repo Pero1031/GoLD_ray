@@ -5,9 +5,13 @@
 #include "Core/Fresnel.hpp"
 #include "Core/Sampling.hpp"
 #include "Geometry/Frame.hpp"
+#include "Cli/KernelScenePack.hpp"
+#include "Cli/SceneFile.hpp"
 #include "Gpu/GpuDevice.hpp"
 #include "Kernel/SelfTest.hpp"
+#include "Render/Camera.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
@@ -67,6 +71,56 @@ namespace {
         for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) v[k] = vals[k - kernel::kHemiX];
     }
 
+    // ---- image checks of the kernel renderer, on scenes/gpu_box.json ----
+
+    /// The test scene (scenes/gpu_box.json) as a kernel scene of w x h pixels; `furnace`: every diffuse albedo 1, no lamp, a uniform
+    /// environment of radiance 1 (every pixel then converges to exactly 1).
+    bool KernelTestScene(int w, int h, int spp, int maxDepth, uint64_t seed, bool furnace, KernelSceneHost& host, std::string& why) {
+        std::vector<std::string> args;
+        std::shared_ptr<const SceneDescription> loaded;
+        if (!LoadSceneFile("scenes/gpu_box.json", args, loaded, why) || !loaded) { why = "scenes/gpu_box.json: " + why; return false; }
+        SceneDescription d = *loaded;
+        if (furnace) {
+            d.environment.type = EnvironmentSpec::Type::Uniform;
+            d.environment.scale = 1.0;
+            for (auto& [name, m] : d.materials) if (m.type == MaterialSpec::Type::Diffuse) m.albedo = Vector3(1.0);
+            std::vector<ObjectSpec> kept;
+            for (const ObjectSpec& o : d.objects) if (d.materials.at(o.material).type != MaterialSpec::Type::Emission) kept.push_back(o);
+            d.objects = kept;
+        }
+        const Camera camera(d.camera.from, d.camera.at, d.camera.up, d.camera.fovDeg, Real(w) / Real(h), Real(0), glm::length(d.camera.at - d.camera.from));
+        CliOptions o;
+        o.spp = spp;
+        o.maxDepth = maxDepth;
+        o.seed = static_cast<long long>(seed);
+        return PackKernelScene(d, camera, o, w, h, host, why);
+    }
+
+    /// Mean of all pixel values and its standard error (pixels are independent: each has its own paths).
+    void MeanAndError(const std::vector<float>& img, double& mean, double& se) {
+        double s = 0, s2 = 0;
+        for (float v : img) { s += v; s2 += double(v) * v; }
+        const double n = double(img.size());
+        mean = s / n;
+        se = std::sqrt(std::max(s2 / n - mean * mean, 0.0) / n);
+    }
+
+    bool FurnaceCheck(bool onGpu) {
+        KernelSceneHost host;
+        std::string why;
+        if (!KernelTestScene(96, 72, 16, 1000, 21, true, host, why)) return Report("white furnace", false, why);
+        std::vector<float> img;
+        const auto t0 = std::chrono::steady_clock::now();
+        if (!(onGpu ? RenderKernelGpu(host.view(), img, why, false) : RenderKernelCpu(host.view(), img, why, false)))
+            return Report(std::string("white furnace on the ") + (onGpu ? "GPU" : "CPU"), false, why);
+        const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        double mean, se;
+        MeanAndError(img, mean, se);
+        return Report(std::string("kernel renderer, white furnace on the ") + (onGpu ? "GPU" : "CPU") + " (albedo 1 in a uniform environment 1: every pixel 1)",
+            std::abs(mean - 1.0) <= 4 * se + 1e-6,
+            "mean " + Fmt(mean, 6) + " +- " + Fmt(se, 2) + " (must be 1 within 4 standard errors); 96 x 72, 16 spp, depth 1000, " + Fmt(seconds, 2) + " s");
+    }
+
 } // namespace
 
 int RunGpuTests(const CliOptions& /*opt*/) {
@@ -101,7 +155,10 @@ int RunGpuTests(const CliOptions& /*opt*/) {
             std::to_string(nans) + " NaN)");
     }
 
-    // 2. The GPU module.
+    // 2. The kernel renderer on the CPU (Embree, float): the white furnace.
+    ok &= FurnaceCheck(false);
+
+    // 3. The GPU module.
     std::string why;
     const gpu::Module* mod = gpu::LoadModule(why);
     if (!mod) {
@@ -166,6 +223,40 @@ int RunGpuTests(const CliOptions& /*opt*/) {
             const bool pass = nans == 0 && (info.fastMath ? errGpu <= 2 * errCpu + 1e-7 : identical == values);
             ok &= Report(std::string("float, ") + g.name + (info.fastMath ? ": GPU (fast math) as accurate as the CPU (<= 2 x CPU + 1e-7)" : ": GPU = CPU bit for bit"),
                 pass, detail.str());
+        }
+    }
+
+    // 5. The kernel renderer on the GPU: the white furnace, and the test scene against the CPU kernel renderer with the same seed. With
+    //    the same float operations on both devices and the hit point recomputed by the kernel from the triangle the tracer reports,
+    //    the two pictures must be the same bits (fast math: the same mean within the noise).
+    ok &= FurnaceCheck(true);
+    {
+        KernelSceneHost host;
+        if (!KernelTestScene(128, 96, 8, 16, 11, false, host, why)) ok &= Report("test scene", false, why);
+        else {
+            std::vector<float> a, b;
+            const auto t0 = std::chrono::steady_clock::now();
+            const bool cpuOk = RenderKernelCpu(host.view(), a, why, false);
+            const auto t1 = std::chrono::steady_clock::now();
+            const bool gpuOk = cpuOk && RenderKernelGpu(host.view(), b, why, false);
+            const auto t2 = std::chrono::steady_clock::now();
+            if (!cpuOk || !gpuOk) ok &= Report("test scene on the CPU and the GPU", false, why);
+            else {
+                size_t samePixels = 0;
+                double sa = 0, sb = 0;
+                for (size_t i = 0; i < a.size(); i += 3) {
+                    samePixels += a[i] == b[i] && a[i + 1] == b[i + 1] && a[i + 2] == b[i + 2];
+                    for (int c = 0; c < 3; ++c) { sa += a[i + c]; sb += b[i + c]; }
+                }
+                double meanA, seA;
+                MeanAndError(a, meanA, seA);
+                const size_t pixels = a.size() / 3;
+                const bool pass = info.fastMath ? std::abs(sb - sa) / double(a.size()) <= 4 * std::sqrt(2.0) * seA : samePixels == pixels;
+                ok &= Report(std::string("kernel renderer, scenes/gpu_box.json with the same seed: GPU ") + (info.fastMath ? "(fast math) = CPU within the noise" : "= CPU bit for bit"),
+                    pass, Fmt(100.0 * double(samePixels) / double(pixels), 5) + " % of the pixels bit-identical, image mean GPU / CPU " + Fmt(sb / sa, 8) +
+                    "; 128 x 96, 8 spp: CPU " + Fmt(std::chrono::duration<double>(t1 - t0).count(), 2) + " s, GPU " + Fmt(std::chrono::duration<double>(t2 - t1).count(), 2) +
+                    " s (with the GPU's setup)");
+            }
         }
     }
     return ok ? 0 : 2;
