@@ -6,12 +6,18 @@
     powershell -ExecutionPolicy Bypass -File tools\build_gpu.ps1 -OutDir out\cli       -> next to the Release CLI
     powershell -ExecutionPolicy Bypass -File tools\build_gpu.ps1 -Arch 75,86,89        -> machine code for these GPUs
 
+  The device code computes in float only (docs/GPU.md): ptxas is told to treat any double instruction as an error, so an
+  implicit promotion (x * 0.5 with a float x) stops the build. By default the module is built like Mitsuba's GPU code: IEEE
+  division and square root, and no implicit fused multiply-adds (--fmad=false; an FMA only where kernel code writes kfma), so
+  its float results are the CPU's bit for bit. -FastMath builds with --use_fast_math instead (approximate division and square
+  root, implicit FMAs, denormals flushed to zero), as pbrt-v4 and Cycles do; --scene gpu reports what that changes.
+
   -Arch lists the compute capabilities to compile machine code for (52 = Maxwell, 75 = Turing, 86 = Ampere, 89 = Ada,
   120 = Blackwell). PTX of the lowest one is embedded too, so a newer GPU still runs the module: the driver compiles the PTX
   on the first launch. CUDA 13 no longer compiles for 52; use CUDA 12.x for a Maxwell card.
   Needs the CUDA toolkit (CUDA_PATH, else v12.9 in the default folder) and Visual Studio 2022's C++ compiler.
 #>
-param([string]$OutDir = "out\cli-dev", [int[]]$Arch = @(52))
+param([string]$OutDir = "out\cli-dev", [int[]]$Arch = @(52), [switch]$FastMath)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 
@@ -35,10 +41,13 @@ $gencode = @()
 foreach ($a in $archs) { $gencode += "-gencode=arch=compute_$a,code=sm_$a" }
 $gencode += "-gencode=arch=compute_$($archs[0]),code=compute_$($archs[0])"
 
+$math = if ($FastMath) { @("--use_fast_math", "-DRAYT_GPU_FAST_MATH") } else { @("--fmad=false", "--prec-div=true", "--prec-sqrt=true", "--ftz=false") }
+
 Write-Host "nvcc: $nvcc"
-Write-Host ("Building the GPU module for compute capability {0} (+ PTX {1}) into {2} ..." -f ($archs -join ", "), $archs[0], $out)
-& $nvcc -shared -std=c++17 -O3 -Wno-deprecated-gpu-targets -ccbin $cl.DirectoryName `
-    -Xcompiler "/MD /O2 /EHsc /utf-8 /W3" -I (Join-Path $src "include") -I (Join-Path $src "external") `
+Write-Host ("Building the GPU module (float only{3}) for compute capability {0} (+ PTX {1}) into {2} ..." -f ($archs -join ", "), $archs[0], $out, $(if ($FastMath) { ", fast math" } else { "" }))
+& $nvcc -shared -std=c++17 -O3 -Wno-deprecated-gpu-targets -ccbin $cl.DirectoryName @math `
+    -Xptxas "--warn-on-double-precision-use,--warning-as-error" `
+    -Xcompiler "/MT /O2 /EHsc /utf-8 /W3" -I (Join-Path $src "include") -I (Join-Path $src "external") `
     @gencode -odir $obj -Xlinker "/IMPLIB:$obj\GoLD_rayt_gpu.lib" `
     -o (Join-Path $out "GoLD_rayt_gpu.dll") (Join-Path $src "gpu\GpuModule.cu")
 if ($LASTEXITCODE -ne 0) { throw "The GPU module failed to build (exit code $LASTEXITCODE)." }

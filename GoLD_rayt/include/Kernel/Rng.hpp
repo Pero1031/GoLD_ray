@@ -55,16 +55,20 @@ namespace rayt::kernel {
         /// Uniform in [0, 1): the top 24 bits, exact in float.
         RAYT_HD_INLINE float nextFloat() { return float(nextUint() >> 8) * 0x1p-24f; }
 
-        /// Uniform in [0, 1) with 53 bits (two draws).
-        RAYT_HD_INLINE double nextDouble() {
+#if !defined(RAYT_GPU_CODE)
+        /// Uniform in [0, 1) with 53 bits (two draws). CPU only.
+        double nextDouble() {
             const uint64_t a = nextUint() >> 5, b = nextUint() >> 6;
             return double(a * 67108864ull + b) * 0x1p-53;
         }
+#endif
     };
 
-    /// A uniform number in [0, 1) of the scalar type T (float: one draw, double: two).
+    /// A uniform number in [0, 1) of the scalar type T (float: one draw; double, CPU only: two).
     template <class T> RAYT_HD_INLINE T uniform(Pcg32& rng);
     template <> RAYT_HD_INLINE float uniform<float>(Pcg32& rng) { return rng.nextFloat(); }
-    template <> RAYT_HD_INLINE double uniform<double>(Pcg32& rng) { return rng.nextDouble(); }
+#if !defined(RAYT_GPU_CODE)
+    template <> inline double uniform<double>(Pcg32& rng) { return rng.nextDouble(); }
+#endif
 
 } // namespace rayt::kernel

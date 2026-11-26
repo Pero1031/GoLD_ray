@@ -53,12 +53,6 @@ namespace {
         return cases;
     }
 
-    const char* ValueName(int k) {
-        static const char* names[kernel::kMathValueCount] = { "rng float 0", "rng float 1", "hemisphere x", "hemisphere y", "hemisphere z",
-            "sphere x", "sphere y", "sphere z", "basis s.x", "basis s.y", "basis s.z", "basis t.x", "basis t.y", "basis t.z", "Fresnel" };
-        return names[k];
-    }
-
     /// The engine's functions for the same case, in double: what the kernel's double values must equal.
     void EngineValues(const kernel::MathCase& c, double* v) {
         const Point2 u(Real(c.u1), Real(c.u2));
@@ -79,8 +73,13 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     bool ok = true;
     const int n = 4096;
     const std::vector<kernel::MathCase> cases = MakeCases(n);
+    // The CPU computes the float values (as the GPU does) and the double reference (which only the CPU computes).
     std::vector<kernel::MathOut> cpu(cases.size());
-    for (size_t i = 0; i < cases.size(); ++i) kernel::evalMathCase(cases[i], cpu[i]);
+    std::vector<std::array<double, kernel::kMathValueCount>> ref(cases.size());
+    for (size_t i = 0; i < cases.size(); ++i) {
+        kernel::evalMathCase(cases[i], cpu[i]);
+        kernel::evalMathCaseDouble(cases[i], ref[i].data());
+    }
 
     // 1. The kernel's functions on the CPU in double are the engine's functions (same formulas, same order).
     {
@@ -91,9 +90,9 @@ int RunGpuTests(const CliOptions& /*opt*/) {
             EngineValues(cases[i], e);
             bool same = true;
             for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) {
-                const double d = std::abs(cpu[i].d[k] - e[k]);
+                const double d = std::abs(ref[i][k] - e[k]);
                 if (std::isnan(d)) ++nans; else maxDiff = std::max(maxDiff, d);
-                if (!(cpu[i].d[k] == e[k])) same = false;
+                if (!(ref[i][k] == e[k])) same = false;
             }
             if (!same) ++differing;
         }
@@ -106,18 +105,19 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     std::string why;
     const gpu::Module* mod = gpu::LoadModule(why);
     if (!mod) {
-        std::cout << "[GPU]    SKIP the GPU part: " << why << "\n";
+        std::cout << "[GPU]    SKIP the GPU part: " << why << std::endl;
         return ok ? 0 : 2;
     }
     RaytGpuInfo info{};
     if (mod->query(&info) != 0) {
-        std::cout << "[GPU]    SKIP the GPU part: " << info.error << " (module " << mod->path << ")\n";
+        std::cout << "[GPU]    SKIP the GPU part: " << info.error << " (module " << mod->path << ")" << std::endl;
         return ok ? 0 : 2;
     }
     std::cout << "[GPU]    device 0: " << info.name << ", compute capability " << info.computeMajor << "." << info.computeMinor << ", "
               << info.multiprocessors << " multiprocessors, " << Fmt(double(info.totalMemory) / (1024.0 * 1024.0 * 1024.0), 3) << " GB; driver supports CUDA "
-              << info.driverVersion / 1000 << "." << (info.driverVersion % 1000) / 10 << ", module built with CUDA " << info.runtimeVersion / 1000 << "."
-              << (info.runtimeVersion % 1000) / 10 << "\n";
+              << info.driverVersion / 1000 << "." << (info.driverVersion % 1000) / 10 << "; module built with CUDA " << info.runtimeVersion / 1000 << "."
+              << (info.runtimeVersion % 1000) / 10 << ", float only, "
+              << (info.fastMath ? "fast math (--use_fast_math)" : "IEEE division / square root, no implicit FMA") << std::endl;
 
     std::vector<kernel::MathOut> gpu(cases.size());
     char err[512] = {};
@@ -130,52 +130,43 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         for (size_t i = 0; i < cases.size(); ++i) {
             bool same = true;
             for (int k = 0; k < 4; ++k) same &= cpu[i].rng[k] == gpu[i].rng[k];
-            for (int k = kernel::kRngFloat0; k <= kernel::kRngFloat1; ++k) same &= cpu[i].f[k] == gpu[i].f[k] && cpu[i].d[k] == gpu[i].d[k];
+            for (int k = kernel::kRngFloat0; k <= kernel::kRngFloat1; ++k) same &= cpu[i].f[k] == gpu[i].f[k];
             if (!same) ++differing;
         }
         ok &= Report("random numbers (PCG32 streams keyed by seed, pixel, sample): GPU = CPU bit for bit", differing == 0,
             std::to_string(cases.size()) + " streams, " + std::to_string(differing) + " differ");
     }
 
-    // 4. Floating point: the same formulas, but CUDA's sinf / cosf and its fused multiply-adds round differently from MSVC.
-    auto compare = [&](bool useFloat, double tol) {
-        double maxDiff = 0;
-        size_t identical = 0, values = 0, nans = 0, worstCase = 0;
-        int worstValue = kernel::kHemiX;
-        for (size_t i = 0; i < cases.size(); ++i)
-            for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) {
-                const double a = useFloat ? double(cpu[i].f[k]) : cpu[i].d[k];
-                const double b = useFloat ? double(gpu[i].f[k]) : gpu[i].d[k];
-                if (std::isnan(a) || std::isnan(b)) ++nans;
-                else if (std::abs(a - b) > maxDiff) { maxDiff = std::abs(a - b); worstCase = i; worstValue = k; }
-                identical += a == b;
-                ++values;
-            }
-        const kernel::MathCase& w = cases[worstCase];
-        std::ostringstream where;
-        where << ValueName(worstValue) << " of case " << worstCase << " (u " << w.u1 << ", " << w.u2 << "; n " << w.nx << ", " << w.ny << ", " << w.nz
-              << "; cos " << w.cosTheta << ", eta " << w.etaI << " -> " << w.etaT << ")";
-        return std::make_tuple(maxDiff <= tol && nans == 0, maxDiff, double(identical) / double(values), where.str());
-    };
+    // 4. Float values. The default module computes the same operations in the same order as the CPU (IEEE division and square root, no
+    //    implicit FMA, our own sin / cos), so its floats must be the CPU's bit for bit. A fast-math module (approximate division and
+    //    square root, implicit FMAs) cannot be; it must be as close to the double reference as the CPU is. (A fixed tolerance on
+    //    |GPU - CPU| would be the wrong test: the Fresnel term just past the critical angle, cos theta_t = sqrt(small), amplifies a
+    //    rounding difference in its input to 1.4e-5.)
     {
-        // Some values amplify rounding (the Fresnel term just past the critical angle: cos theta_t = sqrt(small)), so a fixed tolerance on
-        // |GPU - CPU| is not the right test. Instead: the GPU's float values are as close to the double values as the CPU's float values.
-        double errCpu = 0, errGpu = 0;
-        for (size_t i = 0; i < cases.size(); ++i)
-            for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) {
-                errCpu = std::max(errCpu, std::abs(double(cpu[i].f[k]) - cpu[i].d[k]));
-                errGpu = std::max(errGpu, std::abs(double(gpu[i].f[k]) - cpu[i].d[k]));
-            }
-        const auto [unused, maxDiff, same, where] = compare(true, 1.0);
-        (void)unused;
-        ok &= Report("float: the GPU's float values are as accurate as the CPU's (sampling, basis, Fresnel)", errGpu <= 2 * errCpu + 1e-7,
-            "max |float - double|: GPU " + Fmt(errGpu) + ", CPU " + Fmt(errCpu) + " (GPU must be <= 2 x CPU); max |GPU - CPU| " + Fmt(maxDiff) + " at " + where +
-            "; " + Fmt(100 * same, 4) + " % of the values bit-identical");
-    }
-    {
-        const auto [pass, maxDiff, same, where] = compare(false, 1e-12);
-        ok &= Report("double: GPU = CPU to rounding", pass,
-            "max |diff| " + Fmt(maxDiff) + " (tolerance 1e-12) at " + where + ", " + Fmt(100 * same, 4) + " % of the values bit-identical");
+        struct Group { const char* name; int first, last; };
+        const Group groups[] = { { "cosine hemisphere", kernel::kHemiX, kernel::kHemiZ }, { "uniform sphere", kernel::kSphereX, kernel::kSphereZ },
+            { "orthonormal basis", kernel::kBasisSX, kernel::kBasisTZ }, { "dielectric Fresnel", kernel::kFresnel, kernel::kFresnel } };
+        for (const Group& g : groups) {
+            double errCpu = 0, errGpu = 0, maxDiff = 0;
+            size_t identical = 0, values = 0, nans = 0, worst = 0;
+            for (size_t i = 0; i < cases.size(); ++i)
+                for (int k = g.first; k <= g.last; ++k) {
+                    const double c = cpu[i].f[k], d = gpu[i].f[k];
+                    if (std::isnan(c) || std::isnan(d)) { ++nans; continue; }
+                    errCpu = std::max(errCpu, std::abs(c - ref[i][k]));
+                    errGpu = std::max(errGpu, std::abs(d - ref[i][k]));
+                    if (std::abs(c - d) > maxDiff) { maxDiff = std::abs(c - d); worst = i; }
+                    identical += c == d;
+                    ++values;
+                }
+            std::ostringstream detail;
+            detail << Fmt(100.0 * double(identical) / double(values), 4) << " % of the values bit-identical, max |GPU - CPU| " << Fmt(maxDiff) << " (case " << worst
+                   << "); max |float - double|: GPU " << Fmt(errGpu) << ", CPU " << Fmt(errCpu);
+            if (nans) detail << ", " << nans << " NaN";
+            const bool pass = nans == 0 && (info.fastMath ? errGpu <= 2 * errCpu + 1e-7 : identical == values);
+            ok &= Report(std::string("float, ") + g.name + (info.fastMath ? ": GPU (fast math) as accurate as the CPU (<= 2 x CPU + 1e-7)" : ": GPU = CPU bit for bit"),
+                pass, detail.str());
+        }
     }
     return ok ? 0 : 2;
 }

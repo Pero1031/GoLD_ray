@@ -1,5 +1,6 @@
 // The GPU module GoLD_rayt_gpu.dll (docs/GPU.md): CUDA device code for the kernel headers (include/Kernel) and the
 // C functions of Gpu/GpuApi.h. Built by tools/build_gpu.ps1; the CPU program loads it at run time.
+// The device code computes in float only: tools/build_gpu.ps1 makes ptxas reject double instructions.
 
 #include <cuda_runtime.h>
 
@@ -51,6 +52,9 @@ RAYT_GPU_EXPORT int raytGpuQuery(RaytGpuInfo* info) {
     info->computeMinor = prop.minor;
     info->multiprocessors = prop.multiProcessorCount;
     info->totalMemory = uint64_t(prop.totalGlobalMem);
+#if defined(RAYT_GPU_FAST_MATH)
+    info->fastMath = 1;
+#endif
     return 0;
 }
 

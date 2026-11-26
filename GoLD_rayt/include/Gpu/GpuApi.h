@@ -13,7 +13,7 @@
 
 #include "Kernel/SelfTest.hpp"
 
-#define RAYT_GPU_API_VERSION 1
+#define RAYT_GPU_API_VERSION 2
 #define RAYT_GPU_MODULE_NAME "GoLD_rayt_gpu.dll"
 
 extern "C" {
@@ -25,6 +25,7 @@ extern "C" {
         uint64_t totalMemory;      ///< bytes
         int driverVersion;         ///< CUDA version the driver supports, e.g. 12090
         int runtimeVersion;        ///< CUDA version the module was built with
+        int fastMath;              ///< 1 if the module was built with --use_fast_math (tools/build_gpu.ps1 -FastMath)
         char name[256];
         char error[256];           ///< why no device can be used (empty on success)
     };
@@ -33,7 +34,7 @@ extern "C" {
     typedef int (*RaytGpuApiVersionFn)(void);
     /// Fills `info`; returns 0 when device 0 can be used.
     typedef int (*RaytGpuQueryFn)(RaytGpuInfo* info);
-    /// Runs kernel::evalMathCase on the GPU for n cases; returns 0 on success, else writes the reason to `error`.
+    /// Runs kernel::evalMathCase (float) on the GPU for n cases; returns 0 on success, else writes the reason to `error`.
     typedef int (*RaytGpuMathTestFn)(const rayt::kernel::MathCase* cases, rayt::kernel::MathOut* out, int n, char* error, int errorSize);
 
 }

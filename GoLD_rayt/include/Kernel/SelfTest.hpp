@@ -3,9 +3,10 @@
  * @file Kernel/SelfTest.hpp
  * @brief One function that --scene gpu runs on the CPU and on the GPU with the same inputs (docs/GPU.md).
  *
- * evalMathCase draws random numbers from the case's stream and evaluates the kernel's sampling functions, in float and
- * in double. The CPU calls it directly, the GPU module calls it from a CUDA kernel, and the check compares the results:
- * the random numbers must be the same bits, the values agree to rounding.
+ * evalMathCase draws random numbers from the case's stream and evaluates the kernel's sampling functions in float. The
+ * CPU calls it directly and the GPU module calls it from a CUDA kernel; evalMathCaseDouble (CPU only, the GPU computes in
+ * float) gives the reference. The check compares: the random numbers must be the same bits, and the GPU's float values
+ * must be as close to the double reference as the CPU's.
  */
 
 #include <stdint.h>
@@ -24,7 +25,7 @@ namespace rayt::kernel {
         float cosTheta, etaI, etaT;
     };
 
-    /// The values of one case: the same list in float and in double.
+    /// The values of one case (the same list in float and in double).
     enum MathValue : int {
         kRngFloat0, kRngFloat1,                    ///< the stream's 5th and 6th draws as floats
         kHemiX, kHemiY, kHemiZ,                    ///< sampleCosineHemisphere(u1, u2)
@@ -35,10 +36,10 @@ namespace rayt::kernel {
         kMathValueCount
     };
 
+    /// What one device computes for a case.
     struct MathOut {
         uint32_t rng[4];                           ///< the stream's first four 32-bit draws
-        float f[kMathValueCount];
-        double d[kMathValueCount];
+        float f[kMathValueCount];                  ///< the values in float
     };
 
     template <class T> RAYT_HD_INLINE void evalMathValues(const MathCase& c, Pcg32 rng, T* v) {
@@ -58,11 +59,20 @@ namespace rayt::kernel {
         v[kFresnel] = fresnelDielectric(T(c.cosTheta), T(c.etaI), T(c.etaT));
     }
 
+    /// The random numbers and the values in float: what the CPU and the GPU both run.
     RAYT_HD_INLINE void evalMathCase(const MathCase& c, MathOut& out) {
         Pcg32 rng = Pcg32::forSample(c.seed, c.pixel, c.sample);
         for (int k = 0; k < 4; ++k) out.rng[k] = rng.nextUint();
         evalMathValues<float>(c, rng, out.f);
-        evalMathValues<double>(c, rng, out.d);
     }
+
+#if !defined(RAYT_GPU_CODE)
+    /// The same values in double: the reference, computed on the CPU only.
+    inline void evalMathCaseDouble(const MathCase& c, double* v) {
+        Pcg32 rng = Pcg32::forSample(c.seed, c.pixel, c.sample);
+        for (int k = 0; k < 4; ++k) rng.nextUint();
+        evalMathValues<double>(c, rng, v);
+    }
+#endif
 
 } // namespace rayt::kernel
