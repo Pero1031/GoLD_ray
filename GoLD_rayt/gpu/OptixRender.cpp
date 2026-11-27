@@ -57,6 +57,8 @@ namespace {
         DeviceBuffer<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
         DeviceBuffer<rayt::kernel::LensSurface<float>> lensSurfaces;
         DeviceBuffer<float> lensPupil, lensBladeNormals;
+        DeviceBuffer<rayt::kernel::KMedium> media;
+        DeviceBuffer<float> phaseF, phaseCdf;
         DeviceBuffer<char> triangleGas, sphereGas, ias;
         DeviceBuffer<OptixAabb> sphereBoxes;
         DeviceBuffer<OptixInstance> instances;
@@ -107,6 +109,9 @@ namespace {
             RAYT_CUDA(upload(lensSurfaces, h.lensSurfaces, realLens ? h.camera.numSurfaces : 0), "copying the lens");
             RAYT_CUDA(upload(lensPupil, h.lensPupil, realLens ? size_t(h.camera.numBands) * 5 : 0), "copying the lens's pupil");
             RAYT_CUDA(upload(lensBladeNormals, h.lensBladeNormals, realLens ? size_t(h.camera.stopBlades) * 2 : 0), "copying the lens's stop");
+            RAYT_CUDA(upload(media, h.media, h.numMedia), "copying the media");
+            RAYT_CUDA(upload(phaseF, h.phaseF, h.numPhaseNodes), "copying the phase functions");
+            RAYT_CUDA(upload(phaseCdf, h.phaseCdf, h.numPhaseNodes), "copying the phase functions");
             scene = h;
             scene.positions = positions.ptr; scene.normals = normals.ptr; scene.indices = indices.ptr; scene.faceNormals = faceNormals.ptr;
             scene.triMaterial = triMaterial.ptr; scene.triLight = triLight.ptr; scene.triSmooth = triSmooth.ptr;
@@ -114,6 +119,7 @@ namespace {
             scene.envPixels = envPixels.ptr; scene.envMarginalFunc = envMarginalFunc.ptr; scene.envMarginalCdf = envMarginalCdf.ptr;
             scene.envCondFunc = envCondFunc.ptr; scene.envCondCdf = envCondCdf.ptr; scene.envCondInt = envCondInt.ptr;
             scene.lensSurfaces = lensSurfaces.ptr; scene.lensPupil = lensPupil.ptr; scene.lensBladeNormals = lensBladeNormals.ptr;
+            scene.media = media.ptr; scene.phaseF = phaseF.ptr; scene.phaseCdf = phaseCdf.ptr;
 
             // ---- the acceleration structures: a GAS over the triangles, a GAS over the spheres' boxes (custom primitives), and,
             //      when the scene has spheres, an instance AS over both (identity transforms; instance k uses hit group k) ----

@@ -34,6 +34,8 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
@@ -44,6 +46,7 @@
 #include "Materials/DensityField.hpp"
 #include "Materials/TabulatedPhase.hpp"
 #include "Geometry/Frame.hpp"
+#include "Kernel/KernelScene.hpp"
 
 namespace rayt {
 
@@ -91,6 +94,22 @@ namespace rayt {
         PhaseFunction(std::shared_ptr<const TabulatedPhase> t) : g1(t->meanCosine()), g2(t->meanCosine()), w(Real(1)), table(std::move(t)) {}
 
         Real meanCosine() const { return table ? table->meanCosine() : w * g1 + (Real(1) - w) * g2; }
+
+        /// The phase function for the kernel renderer (Kernel/Media.hpp): the lobes, or the table appended to tableF / tableCdf.
+        void kernelParams(kernel::MediumParams<Real>& out, std::vector<Real>& tableF, std::vector<Real>& tableCdf) const {
+            out.g1 = g1;
+            out.g2 = g2;
+            out.w = w;
+            out.phaseKind = table ? kernel::kPhaseTable : kernel::kPhaseHG;
+            out.tableOffset = static_cast<uint32_t>(tableF.size());
+            out.tableCount = 0;
+            out.tableStep = 0;
+            if (!table) return;
+            out.tableCount = static_cast<uint32_t>(table->densityAtNodes().size());
+            out.tableStep = Real(table->step());
+            tableF.insert(tableF.end(), table->densityAtNodes().begin(), table->densityAtNodes().end());
+            tableCdf.insert(tableCdf.end(), table->cdfAtNodes().begin(), table->cdfAtNodes().end());
+        }
 
         /// The density (per steradian) of scattering from the propagation direction d_in into d_out, with cosTheta = dot(d_in, d_out)
         /// (cosTheta = 1 is straight on: forward scattering for g > 0). Sample() draws from exactly this density.
@@ -148,6 +167,13 @@ namespace rayt {
 
         /// Beer-Lambert transmittance exp(-sigma_a(lambda) d) over `distance` metres, per wavelength.
         virtual Spectrum transmittance(Real /*distance*/, const SampledWavelengths& /*lambda*/) const { return Spectrum(1.0); }
+
+        /// This medium as the kernel renderer models it (Kernel/Media.hpp, docs/GPU.md; RGB): false, with the reason, for a kind it does not
+        /// have. A phase function's table is appended to tableF / tableCdf.
+        virtual bool kernelParams(kernel::MediumParams<Real>& /*out*/, std::vector<Real>& /*tableF*/, std::vector<Real>& /*tableCdf*/, std::string& why) const {
+            why = "a medium of a kind the kernel does not have";
+            return false;
+        }
     };
 
     /**
@@ -236,6 +262,16 @@ namespace rayt {
             return m_phase.sample(dir, u);
         }
 
+        bool kernelParams(kernel::MediumParams<Real>& out, std::vector<Real>& tableF, std::vector<Real>& tableCdf, std::string& /*why*/) const override {
+            out = kernel::MediumParams<Real>{};
+            const SampledWavelengths lambda;
+            const Spectrum sT = sigmaTSpectrum(lambda), sS = sigmaSSpectrum(lambda);
+            for (int i = 0; i < 3; ++i) { out.sigmaT[i] = sT[i]; out.sigmaS[i] = sS[i]; }
+            out.constant = 1;
+            m_phase.kernelParams(out, tableF, tableCdf);
+            return true;
+        }
+
     private:
         Real m_sigmaT, m_albedo;
         PhaseFunction m_phase;
@@ -290,6 +326,35 @@ namespace rayt {
 #else
             (void)lambda;
             return m_sigmaT * m_albedo;
+#endif
+        }
+
+        bool kernelParams(kernel::MediumParams<Real>& out, std::vector<Real>& tableF, std::vector<Real>& tableCdf, std::string& why) const override {
+#if defined(RAYT_SPECTRAL_MODE)
+            (void)out; (void)tableF; (void)tableCdf;
+            why = "a medium in the spectral build";
+            return false;
+#else
+            out = kernel::MediumParams<Real>{};
+            const SampledWavelengths lambda;
+            const Spectrum sT = sigmaTSpectrum(lambda), sS = sigmaSSpectrum(lambda);
+            for (int i = 0; i < 3; ++i) { out.sigmaT[i] = sT[i]; out.sigmaS[i] = sS[i]; }
+            out.constant = m_constant ? 1u : 0u;
+            if (m_density) {
+                const auto* noise = dynamic_cast<const NoiseDensity*>(m_density.get());
+                if (!noise) { why = "a density field other than the noise"; return false; }
+                out.noise = 1;
+                out.frequency = noise->frequency();
+                out.octaves = static_cast<uint32_t>(noise->octaves());
+                out.lo = noise->lo();
+                out.hi = noise->hi();
+                out.seed = noise->seed();
+                for (int i = 0; i < 3; ++i) out.maskCenter[i] = noise->maskCenter()[i];
+                out.maskRadius = noise->maskRadius();
+                out.maskStart = noise->maskStart();
+            }
+            m_phase.kernelParams(out, tableF, tableCdf);
+            return true;
 #endif
         }
 

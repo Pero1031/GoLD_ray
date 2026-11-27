@@ -285,4 +285,7 @@ struct CliOptions {
 // Returns an exit code when the program should stop (0 after --help / --list-scenes, 1 after an error), std::nullopt to carry on.
 std::optional<int> ParseArgs(int argc, char** argv, CliOptions& o);
 
+// The options a scene file's "options" stand for (LoadSceneFile's args), applied to o as ParseArgs applies them.
+void ApplySceneFileArgs(const std::vector<std::string>& args, CliOptions& o);
+
 } // namespace rayt::cli

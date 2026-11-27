@@ -1,0 +1,23 @@
+// A test scene of the kernel renderer (docs/GPU.md): a cloud over a grey floor, lit by the sun. The cloud is an index-matched sphere filled
+// with a noise density whose droplets scatter by Mie theory (a phase table, assets/Cloud/mie_reff10.csv); with --media-nee the sun is
+// sampled at every collision in the cloud, the boundary is crossed without a bounce, and the floor's shadow rays are attenuated by the
+// cloud (its shadow). Everything in it is what --device gpu / cpu-kernel model, so the engine and the kernel renderer must converge to
+// the same picture.
+{
+ "options": { "width": 400, "height": 300, "spp": 64, "media-nee": true },
+ "camera": { "from": [0, 0.06, 0.55], "at": [0, -0.02, 0], "fov": 30 },
+ "environment": { "type": "uniform", "scale": 0.05 },
+ "materials": {
+  "cloud": { "type": "dielectric", "ior": 1.0,
+             "medium": { "sigmaT": 420, "albedo": 0.9999, "phaseTable": "assets/Cloud/mie_reff10.csv",
+                         "noise": { "frequency": 22, "octaves": 5, "lo": 0.42, "hi": 0.62, "seed": 7, "maskCenter": [0, 0, 0], "maskRadius": 0.1, "maskStart": 0.45 } } },
+  "floor": { "type": "diffuse", "albedo": [0.5, 0.5, 0.48] },
+  "sun": { "type": "emission", "spectrum": "d65", "radiance": 40000 }
+ },
+ "objects": [
+  { "shape": "sphere", "center": [0, 0, 0], "radius": 0.1, "material": "cloud" },
+  { "shape": "quad", "corner": [-0.6, -0.12, 0.6], "edge1": [1.2, 0, 0], "edge2": [0, 0, -1.2], "material": "floor" },
+  // 0.53 degrees across, 20 m away, high behind the cloud: its shadow falls on the floor in front of it
+  { "shape": "sphere", "center": [-3.0, 14.0, -13.95], "radius": 0.0926, "material": "sun" }
+ ]
+}

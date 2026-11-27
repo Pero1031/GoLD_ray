@@ -27,6 +27,7 @@
 #include "Kernel/Environment.hpp"
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/Lights.hpp"
+#include "Kernel/Media.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
 
@@ -97,20 +98,255 @@ namespace rayt::kernel {
         aov->valid = 1;
     }
 
+    /// Where a tracer's hit lies: the point by the kernel's own formula (above), the face normal, the shading normal (facing the ray),
+    /// whether the ray came from the outside, the material and the light.
+    struct SurfacePoint {
+        V3 p, faceN, ns;
+        float err;   ///< a bound of p's rounding beyond what offsetRayOrigin covers (a sphere's: its centre and radius set it)
+        uint32_t material;
+        int32_t light;
+        bool front, smooth;
+    };
+
+    RAYT_HD_INLINE void surfacePoint(const KScene& s, const KHit& h, const V3& o, const V3& d, SurfacePoint& sp) {
+        sp.smooth = false;
+        sp.err = 0.0f;
+        if (h.prim < s.numTriangles) {
+            const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
+            const V3 v0 = toV3(s.positions[i0]), v1 = toV3(s.positions[i1]), v2 = toV3(s.positions[i2]);
+            float b1, b2;
+            triangleBarycentrics(o, d, v0, v1, v2, b1, b2);   // not the tracer's own (h.b1, h.b2): the same bits on every device
+            const float w0 = 1.0f - b1 - b2;
+            sp.p = w0 * v0 + b1 * v1 + b2 * v2;
+            sp.faceN = toV3(s.faceNormals[h.prim]);
+            sp.front = kdot(d, sp.faceN) < 0.0f;
+            if (s.triSmooth[h.prim]) {
+                const V3 n = knormalize(w0 * toV3(s.normals[i0]) + b1 * toV3(s.normals[i1]) + b2 * toV3(s.normals[i2]));
+                sp.ns = sp.front ? n : -n;
+                sp.smooth = true;
+            }
+            sp.material = s.triMaterial[h.prim];
+            sp.light = s.triLight[h.prim];
+        }
+        else {
+            // A sphere: both tracers report the distance of kernel::intersectSphere; the point is put back on the surface (as pbrt
+            // does) so that the offset of the next ray's origin need only cover the rounding of that projection.
+            const KSphere& sph = s.spheres[h.prim - s.numTriangles];
+            const V3 c = toV3(sph.center);
+            const V3 pc = (o + h.t * d) - c;
+            sp.p = c + pc * (kabs(sph.radius) / klength(pc));
+            // The projection rounds at the scale of the centre and the radius, not of p: a floor made of a sphere of radius 100 centred
+            // 100 below has points near y = 0 whose y is off by an ulp of 100 (8e-6), more than the integer offset of a small y moves it.
+            // Leaving rays start this much further out (pbrt-v4 offsets by such a bound too); a few ulps of |c| + r.
+            sp.err = 8.0f * (kmax(kmax(kabs(c.x), kabs(c.y)), kabs(c.z)) + kabs(sph.radius)) * 5.9604645e-8f;
+            sp.faceN = (sp.p - c) / sph.radius;   // outward, inward for a negative radius (Geometry/Sphere.hpp)
+            sp.front = kdot(d, sp.faceN) < 0.0f;
+            sp.material = sph.material;
+            sp.light = sph.light;
+        }
+        if (!sp.smooth) sp.ns = sp.front ? sp.faceN : -sp.faceN;
+    }
+
+    /// The origin of a ray that leaves the surface point toward the side of the unit normal n: beyond the point's rounding, then by the
+    /// integer offset (offsetRayOrigin).
+    RAYT_HD_INLINE V3 leaveSurface(const SurfacePoint& sp, const V3& n) { return offsetRayOrigin(sp.err > 0.0f ? sp.p + n * sp.err : sp.p, n); }
+
+    /// The distance along the unit ray (o, d) to the hit: a sphere's is the one both tracers compute with kernel::intersectSphere; a
+    /// triangle's is taken from the kernel's own hit point, since Embree and OptiX each compute it their own way, which differs in the
+    /// last bits (a walk through a medium weighs its channels by it).
+    RAYT_HD_INLINE float hitDistance(const KScene& s, const KHit& h, const V3& o, const V3& d, const SurfacePoint& sp) {
+        return h.prim < s.numTriangles ? kdot(sp.p - o, d) : h.t;
+    }
+
+    /// A smooth dielectric with the same index on both sides (Dielectric::isNullInterface): with --media-nee paths and shadow rays cross it.
+    RAYT_HD_INLINE bool isNullInterface(const KMaterial& m) { return m.type == kMatDielectric && m.dielectric.nullInterface != 0; }
+
+    /// One light sample from a point p, as the path tracer chooses it (the environment with probability envSelect, else a light by power):
+    /// direction wi, radiance le (times `scale`, the environment's), its density pdf (0: none), and for a light the point on it.
+    struct LightChoice {
+        V3 wi, le, p;
+        float pdf, scale;
+        bool area;
+    };
+
+    RAYT_HD_INLINE void chooseLight(const KScene& s, Pcg32& rng, const V3& p, LightChoice& c) {
+        const float uSel = rng.nextFloat();
+        const float a = rng.nextFloat(), b = rng.nextFloat();
+        c.pdf = 0.0f;
+        c.scale = 1.0f;
+        c.area = false;
+        if (uSel < s.envSelect) {
+            float pdfW;
+            envSample(s, a, b, c.wi, c.le, pdfW);
+            if (pdfW > 0.0f) {
+                c.pdf = s.envSelect * pdfW;
+                c.scale = s.envScale;
+            }
+        }
+        else {
+            const uint32_t li = pickLight(s.lightCdf, s.numLights, (uSel - s.envSelect) / (1.0f - s.envSelect));
+            const KLight& q = s.lights[li];
+            LightSample<float> ls;
+            if (sampleLight(q, p, a, b, ls) && ls.emits && ls.pdf > 0.0f) {
+                c.wi = ls.wi;
+                c.le = V3(q.radiance[0], q.radiance[1], q.radiance[2]);
+                c.p = ls.p;
+                c.pdf = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
+                c.area = true;
+            }
+        }
+    }
+
+    /**
+     * @brief shadowTransmittance (Render/Transmittance.hpp), for --media-nee: a shadow ray from org along the unit dir up to tMax (kFloatMax:
+     *        out of the scene), starting in `medium` (-1: air), crosses index-matched boundaries (switching the medium) and is attenuated in
+     *        media; any other surface blocks it.
+     */
+    template <class Tracer>
+    RAYT_HD V3 shadowTransmittance(const KScene& s, const Tracer& tracer, Pcg32& rng, V3 org, const V3& dir, float tMax, int32_t medium) {
+        V3 T(1.0f);
+        float remaining = tMax;
+        for (int crossings = 0; crossings < 64; ++crossings) {
+            const KHit h = tracer.closest(org, dir, 0.0f, remaining);
+            const bool hit = h.prim != kNoHit;
+            SurfacePoint sp;
+            if (hit) surfacePoint(s, h, org, dir, sp);
+            const float dist = hit ? hitDistance(s, h, org, dir, sp) : remaining;
+            if (medium >= 0) {
+                if (!hit && !(remaining < kFloatMax)) return V3(0.0f);   // a ray that never leaves the medium: a leaky boundary
+                T *= mediumTransmittance(s.media[medium], org, dir, dist, rng);
+            }
+            if (!hit) return T;
+            const KMaterial& m = s.materials[sp.material];
+            if (!isNullInterface(m)) return V3(0.0f);
+            if (!(kmaxComponent(T) > 0.0f)) return T;
+            if (m.medium >= 0) medium = sp.front ? m.medium : -1;   // a front-face hit enters the surface
+            org = leaveSurface(sp, sp.front ? -sp.faceN : sp.faceN);   // on, beyond the surface
+            if (remaining < kFloatMax) remaining -= dist;
+        }
+        return V3(0.0f);
+    }
+
+    /// The light that a scattering event at p in `medium` sends on along -dirIn, from one light sample (PathIntegrator::estimateDirectInMedium,
+    /// --media-nee): the phase function instead of a BSDF, no cosine, the shadow ray through the medium and index-matched boundaries.
+    template <class Tracer>
+    RAYT_HD V3 lightInMedium(const KScene& s, const Tracer& tracer, Pcg32& rng, const V3& p, const V3& dirIn, int32_t medium) {
+        if (!(s.numLights > 0 || hasEnvironment(s))) return V3(0.0f);
+        LightChoice c;
+        chooseLight(s, rng, p, c);
+        if (!(c.pdf > 0.0f)) return V3(0.0f);
+        const KMedium& med = s.media[medium];
+        const PhaseTable<float> tab{ s.phaseF + med.tableOffset, s.phaseCdf + med.tableOffset };
+        const float ph = phaseEval(med, tab, kdot(c.wi, dirIn));
+        if (!(ph > 0.0f)) return V3(0.0f);
+        V3 dirS = c.wi;
+        float tMaxS = kFloatMax;
+        if (c.area) {
+            const V3 toLight = c.p - p;
+            const float dist = klength(toLight);
+            if (dist > 0.0f) { dirS = toLight / dist; tMaxS = dist * 0.9999f; }
+        }
+        const V3 T = shadowTransmittance(s, tracer, rng, p, dirS, tMaxS, medium);   // p lies inside the medium: no offset
+        if (!(kmaxComponent(T) > 0.0f)) return V3(0.0f);
+        const float w = c.pdf * c.pdf / (c.pdf * c.pdf + ph * ph);
+        return c.le * c.scale * T * (ph * w / c.pdf);
+    }
+
+    enum : int { kStepSurface = 0, kStepScattered = 1, kStepEnded = 2 };
+
+    /**
+     * @brief The path's walk through the medium it travels in, up to the next surface (PathIntegrator::advanceInMedium).
+     *
+     * Delta tracking with the extinction of the hero channel at the densest point: a tentative collision is real with probability q (the
+     * density there), then scatters with the hero's albedo and is absorbed otherwise; a null collision changes nothing. A medium whose
+     * channels differ weighs every channel by the density of the same event had it been the hero, normalized by the running ratios rho
+     * (the balance heuristic over the hero choice). With --media-nee a scattering event samples a light. Returns kStepSurface (the
+     * surface the ray hit is reached; beta weighted), kStepScattered (o, d are the new ray from the collision) or kStepEnded.
+     */
+    template <class Tracer>
+    RAYT_HD int mediumStep(const KScene& s, const Tracer& tracer, Pcg32& rng, int32_t medium, V3& o, V3& d, bool hit, float tSurface, V3& beta, V3& rho,
+        int& hero, uint32_t& volumeEvents, V3& L, float& lastPdf, bool& lastDelta) {
+        const KMedium& med = s.media[medium];
+        const bool constant = med.constant != 0;
+        if (!constant && hero < 0) hero = kmin(2, int(rng.nextFloat() * 3.0f));   // chosen once per path, at its first chromatic medium
+        const int hh = constant ? 0 : hero;
+        const float sT[3] = { med.sigmaT[0], med.sigmaT[1], med.sigmaT[2] };
+        const float sS[3] = { med.sigmaS[0], med.sigmaS[1], med.sigmaS[2] };
+        // multiplies beta and rho by the weight of one event (kind 0: surface, 1: null, 2: scatter); false if the path cannot go on
+        const auto weigh = [&](float t, int kind) -> bool {
+            if (constant) return true;
+            float e[3], eMax = -INFINITY;
+            for (int i = 0; i < 3; ++i) { e[i] = -(sT[i] - sT[hh]) * t; eMax = kmax(eMax, e[i]); }
+            float a[3], m = 0.0f;
+            for (int i = 0; i < 3; ++i) {
+                const float k = kind == 2 ? sS[i] / sS[hh] : kind == 1 ? sT[i] / sT[hh] : 1.0f;
+                a[i] = kexp(e[i] - eMax) * k;
+                m += rho[i] * a[i];
+            }
+            m /= 3.0f;
+            if (!(m > 0.0f) || !kisFinite(m)) return false;
+            for (int i = 0; i < 3; ++i) { beta[i] *= a[i] / m; rho[i] *= a[i] / m; }
+            return true;
+        };
+        float tCur = 0.0f;
+        for (;;) {
+            const float tNext = tCur - klog(1.0f - rng.nextFloat()) / sT[hh];
+            if (tNext >= tSurface) {
+                if (!hit) return kStepEnded;   // a ray that escapes a closed boundary: a leaky mesh
+                return weigh(tSurface - tCur, 0) ? kStepSurface : kStepEnded;
+            }
+            if (++volumeEvents > s.volumeCap) return kStepEnded;
+            const V3 x = o + d * tNext;
+            const float q = mediumDensity(med, x);
+            const float u = rng.nextFloat();
+            if (u >= q) {   // a null collision
+                if (!weigh(tNext - tCur, 1)) return kStepEnded;
+                tCur = tNext;
+                continue;
+            }
+            if (u * sT[hh] >= q * sS[hh]) return kStepEnded;   // absorbed (probability 1 - the hero's albedo)
+            if (!weigh(tNext - tCur, 2)) return kStepEnded;
+            // a real scattering collision
+            if (s.mediaNee) L += beta * lightInMedium(s, tracer, rng, x, d, medium);
+            const PhaseTable<float> tab{ s.phaseF + med.tableOffset, s.phaseCdf + med.tableOffset };
+            const float ua = rng.nextFloat(), ub = rng.nextFloat();
+            const V3 dir = phaseSample(med, tab, d, ua, ub);
+            lastPdf = phaseEval(med, tab, kdot(d, dir));   // an emitter found next is weighed against the light sample made here
+            lastDelta = !s.mediaNee;                       // without it no light was sampled: an emitter found next counts fully
+            o = x;                                         // inside the medium: nothing to step over
+            d = dir;
+            return kStepScattered;
+        }
+    }
+
     /**
      * @brief The radiance a camera ray (o, d) brings back (the engine's PathIntegrator::Li), drawing its random numbers from rng.
      *
      * aov (optional, its valid = 0 on entry): receives the denoiser's features of the path, as PathIntegrator::Li records them. Recording
-     * them draws no random number, so the radiance is the same bits with or without.
+     * them draws no random number, so the radiance is the same bits with or without. The ray starts in air; it travels in the medium of a
+     * dielectric (KMaterial::medium) once it crosses that dielectric inward, as PathIntegrator::nextRay decides.
      */
     template <class Tracer>
     RAYT_HD V3 traceRay(const KScene& s, const Tracer& tracer, Pcg32& rng, V3 o, V3 d, KAov* aov = nullptr) {
         V3 L(0.0f), beta(1.0f);
         float lastPdf = 0.0f;
         bool lastDelta = true;   // the camera ray: an emitter it finds counts fully
+        int32_t medium = -1;     // the medium the ray travels in (-1: air)
+        int hero = -1;           // a chromatic medium's hero channel, chosen when the path meets the first one
+        V3 rho(1.0f);
+        uint32_t volumeEvents = 0, passThrough = 0;
         for (uint32_t depth = 0; depth < s.maxDepth; ++depth) {
             const KHit h = tracer.closest(o, d, 0.0f, kFloatMax);
-            if (h.prim == kNoHit) {
+            const bool hit = h.prim != kNoHit;
+            SurfacePoint sp;
+            if (hit) surfacePoint(s, h, o, d, sp);
+            if (medium >= 0) {
+                const float tSurface = hit ? hitDistance(s, h, o, d, sp) : kFloatMax;
+                const int step = mediumStep(s, tracer, rng, medium, o, d, hit, tSurface, beta, rho, hero, volumeEvents, L, lastPdf, lastDelta);
+                if (step == kStepEnded) break;
+                if (step == kStepScattered) { --depth; continue; }   // a collision in a medium is not a surface bounce
+            }
+            if (!hit) {
                 // ---- the environment, weighted against the light sample of the previous vertex (PathIntegrator::addEscapedRadiance) ----
                 if (hasEnvironment(s)) {
                     const V3 le = envEval(s, d);
@@ -127,42 +363,19 @@ namespace rayt::kernel {
                 }
                 break;
             }
-            V3 p, faceN, ns;
-            uint32_t material;
-            int32_t lightIndex;
-            bool front, smooth = false;
-            if (h.prim < s.numTriangles) {
-                const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
-                const V3 v0 = toV3(s.positions[i0]), v1 = toV3(s.positions[i1]), v2 = toV3(s.positions[i2]);
-                float b1, b2;
-                triangleBarycentrics(o, d, v0, v1, v2, b1, b2);   // not the tracer's own (h.b1, h.b2): the same bits on every device
-                const float w0 = 1.0f - b1 - b2;
-                p = w0 * v0 + b1 * v1 + b2 * v2;
-                faceN = toV3(s.faceNormals[h.prim]);
-                front = kdot(d, faceN) < 0.0f;
-                if (s.triSmooth[h.prim]) {
-                    const V3 n = knormalize(w0 * toV3(s.normals[i0]) + b1 * toV3(s.normals[i1]) + b2 * toV3(s.normals[i2]));
-                    ns = front ? n : -n;
-                    smooth = true;
-                }
-                material = s.triMaterial[h.prim];
-                lightIndex = s.triLight[h.prim];
+            const V3 p = sp.p, ns = sp.ns;
+            const bool front = sp.front;
+            const V3 ng = front ? sp.faceN : -sp.faceN;   // faces the incoming ray (SurfaceInteraction::setFaceNormal)
+            const KMaterial& m = s.materials[sp.material];
+
+            // ---- with --media-nee an index-matched boundary is crossed, switching the medium; not a bounce ----
+            if (s.mediaNee && isNullInterface(m) && ++passThrough < 64) {
+                if (m.medium >= 0) medium = front ? m.medium : -1;
+                o = leaveSurface(sp, -ng);
+                --depth;
+                continue;
             }
-            else {
-                // A sphere: both tracers report the distance of kernel::intersectSphere; the point is put back on the surface (as pbrt
-                // does) so that the offset of the next ray's origin need only cover the rounding of that projection.
-                const KSphere& sp = s.spheres[h.prim - s.numTriangles];
-                const V3 c = toV3(sp.center);
-                const V3 pc = (o + h.t * d) - c;
-                p = c + pc * (kabs(sp.radius) / klength(pc));
-                faceN = (p - c) / sp.radius;   // outward, inward for a negative radius (Geometry/Sphere.hpp)
-                front = kdot(d, faceN) < 0.0f;
-                material = sp.material;
-                lightIndex = sp.light;
-            }
-            const V3 ng = front ? faceN : -faceN;   // faces the incoming ray (SurfaceInteraction::setFaceNormal)
-            if (!smooth) ns = ng;
-            const KMaterial& m = s.materials[material];
+
             // the denoiser's features: the first vertex that is not specular, emitters included (recorded before their light, as the engine does)
             if (aov && !aov->valid && !m.aovSpecular) setAov(aov, V3(m.aovAlbedo[0], m.aovAlbedo[1], m.aovAlbedo[2]), ns);
 
@@ -170,7 +383,7 @@ namespace rayt::kernel {
             if (m.type == kMatEmission) {
                 if (front || m.twoSided) {
                     float w = 1.0f;
-                    const int32_t li = lightIndex;
+                    const int32_t li = sp.light;
                     if (li >= 0 && !lastDelta) {
                         const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * lightPdf(s.lights[li], o, d, p);
                         w = lastPdf * lastPdf / (lastPdf * lastPdf + pdfL * pdfL);
@@ -184,50 +397,41 @@ namespace rayt::kernel {
             //      then the BSDF sample ----
             const V3 wo = -d;
             if ((s.numLights > 0 || hasEnvironment(s)) && !bsdfIsDelta(m)) {
-                // The light: the environment with probability envSelect, else a light of the scene (a quad or a sphere) chosen by power.
                 // The light is chosen first and the BSDF is evaluated in one place: a layered material's eval is a long random walk,
                 // and on the GPU every call site is a copy of it in the one program that runs a whole path.
-                const float uSel = rng.nextFloat();
-                const float a = rng.nextFloat(), b = rng.nextFloat();
-                V3 wi, le, lightP;
-                float pdfL = 0.0f, scale = 1.0f;
-                bool area = false;
-                if (uSel < s.envSelect) {
-                    float pdfW;
-                    envSample(s, a, b, wi, le, pdfW);
-                    if (pdfW > 0.0f) {
-                        pdfL = s.envSelect * pdfW;
-                        scale = s.envScale;
-                    }
-                }
-                else {
-                    const uint32_t li = pickLight(s.lightCdf, s.numLights, (uSel - s.envSelect) / (1.0f - s.envSelect));
-                    const KLight& q = s.lights[li];
-                    LightSample<float> ls;
-                    if (sampleLight(q, p, a, b, ls) && ls.emits && ls.pdf > 0.0f) {
-                        wi = ls.wi;
-                        le = V3(q.radiance[0], q.radiance[1], q.radiance[2]);
-                        lightP = ls.p;
-                        pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
-                        area = true;
-                    }
-                }
-                if (pdfL > 0.0f) {
+                LightChoice c;
+                chooseLight(s, rng, p, c);
+                if (c.pdf > 0.0f) {
+                    const V3 wi = c.wi;
                     const V3 f = bsdfEval(m, front, wo, wi, ns, ng, rng);
                     if (kmaxComponent(f) > 0.0f) {
-                        const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
-                        bool blocked;
-                        if (area) {
-                            const V3 toL2 = lightP - org;
+                        const V3 org = leaveSurface(sp, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
+                        V3 dirS = wi;
+                        float tMaxS = kFloatMax;
+                        if (c.area) {
+                            const V3 toL2 = c.p - org;
                             const float distB = klength(toL2);
-                            blocked = tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f);
+                            dirS = toL2 / distB;
+                            tMaxS = distB * 0.9999f;
                         }
-                        else blocked = tracer.occluded(org, wi, 0.0f, kFloatMax);
+                        V3 T(1.0f);
+                        bool blocked;
+                        if (s.mediaNee) {
+                            // index-matched boundaries are crossed and media attenuate; the shadow ray starts in the medium on the side it
+                            // leaves to (as the path would)
+                            int32_t startMedium = medium;
+                            if (m.medium >= 0) startMedium = ((kdot(wi, ng) > 0.0f) == front) ? -1 : m.medium;
+                            T = shadowTransmittance(s, tracer, rng, org, dirS, tMaxS, startMedium);
+                            blocked = !(kmaxComponent(T) > 0.0f);
+                        }
+                        else blocked = tracer.occluded(org, dirS, 0.0f, tMaxS);
                         if (!blocked) {
+                            const float pdfL = c.pdf;
                             const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
                             const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
                             const float cosT = kabs(kdot(ns, wi));
-                            L += beta * f * le * scale * (cosT * w / pdfL);   // scale: the environment's (times 1 is exact for a light)
+                            if (s.mediaNee) L += beta * f * c.le * c.scale * T * (cosT * w / pdfL);
+                            else L += beta * f * c.le * c.scale * (cosT * w / pdfL);   // scale: the environment's (times 1 is exact for a light)
                         }
                     }
                 }
@@ -250,7 +454,9 @@ namespace rayt::kernel {
             lastPdf = bs.pdf;
             lastDelta = bs.delta;
             const V3 wi = bs.wi;
-            o = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // a refracted ray leaves from the other side
+            // a boundary with a medium inside: the new direction goes to the inside or the outside (PathIntegrator::nextRay)
+            if (m.medium >= 0) medium = ((kdot(wi, ng) > 0.0f) == front) ? -1 : m.medium;
+            o = leaveSurface(sp, kdot(wi, ng) > 0.0f ? ng : -ng);   // a refracted ray leaves from the other side
             d = wi;
         }
         return L;

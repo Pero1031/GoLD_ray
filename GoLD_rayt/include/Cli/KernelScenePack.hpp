@@ -1,7 +1,7 @@
 #pragma once
 // The kernel renderer's scene (Kernel/KernelScene.hpp) built from a scene file, and the --device cpu-kernel | gpu render
 // (docs/GPU.md). The kernel renderer models a subset of the engine (quads, spheres and triangle meshes; diffuse surfaces with a
-// constant albedo, isotropic rough conductors, glass, clear coats over a diffuse or a metal base, emitting quads and spheres; an
+// constant albedo, isotropic rough conductors, glass (with a scattering medium inside), clear coats over a diffuse or a metal base, emitting quads and spheres; an
 // environment map; a pinhole, a thin lens or a real lens of spherical surfaces; the RGB build); anything else is refused with a list of
 // what is missing, instead of being rendered differently.
 
@@ -40,6 +40,8 @@ struct KernelSceneHost {
     std::vector<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
     std::vector<kernel::LensSurface<float>> lensSurfaces;
     std::vector<float> lensPupil, lensBladeNormals;
+    std::vector<kernel::KMedium> media;
+    std::vector<float> phaseF, phaseCdf;
     kernel::KScene header{};   ///< the fields that are not pointers
 
     /// The scene with its pointers on these CPU arrays (valid while this object lives and is not changed).

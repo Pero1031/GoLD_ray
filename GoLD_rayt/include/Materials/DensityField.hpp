@@ -73,6 +73,16 @@ namespace rayt {
             return q;
         }
 
+        /// The field's parameters, for the kernel renderer (Kernel/Media.hpp).
+        Real frequency() const { return m_frequency; }
+        int octaves() const { return m_octaves; }
+        Real lo() const { return m_lo; }
+        Real hi() const { return m_hi; }
+        std::uint32_t seed() const { return m_seed; }
+        const Point3& maskCenter() const { return m_maskCenter; }
+        Real maskRadius() const { return m_maskRadius; }
+        Real maskStart() const { return m_maskStart; }
+
         /// Fades the density to 0 at `radius` from `center`; it is untouched inside `startFraction` * radius.
         NoiseDensity& setSphereMask(const Point3& center, Real radius, Real startFraction) {
             m_maskCenter = center; m_maskRadius = radius; m_maskStart = std::clamp(startFraction, Real(0), Real(0.999));

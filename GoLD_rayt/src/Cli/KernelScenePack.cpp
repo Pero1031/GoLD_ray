@@ -16,6 +16,7 @@
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/LayeredCoat.hpp"
+#include "Materials/Medium.hpp"
 #include "Materials/RoughConductor.hpp"
 
 #include <embree4/rtcore.h>
@@ -359,6 +360,11 @@ kernel::KScene KernelSceneHost::view() const {
     s.lensSurfaces = lensSurfaces.data();
     s.lensPupil = lensPupil.data();
     s.lensBladeNormals = lensBladeNormals.data();
+    s.media = media.data();
+    s.phaseF = phaseF.data();
+    s.phaseCdf = phaseCdf.data();
+    s.numMedia = uint32_t(media.size());
+    s.numPhaseNodes = uint32_t(phaseF.size());
     s.envPixels = envPixels.data();
     s.envMarginalFunc = envMarginalFunc.data();
     s.envMarginalCdf = envMarginalCdf.data();
@@ -419,6 +425,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
     std::map<std::string, const MaterialSpec*> specs;
     for (const auto& [name, m] : d.materials) {
         kernel::KMaterial km{};
+        km.medium = -1;
         if (m.type == MaterialSpec::Type::Diffuse) {
             const std::string limit = DiffuseLimits(m);
             if (!limit.empty()) { missing.push_back("material \"" + name + "\": " + limit); continue; }
@@ -491,6 +498,31 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             km.dielectric.ior = float(c.ior);
             km.dielectric.alpha = float(c.alpha);
             km.dielectric.smooth = c.smooth;
+            km.dielectric.nullInterface = c.nullInterface;
+            // a participating medium inside (jade, wax, milk, marble, a cloud): its coefficients, phase function and density field
+            if (const Medium* inside = de->mediumInside()) {
+                kernel::MediumParams<Real> mp{};
+                std::vector<Real> tableF, tableCdf;
+                if (!inside->kernelParams(mp, tableF, tableCdf, limit)) { missing.push_back("material \"" + name + "\": " + limit); continue; }
+                kernel::KMedium k{};
+                for (int i = 0; i < 3; ++i) { k.sigmaT[i] = float(mp.sigmaT[i]); k.sigmaS[i] = float(mp.sigmaS[i]); k.maskCenter[i] = float(mp.maskCenter[i]); }
+                k.constant = mp.constant;
+                k.phaseKind = mp.phaseKind;
+                k.g1 = float(mp.g1); k.g2 = float(mp.g2); k.w = float(mp.w);
+                k.tableOffset = uint32_t(out.phaseF.size());
+                k.tableCount = mp.tableCount;
+                k.tableStep = float(mp.tableStep);
+                k.noise = mp.noise;
+                k.frequency = float(mp.frequency);
+                k.octaves = mp.octaves;
+                k.lo = float(mp.lo); k.hi = float(mp.hi);
+                k.seed = mp.seed;
+                k.maskRadius = float(mp.maskRadius); k.maskStart = float(mp.maskStart);
+                for (Real v : tableF) out.phaseF.push_back(float(v));
+                for (Real v : tableCdf) out.phaseCdf.push_back(float(v));
+                km.medium = int32_t(out.media.size());
+                out.media.push_back(k);
+            }
 #endif
         }
         else { missing.push_back("material \"" + name + "\": only diffuse, conductor, dielectric, layered and emission materials"); continue; }
@@ -624,6 +656,8 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
     out.header.spp = uint32_t(std::max(opt.spp, 1));
     out.header.maxDepth = uint32_t(std::max(opt.maxDepth, 0));
     out.header.seed = uint64_t(opt.seed);
+    out.header.mediaNee = opt.mediaNee ? 1u : 0u;
+    out.header.volumeCap = uint32_t(std::max(opt.volumeCap, 0));
 
     if (!missing.empty()) {
         why.clear();
@@ -641,6 +675,15 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
     auto d = std::make_shared<SceneDescription>(*loaded);
     if (edit) edit(*d);
     CliOptions opt = base;
+    {
+        // what the scene file's options change in the picture (sampling the lights in media, the environment's file, the cap of
+        // collisions); the caller's samples, depth and seed stay
+        CliOptions fromFile;
+        ApplySceneFileArgs(args, fromFile);
+        opt.mediaNee = opt.mediaNee || fromFile.mediaNee;
+        if (fromFile.env != CliOptions{}.env) opt.env = fromFile.env;
+        opt.volumeCap = fromFile.volumeCap;
+    }
     opt.scene = "file";
     opt.sceneFile = path;
     opt.sceneDescription = d;

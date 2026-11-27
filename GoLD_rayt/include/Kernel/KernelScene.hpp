@@ -53,6 +53,7 @@ namespace rayt::kernel {
         T ior;
         T alpha;
         uint32_t smooth;
+        uint32_t nullInterface;    ///< Dielectric::isNullInterface: smooth, the same index on both sides (--media-nee crosses it)
     };
 
     /**
@@ -69,6 +70,31 @@ namespace rayt::kernel {
         uint32_t absorbing;        ///< 1 if a sigma is not 0 (a tinted coat)
     };
 
+    enum : uint32_t { kPhaseHG = 0, kPhaseTable = 1 };
+
+    /**
+     * @brief A scattering medium inside a dielectric (Materials/Medium.hpp: HomogeneousMedium or ChromaticMedium), RGB: the extinction
+     *        per channel (1/m; for a density field the majorant, where q = 1), the scattering coefficient sigma_t albedo, the phase
+     *        function (two Henyey-Greenstein lobes, or a table such as Mie scattering in KScene::phaseF / phaseCdf), and a density field
+     *        (NoiseDensity: fractal value noise mapped by a smooth step, optionally faded out toward a sphere).
+     */
+    template <class T> struct MediumParams {
+        T sigmaT[3], sigmaS[3];
+        uint32_t constant;         ///< the same coefficients in every channel: no hero channel, no weights
+        uint32_t phaseKind;        ///< kPhaseHG | kPhaseTable
+        T g1, g2, w;               ///< p = w HG(g1) + (1 - w) HG(g2)
+        uint32_t tableOffset, tableCount;
+        T tableStep;               ///< the table's nodes are tableStep radians apart, from 0 to pi
+        uint32_t noise;            ///< 1: a density field
+        T frequency;
+        uint32_t octaves;
+        T lo, hi;
+        uint32_t seed;
+        T maskCenter[3];
+        T maskRadius, maskStart;   ///< maskRadius 0: no mask
+    };
+    using KMedium = MediumParams<float>;
+
     struct KMaterial {
         uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor | kMatDielectric | kMatLayered
         uint32_t twoSided;         ///< emission: emits from both faces
@@ -77,6 +103,7 @@ namespace rayt::kernel {
         ConductorParams<float> conductor;   ///< conductor, and the conductor base of a layered material (in the coat's medium)
         DielectricParams<float> dielectric; ///< dielectric
         LayeredParams<float> layered;       ///< layered
+        int32_t medium;            ///< dielectric: the medium inside it (index into KScene::media), -1 if none
         // The denoiser's features (--aov, --denoise), as the engine's Material reports them: a camera path records them at its first
         // vertex whose material is not specular (Render/Integrator.cpp).
         float aovAlbedo[3];        ///< Material::aovAlbedo: the lighting-free color in [0, 1]
@@ -174,6 +201,13 @@ namespace rayt::kernel {
         const LensSurface<float>* lensSurfaces;   ///< camera.numSurfaces (a real lens)
         const float* lensPupil;       ///< camera.numBands x 5: the exit pupil's bounds minX, minY, maxX, maxY and 1 if the band is empty
         const float* lensBladeNormals;///< camera.stopBlades x 2
+        const KMedium* media;         ///< the media inside dielectrics (KMaterial::medium)
+        const float* phaseF;          ///< the phase functions' tables (KMedium::tableOffset, tableCount): density in theta at the nodes ...
+        const float* phaseCdf;        ///< ... and the cumulative distribution there
+        uint32_t numMedia, numPhaseNodes;
+        uint32_t mediaNee;            ///< --media-nee: lights are sampled at every scattering event in a medium, and an index-matched smooth
+                                      ///  boundary (relative index 1) is crossed without counting as a bounce, by paths and by shadow rays
+        uint32_t volumeCap;           ///< collisions in media per path (--volume-cap)
         uint32_t width, height;       ///< pixels
         uint32_t spp, maxDepth;       ///< samples per pixel; path length as the engine counts it (surface vertices)
         uint64_t seed;                ///< the run seed of the random number streams

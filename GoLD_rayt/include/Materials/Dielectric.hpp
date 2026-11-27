@@ -91,14 +91,16 @@ namespace rayt {
 
 #if !defined(RAYT_SPECTRAL_MODE)
         /// This interface as the kernel renderer models it (Kernel/Materials.hpp, docs/GPU.md): false, with the reason, when it uses what
-        /// the kernel does not have (a medium inside, a roughness that grows with the distance, anisotropic roughness).
+        /// the kernel does not have (media given on both sides, a roughness that grows with the distance, anisotropic roughness). A medium
+        /// inside (mediumInside()) is the packer's to read (Medium::kernelParams).
         bool kernelParams(kernel::DielectricParams<Real>& out, std::string& why) const {
             if (m_hasFar) { why = "a roughness that grows with the distance"; return false; }
-            if (isMediumBoundary()) { why = "a medium inside"; return false; }
+            if (m_hasBoundary) { why = "media on both sides"; return false; }
             if (!isSmooth() && alpha_x != alpha_y) { why = "anisotropic roughness"; return false; }
             out.ior = iorRef / m_exteriorIor;                          // as iorAt: the relative index
             out.alpha = std::max(constants::ALPHA_EPSILON, alpha_x);   // as GGXDistribution clamps it
             out.smooth = isSmooth() ? 1u : 0u;
+            out.nullInterface = isNullInterface() ? 1u : 0u;
             return true;
         }
 #endif

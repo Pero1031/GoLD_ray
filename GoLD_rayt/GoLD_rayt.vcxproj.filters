@@ -506,6 +506,9 @@
     <ClInclude Include="include\Kernel\Layered.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Kernel\Media.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Kernel\Lights.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

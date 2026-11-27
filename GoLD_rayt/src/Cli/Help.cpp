@@ -86,7 +86,7 @@ void PrintHelp(std::ostream& out) {
         << "                    --lvc-mask: 1 = NEE, 2 = connections, 4 = light tracing, 8 = merging, 16 / 32 = manifold NEE / connections through flat-faced glass (scene with a prism)\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"
         << "  --device cpu|gpu|cpu-kernel   cpu: the engine (default); gpu: a scene file on the GPU (float, a subset: quads, spheres, meshes;\n"
-        << "                    diffuse, rough metals, glass, coats; emitting quads and spheres, environment maps; thin and real lenses (spherical\n"
+        << "                    diffuse, rough metals, glass (with scattering media inside), coats; emitting quads and spheres, environment maps; thin and real lenses (spherical\n"
         << "                    surfaces); --aov, --denoise; GoLD_rayt_gpu.dll from\n"
         << "                    tools\\build_gpu.ps1); cpu-kernel: that renderer on the CPU (docs/GPU.md)\n"
         << "\n"

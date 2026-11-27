@@ -17,6 +17,7 @@
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/LayeredCoat.hpp"
+#include "Materials/Medium.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Integrator.hpp"
@@ -477,6 +478,59 @@ namespace {
             std::to_string(sampleMismatch) + " samples accepted by one side only");
     }
 
+    /// The kernel's phase function in double against the engine's PhaseFunction: eval on random cosines (a tenth near the forward and the
+    /// backward direction) and sample on random directions and numbers.
+    bool PhaseEngineCheck(const std::string& label, const PhaseFunction& engine) {
+        kernel::MediumParams<Real> mp{};
+        std::vector<Real> tableF, tableCdf;
+        engine.kernelParams(mp, tableF, tableCdf);
+        const kernel::PhaseTable<Real> tab{ tableF.data(), tableCdf.data() };
+        kernel::Pcg32 rng;
+        rng.seed(20261128, 9);
+        const int n = 4096;
+        double worst = 0;
+        size_t identical = 0, values = 0;
+        for (int i = 0; i < n; ++i) {
+            Real c = Real(2) * rng.nextDouble() - Real(1);
+            if (i % 10 == 0) c = Real(1) - Real(1e-4) * rng.nextDouble();
+            if (i % 10 == 1) c = Real(-1) + Real(1e-4) * rng.nextDouble();
+            const Real z = Real(2) * rng.nextDouble() - Real(1), phi = Real(6.283185307179586) * rng.nextDouble(), r = std::sqrt(std::max(Real(0), Real(1) - z * z));
+            const Vector3 dir(r * std::cos(phi), r * std::sin(phi), z);
+            const Real ux = rng.nextDouble(), uy = rng.nextDouble();
+            const Vector3 de = engine.sample(dir, Point2(ux, uy));
+            const Vector3 dk = kernel::phaseSample(mp, tab, dir, ux, uy);
+            const double vals[][2] = { { engine.eval(c), kernel::phaseEval(mp, tab, c) }, { de.x, dk.x }, { de.y, dk.y }, { de.z, dk.z } };
+            for (const auto& v : vals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; ++values; }
+        }
+        return Report("kernel phase function (double) = engine PhaseFunction, " + label, worst <= 1e-12,
+            std::to_string(n) + " cosines and samples: " + Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " +
+            Fmt(worst) + " (tolerance 1e-12)");
+    }
+
+    /// The kernel's density field in double against the engine's NoiseDensity (as ChromaticMedium reads it, clamped to [0, 1]).
+    bool NoiseEngineCheck(const std::string& label, const NoiseDensity& engine, Real extent) {
+        const ChromaticMedium med(Vector3(100.0), Vector3(0.9), PhaseFunction(), std::make_shared<NoiseDensity>(engine));
+        kernel::MediumParams<Real> mp{};
+        std::vector<Real> tableF, tableCdf;
+        std::string why;
+        if (!med.kernelParams(mp, tableF, tableCdf, why)) return Report("density " + label, false, why);
+        kernel::Pcg32 rng;
+        rng.seed(20261128, 11);
+        const int n = 8192;
+        size_t identical = 0, inside = 0;
+        double worst = 0;
+        for (int i = 0; i < n; ++i) {
+            const Point3 p(extent * (Real(2) * rng.nextDouble() - Real(1)), extent * (Real(2) * rng.nextDouble() - Real(1)), extent * (Real(2) * rng.nextDouble() - Real(1)));
+            const Real qe = med.density(p), qk = kernel::mediumDensity(mp, p);
+            worst = std::max(worst, std::abs(qe - qk));
+            identical += qe == qk;
+            inside += qe > Real(0) && qe < Real(1);
+        }
+        return Report("kernel density field (double) = engine NoiseDensity, " + label, identical == size_t(n),
+            std::to_string(n) + " points (" + std::to_string(inside) + " strictly between 0 and 1): " + Fmt(100.0 * double(identical) / double(n), 5) +
+            " % bit-identical, largest difference " + Fmt(worst));
+    }
+
     /// The engine's random number stream as Kernel/Layered.hpp's source: the kernel draws what LayeredCoat would draw next.
     struct EngineRand {
         Real next() { return sampling::Random(); }
@@ -801,10 +855,27 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         d.camera.lens.fStop.reset();
         d.camera.lens.blades = 0;
     });
+    // 3a'. The media: phase functions and the density field, kernel in double = engine.
+    ok &= PhaseEngineCheck("isotropic", PhaseFunction(Real(0)));
+    ok &= PhaseEngineCheck("Henyey-Greenstein g 0.6", PhaseFunction(Real(0.6)));
+    ok &= PhaseEngineCheck("two lobes g 0.97 / -0.5, weight 0.884", PhaseFunction(Real(0.97), Real(-0.5), Real(0.884)));
+    {
+        std::string err;
+        const auto mie = TabulatedPhase::fromCsv("assets/Cloud/mie_reff10.csv", &err);
+        if (mie) ok &= PhaseEngineCheck("the Mie table of assets/Cloud/mie_reff10.csv", PhaseFunction(mie));
+        else ok &= Report("Mie table", false, err);
+    }
+    {
+        NoiseDensity cloud(Real(22), 5, Real(0.42), Real(0.62), 7u);
+        cloud.setSphereMask(Point3(0.0), Real(0.1), Real(0.45));
+        ok &= NoiseEngineCheck("the cloud's (22 / m, 5 octaves, a spherical mask)", cloud, Real(0.12));
+        ok &= NoiseEngineCheck("the marble's (55 / m, 4 octaves)", NoiseDensity(Real(55), 4, Real(0.30), Real(0.62), 5u), Real(2.0));
+    }
     // 3b. The layered materials of the coat scene, kernel in double = engine.
     ok &= LayeredEngineChecks("scenes/gpu_coat.json", gpuMaterials);
     // 3c. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
-    for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json", "scenes/gpu_coat.json" })
+    for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json", "scenes/gpu_coat.json",
+                              "scenes/gpu_media.json" })
         ok &= AovEngineCheck(path);
 #endif
 
@@ -853,7 +924,8 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         struct Group { const char* name; int first, last; };
         const Group groups[] = { { "cosine hemisphere", kernel::kHemiX, kernel::kHemiZ }, { "uniform sphere", kernel::kSphereX, kernel::kSphereZ },
             { "orthonormal basis", kernel::kBasisSX, kernel::kBasisTZ }, { "dielectric Fresnel", kernel::kFresnel, kernel::kFresnel },
-            { "atan2, acos and exp", kernel::kAtan2, kernel::kExp } };
+            { "atan2, acos, exp and log", kernel::kAtan2, kernel::kLog }, { "the noise density of a medium", kernel::kNoise, kernel::kNoise },
+            { "a product that is a subnormal float", kernel::kSubnormal, kernel::kSubnormal } };
         for (const Group& g : groups) {
             double errCpu = 0, errGpu = 0, maxDiff = 0;
             size_t identical = 0, values = 0, nans = 0, worst = 0;
@@ -893,6 +965,8 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_coat.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_dof.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_lens.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_media.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_cloud.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -905,6 +979,8 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= TracerCheck(*mod, "scenes/gpu_spheres.json");
     ok &= TracerCheck(*mod, "scenes/gpu_coat.json");
     ok &= TracerCheck(*mod, "scenes/gpu_lens.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_media.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_cloud.json");
 #endif
     return ok ? 0 : 2;
 }

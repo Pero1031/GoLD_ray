@@ -160,6 +160,38 @@ namespace rayt::kernel {
         return r * kIntAsFloat((k + 127) << 23);
     }
 
+    /**
+     * @brief The natural logarithm in float, the same bits on every device: the CEPHES single-precision algorithm as Dr.Jit implements it
+     *        (references/src/drjit/include/drjit/math.h): x = m 2^e with m in [1/sqrt(2), sqrt(2)), log(m) = y - y^2 / 2 + y^3 P(y) for
+     *        y = m - 1, and e log 2 with log 2 split into two floats. About 1 ulp. -infinity at 0, NaN below 0 and for NaN; subnormal
+     *        arguments are scaled into the normal range first.
+     */
+    RAYT_HD_INLINE float klog(float x) {
+        if (!(x > 0.0f)) return x == 0.0f ? -INFINITY : (x - x) / (x - x);   // 0: -infinity; negative or NaN: NaN
+        if (x > 3.402823466e38f) return x;                                   // +infinity
+        float scaleE = 0.0f;
+        if (x < 1.17549435e-38f) { x *= 8388608.0f; scaleE = -23.0f; }       // subnormal: times 2^23
+        const int32_t xi = kFloatAsInt(x);
+        float e = float(((xi >> 23) & 0xff) - 127) + scaleE;
+        float m = kIntAsFloat((xi & 0x007fffff) | 0x3f000000);              // the mantissa in [0.5, 1)
+        if (m >= 0.707106781186547524f) { e += 1.0f; m = m - 1.0f; }
+        else m = m + m - 1.0f;
+        float y = 7.0376836292e-2f;
+        y = kfma(y, m, -1.1514610310e-1f);
+        y = kfma(y, m, 1.1676998740e-1f);
+        y = kfma(y, m, -1.2420140846e-1f);
+        y = kfma(y, m, 1.4249322787e-1f);
+        y = kfma(y, m, -1.6668057665e-1f);
+        y = kfma(y, m, 2.0000714765e-1f);
+        y = kfma(y, m, -2.4999993993e-1f);
+        y = kfma(y, m, 3.3333331174e-1f);
+        const float z = m * m;
+        y = y * (m * z);
+        y = kfma(e, -2.121944400546905827679e-4f, y);
+        float r = m + kfma(-0.5f, z, y);
+        return kfma(e, 0.693359375f, r);
+    }
+
 #if !defined(RAYT_GPU_CODE)
     // CPU only: device code that calls one of these does not compile.
     inline double ksqrt(double x) { return sqrt(x); }
@@ -172,6 +204,7 @@ namespace rayt::kernel {
     inline double katan2(double y, double x) { return atan2(y, x); }
     inline double kacos(double x) { return acos(x); }
     inline double kexp(double x) { return exp(x); }
+    inline double klog(double x) { return log(x); }
     inline double khypot(double x, double y) { return hypot(x, y); }
 #else
     // Device code: a double argument picks these deleted overloads (instead of converting to float) and fails to compile.
@@ -185,6 +218,7 @@ namespace rayt::kernel {
     RAYT_HD double katan2(double, double) = delete;
     RAYT_HD double kacos(double) = delete;
     RAYT_HD double kexp(double) = delete;
+    RAYT_HD double klog(double) = delete;
     RAYT_HD double khypot(double, double) = delete;
 #endif
 

@@ -13,6 +13,7 @@
 
 #include "Kernel/Bsdf.hpp"
 #include "Kernel/Environment.hpp"
+#include "Kernel/Media.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
 
@@ -37,6 +38,9 @@ namespace rayt::kernel {
         kFresnel,                                  ///< fresnelDielectric(cosTheta, etaI, etaT)
         kAtan2, kAcos,                             ///< katan2(ny, nx), kacos(nz) (the float versions of Kernel/KernelMath.hpp)
         kExp,                                      ///< kexp(-12 u1)
+        kLog,                                      ///< klog(1 - u2) (a free-flight distance)
+        kNoise,                                    ///< mediumDensity of a marble-like noise field at 0.4 (nx, ny, nz)
+        kSubnormal,                                ///< (u1 + 0.5) 1e-20 1e-20: a subnormal float (normal in double)
         kMathValueCount
     };
 
@@ -64,6 +68,16 @@ namespace rayt::kernel {
         v[kAtan2] = katan2(T(c.ny), T(c.nx));
         v[kAcos] = kacos(T(c.nz));
         v[kExp] = kexp(T(-12) * T(c.u1));
+        v[kLog] = klog(T(1) - T(c.u2));
+        MediumParams<T> noise{};
+        noise.noise = 1;
+        noise.frequency = T(55);
+        noise.octaves = 4;
+        noise.lo = T(0.3);
+        noise.hi = T(0.62);
+        noise.seed = 5;
+        v[kNoise] = mediumDensity(noise, Vec3<T>(T(c.nx), T(c.ny), T(c.nz)) * T(0.4));
+        v[kSubnormal] = (T(c.u1) + T(0.5)) * T(1e-20) * T(1e-20);
     }
 
     /// The random numbers and the values in float: what the CPU and the GPU both run.

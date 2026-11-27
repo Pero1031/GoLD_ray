@@ -95,6 +95,10 @@ namespace rayt {
         }
 
         Real meanCosine() const { return Real(m_meanCosine); }
+        /// The table as eval() and sampleCosine() read it (the kernel renderer copies it, Kernel/Media.hpp).
+        double step() const { return m_step; }
+        const std::vector<double>& densityAtNodes() const { return m_f; }
+        const std::vector<double>& cdfAtNodes() const { return m_cdf; }
 
         /// Density per steradian for the angle with cosine cosTheta between the old and the new propagation direction.
         Real eval(Real cosTheta) const {

@@ -314,6 +314,8 @@ void ApplyArgs(const std::vector<std::string>& args, CliOptions& o) {
 
 } // namespace
 
+void ApplySceneFileArgs(const std::vector<std::string>& args, CliOptions& o) { ApplyArgs(args, o); }
+
 std::optional<int> ParseArgs(int argc, char** argv, CliOptions& o) {
     std::vector<std::string> args(argv + (argc > 0 ? 1 : 0), argv + argc);
     for (const std::string& a : args) {
