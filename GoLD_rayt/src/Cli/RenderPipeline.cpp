@@ -704,7 +704,7 @@ int RenderScene(CliOptions& opt) {
 
     // --device gpu | cpu-kernel: the kernel renderer (docs/GPU.md) draws the picture instead of the PathIntegrator; it is written as usual
     if (opt.device != "cpu") {
-        if (const int exitCode = RenderOnKernel(opt, *camera, film)) return exitCode;
+        if (const int exitCode = RenderOnKernel(opt, setup.namedMaterials, *camera, film)) return exitCode;
         const ResolvedLens resolvedLens = ResolveLens(setup.camera, opt.lens, double(imageWidth) / imageHeight);
         SaveOutputs(opt, film, false, diffraction, exposureStops, resolvedLens.iso, {});
         std::cout << "[System] Finished." << std::endl;

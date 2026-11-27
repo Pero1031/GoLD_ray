@@ -588,6 +588,8 @@
     <ClInclude Include="include\Kernel\SelfTest.hpp" />
     <ClInclude Include="include\Kernel\KernelScene.hpp" />
     <ClInclude Include="include\Kernel\PathTracer.hpp" />
+    <ClInclude Include="include\Kernel\Microfacet.hpp" />
+    <ClInclude Include="include\Kernel\Materials.hpp" />
     <ClInclude Include="include\Cli\KernelScenePack.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\FadingDye.hpp" />

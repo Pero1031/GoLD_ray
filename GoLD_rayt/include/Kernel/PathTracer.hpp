@@ -3,12 +3,12 @@
  * @file Kernel/PathTracer.hpp
  * @brief The kernel path tracer: one camera path of one pixel sample, in float, on the CPU or the GPU (docs/GPU.md).
  *
- * The rules are the engine's PathIntegrator restricted to what KScene holds (diffuse surfaces, emitting quads, a uniform
- * environment), so the two converge to the same picture: a path has at most maxDepth surface vertices; each non-emitting
- * vertex samples one light (chosen by power, a uniform point on the quad) with a shadow ray and then the cosine-weighted
- * BSDF; an emitter found by a BSDF ray is weighted against that light sample by the power heuristic; Russian roulette from
- * the fourth vertex on with survival max(beta) clamped to [0.05, 0.95]. The environment is only found by BSDF rays (the
- * engine also samples it; both are unbiased).
+ * The rules are the engine's PathIntegrator restricted to what KScene holds (the materials of Kernel/Materials.hpp, emitting
+ * quads, a uniform environment), so the two converge to the same picture: a path has at most maxDepth surface vertices; each
+ * non-emitting vertex samples one light (chosen by power, a uniform point on the quad) with a shadow ray, weighted against the
+ * BSDF's density by the power heuristic, and then samples the BSDF; an emitter found by a BSDF ray is weighted against that
+ * light sample the same way; Russian roulette from the fourth vertex on with survival max(beta) clamped to [0.05, 0.95]. The
+ * environment is only found by BSDF rays (the engine also samples it; both are unbiased).
  *
  * Ray casting is the caller's: a Tracer has
  *     KHit closest(const V3& o, const V3& d, float tmin, float tmax) const;   // prim = kNoHit when nothing is hit
@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "Kernel/KernelScene.hpp"
+#include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
 
@@ -37,11 +38,6 @@ namespace rayt::kernel {
     struct KHit { float t, b1, b2; uint32_t prim; };
 
     RAYT_HD_INLINE V3 toV3(const KFloat3& a) { return V3(a.x, a.y, a.z); }
-    RAYT_HD_INLINE float kdot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-    RAYT_HD_INLINE float klength(const V3& a) { return ksqrt(kdot(a, a)); }
-    RAYT_HD_INLINE V3 knormalize(const V3& a) { return a / klength(a); }
-    RAYT_HD_INLINE V3 kcross(const V3& a, const V3& b) { return V3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
-    RAYT_HD_INLINE float kmaxComponent(const V3& a) { return kmax(a.x, kmax(a.y, a.z)); }
 
     RAYT_HD_INLINE int32_t kFloatAsInt(float f) {
 #if defined(RAYT_GPU_CODE)
@@ -165,8 +161,8 @@ namespace rayt::kernel {
                 break;
             }
 
-            // ---- a diffuse surface ----
-            const V3 albedo(m.albedo[0], m.albedo[1], m.albedo[2]);
+            // ---- a reflecting surface: one light sample (PathIntegrator::estimateDirect), then the BSDF sample ----
+            const V3 wo = -d;
             if (s.numLights > 0) {
                 const uint32_t li = pickLight(s.lightCdf, s.numLights, rng.nextFloat());
                 const KQuadLight& q = s.lights[li];
@@ -178,37 +174,37 @@ namespace rayt::kernel {
                 const V3 wi = toL / dist;
                 float cosL = -kdot(wi, toV3(q.normal));
                 if (q.twoSided) cosL = kabs(cosL);
-                const float cosS = kdot(wi, ns);
-                if (cosL > 0.0f && cosS > 0.0f && kdot(wi, ng) > 0.0f) {
-                    const V3 org = offsetRayOrigin(p, ng);
-                    const V3 toL2 = pl - org;
-                    const float dist2b = klength(toL2);
-                    if (!tracer.occluded(org, toL2 / dist2b, 0.0f, dist2b * 0.9999f)) {
-                        const float pdfL = (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
-                        const float pdfB = cosS * kInvPi;
-                        const float w = pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB);
-                        L += beta * albedo * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (kInvPi * cosS * w / pdfL);
+                if (cosL > 0.0f && kdot(wi, ng) > 0.0f) {   // the materials so far only reflect: light from below ng gives nothing
+                    const V3 f = bsdfEval(m, wo, wi, ns, ng);
+                    if (kmaxComponent(f) > 0.0f) {
+                        const V3 org = offsetRayOrigin(p, ng);
+                        const V3 toL2 = pl - org;
+                        const float distB = klength(toL2);
+                        if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
+                            const float pdfL = (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
+                            const float pdfB = bsdfPdf(m, wo, wi, ns, ng);
+                            const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
+                            const float cosT = kabs(kdot(ns, wi));
+                            L += beta * f * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (cosT * w / pdfL);
+                        }
                     }
                 }
             }
 
             const float u1 = rng.nextFloat(), u2 = rng.nextFloat();
-            const V3 local = sampleCosineHemisphere(u1, u2);
-            V3 sx, sy;
-            orthonormalBasis(ns, sx, sy);
-            const V3 wi = local.x * sx + local.y * sy + local.z * ns;
-            if (kdot(wi, ng) <= 0.0f) break;   // below the geometric surface: the engine's Lambertian::sample gives no sample
-            const float pdf = local.z * kInvPi;
-            if (!(pdf > 1e-8f)) break;
-            beta *= albedo * (kInvPi * kabs(kdot(ns, wi)) / pdf);
+            BsdfSample<float> bs;
+            if (!bsdfSample(m, wo, ns, ng, u1, u2, bs)) break;   // no sample (below the geometric surface, ...): the path ends
+            if (!(bs.pdf > 1e-8f)) break;
+            beta *= bs.f * kabs(kdot(ns, bs.wi)) / bs.pdf;
             if (kmaxComponent(beta) <= 0.0f) break;
             if (depth >= 3) {
                 const float q = kmin(kmax(kmaxComponent(beta), 0.05f), 0.95f);
                 if (rng.nextFloat() > q) break;
                 beta /= q;
             }
-            lastPdf = pdf;
+            lastPdf = bs.pdf;
             lastDelta = false;
+            const V3 wi = bs.wi;
             o = offsetRayOrigin(p, ng);
             d = wi;
         }

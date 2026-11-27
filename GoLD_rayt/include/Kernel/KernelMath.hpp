@@ -98,5 +98,30 @@ namespace rayt::kernel {
     template <class T> RAYT_HD_INLINE T ksaturate(T x) { return kmin(kmax(x, T(0)), T(1)); }
     /// sqrt(max(x, 0)), as math::safe_sqrt.
     template <class T> RAYT_HD_INLINE T ksafeSqrt(T x) { return ksqrt(kmax(x, T(0))); }
+    template <class T> RAYT_HD_INLINE T ksqr(T x) { return x * x; }
+    template <class T> RAYT_HD_INLINE T kinfinity() { return T(INFINITY); }
+    /// False for NaN and +-infinity (x - x is 0 only for finite x; IEEE arithmetic, no fast math, keeps it).
+    template <class T> RAYT_HD_INLINE bool kisFinite(T x) { return x - x == T(0); }
+    /// 1 / x, with |x| raised to at least 1e-6 (sign kept), as math::safe_recip.
+    template <class T> RAYT_HD_INLINE T ksafeRecip(T x) {
+        const T eps = T(1e-6);
+        if (kabs(x) < eps) return T(1) / (x >= T(0) ? eps : -eps);
+        return T(1) / x;
+    }
+
+    // ---- vectors (glm's arithmetic operators are plain IEEE operations on both devices; these spell out the rest) ----
+
+    /// (a.x b.x + a.y b.y) + a.z b.z, the order of glm::dot.
+    template <class T> RAYT_HD_INLINE T kdot(const Vec3<T>& a, const Vec3<T>& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+    /// glm::cross.
+    template <class T> RAYT_HD_INLINE Vec3<T> kcross(const Vec3<T>& a, const Vec3<T>& b) {
+        return Vec3<T>(a.y * b.z - b.y * a.z, a.z * b.x - b.z * a.x, a.x * b.y - b.x * a.y);
+    }
+    template <class T> RAYT_HD_INLINE T klength(const Vec3<T>& a) { return ksqrt(kdot(a, a)); }
+    /// a / |a|.
+    template <class T> RAYT_HD_INLINE Vec3<T> knormalize(const Vec3<T>& a) { return a / klength(a); }
+    /// glm::normalize: a times 1 / |a| (one rounding more than knormalize; kernel code that mirrors engine code uses this one).
+    template <class T> RAYT_HD_INLINE Vec3<T> knormalizeGlm(const Vec3<T>& a) { return a * (T(1) / ksqrt(kdot(a, a))); }
+    template <class T> RAYT_HD_INLINE T kmaxComponent(const Vec3<T>& a) { return kmax(a.x, kmax(a.y, a.z)); }
 
 } // namespace rayt::kernel

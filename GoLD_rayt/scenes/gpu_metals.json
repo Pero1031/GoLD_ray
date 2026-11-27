@@ -1,0 +1,29 @@
+// The second test scene of the kernel renderer (docs/GPU.md): the box of scenes/gpu_box.json with three rough conductors from
+// the Johnson & Christy tables - a turned gold vase (roughness 0.3), a copper panel leaning on the back wall (0.12) and a nearly
+// smooth silver plate on the floor (0.05). Everything in it is what --device gpu / cpu-kernel model (isotropic conductors with the
+// Kulla-Conty lobe), so the engine and the kernel renderer must converge to the same picture.
+{
+ "options": { "width": 400, "height": 300, "spp": 64 },
+ "camera": { "from": [0, 1, 3.6], "at": [0, 0.95, 0], "fov": 40 },
+ "environment": { "type": "uniform", "scale": 0.1 },
+ "materials": {
+  "white": { "type": "diffuse", "albedo": [0.75, 0.75, 0.72] },
+  "red": { "type": "diffuse", "albedo": [0.63, 0.065, 0.05] },
+  "green": { "type": "diffuse", "albedo": [0.14, 0.45, 0.09] },
+  "gold": { "type": "conductor", "metal": "Au", "roughness": 0.3 },
+  "copper": { "type": "conductor", "metal": "Cu", "roughness": 0.12 },
+  "silver": { "type": "conductor", "metal": "Ag", "roughness": 0.05 },
+  "lamp": { "type": "emission", "spectrum": { "rgb": [1, 0.9, 0.75] }, "radiance": 18 }
+ },
+ "objects": [
+  { "shape": "quad", "corner": [-1, 0, 1], "edge1": [2, 0, 0], "edge2": [0, 0, -2], "material": "white" },
+  { "shape": "quad", "corner": [-1, 2, 1], "edge1": [0, 0, -2], "edge2": [2, 0, 0], "material": "white" },
+  { "shape": "quad", "corner": [-1, 0, -1], "edge1": [2, 0, 0], "edge2": [0, 2, 0], "material": "white" },
+  { "shape": "quad", "corner": [-1, 0, 1], "edge1": [0, 0, -2], "edge2": [0, 2, 0], "material": "red" },
+  { "shape": "quad", "corner": [1, 0, -1], "edge1": [0, 0, 2], "edge2": [0, 2, 0], "material": "green" },
+  { "shape": "quad", "corner": [-0.3, 1.98, 0.3], "edge1": [0, 0, -0.6], "edge2": [0.6, 0, 0], "material": "lamp", "light": true },
+  { "shape": "lathe", "profile": [[0, 0], [0.2, 0], [0.26, 0.12], [0.24, 0.4], [0.14, 0.62], [0.12, 0.7], [0.15, 0.74], [0, 0.74]], "segments": 64, "material": "gold" },
+  { "shape": "quad", "corner": [-0.9, 0.0, -0.55], "edge1": [0.5, 0, 0], "edge2": [0, 0.9, -0.3], "material": "copper" },
+  { "shape": "quad", "corner": [0.3, 0.001, 0.65], "edge1": [0.55, 0, 0], "edge2": [0, 0, -0.6], "material": "silver" }
+ ]
+}

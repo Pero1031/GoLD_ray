@@ -21,7 +21,29 @@ namespace {
         if (i < n) rayt::kernel::evalMathCase(cases[i], out[i]);
     }
 
+    __global__ void materialTestKernel(const rayt::kernel::KMaterial* material, const rayt::kernel::MaterialCase* cases, rayt::kernel::MaterialOut* out, int n) {
+        const int i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i < n) rayt::kernel::evalMaterialCase(*material, cases[i], out[i]);
+    }
+
 } // namespace
+
+RAYT_GPU_EXPORT int raytGpuMaterialTest(const rayt::kernel::KMaterial* material, const rayt::kernel::MaterialCase* cases, rayt::kernel::MaterialOut* out, int n,
+    char* error, int errorSize) {
+    if (n <= 0) return 0;
+    DeviceBuffer<rayt::kernel::KMaterial> dMaterial;
+    DeviceBuffer<rayt::kernel::MaterialCase> dCases;
+    DeviceBuffer<rayt::kernel::MaterialOut> dOut;
+    RAYT_CUDA(upload(dMaterial, material, 1), "copying the material");
+    RAYT_CUDA(upload(dCases, cases, size_t(n)), "copying the cases");
+    RAYT_CUDA(dOut.allocate(size_t(n)), "cudaMalloc");
+    const int block = 128;
+    materialTestKernel<<<(n + block - 1) / block, block>>>(dMaterial.ptr, dCases.ptr, dOut.ptr, n);
+    RAYT_CUDA(cudaGetLastError(), "the material test kernel");
+    RAYT_CUDA(cudaDeviceSynchronize(), "the material test kernel");
+    RAYT_CUDA(cudaMemcpy(out, dOut.ptr, size_t(n) * sizeof(*out), cudaMemcpyDeviceToHost), "cudaMemcpy to the host");
+    return 0;
+}
 
 RAYT_GPU_EXPORT int raytGpuApiVersion(void) { return RAYT_GPU_API_VERSION; }
 

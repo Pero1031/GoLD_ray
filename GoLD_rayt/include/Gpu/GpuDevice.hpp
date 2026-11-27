@@ -18,6 +18,7 @@ namespace rayt::gpu {
         RaytGpuApiVersionFn apiVersion = nullptr;
         RaytGpuQueryFn query = nullptr;
         RaytGpuMathTestFn mathTest = nullptr;
+        RaytGpuMaterialTestFn materialTest = nullptr;
         RaytGpuRenderFn render = nullptr;
         std::string path;   ///< the file that was loaded
     };

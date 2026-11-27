@@ -18,6 +18,7 @@
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"   
 #include "Core/Math.hpp"
+#include "Kernel/Microfacet.hpp"
 
 namespace rayt::fresnel {
     // -------------------------------------------------------------------------
@@ -37,55 +38,16 @@ namespace rayt::fresnel {
      * @return rayt::Vector3 Fresnel reflectance (Reflectance).
      */
     inline Vector3 fresnelConductor(Real cosThetaI, const Vector3& eta, const Vector3& k) {
-
-        cosThetaI = std::abs(cosThetaI);
-        // Clamp cosine to [0, 1] to handle numerical errors
-        cosThetaI = math::saturate(cosThetaI);
-
-        // Pre-calculate frequently used terms
-        Real cosThetaI2 = math::sqr(cosThetaI);
-        Real sinThetaI2 = Real(1.0) - cosThetaI2;
-
-        Vector3 eta2 = eta * eta;
-        Vector3 k2 = k * k;
-
-        // --- Preparation for Complex Arithmetic ---
-        // Calculate coefficients 'a' and 'b' based on:
-        // t0 = eta^2 - k^2 - sin^2(theta)
-        // a^2 + b^2 = sqrt(t0^2 + 4 * eta^2 * k^2)
-        Vector3 t0 = eta2 - k2 - Vector3(sinThetaI2);
-        Vector3 a2plusb2 = glm::sqrt(t0 * t0 + Real(4.0) * eta2 * k2);
-        Vector3 t1 = a2plusb2 + Vector3(cosThetaI2);
-
-        // a = sqrt(0.5 * (a^2 + b^2 + t0))
-        Vector3 a = math::safe_sqrt(Real(0.5) * (a2plusb2 + t0));
-
-        // --- Calculate Rs (S-polarized reflectance) ---
-        // Rs = ((a^2 + b^2) + cos^2 - 2a*cos) / ((a^2 + b^2) + cos^2 + 2a*cos)
-        Vector3 t2 = Real(2.0) * cosThetaI * a;
-        Vector3 Rs = (t1 - t2) / (t1 + t2);
-
-        // --- Calculate Rp (P-polarized reflectance) ---
-        // Rp = Rs * ( (a^2+b^2)*cos^2 + sin^4 - 2a*cos*sin^2 ) / ...
-        // Using a simplified form derived via algebraic manipulation:
-        // Rp = Rs * (t3 - t4) / (t3 + t4)
-        Vector3 t3 = cosThetaI2 * a2plusb2 + Vector3(sinThetaI2 * sinThetaI2);
-        Vector3 t4 = t2 * sinThetaI2;
-        Vector3 Rp = Rs * (t3 - t4) / (t3 + t4);
-
-        // Return the average for unpolarized light
-        return Real(0.5) * (Rs + Rp);
+        // Per channel, by the shared formula (Kernel/Microfacet.hpp, also on the GPU): |cos| clamped to [0, 1];
+        // t0 = eta^2 - k^2 - sin^2, a^2 + b^2 = sqrt(t0^2 + 4 eta^2 k^2), a = sqrt((a^2 + b^2 + t0) / 2),
+        // Rs = (a^2 + b^2 + cos^2 - 2 a cos) / (... + 2 a cos), Rp = Rs (t3 - t4) / (t3 + t4) with t3 = cos^2 (a^2 + b^2) + sin^4,
+        // t4 = 2 a cos sin^2; the result is (Rs + Rp) / 2.
+        return Vector3(kernel::fresnelConductor(cosThetaI, eta.x, k.x), kernel::fresnelConductor(cosThetaI, eta.y, k.y),
+            kernel::fresnelConductor(cosThetaI, eta.z, k.z));
     }
 
-    /**
-     * @brief Scalar overload of fresnelConductor() for a single wavelength (spectral mode).
-     * @param cosThetaI Cosine of the incident angle.
-     * @param eta       Real part of the refractive index at this wavelength.
-     * @param k         Extinction coefficient at this wavelength.
-     * @return Fresnel reflectance (unpolarized).
-     */
     inline Real fresnelConductor(Real cosThetaI, Real eta, Real k) {
-        return fresnelConductor(cosThetaI, Vector3(eta), Vector3(k)).x;
+        return kernel::fresnelConductor(cosThetaI, eta, k);
     }
 
     // -------------------------------------------------------------------------

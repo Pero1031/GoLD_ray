@@ -26,6 +26,7 @@
 #include "Microfacet/GGXAlbedo.hpp"
 #include "Microfacet/GlintNDF.hpp"
 #include "Microfacet/MultiBounce.hpp"
+#include "Kernel/KernelScene.hpp"
 #include "Color/ComplexIorTable.hpp"
 #include "Color/IorRgbApprox.hpp"
 
@@ -267,6 +268,23 @@ namespace rayt {
         /// tangent (`SurfaceInteraction::dpdu`: the circles of latitude on a sphere, the first edge of a quad, increasing u on a mesh).
         /// anisotropy > 0: rougher along x (the highlight stretches along it); < 0: smoother along x, as on a metal brushed along x.
         void setTangentRotation(Real degrees) { m_rotation = degrees * constants::PI / Real(180); }
+
+#if !defined(RAYT_SPECTRAL_MODE)
+        /// This conductor as the kernel renderer models it (Kernel/Materials.hpp, docs/GPU.md): false, with the reason, when it uses
+        /// what the kernel does not have (anisotropic roughness, glints, the Heitz / Zhang multiple bounces).
+        bool kernelParams(kernel::ConductorParams<Real>& out, std::string& why) const {
+            static_assert(kernel::kAlbedoMu == GGXAlbedoTable::kMu, "the kernel's albedo rows must match GGXAlbedoTable");
+            if (alpha_x != alpha_y) { why = "anisotropic roughness"; return false; }
+            if (m_glint) { why = "glints"; return false; }
+            if (m_msStochastic) { why = "the Heitz / Zhang multiple bounces"; return false; }
+            for (int c = 0; c < 3; ++c) { out.eta[c] = eta[c]; out.k[c] = k[c]; out.fms[c] = m_fms[c]; }
+            out.alpha = std::max(constants::ALPHA_EPSILON, alpha_x);   // as GGXDistribution clamps it
+            out.multipleScattering = m_msActive ? 1u : 0u;
+            out.eAvg = m_eAvg;
+            for (int i = 0; i < kernel::kAlbedoMu; ++i) out.eRow[i] = m_eRow[static_cast<size_t>(i)];
+            return true;
+        }
+#endif
 
         /// Glints (docs/GLINTS.md): the GGX distribution becomes a finite number of facets, `params.density` per square unit of the scene
         /// (the roughness in `params` is replaced by this material's: call it after the roughness is set). The facets are laid out in

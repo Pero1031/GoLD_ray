@@ -10,6 +10,9 @@
 #include "Kernel/PathTracer.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Film.hpp"
+#include "Cli/Scene.hpp"
+#include "Cli/SceneFile.hpp"
+#include "Materials/RoughConductor.hpp"
 
 #include <embree4/rtcore.h>
 #include <omp.h>
@@ -182,7 +185,8 @@ kernel::KScene KernelSceneHost::view() const {
     return s;
 }
 
-bool PackKernelScene(const SceneDescription& d, const Camera& camera, const CliOptions& opt, int width, int height, KernelSceneHost& out, std::string& why) {
+bool PackKernelScene(const SceneDescription& d, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, const CliOptions& opt,
+    int width, int height, KernelSceneHost& out, std::string& why) {
     std::vector<std::string> missing;
     out = KernelSceneHost{};
 
@@ -218,7 +222,28 @@ bool PackKernelScene(const SceneDescription& d, const Camera& camera, const CliO
             km.twoSided = m.twoSided ? 1u : 0u;
             km.emission[0] = float(rgb.x); km.emission[1] = float(rgb.y); km.emission[2] = float(rgb.z);
         }
-        else { missing.push_back("material \"" + name + "\": only diffuse and emission materials"); continue; }
+        else if (m.type == MaterialSpec::Type::Conductor) {
+            // The engine derives the RGB index from the metal's table (and divides it by a surrounding medium's index): read it from there.
+            const auto it = engineMaterials.find(name);
+            const RoughConductor* rc = it == engineMaterials.end() ? nullptr : dynamic_cast<const RoughConductor*>(it->second);
+            if (!rc) { missing.push_back("material \"" + name + "\": the engine's conductor is not available"); continue; }
+#if defined(RAYT_SPECTRAL_MODE)
+            missing.push_back("material \"" + name + "\": a conductor in the spectral build");
+            continue;
+#else
+            kernel::ConductorParams<Real> c{};
+            std::string limit;
+            if (!rc->kernelParams(c, limit)) { missing.push_back("material \"" + name + "\": a conductor with " + limit); continue; }
+            km.type = kernel::kMatConductor;
+            kernel::ConductorParams<float>& k = km.conductor;
+            for (int i = 0; i < 3; ++i) { k.eta[i] = float(c.eta[i]); k.k[i] = float(c.k[i]); k.fms[i] = float(c.fms[i]); }
+            k.alpha = float(c.alpha);
+            k.multipleScattering = c.multipleScattering;
+            k.eAvg = float(c.eAvg);
+            for (int i = 0; i < kernel::kAlbedoMu; ++i) k.eRow[i] = float(c.eRow[i]);
+#endif
+        }
+        else { missing.push_back("material \"" + name + "\": only diffuse, conductor and emission materials"); continue; }
         index[name] = uint32_t(out.materials.size());
         specs[name] = &m;
         out.materials.push_back(km);
@@ -303,7 +328,38 @@ bool PackKernelScene(const SceneDescription& d, const Camera& camera, const CliO
     return true;
 }
 
-int RenderOnKernel(const CliOptions& opt, const Camera& camera, Film& film) {
+bool PackSceneFile(const std::string& path, const CliOptions& base, int width, int height, const std::function<void(SceneDescription&)>& edit,
+    KernelSceneHost& out, std::string& why) {
+    std::vector<std::string> args;
+    std::shared_ptr<const SceneDescription> loaded;
+    if (!LoadSceneFile(path, args, loaded, why) || !loaded) { why = path + ": " + why; return false; }
+    auto d = std::make_shared<SceneDescription>(*loaded);
+    if (edit) edit(*d);
+    CliOptions opt = base;
+    opt.scene = "file";
+    opt.sceneFile = path;
+    opt.sceneDescription = d;
+    const SceneDef* def = FindScene("file");
+    if (!def) { why = "the scene \"file\" is not registered"; return false; }
+    SceneSetup setup;
+    {
+        // The engine's scene build reports what it loads; a check has no use for that.
+        struct Quiet {
+            std::ostringstream sink;
+            std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+            ~Quiet() { std::cout.rdbuf(old); }
+        } quiet;
+        Environment env = MakeEnvironment(opt, def->envKind(opt));
+        const StdMaterials mats = MakeStandardMaterials(opt);
+        SceneContext ctx{ opt, mats, env };
+        if (def->build(ctx, setup)) { why = path + ": the engine could not build the scene"; return false; }
+    }
+    const CameraSpec& c = d->camera;
+    const Camera camera(c.from, c.at, c.up, c.fovDeg, Real(width) / Real(height), Real(0), glm::length(c.at - c.from));
+    return PackKernelScene(*d, setup.namedMaterials, camera, opt, width, height, out, why);
+}
+
+int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, Film& film) {
     const char* tag = opt.device == "gpu" ? "[GPU]" : "[Kernel]";
 #if defined(RAYT_SPECTRAL_MODE)
     std::cerr << tag << " --device " << opt.device << " renders in RGB: use the RGB build (out\\cli or out\\cli-dev)\n";
@@ -316,7 +372,7 @@ int RenderOnKernel(const CliOptions& opt, const Camera& camera, Film& film) {
     const int width = film.width(), height = film.height();
     KernelSceneHost host;
     std::string why;
-    if (!PackKernelScene(*opt.sceneDescription, camera, opt, width, height, host, why)) {
+    if (!PackKernelScene(*opt.sceneDescription, engineMaterials, camera, opt, width, height, host, why)) {
         std::cerr << tag << " the kernel renderer (docs/GPU.md, stage 1) does not model:" << why << "\n" << tag << " render it with --device cpu\n";
         return 1;
     }

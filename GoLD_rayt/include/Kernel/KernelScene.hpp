@@ -16,13 +16,32 @@ namespace rayt::kernel {
 
     struct KFloat3 { float x, y, z; };
 
-    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1 };
+    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1, kMatConductor = 2 };
+
+    /// Rows of the GGX directional-albedo table (Microfacet/GGXAlbedo.hpp, GGXAlbedoTable::kMu).
+    constexpr int kAlbedoMu = 32;
+
+    /**
+     * @brief A rough conductor as the engine's RoughConductor holds it (isotropic GGX, RGB): complex index per channel, the GGX
+     *        alpha (already clamped as GGXDistribution clamps it) and the Kulla-Conty multiple-scattering lobe.
+     *
+     * T = float in a scene; T = double where the checks compare the kernel's formulas with the engine's.
+     */
+    template <class T> struct ConductorParams {
+        T eta[3], k[3];
+        T alpha;
+        uint32_t multipleScattering;   ///< 1: add the lobe f_ms = F_ms (1 - E(mu_o)) (1 - E(mu_i)) / (pi (1 - E_avg))
+        T eAvg;                        ///< E_avg, the cosine-weighted mean of E
+        T fms[3];                      ///< F_ms per channel
+        T eRow[kAlbedoMu];             ///< E(mu) at mu = i / (kAlbedoMu - 1) for this alpha
+    };
 
     struct KMaterial {
-        uint32_t type;             ///< kMatDiffuse | kMatEmission
+        uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor
         uint32_t twoSided;         ///< emission: emits from both faces
         float albedo[3];           ///< diffuse: reflectance (linear RGB)
         float emission[3];         ///< emission: radiance (linear RGB)
+        ConductorParams<float> conductor;   ///< conductor
     };
 
     /// An emitting parallelogram that next-event estimation samples: corner + a edge1 + b edge2, a, b in [0, 1).
