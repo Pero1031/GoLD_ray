@@ -9,11 +9,14 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "Core/Core.hpp"
 #include "Core/Ray.hpp"
 #include "Core/Math.hpp"
 #include "Core/Sampling.hpp"
+#include "Kernel/KernelScene.hpp"
 #include "Render/LensSystem.hpp"
 
 namespace rayt {
@@ -253,6 +256,44 @@ namespace rayt {
             lowerLeft = m_lowerLeftCorner;
             horizontal = m_horizontal;
             vertical = m_vertical;
+            return true;
+        }
+
+        /**
+         * @brief This camera as the kernel renderer models it (Kernel/Camera.hpp, docs/GPU.md): a pinhole, a thin lens with a round or
+         *        polygonal aperture, or a real lens of spherical and flat surfaces (LensSystem::kernelParams fills its arrays).
+         *
+         * False, with the reason, for what the kernel does not have: distortion or chromatic aberration of the thin lens, an orthographic
+         * view, the thin lens's vignetting, a moving camera, a medium around it, an aspheric or dispersive real lens.
+         */
+        bool kernelParams(kernel::CameraParams<Real>& c, std::vector<kernel::LensSurface<Real>>& surfaces, std::vector<Real>& pupil,
+            std::vector<Real>& bladeNormals, std::string& why) const {
+            if (!m_lensSystem && (m_distorted || m_lateralCA != Real(0) || m_axialCA != Real(0))) { why = "distortion or chromatic aberration"; return false; }
+            if (m_orthoHeight > Real(0)) { why = "an orthographic view"; return false; }
+            if (!m_lensSystem && (m_naturalVignetting > Real(0) || m_barrelRadius > Real(0))) { why = "vignetting of the thin lens"; return false; }
+            if (m_moving) { why = "a moving camera"; return false; }
+            if (m_medium) { why = "a medium around the camera"; return false; }
+            auto put = [](Real* a, const Vector3& v) { a[0] = v.x; a[1] = v.y; a[2] = v.z; };
+            c = kernel::CameraParams<Real>{};
+            put(c.origin, m_origin);
+            put(c.lowerLeft, m_lowerLeftCorner);
+            put(c.horizontal, m_horizontal);
+            put(c.vertical, m_vertical);
+            put(c.u, m_u);
+            put(c.v, m_v);
+            put(c.w, m_w);
+            c.lensRadius = m_lensRadius;
+            c.blades = static_cast<uint32_t>(m_blades);
+            c.bladeRotation = m_bladeRotation;
+            c.bladeRadius = m_bladeRadius;
+            surfaces.clear();
+            pupil.clear();
+            bladeNormals.clear();
+            if (m_lensSystem) {
+                c.type = kernel::kCamLens;
+                return m_lensSystem->kernelParams(c, surfaces, pupil, bladeNormals, why);
+            }
+            c.type = m_lensRadius > Real(0) ? kernel::kCamThinLens : kernel::kCamPinhole;
             return true;
         }
 

@@ -55,6 +55,8 @@ namespace {
         DeviceBuffer<rayt::kernel::KLight> lights;
         DeviceBuffer<float> lightCdf;
         DeviceBuffer<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
+        DeviceBuffer<rayt::kernel::LensSurface<float>> lensSurfaces;
+        DeviceBuffer<float> lensPupil, lensBladeNormals;
         DeviceBuffer<char> triangleGas, sphereGas, ias;
         DeviceBuffer<OptixAabb> sphereBoxes;
         DeviceBuffer<OptixInstance> instances;
@@ -101,12 +103,17 @@ namespace {
             RAYT_CUDA(upload(envCondFunc, h.envCondFunc, env ? ew * eh : 0), "copying the environment's distribution");
             RAYT_CUDA(upload(envCondCdf, h.envCondCdf, env ? (ew + 1) * eh : 0), "copying the environment's distribution");
             RAYT_CUDA(upload(envCondInt, h.envCondInt, env ? eh : 0), "copying the environment's distribution");
+            const bool realLens = h.camera.type == kCamLens;
+            RAYT_CUDA(upload(lensSurfaces, h.lensSurfaces, realLens ? h.camera.numSurfaces : 0), "copying the lens");
+            RAYT_CUDA(upload(lensPupil, h.lensPupil, realLens ? size_t(h.camera.numBands) * 5 : 0), "copying the lens's pupil");
+            RAYT_CUDA(upload(lensBladeNormals, h.lensBladeNormals, realLens ? size_t(h.camera.stopBlades) * 2 : 0), "copying the lens's stop");
             scene = h;
             scene.positions = positions.ptr; scene.normals = normals.ptr; scene.indices = indices.ptr; scene.faceNormals = faceNormals.ptr;
             scene.triMaterial = triMaterial.ptr; scene.triLight = triLight.ptr; scene.triSmooth = triSmooth.ptr;
             scene.materials = materials.ptr; scene.spheres = spheres.ptr; scene.lights = lights.ptr; scene.lightCdf = lightCdf.ptr;
             scene.envPixels = envPixels.ptr; scene.envMarginalFunc = envMarginalFunc.ptr; scene.envMarginalCdf = envMarginalCdf.ptr;
             scene.envCondFunc = envCondFunc.ptr; scene.envCondCdf = envCondCdf.ptr; scene.envCondInt = envCondInt.ptr;
+            scene.lensSurfaces = lensSurfaces.ptr; scene.lensPupil = lensPupil.ptr; scene.lensBladeNormals = lensBladeNormals.ptr;
 
             // ---- the acceleration structures: a GAS over the triangles, a GAS over the spheres' boxes (custom primitives), and,
             //      when the scene has spheres, an instance AS over both (identity transforms; instance k uses hit group k) ----

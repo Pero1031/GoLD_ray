@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include "Kernel/Bsdf.hpp"
+#include "Kernel/Camera.hpp"
 #include "Kernel/Environment.hpp"
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/Lights.hpp"
@@ -255,21 +256,31 @@ namespace rayt::kernel {
         return L;
     }
 
-    /// The camera ray of pixel (px, py) (py = 0 is the bottom row): the pinhole through a uniform point of the pixel, drawn from rng.
-    RAYT_HD_INLINE void cameraRay(const KScene& s, Pcg32& rng, uint32_t px, uint32_t py, V3& o, V3& d) {
+    /// The camera ray of pixel (px, py) (py = 0 is the bottom row) through a uniform point of the pixel, drawn from rng, and its weight
+    /// (PathIntegrator::render's camW): the pinhole draws nothing more; a thin or a real lens draws a point of the lens (Kernel/Camera.hpp).
+    RAYT_HD_INLINE void cameraRay(const KScene& s, Pcg32& rng, uint32_t px, uint32_t py, V3& o, V3& d, float& weight) {
         const float u = (float(px) + rng.nextFloat()) / float(s.width);
         const float v = (float(py) + rng.nextFloat()) / float(s.height);
-        o = toV3(s.camera.origin);
-        d = knormalize(toV3(s.camera.lowerLeft) + u * toV3(s.camera.horizontal) + v * toV3(s.camera.vertical) - o);
+        if (s.camera.type == kCamPinhole) {
+            o = lens::v3(s.camera.origin);
+            d = knormalize(lens::v3(s.camera.lowerLeft) + u * lens::v3(s.camera.horizontal) + v * lens::v3(s.camera.vertical) - o);
+            weight = 1.0f;
+            return;
+        }
+        const float a = rng.nextFloat(), b = rng.nextFloat();
+        lensCameraRay(s.camera, LensArrays<float>{ s.lensSurfaces, s.lensPupil, s.lensBladeNormals }, u, v, a, b, o, d, weight);
     }
 
-    /// The radiance of one camera path through pixel (px, py) (py = 0 is the bottom row), sample index `sample`; aov as for traceRay.
+    /// The radiance of one camera path through pixel (px, py) (py = 0 is the bottom row), sample index `sample`, times the camera's
+    /// weight of the sample; aov as for traceRay. A sample the lens blocks is traced only for the features (its central ray).
     template <class Tracer>
     RAYT_HD V3 tracePath(const KScene& s, const Tracer& tracer, uint32_t px, uint32_t py, uint32_t sample, KAov* aov = nullptr) {
         Pcg32 rng = Pcg32::forSample(s.seed, py * s.width + px, sample);
         V3 o, d;
-        cameraRay(s, rng, px, py, o, d);
-        return traceRay(s, tracer, rng, o, d, aov);
+        float weight;
+        cameraRay(s, rng, px, py, o, d, weight);
+        if (weight <= 0.0f && !aov) return V3(0.0f);   // nothing to trace: the sample adds no light (PathIntegrator::render)
+        return traceRay(s, tracer, rng, o, d, aov) * weight;
     }
 
 } // namespace rayt::kernel

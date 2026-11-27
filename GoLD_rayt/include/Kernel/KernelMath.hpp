@@ -32,6 +32,8 @@ namespace rayt::kernel {
     RAYT_HD_INLINE float kcopysign(float x, float s) { return copysignf(x, s); }
     RAYT_HD_INLINE float kabs(float x) { return fabsf(x); }
     RAYT_HD_INLINE float kfloor(float x) { return floorf(x); }
+    /// sqrt(x^2 + y^2) (the arguments of the lens are far from overflow)
+    RAYT_HD_INLINE float khypot(float x, float y) { return sqrtf(x * x + y * y); }
 
     RAYT_HD_INLINE int32_t kFloatAsInt(float f) {
 #if defined(RAYT_GPU_CODE)
@@ -170,6 +172,7 @@ namespace rayt::kernel {
     inline double katan2(double y, double x) { return atan2(y, x); }
     inline double kacos(double x) { return acos(x); }
     inline double kexp(double x) { return exp(x); }
+    inline double khypot(double x, double y) { return hypot(x, y); }
 #else
     // Device code: a double argument picks these deleted overloads (instead of converting to float) and fails to compile.
     RAYT_HD double ksqrt(double) = delete;
@@ -182,6 +185,7 @@ namespace rayt::kernel {
     RAYT_HD double katan2(double, double) = delete;
     RAYT_HD double kacos(double) = delete;
     RAYT_HD double kexp(double) = delete;
+    RAYT_HD double khypot(double, double) = delete;
 #endif
 
     /// std::max(a, b): b if a < b, else a.

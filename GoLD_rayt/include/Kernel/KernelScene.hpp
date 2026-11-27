@@ -110,8 +110,39 @@ namespace rayt::kernel {
     /// vertex that is not specular, or the environment's color clamped to [0, 1] (normal 0) if it escapes before one; zero if neither.
     struct KAov { float albedo[3], normal[3]; uint32_t valid; };
 
-    /// A pinhole: film point (s, t) in [0, 1)^2 looks from origin toward lowerLeft + s horizontal + t vertical (t = 0 at the bottom).
-    struct KCamera { KFloat3 origin, lowerLeft, horizontal, vertical; };
+    enum : uint32_t { kCamPinhole = 0, kCamThinLens = 1, kCamLens = 2 };
+    enum : uint32_t { kLensSphere = 0, kLensFlat = 1, kLensStop = 2 };
+
+    /// A surface of a real lens as the engine's LensSystem holds it (Render/LensSystem.hpp), in the lens frame: metres, z toward the
+    /// object, the first vertex at z = 0, the film behind the lens at negative z.
+    template <class T> struct LensSurface {
+        T radius;                  ///< a sphere's radius (> 0: its centre on the film side)
+        T z;                       ///< the vertex on the axis
+        T apertureRadius;          ///< the clear semi-diameter (the stop's open radius is this times CameraParams::stopScale)
+        T nBehind;                 ///< index of refraction of the medium behind the surface (toward the film); 1 = air
+        uint32_t kind;             ///< kLensSphere | kLensFlat | kLensStop
+    };
+
+    /**
+     * @brief The camera as the engine's Camera holds it (Render/Camera.hpp): a pinhole, a thin lens, or a real lens traced surface by
+     *        surface. Film point (s, t) in [0, 1)^2 (t = 0 at the bottom) looks from the lens toward lowerLeft + s horizontal + t vertical,
+     *        a point of the plane of focus. A real lens has its surfaces, its exit pupil's bounds per band of film radius and its stop's
+     *        edge normals in KScene's lens arrays.
+     */
+    template <class T> struct CameraParams {
+        uint32_t type;             ///< kCamPinhole | kCamThinLens | kCamLens
+        T origin[3], lowerLeft[3], horizontal[3], vertical[3];
+        T u[3], v[3], w[3];        ///< right, up and backward (the view is -w)
+        // the thin lens: a round aperture of radius lensRadius, or a regular polygon of `blades` corners and that circumradius
+        T lensRadius;
+        uint32_t blades;
+        T bladeRotation, bladeRadius;
+        // the real lens
+        uint32_t numSurfaces, numBands;   ///< surfaces from the front; bands of film radius of the pupil table
+        uint32_t stopBlades;       ///< the stop's blades (0: round); their edge normals are in KScene::lensBladeNormals
+        T filmZ, filmW, filmH, filmRadius, centreIrradiance, frontPrincipalZ, stopScale, apothemPerRadius;
+    };
+    using KCamera = CameraParams<float>;
 
     /// Everything a render reads. The pointers are valid on the device that runs the render.
     struct KScene {
@@ -140,6 +171,9 @@ namespace rayt::kernel {
         float envScale;
         float envSelect;              ///< the probability that a light sample picks the environment (the other lights share the rest)
         KCamera camera;
+        const LensSurface<float>* lensSurfaces;   ///< camera.numSurfaces (a real lens)
+        const float* lensPupil;       ///< camera.numBands x 5: the exit pupil's bounds minX, minY, maxX, maxY and 1 if the band is empty
+        const float* lensBladeNormals;///< camera.stopBlades x 2
         uint32_t width, height;       ///< pixels
         uint32_t spp, maxDepth;       ///< samples per pixel; path length as the engine counts it (surface vertices)
         uint64_t seed;                ///< the run seed of the random number streams

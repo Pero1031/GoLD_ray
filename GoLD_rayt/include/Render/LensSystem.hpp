@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "Core/Types.hpp"
+#include "Kernel/KernelScene.hpp"
 
 namespace rayt {
 
@@ -111,6 +112,12 @@ namespace rayt {
 
         /// True when the glass is dispersive and the build is spectral: every wavelength takes its own path.
         bool dispersive() const;
+
+        /// This lens as the kernel renderer models it (Kernel/Camera.hpp): the surfaces (with the index behind each), the exit pupil's
+        /// bounds per band (minX, minY, maxX, maxY, empty), the stop's edge normals, and the film, focus and stop in `c`. Call after
+        /// prepare(). False, with the reason, for an aspheric surface or dispersive glass.
+        bool kernelParams(kernel::CameraParams<Real>& c, std::vector<kernel::LensSurface<Real>>& surfaces, std::vector<Real>& pupil,
+            std::vector<Real>& bladeNormals, std::string& why) const;
         const std::vector<Surface>& surfaces() const { return m_surfaces; }
         /// Half the image diagonal the lens is designed for (metres; `image-height` of the file), or 0: the 35 mm film is used.
         Real imageHeight() const { return m_imageHeight; }

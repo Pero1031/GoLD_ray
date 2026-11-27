@@ -157,7 +157,7 @@ namespace {
         std::string why;
         std::vector<kernel::KRay> rays;
         std::vector<PathAOV> engine;
-        const auto withEngine = [&](const SceneSetup& setup, const Environment& env) {
+        const auto withEngine = [&](const SceneSetup& setup, const Environment& env, const Camera&) {
             struct Quiet {
                 std::ostringstream sink;
                 std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
@@ -168,13 +168,21 @@ namespace {
             for (const auto& l : setup.lights) scene.addLight(l);
             scene.finalize(setup.lightSampler.empty() ? CliOptions{}.lightSampler : setup.lightSampler);
             const kernel::KCamera& c = host.header.camera;
+            const kernel::LensArrays<float> lensArrays{ host.lensSurfaces.data(), host.lensPupil.data(), host.lensBladeNormals.data() };
             PathIntegrator integrator(nullptr, maxDepth, 1);
             for (int j = 0; j < h; ++j)
                 for (int i = 0; i < w; ++i) {
                     const float u = (float(i) + 0.5f) / float(w), v = (float(j) + 0.5f) / float(h);
-                    const kernel::V3 o = kernel::toV3(c.origin);
-                    const kernel::V3 d = kernel::knormalize(kernel::toV3(c.lowerLeft) + u * kernel::toV3(c.horizontal) + v * kernel::toV3(c.vertical) - o);
-                    rays.push_back({ c.origin, { d.x, d.y, d.z }, 0.0f, kernel::kFloatMax });
+                    kernel::V3 o, d;
+                    if (c.type == kernel::kCamPinhole) {
+                        o = kernel::lens::v3(c.origin);
+                        d = kernel::knormalize(kernel::lens::v3(c.lowerLeft) + u * kernel::lens::v3(c.horizontal) + v * kernel::lens::v3(c.vertical) - o);
+                    }
+                    else {
+                        float weight;
+                        kernel::lensCameraRay(c, lensArrays, u, v, 0.5f, 0.5f, o, d, weight);
+                    }
+                    rays.push_back({ { o.x, o.y, o.z }, { d.x, d.y, d.z }, 0.0f, kernel::kFloatMax });
                     SampledWavelengths lambda;
                     PathAOV aov;
                     integrator.Li(Ray(Point3(o.x, o.y, o.z), glm::normalize(Vector3(d.x, d.y, d.z))), scene, lambda, &aov);
@@ -326,6 +334,52 @@ namespace {
 
     double RelDiff(double a, double b) { return a == b ? 0.0 : std::abs(a - b) / std::max({ std::abs(a), std::abs(b), 1e-300 }); }
 
+    /// The kernel's camera in double against the engine's Camera (built as a render builds it from the scene file, edited by `edit`): the
+    /// ray of a random film point and lens sample, its origin, direction and weight; a real lens's blocked samples included (their weight
+    /// is 0 and the ray is the pixel's central one).
+    bool CameraEngineCheck(const std::string& path, const std::string& label, const std::function<void(SceneDescription&)>& edit = {}) {
+        KernelSceneHost host;
+        std::string why;
+        bool ok = true;
+        const auto withEngine = [&](const SceneSetup&, const Environment&, const Camera& camera) {
+            kernel::CameraParams<Real> c{};
+            std::vector<kernel::LensSurface<Real>> surfaces;
+            std::vector<Real> pupil, bladeNormals;
+            if (!camera.kernelParams(c, surfaces, pupil, bladeNormals, why)) { ok = Report("camera " + label, false, why); return; }
+            const kernel::LensArrays<Real> arrays{ surfaces.data(), pupil.data(), bladeNormals.data() };
+            kernel::Pcg32 rng;
+            rng.seed(20261128, 5);
+            const int n = 8192;
+            double worst = 0;
+            size_t identical = 0, values = 0, blocked = 0, blockedDiffer = 0;
+            for (int i = 0; i < n; ++i) {
+                // film points over the whole film and a margin outside it (saturated back onto the edge), lens samples over [0, 1)^2
+                const Real s = Real(-0.02) + Real(1.04) * rng.nextDouble(), t = Real(-0.02) + Real(1.04) * rng.nextDouble();
+                const Real lu = rng.nextDouble(), lv = rng.nextDouble();
+                Real we = Real(1);
+                const Ray re = camera.getRay(s, t, Point2(lu, lv), Real(0), kReferenceWavelengthNm, &we);
+                Vector3 ok2, dk;
+                Real wk = Real(0);
+                kernel::lensCameraRay(c, arrays, s, t, lu, lv, ok2, dk, wk);
+                const double vals[][2] = { { re.o.x, ok2.x }, { re.o.y, ok2.y }, { re.o.z, ok2.z }, { re.d.x, dk.x }, { re.d.y, dk.y }, { re.d.z, dk.z }, { we, wk } };
+                bool same = true;
+                for (const auto& v : vals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; same &= v[0] == v[1]; ++values; }
+                if (we <= Real(0)) { ++blocked; blockedDiffer += !same; }
+            }
+            const std::string kind = c.type == kernel::kCamLens ? std::to_string(c.numSurfaces) + " surfaces, " + std::to_string(c.numBands) + " pupil bands" +
+                (c.stopBlades ? ", " + std::to_string(c.stopBlades) + " blades" : std::string(", a round stop"))
+                : c.type == kernel::kCamThinLens ? "a thin lens of radius " + Fmt(c.lensRadius, 3) + (c.blades ? ", " + std::to_string(c.blades) + " blades" : std::string(", round"))
+                : std::string("a pinhole");
+            ok = Report("kernel camera (double) = engine Camera, " + label + " (" + kind + ")", worst <= 1e-12,
+                std::to_string(n) + " rays (" + std::to_string(blocked) + " blocked by the lens): origin, direction and weight " + Fmt(100.0 * double(identical) / double(values), 5) +
+                " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12)");
+        };
+        CliOptions o;
+        o.spp = 1;
+        if (!PackSceneFile(path, o, 400, 300, edit, host, why, withEngine)) return Report("camera " + label, false, why);
+        return ok;
+    }
+
 #if !defined(RAYT_SPECTRAL_MODE)
     /// The kernel's conductor in double against the engine's RoughConductor on the same directions: eval, pdf and sample.
     bool ConductorEngineCheck(const std::string& label, const RoughConductor& engine, std::vector<std::pair<std::string, kernel::KMaterial>>& gpuMaterials) {
@@ -442,7 +496,7 @@ namespace {
         std::string why;
         std::vector<std::pair<std::string, const LayeredCoat*>> coats;
         std::vector<std::string> results;
-        const auto withEngine = [&](const SceneSetup& setup, const Environment&) {
+        const auto withEngine = [&](const SceneSetup& setup, const Environment&, const Camera&) {
             for (const auto& [name, m] : setup.namedMaterials) {
                 const auto* lc = dynamic_cast<const LayeredCoat*>(m);
                 if (!lc) continue;
@@ -732,6 +786,21 @@ int RunGpuTests(const CliOptions& /*opt*/) {
 #endif
     ok &= SphereLightEngineCheck();
 #if !defined(RAYT_SPECTRAL_MODE)
+    // 3a. The camera (the kernel renders in RGB, where the glass of a real lens is not dispersive): a thin lens (polygonal and round) and
+    //     real lenses (the double Gauss with blades, a singlet, a fisheye), kernel in double = engine.
+    ok &= CameraEngineCheck("scenes/gpu_dof.json", "gpu_dof.json (six blades)");
+    ok &= CameraEngineCheck("scenes/gpu_dof.json", "gpu_dof.json with a round aperture", [](SceneDescription& d) { d.camera.lens.blades = 0; });
+    ok &= CameraEngineCheck("scenes/gpu_lens.json", "gpu_lens.json (double Gauss 50 mm f/2.8)");
+    ok &= CameraEngineCheck("scenes/gpu_lens.json", "a BK7 singlet 100 mm f/5.6", [](SceneDescription& d) {
+        d.camera.lens.lensFile = std::string("assets/Lenses/singlet_bk7_100mm.txt");
+        d.camera.lens.fStop = Real(5.6);
+        d.camera.lens.blades = 0;
+    });
+    ok &= CameraEngineCheck("scenes/gpu_lens.json", "a fisheye 10 mm wide open", [](SceneDescription& d) {
+        d.camera.lens.lensFile = std::string("assets/Lenses/fisheye_10mm.txt");
+        d.camera.lens.fStop.reset();
+        d.camera.lens.blades = 0;
+    });
     // 3b. The layered materials of the coat scene, kernel in double = engine.
     ok &= LayeredEngineChecks("scenes/gpu_coat.json", gpuMaterials);
     // 3c. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
@@ -822,6 +891,8 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_env.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_spheres.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_coat.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_dof.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_lens.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -833,6 +904,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= TracerCheck(*mod, "scenes/gpu_env.json");
     ok &= TracerCheck(*mod, "scenes/gpu_spheres.json");
     ok &= TracerCheck(*mod, "scenes/gpu_coat.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_lens.json");
 #endif
     return ok ? 0 : 2;
 }

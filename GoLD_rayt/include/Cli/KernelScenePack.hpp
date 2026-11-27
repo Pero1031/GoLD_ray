@@ -2,8 +2,8 @@
 // The kernel renderer's scene (Kernel/KernelScene.hpp) built from a scene file, and the --device cpu-kernel | gpu render
 // (docs/GPU.md). The kernel renderer models a subset of the engine (quads, spheres and triangle meshes; diffuse surfaces with a
 // constant albedo, isotropic rough conductors, glass, clear coats over a diffuse or a metal base, emitting quads and spheres; an
-// environment map; a pinhole camera; the RGB build); anything else is refused with a list of what is missing, instead of being
-// rendered differently.
+// environment map; a pinhole, a thin lens or a real lens of spherical surfaces; the RGB build); anything else is refused with a list of
+// what is missing, instead of being rendered differently.
 
 #include <functional>
 #include <map>
@@ -38,6 +38,8 @@ struct KernelSceneHost {
     std::vector<kernel::KLight> lights;
     std::vector<float> lightCdf;
     std::vector<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
+    std::vector<kernel::LensSurface<float>> lensSurfaces;
+    std::vector<float> lensPupil, lensBladeNormals;
     kernel::KScene header{};   ///< the fields that are not pointers
 
     /// The scene with its pointers on these CPU arrays (valid while this object lives and is not changed).
@@ -55,11 +57,11 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 /// The engine's environment light (its map, its sampling distribution, its scale) into the kernel scene; false if there is none.
 bool PackEnvironment(const EnvLight* envLight, KernelSceneHost& out);
 
-/// A scene file as a kernel scene of width x height pixels, built as the CLI builds it (the engine's materials included) but without
-/// rendering; `edit` (optional) changes the scene's description first; `engine` (optional) is called with the engine's build of the
-/// scene once the kernel scene is packed (for checks that compare the two). For the checks (Checks/GpuChecks.cpp).
+/// A scene file as a kernel scene of width x height pixels, built as the CLI builds it (the engine's materials and camera included) but
+/// without rendering; `edit` (optional) changes the scene's description first; `engine` (optional) is called with the engine's build of
+/// the scene and its camera once the kernel scene is packed (for checks that compare the two). For the checks (Checks/GpuChecks.cpp).
 bool PackSceneFile(const std::string& path, const CliOptions& opt, int width, int height, const std::function<void(SceneDescription&)>& edit,
-    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&)>& engine = {});
+    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&, const Camera&)>& engine = {});
 
 /// The kernel render of a scene file (--device cpu-kernel: the CPU, gpu: the GPU module) into `film`. Returns 0, or an exit code
 /// after printing why it cannot render.

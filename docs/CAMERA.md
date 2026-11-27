@@ -1,7 +1,9 @@
 # Camera and film output
 
 What the camera simulates, what the written files contain, and what is verified. The keys of the scene file are listed in
-[`SCENE_FILE.md`](SCENE_FILE.md) ("Camera keys"); the command-line options in `--help`.
+[`SCENE_FILE.md`](SCENE_FILE.md) ("Camera keys"); the command-line options in `--help`. The kernel renderer (`--device gpu | cpu-kernel`,
+[`GPU.md`](GPU.md)) has the pinhole, the thin lens and the real lenses of spherical and flat surfaces, with the same rays; it refuses the rest
+(aspheric surfaces, distortion and chromatic aberration, the thin lens's vignetting, motion, the orthographic view).
 
 ## 1. The camera (`Render/Camera.hpp`)
 

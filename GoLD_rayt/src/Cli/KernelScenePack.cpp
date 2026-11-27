@@ -10,6 +10,7 @@
 #include "Kernel/PathTracer.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Film.hpp"
+#include "Cli/RenderPipeline.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/SceneFile.hpp"
 #include "Lights/EnvLight.hpp"
@@ -355,6 +356,9 @@ kernel::KScene KernelSceneHost::view() const {
     s.spheres = spheres.data();
     s.lights = lights.data();
     s.lightCdf = lightCdf.data();
+    s.lensSurfaces = lensSurfaces.data();
+    s.lensPupil = lensPupil.data();
+    s.lensBladeNormals = lensBladeNormals.data();
     s.envPixels = envPixels.data();
     s.envMarginalFunc = envMarginalFunc.data();
     s.envMarginalCdf = envMarginalCdf.data();
@@ -375,12 +379,36 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
     std::vector<std::string> missing;
     out = KernelSceneHost{};
 
-    // ---- camera ----
-    Point3 origin, lowerLeft;
-    Vector3 horizontal, vertical;
-    if (!camera.pinholeFrame(origin, lowerLeft, horizontal, vertical))
-        missing.push_back("the camera is not a plain pinhole (a lens, an aperture, distortion, vignetting, motion or an orthographic view)");
-    out.header.camera = { F3(origin), F3(lowerLeft), F3(horizontal), F3(vertical) };
+    // ---- camera: a pinhole, a thin lens or a real lens, as the engine's Camera holds it ----
+    {
+        kernel::CameraParams<Real> c{};
+        std::vector<kernel::LensSurface<Real>> surfaces;
+        std::vector<Real> pupil, bladeNormals;
+        std::string limit;
+        if (!camera.kernelParams(c, surfaces, pupil, bladeNormals, limit)) missing.push_back("the camera: " + limit);
+        else {
+            kernel::KCamera& k = out.header.camera;
+            k.type = c.type;
+            for (int i = 0; i < 3; ++i) {
+                k.origin[i] = float(c.origin[i]); k.lowerLeft[i] = float(c.lowerLeft[i]); k.horizontal[i] = float(c.horizontal[i]); k.vertical[i] = float(c.vertical[i]);
+                k.u[i] = float(c.u[i]); k.v[i] = float(c.v[i]); k.w[i] = float(c.w[i]);
+            }
+            k.lensRadius = float(c.lensRadius);
+            k.blades = c.blades;
+            k.bladeRotation = float(c.bladeRotation);
+            k.bladeRadius = float(c.bladeRadius);
+            k.numSurfaces = c.numSurfaces;
+            k.numBands = c.numBands;
+            k.stopBlades = c.stopBlades;
+            k.filmZ = float(c.filmZ); k.filmW = float(c.filmW); k.filmH = float(c.filmH); k.filmRadius = float(c.filmRadius);
+            k.centreIrradiance = float(c.centreIrradiance); k.frontPrincipalZ = float(c.frontPrincipalZ);
+            k.stopScale = float(c.stopScale); k.apothemPerRadius = float(c.apothemPerRadius);
+            for (const kernel::LensSurface<Real>& s : surfaces)
+                out.lensSurfaces.push_back({ float(s.radius), float(s.z), float(s.apertureRadius), float(s.nBehind), s.kind });
+            for (Real v : pupil) out.lensPupil.push_back(float(v));
+            for (Real v : bladeNormals) out.lensBladeNormals.push_back(float(v));
+        }
+    }
 
     // ---- environment (the engine's EnvLight: its map, its sampling distribution, its scale) and point lights ----
     if (d.environment.type != EnvironmentSpec::Type::None && !PackEnvironment(envLight, out)) missing.push_back("the engine's environment is not available");
@@ -606,7 +634,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 }
 
 bool PackSceneFile(const std::string& path, const CliOptions& base, int width, int height, const std::function<void(SceneDescription&)>& edit,
-    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&)>& engine) {
+    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&, const Camera&)>& engine) {
     std::vector<std::string> args;
     std::shared_ptr<const SceneDescription> loaded;
     if (!LoadSceneFile(path, args, loaded, why) || !loaded) { why = path + ": " + why; return false; }
@@ -620,6 +648,7 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
     if (!def) { why = "the scene \"file\" is not registered"; return false; }
     SceneSetup setup;
     Environment env;
+    std::shared_ptr<Camera> camera;
     {
         // The engine's scene build reports what it loads; a check has no use for that.
         struct Quiet {
@@ -631,11 +660,11 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
         const StdMaterials mats = MakeStandardMaterials(opt);
         SceneContext ctx{ opt, mats, env };
         if (def->build(ctx, setup)) { why = path + ": the engine could not build the scene"; return false; }
+        camera = BuildSceneCamera(opt, setup, width, height);   // the camera a render builds (a lens, its stop and focus)
     }
-    const CameraSpec& c = d->camera;
-    const Camera camera(c.from, c.at, c.up, c.fovDeg, Real(width) / Real(height), Real(0), glm::length(c.at - c.from));
-    if (!PackKernelScene(*d, setup.namedMaterials, env.light.get(), camera, opt, width, height, out, why)) return false;
-    if (engine) engine(setup, env);
+    if (!camera) { why = path + ": the engine could not build the camera"; return false; }
+    if (!PackKernelScene(*d, setup.namedMaterials, env.light.get(), *camera, opt, width, height, out, why)) return false;
+    if (engine) engine(setup, env, *camera);
     return true;
 }
 

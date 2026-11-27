@@ -214,6 +214,42 @@ namespace rayt {
         return false;
     }
 
+    bool LensSystem::kernelParams(kernel::CameraParams<Real>& c, std::vector<kernel::LensSurface<Real>>& surfaces, std::vector<Real>& pupil,
+        std::vector<Real>& bladeNormals, std::string& why) const {
+        if (dispersive()) { why = "a real lens of dispersive glass"; return false; }
+        if (m_pupil.empty()) { why = "a real lens that is not prepared"; return false; }
+        surfaces.clear();
+        for (size_t i = 0; i < m_surfaces.size(); ++i) {
+            const Surface& s = m_surfaces[i];
+            if (s.aspheric()) { why = "a real lens with an aspheric surface"; return false; }
+            kernel::LensSurface<Real> k{};
+            k.radius = s.radius;
+            k.z = s.z;
+            k.apertureRadius = s.apertureRadius;
+            k.nBehind = indexAfter(static_cast<int>(i), kLineD);
+            k.kind = s.isStop() ? kernel::kLensStop : (s.flat ? kernel::kLensFlat : kernel::kLensSphere);
+            surfaces.push_back(k);
+        }
+        pupil.clear();
+        for (const Bounds& b : m_pupil) pupil.insert(pupil.end(), { b.minX, b.minY, b.maxX, b.maxY, b.empty ? Real(1) : Real(0) });
+        bladeNormals.clear();
+        const bool polygon = m_blades >= 3 && !m_bladeNormals.empty();   // insideStop's test of the lens's own stop
+        if (polygon)
+            for (const Point2& n : m_bladeNormals) { bladeNormals.push_back(n.x); bladeNormals.push_back(n.y); }
+        c.numSurfaces = static_cast<uint32_t>(m_surfaces.size());
+        c.numBands = static_cast<uint32_t>(m_pupil.size());
+        c.stopBlades = polygon ? static_cast<uint32_t>(m_blades) : 0u;
+        c.filmZ = m_filmZ;
+        c.filmW = m_filmW;
+        c.filmH = m_filmH;
+        c.filmRadius = m_filmRadius;
+        c.centreIrradiance = m_centreIrradiance;
+        c.frontPrincipalZ = m_frontPrincipal;
+        c.stopScale = m_stopScale;
+        c.apothemPerRadius = m_apothemPerRadius;
+        return true;
+    }
+
     void LensSystem::setStopShape(int blades, Real rotation) {
         m_blades = blades >= 3 ? blades : 0;
         m_bladeRotation = rotation;
