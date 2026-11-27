@@ -6,7 +6,7 @@
  * The rules are the engine's PathIntegrator restricted to what KScene holds (the materials of Kernel/Materials.hpp, emitting
  * quads, an environment map), so the two converge to the same picture: a path has at most maxDepth surface vertices; each
  * non-delta vertex samples one light with a shadow ray (the environment with probability envSelect, by its luminance; else a
- * quad chosen by power, a uniform point on it), weighted against the BSDF's density by the power heuristic, and then samples
+ * light chosen by power: a uniform point on a quad, the cone of a sphere, Kernel/Lights.hpp), weighted against the BSDF's density by the power heuristic, and then samples
  * the BSDF; an emitter or the environment found by a BSDF ray is weighted against that light sample the same way; Russian
  * roulette from the fourth vertex on with survival max(beta) clamped to [0.05, 0.95]. (The engine chooses among its lights by
  * another rule; any choice is unbiased.)
@@ -24,6 +24,7 @@
 
 #include "Kernel/Environment.hpp"
 #include "Kernel/KernelScene.hpp"
+#include "Kernel/Lights.hpp"
 #include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
@@ -134,32 +135,50 @@ namespace rayt::kernel {
                 }
                 break;
             }
-            const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
-            const V3 v0 = toV3(s.positions[i0]), v1 = toV3(s.positions[i1]), v2 = toV3(s.positions[i2]);
-            float b1, b2;
-            triangleBarycentrics(o, d, v0, v1, v2, b1, b2);   // not the tracer's own (h.b1, h.b2): the same bits on every device
-            const float w0 = 1.0f - b1 - b2;
-            const V3 p = w0 * v0 + b1 * v1 + b2 * v2;
-            const V3 faceN = toV3(s.faceNormals[h.prim]);
-            const bool front = kdot(d, faceN) < 0.0f;
-            const V3 ng = front ? faceN : -faceN;   // faces the incoming ray (SurfaceInteraction::setFaceNormal)
-            V3 ns = ng;
-            if (s.triSmooth[h.prim]) {
-                const V3 n = knormalize(w0 * toV3(s.normals[i0]) + b1 * toV3(s.normals[i1]) + b2 * toV3(s.normals[i2]));
-                ns = front ? n : -n;
+            V3 p, faceN, ns;
+            uint32_t material;
+            int32_t lightIndex;
+            bool front, smooth = false;
+            if (h.prim < s.numTriangles) {
+                const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
+                const V3 v0 = toV3(s.positions[i0]), v1 = toV3(s.positions[i1]), v2 = toV3(s.positions[i2]);
+                float b1, b2;
+                triangleBarycentrics(o, d, v0, v1, v2, b1, b2);   // not the tracer's own (h.b1, h.b2): the same bits on every device
+                const float w0 = 1.0f - b1 - b2;
+                p = w0 * v0 + b1 * v1 + b2 * v2;
+                faceN = toV3(s.faceNormals[h.prim]);
+                front = kdot(d, faceN) < 0.0f;
+                if (s.triSmooth[h.prim]) {
+                    const V3 n = knormalize(w0 * toV3(s.normals[i0]) + b1 * toV3(s.normals[i1]) + b2 * toV3(s.normals[i2]));
+                    ns = front ? n : -n;
+                    smooth = true;
+                }
+                material = s.triMaterial[h.prim];
+                lightIndex = s.triLight[h.prim];
             }
-            const KMaterial& m = s.materials[s.triMaterial[h.prim]];
+            else {
+                // A sphere: both tracers report the distance of kernel::intersectSphere; the point is put back on the surface (as pbrt
+                // does) so that the offset of the next ray's origin need only cover the rounding of that projection.
+                const KSphere& sp = s.spheres[h.prim - s.numTriangles];
+                const V3 c = toV3(sp.center);
+                const V3 pc = (o + h.t * d) - c;
+                p = c + pc * (kabs(sp.radius) / klength(pc));
+                faceN = (p - c) / sp.radius;   // outward, inward for a negative radius (Geometry/Sphere.hpp)
+                front = kdot(d, faceN) < 0.0f;
+                material = sp.material;
+                lightIndex = sp.light;
+            }
+            const V3 ng = front ? faceN : -faceN;   // faces the incoming ray (SurfaceInteraction::setFaceNormal)
+            if (!smooth) ns = ng;
+            const KMaterial& m = s.materials[material];
 
             // ---- an emitter: its light, weighted against the light sample of the previous vertex; emitters do not reflect ----
             if (m.type == kMatEmission) {
                 if (front || m.twoSided) {
                     float w = 1.0f;
-                    const int32_t li = s.triLight[h.prim];
+                    const int32_t li = lightIndex;
                     if (li >= 0 && !lastDelta) {
-                        const KQuadLight& q = s.lights[li];
-                        const V3 dp = p - o;
-                        const float cosL = kabs(kdot(d, toV3(q.normal)));
-                        const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * kdot(dp, dp) / (cosL * q.area);
+                        const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * lightPdf(s.lights[li], o, d, p);
                         w = lastPdf * lastPdf / (lastPdf * lastPdf + pdfL * pdfL);
                     }
                     L += beta * V3(m.emission[0], m.emission[1], m.emission[2]) * w;
@@ -171,7 +190,7 @@ namespace rayt::kernel {
             //      then the BSDF sample ----
             const V3 wo = -d;
             if ((s.numLights > 0 || hasEnvironment(s)) && !bsdfIsDelta(m)) {
-                // The light: the environment with probability envSelect, else a quad chosen by power.
+                // The light: the environment with probability envSelect, else a light of the scene (a quad or a sphere) chosen by power.
                 const float uSel = rng.nextFloat();
                 const float a = rng.nextFloat(), b = rng.nextFloat();
                 if (uSel < s.envSelect) {
@@ -191,22 +210,17 @@ namespace rayt::kernel {
                 }
                 else {
                     const uint32_t li = pickLight(s.lightCdf, s.numLights, (uSel - s.envSelect) / (1.0f - s.envSelect));
-                    const KQuadLight& q = s.lights[li];
-                    const V3 pl = toV3(q.corner) + a * toV3(q.edge1) + b * toV3(q.edge2);
-                    const V3 toL = pl - p;
-                    const float dist2 = kdot(toL, toL);
-                    const float dist = ksqrt(dist2);
-                    const V3 wi = toL / dist;
-                    float cosL = -kdot(wi, toV3(q.normal));
-                    if (q.twoSided) cosL = kabs(cosL);
-                    if (cosL > 0.0f) {
+                    const KLight& q = s.lights[li];
+                    LightSample<float> ls;
+                    if (sampleLight(q, p, a, b, ls) && ls.emits && ls.pdf > 0.0f) {
+                        const V3 wi = ls.wi;
                         const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
                         if (kmaxComponent(f) > 0.0f) {
                             const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
-                            const V3 toL2 = pl - org;
+                            const V3 toL2 = ls.p - org;
                             const float distB = klength(toL2);
                             if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
-                                const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
+                                const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
                                 const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
                                 const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
                                 const float cosT = kabs(kdot(ns, wi));

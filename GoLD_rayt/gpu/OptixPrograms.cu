@@ -1,8 +1,9 @@
 // The OptiX programs of the kernel renderer (docs/GPU.md), compiled to PTX by tools/build_gpu.ps1 and embedded in the GPU module.
 //
 // A megakernel, as Mitsuba's GPU variants: the ray-generation program runs a whole camera path (kernel::tracePath, the same code
-// the CPU runs) and casts its rays with optixTrace; the closest-hit program only reports the hit (distance, barycentrics,
-// triangle), and shading happens back in the ray-generation program. One launch renders one sample of every pixel and adds it
+// the CPU runs) and casts its rays with optixTrace; the closest-hit programs only report the hit (distance, barycentrics,
+// primitive), and shading happens back in the ray-generation program. Spheres are custom primitives whose intersection program
+// is kernel::intersectSphere, the function Embree calls on the CPU (as Mitsuba binds one routine to both tracers). One launch renders one sample of every pixel and adds it
 // to the accumulation buffer, so launches stay short (no display watchdog) and the sums are added in the same order as on the CPU.
 
 #include <optix.h>
@@ -52,6 +53,24 @@ extern "C" __global__ void __raygen__trace() {
 extern "C" __global__ void __miss__radiance() { optixSetPayload_3(rayt::kernel::kNoHit); }
 
 extern "C" __global__ void __miss__shadow() { optixSetPayload_0(0); }
+
+/// A sphere of the scene (custom primitive i of the sphere GAS is scene sphere i): the kernel's test on the ray as it was cast
+/// (the instance transform is the identity).
+extern "C" __global__ void __intersection__sphere() {
+    const rayt::kernel::KSphere& sp = params.scene.spheres[optixGetPrimitiveIndex()];
+    const float3 o = optixGetWorldRayOrigin(), d = optixGetWorldRayDirection();
+    float t;
+    if (rayt::kernel::intersectSphere(rayt::kernel::V3(o.x, o.y, o.z), rayt::kernel::V3(d.x, d.y, d.z), rayt::kernel::V3(sp.center.x, sp.center.y, sp.center.z),
+            sp.radius, optixGetRayTmin(), optixGetRayTmax(), t))
+        optixReportIntersection(t, 0);
+}
+
+extern "C" __global__ void __closesthit__sphere() {
+    optixSetPayload_0(__float_as_uint(optixGetRayTmax()));
+    optixSetPayload_1(0);
+    optixSetPayload_2(0);
+    optixSetPayload_3(params.scene.numTriangles + optixGetPrimitiveIndex());   // as the kernel numbers primitives
+}
 
 extern "C" __global__ void __closesthit__radiance() {
     const float2 b = optixGetTriangleBarycentrics();

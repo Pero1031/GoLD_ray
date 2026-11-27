@@ -81,8 +81,12 @@ namespace {
 
     // ---- the CPU kernel renderer: Embree in float, OpenMP over rows, the same tracePath as the GPU ----
 
+    /// Geometry ids in the Embree scene: the triangles, then the spheres (user geometry).
+    constexpr unsigned kEmbreeTriangles = 0, kEmbreeSpheres = 1;
+
     struct EmbreeTracer {
         RTCScene scene;
+        uint32_t numTriangles;   ///< a sphere i is reported as primitive numTriangles + i, as the kernel numbers them
         kernel::KHit closest(const kernel::V3& o, const kernel::V3& d, float tmin, float tmax) const {
             RTCRayHit rh;
             rh.ray.org_x = o.x; rh.ray.org_y = o.y; rh.ray.org_z = o.z;
@@ -93,6 +97,7 @@ namespace {
             rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
             rtcIntersect1(scene, &rh);
             if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) return { 0.0f, 0.0f, 0.0f, kernel::kNoHit };
+            if (rh.hit.geomID == kEmbreeSpheres) return { rh.ray.tfar, 0.0f, 0.0f, numTriangles + rh.hit.primID };
             return { rh.ray.tfar, rh.hit.u, rh.hit.v, rh.hit.primID };
         }
         bool occluded(const kernel::V3& o, const kernel::V3& d, float tmin, float tmax) const {
@@ -110,7 +115,43 @@ namespace {
         if (done % 8 == 0 || done == total) std::cout << "\rProgress: " << done << "/" << total << " samples per pixel" << std::flush;
     }
 
-    /// The triangles of a kernel scene in an Embree scene (robust, high-quality build), released with this object.
+    // ---- spheres as Embree user geometry: the box and the test are the kernel's (Kernel/Lights.hpp), as OptiX's programs ----
+    void SphereBounds(const RTCBoundsFunctionArguments* args) {
+        const kernel::KSphere& sp = static_cast<const kernel::KSphere*>(args->geometryUserPtr)[args->primID];
+        float lo[3], hi[3];
+        kernel::sphereBounds(sp, lo, hi);
+        RTCBounds& b = *args->bounds_o;
+        b.lower_x = lo[0]; b.lower_y = lo[1]; b.lower_z = lo[2];
+        b.upper_x = hi[0]; b.upper_y = hi[1]; b.upper_z = hi[2];
+    }
+
+    void SphereIntersect(const RTCIntersectFunctionNArguments* args) {
+        if (args->N != 1 || !args->valid[0]) return;   // rtcIntersect1 only
+        const kernel::KSphere& sp = static_cast<const kernel::KSphere*>(args->geometryUserPtr)[args->primID];
+        RTCRayHit& rh = *reinterpret_cast<RTCRayHit*>(args->rayhit);
+        float t;
+        if (!kernel::intersectSphere(kernel::V3(rh.ray.org_x, rh.ray.org_y, rh.ray.org_z), kernel::V3(rh.ray.dir_x, rh.ray.dir_y, rh.ray.dir_z),
+                kernel::V3(sp.center.x, sp.center.y, sp.center.z), sp.radius, rh.ray.tnear, rh.ray.tfar, t)) return;
+        rh.ray.tfar = t;
+        rh.hit.u = 0.0f; rh.hit.v = 0.0f;
+        rh.hit.Ng_x = 0.0f; rh.hit.Ng_y = 0.0f; rh.hit.Ng_z = 0.0f;   // not read: the kernel computes the normal
+        rh.hit.primID = args->primID;
+        rh.hit.geomID = args->geomID;
+        rh.hit.instID[0] = RTC_INVALID_GEOMETRY_ID;
+    }
+
+    void SphereOccluded(const RTCOccludedFunctionNArguments* args) {
+        if (args->N != 1 || !args->valid[0]) return;   // rtcOccluded1 only
+        const kernel::KSphere& sp = static_cast<const kernel::KSphere*>(args->geometryUserPtr)[args->primID];
+        RTCRay& r = *reinterpret_cast<RTCRay*>(args->ray);
+        float t;
+        if (kernel::intersectSphere(kernel::V3(r.org_x, r.org_y, r.org_z), kernel::V3(r.dir_x, r.dir_y, r.dir_z),
+                kernel::V3(sp.center.x, sp.center.y, sp.center.z), sp.radius, r.tnear, r.tfar, t))
+            r.tfar = -std::numeric_limits<float>::infinity();
+    }
+
+    /// The triangles (robust, high-quality build) and the spheres (user geometry) of a kernel scene in an Embree scene, released
+    /// with this object.
     struct EmbreeScene {
         RTCScene scene = nullptr;
         bool build(const kernel::KScene& s, std::string& why) {
@@ -119,15 +160,28 @@ namespace {
             scene = rtcNewScene(device);
             rtcSetSceneFlags(scene, RTC_SCENE_FLAG_ROBUST);
             rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_HIGH);
-            RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
-            // Copied into buffers Embree allocates (it reads vertices 16 bytes at a time and pads its own buffers for that).
-            float* vb = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float), s.numVertices));
-            memcpy(vb, s.positions, size_t(s.numVertices) * sizeof(kernel::KFloat3));
-            unsigned* ib = static_cast<unsigned*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), s.numTriangles));
-            memcpy(ib, s.indices, size_t(s.numTriangles) * 3 * sizeof(unsigned));
-            rtcCommitGeometry(geom);
-            rtcAttachGeometry(scene, geom);
-            rtcReleaseGeometry(geom);
+            if (s.numTriangles > 0) {
+                RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
+                // Copied into buffers Embree allocates (it reads vertices 16 bytes at a time and pads its own buffers for that).
+                float* vb = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float), s.numVertices));
+                memcpy(vb, s.positions, size_t(s.numVertices) * sizeof(kernel::KFloat3));
+                unsigned* ib = static_cast<unsigned*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), s.numTriangles));
+                memcpy(ib, s.indices, size_t(s.numTriangles) * 3 * sizeof(unsigned));
+                rtcCommitGeometry(geom);
+                rtcAttachGeometryByID(scene, geom, kEmbreeTriangles);
+                rtcReleaseGeometry(geom);
+            }
+            if (s.numSpheres > 0) {
+                RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_USER);
+                rtcSetGeometryUserPrimitiveCount(geom, s.numSpheres);
+                rtcSetGeometryUserData(geom, const_cast<kernel::KSphere*>(s.spheres));
+                rtcSetGeometryBoundsFunction(geom, &SphereBounds, nullptr);
+                rtcSetGeometryIntersectFunction(geom, &SphereIntersect);
+                rtcSetGeometryOccludedFunction(geom, &SphereOccluded);
+                rtcCommitGeometry(geom);
+                rtcAttachGeometryByID(scene, geom, kEmbreeSpheres);
+                rtcReleaseGeometry(geom);
+            }
             rtcCommitScene(scene);
             return true;
         }
@@ -162,7 +216,7 @@ bool RecordPathRays(const kernel::KScene& s, std::vector<kernel::KRay>& rays, st
     EmbreeScene es;
     if (!es.build(s, why)) return false;
     rays.clear(); hits.clear(); shadow.clear();
-    const RecordingTracer tracer{ EmbreeTracer{ es.scene }, &rays, &hits, &shadow };
+    const RecordingTracer tracer{ EmbreeTracer{ es.scene, s.numTriangles }, &rays, &hits, &shadow };
     for (uint32_t y = 0; y < s.height; ++y)
         for (uint32_t x = 0; x < s.width; ++x)
             for (uint32_t k = 0; k < s.spp; ++k) kernel::tracePath(s, tracer, x, y, k);
@@ -172,7 +226,7 @@ bool RecordPathRays(const kernel::KScene& s, std::vector<kernel::KRay>& rays, st
 bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress) {
     EmbreeScene es;
     if (!es.build(s, why)) return false;
-    const EmbreeTracer tracer{ es.scene };
+    const EmbreeTracer tracer{ es.scene, s.numTriangles };
     mean.assign(size_t(s.width) * s.height * 3, 0.0f);
     std::atomic<int> rows{ 0 };
 #pragma omp parallel for schedule(dynamic, 1)
@@ -249,6 +303,7 @@ kernel::KScene KernelSceneHost::view() const {
     s.triLight = triLight.data();
     s.triSmooth = triSmooth.data();
     s.materials = materials.data();
+    s.spheres = spheres.data();
     s.lights = lights.data();
     s.lightCdf = lightCdf.data();
     s.envPixels = envPixels.data();
@@ -259,6 +314,7 @@ kernel::KScene KernelSceneHost::view() const {
     s.envCondInt = envCondInt.data();
     s.numVertices = uint32_t(positions.size());
     s.numTriangles = uint32_t(triMaterial.size());
+    s.numSpheres = uint32_t(spheres.size());
     s.numMaterials = uint32_t(materials.size());
     s.numLights = uint32_t(lights.size());
     return s;
@@ -359,7 +415,8 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             if (emission && o.light != 0) {
                 if (!std::isnan(o.polarizer)) { missing.push_back(what + ": a polarized light"); continue; }
                 const kernel::KMaterial& km = out.materials[mat->second];
-                kernel::KQuadLight q{};
+                kernel::KLight q{};
+                q.type = kernel::kLightQuad;
                 q.corner = F3(o.corner); q.edge1 = F3(o.edge1); q.edge2 = F3(o.edge2);
                 q.normal = F3(glm::normalize(glm::cross(o.edge1, o.edge2)));
                 q.area = float(glm::length(glm::cross(o.edge1, o.edge2)));
@@ -372,9 +429,32 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             AddQuad(o.corner, o.edge1, o.edge2, mat->second, light, out);
             break;
         }
+        case ObjectSpec::Shape::Sphere: {
+            // As the engine's Sphere (Scenes/FileScene.cpp): an analytic sphere, a light when it emits (unless "light": false).
+            kernel::KSphere sp{};
+            sp.center = F3(o.center);
+            sp.radius = float(o.radius);
+            sp.material = mat->second;
+            sp.light = -1;
+            if (emission && o.light != 0) {
+                const kernel::KMaterial& km = out.materials[mat->second];
+                kernel::KLight q{};
+                q.type = kernel::kLightSphere;
+                q.center = sp.center;
+                q.radius = sp.radius;
+                q.area = float(4.0 * constants::PI * double(o.radius) * double(o.radius));
+                for (int c = 0; c < 3; ++c) q.radiance[c] = km.emission[c];
+                q.twoSided = km.twoSided;
+                sp.light = int32_t(out.lights.size());
+                out.lights.push_back(q);
+                power.push_back(q.area * (0.2126f * q.radiance[0] + 0.7152f * q.radiance[1] + 0.0722f * q.radiance[2]) * (q.twoSided ? 2.0f : 1.0f));
+            }
+            out.spheres.push_back(sp);
+            break;
+        }
         case ObjectSpec::Shape::Mesh:
         case ObjectSpec::Shape::Lathe: {
-            if (emission) { missing.push_back(what + ": an emitting mesh (only emitting quads)"); continue; }
+            if (emission) { missing.push_back(what + ": an emitting mesh (only emitting quads and spheres)"); continue; }
             TriangleMesh mesh;
             if (o.shape == ObjectSpec::Shape::Mesh) {
                 if (!o.cutout.empty()) { missing.push_back(what + ": a cutout"); continue; }
@@ -388,10 +468,10 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             break;
         }
         default:
-            missing.push_back(what + ": only quads, meshes and lathes (no spheres, sea, hair or splats)");
+            missing.push_back(what + ": only quads, spheres, meshes and lathes (no sea, hair or splats)");
         }
     }
-    if (out.triMaterial.empty() && missing.empty()) missing.push_back("no geometry");
+    if (out.triMaterial.empty() && out.spheres.empty() && missing.empty()) missing.push_back("no geometry");
 
     // ---- lights chosen by emitted power ----
     float total = 0;
@@ -402,7 +482,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
         out.lightCdf.push_back(i + 1 == power.size() ? 1.0f : out.lightCdf.back() + p);
     }
     // The environment's share of the light samples, by emitted power as pbrt's PowerLightSampler weighs an infinite light: the
-    // power that crosses the scene's bounding sphere, pi^2 r^2 L_avg, against pi A L of each quad (once more for two-sided ones).
+    // power that crosses the scene's bounding sphere, pi^2 r^2 L_avg, against pi A L of each light (once more for two-sided ones).
     // Each side keeps at least a tenth when both emit (any choice is unbiased; the engine's light sampler uses another rule).
     out.header.envSelect = 0.0f;
     if (out.header.envWidth > 0) {
@@ -411,11 +491,16 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             lo = glm::min(lo, Vector3(p.x, p.y, p.z));
             hi = glm::max(hi, Vector3(p.x, p.y, p.z));
         }
-        const double r2 = out.positions.empty() ? 1.0 : 0.25 * glm::dot(hi - lo, hi - lo);
+        for (const kernel::KSphere& sp : out.spheres) {
+            const Vector3 c(sp.center.x, sp.center.y, sp.center.z), r(std::abs(double(sp.radius)));
+            lo = glm::min(lo, c - r);
+            hi = glm::max(hi, c + r);
+        }
+        const double r2 = (out.positions.empty() && out.spheres.empty()) ? 1.0 : 0.25 * glm::dot(hi - lo, hi - lo);
         const double envPower = constants::PI * constants::PI * r2 * double(out.header.envScale) * double(envLight->envMap()->averageLuminance());
-        const double quadPower = constants::PI * double(total);
-        if (power.empty() || quadPower <= 0) out.header.envSelect = envPower > 0 ? 1.0f : 0.0f;
-        else if (envPower > 0) out.header.envSelect = float(std::clamp(envPower / (envPower + quadPower), 0.1, 0.9));
+        const double lightPower = constants::PI * double(total);
+        if (power.empty() || lightPower <= 0) out.header.envSelect = envPower > 0 ? 1.0f : 0.0f;
+        else if (envPower > 0) out.header.envSelect = float(std::clamp(envPower / (envPower + lightPower), 0.1, 0.9));
     }
 
     // ---- options the kernel renderer does not model ----
@@ -486,11 +571,11 @@ int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Mate
     KernelSceneHost host;
     std::string why;
     if (!PackKernelScene(*opt.sceneDescription, engineMaterials, envLight, camera, opt, width, height, host, why)) {
-        std::cerr << tag << " the kernel renderer (docs/GPU.md, stage 1) does not model:" << why << "\n" << tag << " render it with --device cpu\n";
+        std::cerr << tag << " the kernel renderer (docs/GPU.md) does not model:" << why << "\n" << tag << " render it with --device cpu\n";
         return 1;
     }
     const kernel::KScene s = host.view();
-    std::cout << tag << " kernel scene: " << s.numTriangles << " triangles, " << s.numMaterials << " materials, " << s.numLights << " quad lights"
+    std::cout << tag << " kernel scene: " << s.numTriangles << " triangles, " << s.numSpheres << " spheres, " << s.numMaterials << " materials, " << s.numLights << " lights"
         << (kernel::hasEnvironment(s) ? ", an environment of " + std::to_string(s.envWidth) + " x " + std::to_string(s.envHeight) + " (" +
             std::to_string(int(std::lround(100.0 * s.envSelect))) + " % of the light samples)" : std::string()) << "; " << width << " x " << height << ", " << s.spp << " spp, depth " << s.maxDepth << ", float\n";
 

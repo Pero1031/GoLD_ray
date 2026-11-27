@@ -64,13 +64,27 @@ namespace rayt::kernel {
         DielectricParams<float> dielectric; ///< dielectric
     };
 
-    /// An emitting parallelogram that next-event estimation samples: corner + a edge1 + b edge2, a, b in [0, 1).
-    struct KQuadLight {
+    enum : uint32_t { kLightQuad = 0, kLightSphere = 1 };
+
+    /// A light that next-event estimation samples: an emitting parallelogram (corner + a edge1 + b edge2, a uniform point on it)
+    /// or an emitting sphere (the cone it subtends, as the engine's Sphere::sampleFrom).
+    struct KLight {
+        uint32_t type;             ///< kLightQuad | kLightSphere
         KFloat3 corner, edge1, edge2;
-        KFloat3 normal;            ///< unit cross(edge1, edge2): the front face
+        KFloat3 normal;            ///< quad: unit cross(edge1, edge2), the front face
+        KFloat3 center;            ///< sphere
+        float radius;              ///< sphere (as the engine's: a negative radius turns the normals inward)
         float area;
         float radiance[3];
         uint32_t twoSided;
+    };
+
+    /// A sphere of the scene (an analytic shape, as the engine's Sphere; the tracers intersect it with kernel::intersectSphere).
+    struct KSphere {
+        KFloat3 center;
+        float radius;              ///< negative: the normals point inward (Geometry/Sphere.hpp)
+        uint32_t material;
+        int32_t light;             ///< index of its light, -1 if none
     };
 
     /// A pinhole: film point (s, t) in [0, 1)^2 looks from origin toward lowerLeft + s horizontal + t vertical (t = 0 at the bottom).
@@ -83,12 +97,13 @@ namespace rayt::kernel {
         const uint32_t* indices;      ///< 3 per triangle
         const KFloat3* faceNormals;   ///< per triangle: unit geometric normal, turned toward the vertex normals as the engine does
         const uint32_t* triMaterial;  ///< per triangle: index into materials
-        const int32_t* triLight;      ///< per triangle: index of the quad light it belongs to, -1 if none
+        const int32_t* triLight;      ///< per triangle: index of the light it belongs to, -1 if none
         const uint8_t* triSmooth;     ///< per triangle: 1 = shade with the interpolated vertex normals
         const KMaterial* materials;
-        const KQuadLight* lights;
+        const KSphere* spheres;       ///< primitive numTriangles + i of the tracers is sphere i
+        const KLight* lights;
         const float* lightCdf;        ///< numLights + 1 entries: cdf[0] = 0, cdf[numLights] = 1 (lights chosen by emitted power)
-        uint32_t numVertices, numTriangles, numMaterials, numLights;
+        uint32_t numVertices, numTriangles, numSpheres, numMaterials, numLights;
         // The environment: an equirectangular map as the engine's EnvMap holds it (IO/EnvMap.hpp; a uniform environment is a white
         // map), times envScale, and its importance-sampling distribution (Core/Distribution2D.hpp: luminance x sin(theta) per texel).
         const float* envPixels;       ///< envWidth x envHeight x 3, row 0 = the top (the +y pole)
@@ -100,7 +115,7 @@ namespace rayt::kernel {
         float envMarginalInt;
         uint32_t envWidth, envHeight; ///< 0 x 0: no environment
         float envScale;
-        float envSelect;              ///< the probability that a light sample picks the environment (the quads share the rest)
+        float envSelect;              ///< the probability that a light sample picks the environment (the other lights share the rest)
         KCamera camera;
         uint32_t width, height;       ///< pixels
         uint32_t spp, maxDepth;       ///< samples per pixel; path length as the engine counts it (surface vertices)

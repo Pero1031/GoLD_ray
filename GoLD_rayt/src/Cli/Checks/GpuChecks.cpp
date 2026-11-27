@@ -5,10 +5,12 @@
 #include "Core/Fresnel.hpp"
 #include "Core/Sampling.hpp"
 #include "Geometry/Frame.hpp"
+#include "Geometry/Sphere.hpp"
 #include "Cli/KernelScenePack.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/SceneFile.hpp"
 #include "Gpu/GpuDevice.hpp"
+#include "Kernel/Lights.hpp"
 #include "Kernel/SelfTest.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
@@ -122,13 +124,13 @@ namespace {
             Fmt(std::chrono::duration<double>(t1 - t0).count(), 2) + " s, GPU " + Fmt(std::chrono::duration<double>(t2 - t1).count(), 2) + " s (with the GPU's setup)");
     }
 
-    /// The rays a CPU path trace of a test scene casts, traced again by the GPU's tracer (OptiX): where do OptiX and Embree answer
-    /// differently? The kernel takes only the triangle from them (and whether a shadow ray is blocked), so these are the only places
-    /// where the CPU's and the GPU's paths can part.
-    bool TracerCheck(const gpu::Module& mod, const std::string& path) {
+    /// The rays a CPU path trace of a test scene casts (w x h pixels, spp samples, run seed), traced again by the GPU's tracer
+    /// (OptiX): where do OptiX and Embree answer differently? The kernel takes only the primitive from them (and a sphere's distance,
+    /// and whether a shadow ray is blocked), so these are the only places where the CPU's and the GPU's paths can part.
+    bool TracerCheck(const gpu::Module& mod, const std::string& path, int w = 64, int h = 48, int spp = 4, uint64_t seed = 11) {
         KernelSceneHost host;
         std::string why;
-        if (!KernelTestScene(path, 64, 48, 4, 16, 11, false, host, why)) return Report(path, false, why);
+        if (!KernelTestScene(path, w, h, spp, 16, seed, false, host, why)) return Report(path, false, why);
         const kernel::KScene s = host.view();
         std::vector<kernel::KRay> rays;
         std::vector<kernel::KHit> cpu;
@@ -137,7 +139,7 @@ namespace {
         std::vector<kernel::KHit> gpu(rays.size());
         char err[512] = {};
         if (mod.traceTest(&s, rays.data(), gpu.data(), int(rays.size()), err, int(sizeof(err))) != 0) return Report("tracing " + path + " on the GPU", false, err);
-        size_t closest = 0, shadows = 0, hitMiss = 0, otherTriangle = 0, shadowDiffer = 0;
+        size_t closest = 0, shadows = 0, hitMiss = 0, otherTriangle = 0, shadowDiffer = 0, sphereHits = 0, sphereDistance = 0;
         std::ostringstream examples;
         int shown = 0;
         for (size_t i = 0; i < rays.size(); ++i) {
@@ -147,26 +149,42 @@ namespace {
                 ++shadows;
                 const bool blockedCpu = a.prim != kernel::kNoHit, blockedGpu = b.prim != kernel::kNoHit;
                 shadowDiffer += blockedCpu != blockedGpu;
+                if (blockedCpu != blockedGpu && shown < 4) {
+                    const kernel::KRay& r = rays[i];
+                    examples << "\n               shadow ray " << i << ": Embree " << blockedCpu << ", OptiX " << blockedGpu << " o " << Fmt(r.o.x, 9) << " " << Fmt(r.o.y, 9) << " " << Fmt(r.o.z, 9)
+                             << " d " << Fmt(r.d.x, 9) << " " << Fmt(r.d.y, 9) << " " << Fmt(r.d.z, 9) << " tmax " << Fmt(r.tmax, 9);
+                    ++shown;
+                }
                 continue;
             }
             ++closest;
-            if (a.prim == b.prim) continue;
+            if (a.prim == b.prim) {
+                // a sphere: the kernel takes the distance from the tracer, which both compute with kernel::intersectSphere
+                if (a.prim != kernel::kNoHit && a.prim >= s.numTriangles) { ++sphereHits; sphereDistance += a.t != b.t; }
+                continue;
+            }
             const bool hm = (a.prim == kernel::kNoHit) != (b.prim == kernel::kNoHit);
             (hm ? hitMiss : otherTriangle) += 1;
             if (shown < 4) {
                 const kernel::KRay& r = rays[i];
                 const uint32_t p = a.prim != kernel::kNoHit ? a.prim : b.prim;
-                const kernel::KFloat3 n = s.faceNormals[p];
-                examples << "\n               ray " << i << ": Embree " << (a.prim == kernel::kNoHit ? std::string("miss") : "triangle " + std::to_string(a.prim) + " at t " + Fmt(a.t, 6))
-                         << ", OptiX " << (b.prim == kernel::kNoHit ? std::string("miss") : "triangle " + std::to_string(b.prim) + " at t " + Fmt(b.t, 6))
-                         << "; cos(ray, face) " << Fmt(r.d.x * n.x + r.d.y * n.y + r.d.z * n.z, 3) << ", barycentrics " << Fmt(a.b1, 3) << " " << Fmt(a.b2, 3);
+                auto name = [&](const kernel::KHit& x) {
+                    if (x.prim == kernel::kNoHit) return std::string("miss");
+                    return (x.prim < s.numTriangles ? "triangle " + std::to_string(x.prim) : "sphere " + std::to_string(x.prim - s.numTriangles)) + " at t " + Fmt(x.t, 6);
+                };
+                examples << "\n               ray " << i << ": Embree " << name(a) << ", OptiX " << name(b);
+                if (p < s.numTriangles) {
+                    const kernel::KFloat3 n = s.faceNormals[p];
+                    examples << "; cos(ray, face) " << Fmt(r.d.x * n.x + r.d.y * n.y + r.d.z * n.z, 3) << ", barycentrics " << Fmt(a.b1, 3) << " " << Fmt(a.b2, 3);
+                }
                 ++shown;
             }
         }
-        const double share = double(hitMiss + otherTriangle + shadowDiffer) / double(rays.size());
+        const double share = double(hitMiss + otherTriangle + shadowDiffer + sphereDistance) / double(rays.size());
         return Report("tracers on the rays of " + path + ": OptiX = Embree (at most 1e-4 of the rays answered differently)", share <= 1e-4,
             std::to_string(rays.size()) + " rays (" + std::to_string(closest) + " closest-hit, " + std::to_string(shadows) + " shadow): " + std::to_string(otherTriangle) +
-            " other triangle, " + std::to_string(hitMiss) + " hit against miss, " + std::to_string(shadowDiffer) + " shadow rays blocked on one side only (" +
+            " other primitive, " + std::to_string(hitMiss) + " hit against miss, " + std::to_string(shadowDiffer) + " shadow rays blocked on one side only" +
+            (s.numSpheres > 0 ? ", " + std::to_string(sphereDistance) + " of " + std::to_string(sphereHits) + " sphere hits at another distance" : std::string()) + " (" +
             Fmt(100.0 * share, 3) + " %)" + examples.str());
     }
 
@@ -341,6 +359,58 @@ namespace {
             Fmt(worst) + " (tolerance 1e-12), " + std::to_string(mismatch) + " samples valid on one side only");
     }
 
+    /// The kernel's sphere light in double against the engine's Sphere: sampleFrom (with AreaLight::sampleLi's direction) and
+    /// pdfSurface, from points outside the sphere (the cone it subtends) and inside it (a uniform point of its surface).
+    bool SphereLightEngineCheck() {
+        struct Ball { Point3 c; Real r; };
+        const Ball balls[] = { { Point3(0.3, 1.2, -0.4), Real(0.25) }, { Point3(5, 20, 3), Real(0.01) }, { Point3(-2, 0.5, 1), Real(3) } };
+        kernel::Pcg32 rng;
+        rng.seed(5150, 7);
+        double worst = 0;
+        size_t identical = 0, values = 0, mismatch = 0, inside = 0;
+        const int n = 4096;
+        for (int i = 0; i < n; ++i) {
+            const Ball& ball = balls[i % 3];
+            const Sphere engine(ball.c, ball.r, nullptr);
+            // a reference point: a fifth inside the sphere, the others at 1.001 to 50 radii from the centre (most of them near it)
+            const bool in = i % 5 == 0;
+            const Real dist = in ? ball.r * Real(0.95) * rng.nextDouble() : ball.r * (Real(1.001) + Real(49) * rng.nextDouble() * rng.nextDouble());
+            const Point3 ref = ball.c + RandomUnit(rng) * dist;
+            inside += in;
+            const Real u1 = rng.nextDouble(), u2 = rng.nextDouble();
+            const auto es = engine.sampleFrom(ref, Point2(u1, u2));
+            kernel::LightSample<Real> ks{};
+            const bool kok = kernel::sampleSphereLight<Real>(ball.c, ball.r, false, ref, u1, u2, ks);
+            if (bool(es) != kok) { ++mismatch; continue; }
+            std::vector<std::array<double, 2>> v;
+            if (kok) {
+                const Vector3 d = es->si.p - ref;
+                const Vector3 wiE = d * math::safe_recip(math::safe_sqrt(glm::dot(d, d)));   // AreaLight::sampleLi
+                for (int c = 0; c < 3; ++c) { v.push_back({ es->si.p[c], ks.p[c] }); v.push_back({ wiE[c], ks.wi[c] }); }
+                v.push_back({ es->pdf, ks.pdf });
+                if (es->si.frontFace != ks.emits) ++mismatch;
+            }
+            // the density toward the sampled point and toward a random direction (inside: where the engine's ray meets the sphere)
+            SurfaceInteraction at;
+            at.p = ref;
+            at.gn = at.n = RandomUnit(rng);
+            for (int k = 0; k < 2; ++k) {
+                const Vector3 wi = k == 0 && kok ? ks.wi : RandomUnit(rng);
+                Point3 hitP = ref;
+                if (in) {
+                    SurfaceInteraction isect;
+                    if (!engine.hit(Ray(at.OffsetRayOrigin(wi), wi), isect)) continue;
+                    hitP = isect.p;
+                }
+                v.push_back({ engine.pdfSurface(at, wi), kernel::sphereLightPdf<Real>(ball.c, ball.r, ref, wi, hitP) });
+            }
+            for (const auto& q : v) { worst = std::max(worst, RelDiff(q[0], q[1])); identical += q[0] == q[1]; ++values; }
+        }
+        return Report("kernel sphere light = engine Sphere::sampleFrom / pdfSurface", worst <= 1e-12 && mismatch == 0,
+            std::to_string(n) + " samples (" + std::to_string(inside) + " from inside the sphere) and densities: " + Fmt(100.0 * double(identical) / double(values), 5) +
+            " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " + std::to_string(mismatch) + " samples valid or facing on one side only");
+    }
+
     /// A material's eval, pdf and sample in float on the CPU and on the GPU, on the same directions.
     bool MaterialGpuCheck(const gpu::Module& mod, bool fastMath, const std::string& label, const kernel::KMaterial& m) {
         const std::vector<DirCase> dirs = MakeDirCases(4096, 91);
@@ -478,6 +548,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         ok &= EnvEngineCheck("bryanston_park_sunrise_2k.hdr", hdr.light.get());
     }
 #endif
+    ok &= SphereLightEngineCheck();
 
     // 4. The GPU module.
     std::string why;
@@ -560,6 +631,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_metals.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_glass.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_env.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_spheres.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -569,6 +641,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= TracerCheck(*mod, "scenes/gpu_metals.json");
     ok &= TracerCheck(*mod, "scenes/gpu_glass.json");
     ok &= TracerCheck(*mod, "scenes/gpu_env.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_spheres.json");
 #endif
     return ok ? 0 : 2;
 }
