@@ -307,12 +307,13 @@ namespace rayt {
             return;
         }
         const std::string ext = LowerExtension(filename);
-        if (ext == "hdr") {
+        if (ext == "hdr" || ext == "pfm") {   // linear floats; only .pfm keeps the negative components of a normal (RGBE has no sign)
             std::vector<float> rgb(data.size() * 3);
             for (size_t i = 0; i < data.size(); ++i)
                 for (int c = 0; c < 3; ++c) rgb[i * 3 + c] = Finite(data[i][c]);
-            if (!io::WriteHdr(filename, m_width, m_height, rgb)) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
-            std::cout << "[Film] Saved HDR image: " << filename << std::endl;
+            const bool ok = (ext == "pfm") ? io::WritePfm(filename, m_width, m_height, 3, rgb) : io::WriteHdr(filename, m_width, m_height, rgb);
+            if (!ok) { std::cerr << "[Film] Error: could not write " << filename << std::endl; return; }
+            std::cout << "[Film] Saved " << (ext == "pfm" ? "PFM" : "HDR") << " image: " << filename << std::endl;
             return;
         }
         if (ext != "png" && ext != "bmp" && ext != "jpg") {

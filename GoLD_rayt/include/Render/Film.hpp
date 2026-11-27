@@ -107,10 +107,10 @@ namespace rayt {
         const Vector3* getAlbedoData() const { return m_albedo.data(); }
         const Vector3* getNormalData() const { return m_normal.data(); }
 
-        /// .hdr: linear floats; .png/.bmp/.jpg: albedo sRGB-encoded.
+        /// .pfm / .hdr: linear floats; .png/.bmp/.jpg: albedo sRGB-encoded.
         void saveAlbedo(const std::string& filename) const;
 
-        /// .hdr: floats in [-1,1]; .png/.bmp/.jpg: remapped to [0,1] (n * 0.5 + 0.5), no encoding.
+        /// .pfm: floats in [-1,1] (.hdr cannot hold the negative ones); .png/.bmp/.jpg: remapped to [0,1] (n * 0.5 + 0.5), no encoding.
         void saveNormal(const std::string& filename) const;
 
         // ---- Mask and depth (--mask, --depth-map; Render/MaskDepth.hpp) ---------------------------------

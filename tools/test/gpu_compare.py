@@ -11,7 +11,12 @@ of its two renders, and the means of the two renderers are compared:
 It also renders the kernel scene once on the CPU and once on the GPU with the same seed and reports the share of bit-identical
 pixels (the GPU module built without fast math gives 100 %).
 
-    python tools/test/gpu_compare.py [--scene scenes/gpu_box.json] [--spp 1024] [--kernel gpu]
+With --aov the denoiser's features (<out>_albedo.pfm, <out>_normal.pfm) are compared the same way: most blocks of a feature image
+are free of noise (a pixel inside one surface records the same albedo and normal for every sample), and there the two renderers must
+agree up to float rounding; the blocks at edges, silhouettes and behind smooth glass are noisy, and are compared by z as the picture.
+With --denoise as well, the means of the denoised pictures are printed (informative only: a denoised picture is a learned estimate).
+
+    python tools/test/gpu_compare.py [--scene scenes/gpu_box.json] [--spp 1024] [--kernel gpu] [--aov] [-- --denoise]
 """
 import argparse
 import os
@@ -60,6 +65,22 @@ def compare(e, k, b):
                 exact=int(exact.sum()), exact_rel=float(np.abs(rel[exact]).max()) if exact.any() else 0.0)
 
 
+def compare_feature(e, k, b):
+    """e, k: (2, H, W, 3) feature images (albedo or normal) of the engine and of the kernel renderer, two renders each."""
+    E, K = e.mean(0), k.mean(0)
+    var_e = block_means((e[0] - e[1]) ** 2 / 2, b) / (2 * b * b)
+    var_k = block_means((k[0] - k[1]) ** 2 / 2, b) / (2 * b * b)
+    be, bk = block_means(E, b), block_means(K, b)
+    var = (var_e + var_k).max(axis=-1)
+    quiet = var <= 1e-14   # every sample of every pixel recorded the same features (up to float rounding)
+    z = (bk - be) / np.sqrt(var_e + var_k + 1e-30)
+    se = np.sqrt((((e[0] - e[1]) ** 2 / 2).reshape(-1, 3).mean(0) + ((k[0] - k[1]) ** 2 / 2).reshape(-1, 3).mean(0)) / (2 * E.shape[0] * E.shape[1]))
+    d = K.reshape(-1, 3).mean(0) - E.reshape(-1, 3).mean(0)
+    return dict(diff=d, z_mean=d / np.maximum(se, 1e-30), quiet=int(quiet.sum()), quiet_max=float(np.abs(bk - be)[quiet].max()) if quiet.any() else 0.0,
+                noisy=int((~quiet).sum()), frac_z3=float((np.abs(z[~quiet]) > 3).mean()) if (~quiet).any() else 0.0,
+                mean_z=float(z[~quiet].mean()) if (~quiet).any() else 0.0)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scene", default="scenes/gpu_box.json")
@@ -69,16 +90,20 @@ def main():
     ap.add_argument("--block", type=int, default=16)
     ap.add_argument("--seed-base", type=int, default=1, help="engine seeds base, base + 1; kernel seeds base + 2, base + 3")
     ap.add_argument("--folder", default=os.path.join(ROOT, "out", "gpu_compare"))
+    ap.add_argument("--aov", action="store_true", help="also compare the albedo and normal features")
     ap.add_argument("extra", nargs="*", help="further options for every render (after --)")
     a = ap.parse_args()
     os.makedirs(a.folder, exist_ok=True)
     name = os.path.splitext(os.path.basename(a.scene))[0]
+    extra = a.extra + (["--aov"] if a.aov else [])
 
-    e, k, te, tk = [], [], [], []
+    e, k, te, tk, outs_e, outs_k = [], [], [], [], [], []
     for seed in (a.seed_base, a.seed_base + 1):
-        img, t = render(a.exe, a.scene, "cpu", a.spp, seed, os.path.join(a.folder, f"{name}_engine_{seed}.pfm"), a.extra)
+        outs_e.append(os.path.join(a.folder, f"{name}_engine_{seed}.pfm"))
+        img, t = render(a.exe, a.scene, "cpu", a.spp, seed, outs_e[-1], extra)
         e.append(img); te.append(t)
-        img, t = render(a.exe, a.scene, a.kernel, a.spp, seed + 2, os.path.join(a.folder, f"{name}_{a.kernel}_{seed + 2}.pfm"), a.extra)
+        outs_k.append(os.path.join(a.folder, f"{name}_{a.kernel}_{seed + 2}.pfm"))
+        img, t = render(a.exe, a.scene, a.kernel, a.spp, seed + 2, outs_k[-1], extra)
         k.append(img); tk.append(t)
     s = compare(np.array(e), np.array(k), a.block)
     h, w = e[0].shape[:2]
@@ -89,10 +114,21 @@ def main():
           f"median |relative difference| {100 * s['med_rel']:.3f} % against a noise of {100 * s['noise_rel']:.3f} %")
     if s["exact"]:
         print(f"  {s['exact']} noiseless blocks (environment only): largest relative difference {s['exact_rel']:.2e}")
+    if a.aov:
+        for feature in ("albedo", "normal"):
+            fe = np.array([read_pfm(p[:-4] + f"_{feature}.pfm").astype(np.float64) for p in outs_e])
+            fk = np.array([read_pfm(p[:-4] + f"_{feature}.pfm").astype(np.float64) for p in outs_k])
+            f = compare_feature(fe, fk, a.block)
+            print(f"  {feature}: image mean kernel - engine {np.array2string(f['diff'], precision=6)}, z {np.round(f['z_mean'], 2)}; "
+                  f"{f['quiet']} noiseless blocks agree within {f['quiet_max']:.2e}; {f['noisy']} noisy blocks: |z| > 3 in {100 * f['frac_z3']:.2f} %, mean z {f['mean_z']:+.3f}")
+    if "--denoise" in extra:
+        de = np.array([read_pfm(p[:-4] + "_denoised.pfm").astype(np.float64) for p in outs_e]).mean(0)
+        dk = np.array([read_pfm(p[:-4] + "_denoised.pfm").astype(np.float64) for p in outs_k]).mean(0)
+        print(f"  denoised: image mean kernel / engine {np.array2string(dk.reshape(-1, 3).mean(0) / de.reshape(-1, 3).mean(0), precision=5)} (informative)")
 
     # the same seed on the CPU and the GPU: the share of bit-identical pixels
-    p_cpu, _ = render(a.exe, a.scene, "cpu-kernel", 16, 7, os.path.join(a.folder, f"{name}_pair_cpu.pfm"), a.extra)
-    p_gpu, _ = render(a.exe, a.scene, "gpu", 16, 7, os.path.join(a.folder, f"{name}_pair_gpu.pfm"), a.extra)
+    p_cpu, _ = render(a.exe, a.scene, "cpu-kernel", 16, 7, os.path.join(a.folder, f"{name}_pair_cpu.pfm"), extra)
+    p_gpu, _ = render(a.exe, a.scene, "gpu", 16, 7, os.path.join(a.folder, f"{name}_pair_gpu.pfm"), extra)
     same = np.all(p_cpu == p_gpu, axis=2).mean()
     print(f"  same seed, 16 spp, CPU kernel against GPU: {100 * same:.3f} % of the pixels bit-identical, largest difference {np.abs(p_cpu - p_gpu).max():.3g}")
 

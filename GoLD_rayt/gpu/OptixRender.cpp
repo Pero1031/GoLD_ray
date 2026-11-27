@@ -255,7 +255,7 @@ namespace {
 
 } // namespace
 
-RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* out, RaytGpuProgressFn progress, char* error, int errorSize) {
+RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* out, float* albedo, float* normal, RaytGpuProgressFn progress, char* error, int errorSize) {
     const rayt::kernel::KScene& h = *hostScene;
     char log[1] = {};
     OptixSetup setup;
@@ -264,13 +264,22 @@ RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* 
 
     // ---- one launch per sample: every pixel adds its sample of that index to the sum ----
     const size_t floats = size_t(h.width) * h.height * 3;
-    DeviceBuffer<float> accum;
+    DeviceBuffer<float> accum, accumAlbedo, accumNormal;
     RAYT_CUDA(accum.allocate(floats), "allocating the image");
     RAYT_CUDA(cudaMemset(accum.ptr, 0, floats * sizeof(float)), "clearing the image");
+    const bool aovs = albedo && normal;
+    if (aovs) {
+        RAYT_CUDA(accumAlbedo.allocate(floats), "allocating the albedo image");
+        RAYT_CUDA(cudaMemset(accumAlbedo.ptr, 0, floats * sizeof(float)), "clearing the albedo image");
+        RAYT_CUDA(accumNormal.allocate(floats), "allocating the normal image");
+        RAYT_CUDA(cudaMemset(accumNormal.ptr, 0, floats * sizeof(float)), "clearing the normal image");
+    }
     rayt::gpu::LaunchParams launch{};
     launch.scene = setup.scene;
     launch.handle = setup.handle;
     launch.accum = accum.ptr;
+    launch.accumAlbedo = aovs ? accumAlbedo.ptr : nullptr;
+    launch.accumNormal = aovs ? accumNormal.ptr : nullptr;
     DeviceBuffer<rayt::gpu::LaunchParams> dLaunch;
     RAYT_CUDA(dLaunch.allocate(1), "allocating the launch parameters");
     for (uint32_t k = 0; k < h.spp; ++k) {
@@ -281,9 +290,15 @@ RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* 
         if (progress) progress(k + 1, h.spp);
     }
     RAYT_CUDA(cudaMemcpy(out, accum.ptr, floats * sizeof(float), cudaMemcpyDeviceToHost), "copying the image to the host");
+    if (aovs) {
+        RAYT_CUDA(cudaMemcpy(albedo, accumAlbedo.ptr, floats * sizeof(float), cudaMemcpyDeviceToHost), "copying the albedo image to the host");
+        RAYT_CUDA(cudaMemcpy(normal, accumNormal.ptr, floats * sizeof(float), cudaMemcpyDeviceToHost), "copying the normal image to the host");
+    }
     // The mean, divided in float as the CPU kernel renderer divides its sums.
     const float n = float(h.spp);
     for (size_t i = 0; i < floats; ++i) out[i] = out[i] / n;
+    if (aovs)
+        for (size_t i = 0; i < floats; ++i) { albedo[i] = albedo[i] / n; normal[i] = normal[i] / n; }
     return 0;
 }
 

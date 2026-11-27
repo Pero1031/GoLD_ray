@@ -109,15 +109,20 @@ namespace rayt::kernel {
         return lo;
     }
 
-    /// The radiance of one camera path through pixel (px, py) (py = 0 is the bottom row), sample index `sample`.
-    template <class Tracer>
-    RAYT_HD V3 tracePath(const KScene& s, const Tracer& tracer, uint32_t px, uint32_t py, uint32_t sample) {
-        Pcg32 rng = Pcg32::forSample(s.seed, py * s.width + px, sample);
-        const float u = (float(px) + rng.nextFloat()) / float(s.width);
-        const float v = (float(py) + rng.nextFloat()) / float(s.height);
-        V3 o = toV3(s.camera.origin);
-        V3 d = knormalize(toV3(s.camera.lowerLeft) + u * toV3(s.camera.horizontal) + v * toV3(s.camera.vertical) - o);
+    RAYT_HD_INLINE void setAov(KAov* aov, const V3& albedo, const V3& normal) {
+        aov->albedo[0] = albedo.x; aov->albedo[1] = albedo.y; aov->albedo[2] = albedo.z;
+        aov->normal[0] = normal.x; aov->normal[1] = normal.y; aov->normal[2] = normal.z;
+        aov->valid = 1;
+    }
 
+    /**
+     * @brief The radiance a camera ray (o, d) brings back (the engine's PathIntegrator::Li), drawing its random numbers from rng.
+     *
+     * aov (optional, its valid = 0 on entry): receives the denoiser's features of the path, as PathIntegrator::Li records them. Recording
+     * them draws no random number, so the radiance is the same bits with or without.
+     */
+    template <class Tracer>
+    RAYT_HD V3 traceRay(const KScene& s, const Tracer& tracer, Pcg32& rng, V3 o, V3 d, KAov* aov = nullptr) {
         V3 L(0.0f), beta(1.0f);
         float lastPdf = 0.0f;
         bool lastDelta = true;   // the camera ray: an emitter it finds counts fully
@@ -126,12 +131,17 @@ namespace rayt::kernel {
             if (h.prim == kNoHit) {
                 // ---- the environment, weighted against the light sample of the previous vertex (PathIntegrator::addEscapedRadiance) ----
                 if (hasEnvironment(s)) {
+                    const V3 le = envEval(s, d);
+                    if (aov && !aov->valid) {   // seen directly or through smooth glass: the environment's color (PathIntegrator::addEscapedRadiance)
+                        const V3 c = le * s.envScale;
+                        setAov(aov, V3(kmin(kmax(c.x, 0.0f), 1.0f), kmin(kmax(c.y, 0.0f), 1.0f), kmin(kmax(c.z, 0.0f), 1.0f)), V3(0.0f));
+                    }
                     float w = 1.0f;
                     if (!lastDelta && s.envSelect > 0.0f) {
                         const float pdfL = s.envSelect * envPdf(s, d);
                         w = lastPdf * lastPdf / (lastPdf * lastPdf + pdfL * pdfL);
                     }
-                    L += beta * envEval(s, d) * s.envScale * w;
+                    L += beta * le * s.envScale * w;
                 }
                 break;
             }
@@ -171,6 +181,8 @@ namespace rayt::kernel {
             const V3 ng = front ? faceN : -faceN;   // faces the incoming ray (SurfaceInteraction::setFaceNormal)
             if (!smooth) ns = ng;
             const KMaterial& m = s.materials[material];
+            // the denoiser's features: the first vertex that is not specular, emitters included (recorded before their light, as the engine does)
+            if (aov && !aov->valid && !m.aovSpecular) setAov(aov, V3(m.aovAlbedo[0], m.aovAlbedo[1], m.aovAlbedo[2]), ns);
 
             // ---- an emitter: its light, weighted against the light sample of the previous vertex; emitters do not reflect ----
             if (m.type == kMatEmission) {
@@ -252,6 +264,23 @@ namespace rayt::kernel {
             d = wi;
         }
         return L;
+    }
+
+    /// The camera ray of pixel (px, py) (py = 0 is the bottom row): the pinhole through a uniform point of the pixel, drawn from rng.
+    RAYT_HD_INLINE void cameraRay(const KScene& s, Pcg32& rng, uint32_t px, uint32_t py, V3& o, V3& d) {
+        const float u = (float(px) + rng.nextFloat()) / float(s.width);
+        const float v = (float(py) + rng.nextFloat()) / float(s.height);
+        o = toV3(s.camera.origin);
+        d = knormalize(toV3(s.camera.lowerLeft) + u * toV3(s.camera.horizontal) + v * toV3(s.camera.vertical) - o);
+    }
+
+    /// The radiance of one camera path through pixel (px, py) (py = 0 is the bottom row), sample index `sample`; aov as for traceRay.
+    template <class Tracer>
+    RAYT_HD V3 tracePath(const KScene& s, const Tracer& tracer, uint32_t px, uint32_t py, uint32_t sample, KAov* aov = nullptr) {
+        Pcg32 rng = Pcg32::forSample(s.seed, py * s.width + px, sample);
+        V3 o, d;
+        cameraRay(s, rng, px, py, o, d);
+        return traceRay(s, tracer, rng, o, d, aov);
     }
 
 } // namespace rayt::kernel

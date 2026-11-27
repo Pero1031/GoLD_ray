@@ -2,6 +2,7 @@
 // and on the GPU against the CPU. Without the GPU module or a CUDA device the GPU part prints SKIP.
 #include "pch.h"
 #include "Cli/Checks.hpp"
+#include "Accelerators/BVH.hpp"
 #include "Core/Fresnel.hpp"
 #include "Core/Sampling.hpp"
 #include "Geometry/Frame.hpp"
@@ -11,11 +12,14 @@
 #include "Cli/SceneFile.hpp"
 #include "Gpu/GpuDevice.hpp"
 #include "Kernel/Lights.hpp"
+#include "Kernel/PathTracer.hpp"
 #include "Kernel/SelfTest.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/Camera.hpp"
+#include "Render/Integrator.hpp"
+#include "Scene/Scene.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -98,30 +102,124 @@ namespace {
         return PackSceneFile(path, o, w, h, edit, host, why);
     }
 
-    /// The same scene and seed on the CPU kernel renderer and on the GPU: the same bits (fast math: the same mean within the noise).
+    /// The same scene and seed on the CPU kernel renderer and on the GPU: the same bits (fast math: the same mean within the noise), the
+    /// denoiser's features (albedo, normal) included; and a render without the features is the same picture (recording them draws no
+    /// random number).
     bool PairedCheck(const std::string& path, bool fastMath) {
         KernelSceneHost host;
         std::string why;
         if (!KernelTestScene(path, 128, 96, 8, 16, 11, false, host, why)) return Report(path, false, why);
-        std::vector<float> a, b;
+        std::vector<float> a, b, plain, albedoA, normalA, albedoB, normalB;
         const auto t0 = std::chrono::steady_clock::now();
-        const bool cpuOk = RenderKernelCpu(host.view(), a, why, false);
+        const bool cpuOk = RenderKernelCpu(host.view(), a, why, false, &albedoA, &normalA);
         const auto t1 = std::chrono::steady_clock::now();
-        const bool gpuOk = cpuOk && RenderKernelGpu(host.view(), b, why, false);
+        const bool gpuOk = cpuOk && RenderKernelGpu(host.view(), b, why, false, nullptr, nullptr, &albedoB, &normalB);
         const auto t2 = std::chrono::steady_clock::now();
-        if (!cpuOk || !gpuOk) return Report(path + " on the CPU and the GPU", false, why);
-        size_t samePixels = 0;
+        const bool plainOk = gpuOk && RenderKernelCpu(host.view(), plain, why, false);
+        if (!cpuOk || !gpuOk || !plainOk) return Report(path + " on the CPU and the GPU", false, why);
+        size_t samePixels = 0, sameFeatures = 0, withFeatures = 0;
         double sa = 0, sb = 0, var = 0;
         for (size_t i = 0; i < a.size(); i += 3) {
             samePixels += a[i] == b[i] && a[i + 1] == b[i + 1] && a[i + 2] == b[i + 2];
-            for (int c = 0; c < 3; ++c) { sa += a[i + c]; sb += b[i + c]; var += double(a[i + c]) * a[i + c]; }
+            bool same = true, any = false;
+            for (int c = 0; c < 3; ++c) {
+                sa += a[i + c]; sb += b[i + c]; var += double(a[i + c]) * a[i + c];
+                same &= albedoA[i + c] == albedoB[i + c] && normalA[i + c] == normalB[i + c];
+                any |= albedoA[i + c] != 0.0f;
+            }
+            sameFeatures += same;
+            withFeatures += any;
         }
+        const bool unchanged = plain == a;
         const size_t pixels = a.size() / 3;
         const double n = double(a.size()), meanA = sa / n, se = std::sqrt(std::max(var / n - meanA * meanA, 0.0) / n);
-        const bool pass = fastMath ? std::abs(sb - sa) / n <= 4 * std::sqrt(2.0) * se : samePixels == pixels;
-        return Report(std::string("kernel renderer, ") + path + " with the same seed: GPU " + (fastMath ? "(fast math) = CPU within the noise" : "= CPU bit for bit"), pass,
-            Fmt(100.0 * double(samePixels) / double(pixels), 5) + " % of the pixels bit-identical, image mean GPU / CPU " + Fmt(sb / sa, 8) + "; 128 x 96, 8 spp: CPU " +
+        const bool pass = unchanged && (fastMath ? std::abs(sb - sa) / n <= 4 * std::sqrt(2.0) * se : samePixels == pixels && sameFeatures == pixels);
+        return Report(std::string("kernel renderer, ") + path + " with the same seed: GPU " + (fastMath ? "(fast math) = CPU within the noise" : "= CPU bit for bit") +
+            ", albedo and normal included", pass,
+            Fmt(100.0 * double(samePixels) / double(pixels), 5) + " % of the pixels bit-identical, albedo + normal " + Fmt(100.0 * double(sameFeatures) / double(pixels), 5) +
+            " % (an albedo in " + Fmt(100.0 * double(withFeatures) / double(pixels), 4) + " %), image mean GPU / CPU " + Fmt(sb / sa, 8) +
+            "; without the features " + (unchanged ? "the same picture" : "A DIFFERENT PICTURE") + "; 128 x 96, 8 spp: CPU " +
             Fmt(std::chrono::duration<double>(t1 - t0).count(), 2) + " s, GPU " + Fmt(std::chrono::duration<double>(t2 - t1).count(), 2) + " s (with the GPU's setup)");
+    }
+
+    /// The denoiser's features of the kernel renderer against the engine's (PathIntegrator::Li with a PathAOV) on the same camera rays,
+    /// one through the centre of each pixel of a w x h grid. Rays whose first surface is specular (smooth glass) are left out: both
+    /// renderers choose reflection or refraction there at random. Every other ray records its features at its first surface or at the
+    /// environment, so the two must agree up to float rounding (the kernel's geometry is the engine's in float), except where the
+    /// tracers (the engine's BVH in double, Embree in float) send a ray along an edge or a silhouette to different primitives. The
+    /// environment's color differs more: the kernel maps the direction to the map in float, the engine in double, and the bilinear
+    /// lookup turns that difference (about 1e-7 rad, 3e-5 of a texel of a 2048 wide map) into one of the color, times the contrast
+    /// between neighbouring texels.
+    bool AovEngineCheck(const std::string& path, int w = 64, int h = 48) {
+        const int maxDepth = 16;
+        KernelSceneHost host;
+        std::string why;
+        std::vector<kernel::KRay> rays;
+        std::vector<PathAOV> engine;
+        const auto withEngine = [&](const SceneSetup& setup, const Environment& env) {
+            struct Quiet {
+                std::ostringstream sink;
+                std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
+                ~Quiet() { std::cout.rdbuf(old); }
+            } quiet;
+            Scene scene(std::make_shared<BVH>(setup.world->objects, 4, /*recordInPlace=*/true));
+            if (env.light) scene.setEnvLight(env.light);
+            for (const auto& l : setup.lights) scene.addLight(l);
+            scene.finalize(setup.lightSampler.empty() ? CliOptions{}.lightSampler : setup.lightSampler);
+            const kernel::KCamera& c = host.header.camera;
+            PathIntegrator integrator(nullptr, maxDepth, 1);
+            for (int j = 0; j < h; ++j)
+                for (int i = 0; i < w; ++i) {
+                    const float u = (float(i) + 0.5f) / float(w), v = (float(j) + 0.5f) / float(h);
+                    const kernel::V3 o = kernel::toV3(c.origin);
+                    const kernel::V3 d = kernel::knormalize(kernel::toV3(c.lowerLeft) + u * kernel::toV3(c.horizontal) + v * kernel::toV3(c.vertical) - o);
+                    rays.push_back({ c.origin, { d.x, d.y, d.z }, 0.0f, kernel::kFloatMax });
+                    SampledWavelengths lambda;
+                    PathAOV aov;
+                    integrator.Li(Ray(Point3(o.x, o.y, o.z), glm::normalize(Vector3(d.x, d.y, d.z))), scene, lambda, &aov);
+                    engine.push_back(aov);
+                }
+        };
+        CliOptions o;
+        o.spp = 1;
+        o.maxDepth = maxDepth;
+        o.seed = 3;
+        if (!PackSceneFile(path, o, w, h, {}, host, why, withEngine)) return Report("features " + path, false, why);
+        std::vector<kernel::KAov> kernelAovs;
+        std::vector<uint32_t> firstMaterial;
+        if (!KernelRayAovs(host.view(), rays, kernelAovs, firstMaterial, why)) return Report("features " + path, false, why);
+        size_t compared = 0, skipped = 0, differ = 0, valid = 0, atEnvironment = 0;
+        double maxAlbedo = 0, maxNormal = 0, maxEnv = 0;
+        std::ostringstream examples;
+        for (size_t k = 0; k < rays.size(); ++k) {
+            if (firstMaterial[k] != kernel::kNoHit && host.materials[firstMaterial[k]].aovSpecular) { ++skipped; continue; }
+            ++compared;
+            const kernel::KAov& a = kernelAovs[k];
+            const PathAOV& e = engine[k];
+            double dA = 0, dN = 0;
+            for (int c = 0; c < 3; ++c) {
+                dA = std::max(dA, std::abs(double(a.albedo[c]) - e.albedo[c]));
+                dN = std::max(dN, std::abs(double(a.normal[c]) - e.normal[c]));
+            }
+            const bool env = e.valid && firstMaterial[k] == kernel::kNoHit;
+            const bool same = (a.valid != 0) == e.valid && dA <= (env ? 1e-3 : 1e-5) && dN <= 1e-4;
+            if (same) {
+                (env ? maxEnv : maxAlbedo) = std::max(env ? maxEnv : maxAlbedo, dA);
+                maxNormal = std::max(maxNormal, dN);
+                valid += e.valid;
+                atEnvironment += env;
+            }
+            else if (++differ <= 3)
+                examples << "; pixel (" << k % size_t(w) << ", " << k / size_t(w) << "): kernel " << (a.valid ? "" : "no ") << "albedo " << Fmt(a.albedo[0]) << " "
+                         << Fmt(a.albedo[1]) << " " << Fmt(a.albedo[2]) << " normal " << Fmt(a.normal[0]) << " " << Fmt(a.normal[1]) << " " << Fmt(a.normal[2])
+                         << ", engine " << (e.valid ? "" : "no ") << "albedo " << Fmt(e.albedo.x) << " " << Fmt(e.albedo.y) << " " << Fmt(e.albedo.z)
+                         << " normal " << Fmt(e.normal.x) << " " << Fmt(e.normal.y) << " " << Fmt(e.normal.z);
+        }
+        return Report("the kernel renderer's albedo / normal features = the engine's on the same rays, " + path, differ <= compared / 500,
+            std::to_string(compared) + " rays (" + std::to_string(skipped) + " left out: smooth glass first), " + std::to_string(differ) +
+            " differ (allowed: 1 in 500, edges and silhouettes); the others agree within " + Fmt(maxAlbedo, 2) + " (albedo), " + Fmt(maxNormal, 2) +
+            " (normal) and " + Fmt(maxEnv, 2) + " (the environment's color, allowed 1e-3); " + std::to_string(valid) + " with features (" + std::to_string(atEnvironment) +
+            " the environment)" + examples.str());
     }
 
     /// The rays a CPU path trace of a test scene casts (w x h pixels, spp samples, run seed), traced again by the GPU's tracer
@@ -549,6 +647,11 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     }
 #endif
     ok &= SphereLightEngineCheck();
+#if !defined(RAYT_SPECTRAL_MODE)
+    // 3b. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
+    for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json" })
+        ok &= AovEngineCheck(path);
+#endif
 
     // 4. The GPU module.
     std::string why;

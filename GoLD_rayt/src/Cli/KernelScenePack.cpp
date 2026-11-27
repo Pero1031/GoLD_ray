@@ -223,21 +223,53 @@ bool RecordPathRays(const kernel::KScene& s, std::vector<kernel::KRay>& rays, st
     return true;
 }
 
-bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress) {
+bool KernelRayAovs(const kernel::KScene& s, const std::vector<kernel::KRay>& rays, std::vector<kernel::KAov>& aovs, std::vector<uint32_t>& firstMaterial,
+    std::string& why) {
     EmbreeScene es;
     if (!es.build(s, why)) return false;
     const EmbreeTracer tracer{ es.scene, s.numTriangles };
-    mean.assign(size_t(s.width) * s.height * 3, 0.0f);
+    aovs.assign(rays.size(), kernel::KAov{});
+    firstMaterial.assign(rays.size(), kernel::kNoHit);
+    for (size_t i = 0; i < rays.size(); ++i) {
+        const kernel::V3 o(rays[i].o.x, rays[i].o.y, rays[i].o.z), d(rays[i].d.x, rays[i].d.y, rays[i].d.z);
+        const kernel::KHit h = tracer.closest(o, d, 0.0f, kernel::kFloatMax);
+        if (h.prim != kernel::kNoHit) firstMaterial[i] = h.prim < s.numTriangles ? s.triMaterial[h.prim] : s.spheres[h.prim - s.numTriangles].material;
+        kernel::Pcg32 rng = kernel::Pcg32::forSample(s.seed, uint32_t(i), 0);
+        kernel::traceRay(s, tracer, rng, o, d, &aovs[i]);
+    }
+    return true;
+}
+
+bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress, std::vector<float>* albedo, std::vector<float>* normal) {
+    EmbreeScene es;
+    if (!es.build(s, why)) return false;
+    const EmbreeTracer tracer{ es.scene, s.numTriangles };
+    const size_t floats = size_t(s.width) * s.height * 3;
+    mean.assign(floats, 0.0f);
+    const bool aovs = albedo && normal;
+    if (aovs) { albedo->assign(floats, 0.0f); normal->assign(floats, 0.0f); }
     std::atomic<int> rows{ 0 };
 #pragma omp parallel for schedule(dynamic, 1)
     for (int y = 0; y < int(s.height); ++y) {
         for (uint32_t x = 0; x < s.width; ++x) {
             // Summed sample by sample in float, in the same order as the GPU accumulates its launches.
-            kernel::V3 sum(0.0f);
-            for (uint32_t k = 0; k < s.spp; ++k) sum += kernel::tracePath(s, tracer, x, uint32_t(y), k);
+            kernel::V3 sum(0.0f), sumA(0.0f), sumN(0.0f);
+            for (uint32_t k = 0; k < s.spp; ++k) {
+                kernel::KAov aov{};
+                sum += kernel::tracePath(s, tracer, x, uint32_t(y), k, aovs ? &aov : nullptr);
+                if (aov.valid) {
+                    sumA += kernel::V3(aov.albedo[0], aov.albedo[1], aov.albedo[2]);
+                    sumN += kernel::V3(aov.normal[0], aov.normal[1], aov.normal[2]);
+                }
+            }
+            const size_t i = (size_t(y) * s.width + x) * 3;
             const kernel::V3 m = sum / float(s.spp);
-            float* px = &mean[(size_t(y) * s.width + x) * 3];
-            px[0] = m.x; px[1] = m.y; px[2] = m.z;
+            mean[i] = m.x; mean[i + 1] = m.y; mean[i + 2] = m.z;
+            if (aovs) {
+                const kernel::V3 a = sumA / float(s.spp), n = sumN / float(s.spp);
+                (*albedo)[i] = a.x; (*albedo)[i + 1] = a.y; (*albedo)[i + 2] = a.z;
+                (*normal)[i] = n.x; (*normal)[i + 1] = n.y; (*normal)[i + 2] = n.z;
+            }
         }
         const int done = ++rows;
         if (progress && (done % 16 == 0 || done == int(s.height))) {
@@ -249,7 +281,8 @@ bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::str
     return true;
 }
 
-bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress, bool* unavailable, std::string* device) {
+bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress, bool* unavailable, std::string* device,
+    std::vector<float>* albedo, std::vector<float>* normal) {
     if (unavailable) *unavailable = false;
     const gpu::Module* mod = gpu::LoadModule(why);
     if (!mod) { if (unavailable) *unavailable = true; why = "no GPU module: " + why; return false; }
@@ -257,9 +290,15 @@ bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::str
     if (mod->query(&info) != 0) { if (unavailable) *unavailable = true; why = std::string("no usable GPU: ") + info.error; return false; }
     if (device) *device = std::string(info.name) + " (compute capability " + std::to_string(info.computeMajor) + "." + std::to_string(info.computeMinor) +
         ", OptiX, " + (info.fastMath ? "fast math" : "IEEE float, no implicit FMA") + ")";
-    mean.assign(size_t(s.width) * s.height * 3, 0.0f);
+    const size_t floats = size_t(s.width) * s.height * 3;
+    mean.assign(floats, 0.0f);
+    const bool aovs = albedo && normal;
+    if (aovs) { albedo->assign(floats, 0.0f); normal->assign(floats, 0.0f); }
     char err[512] = {};
-    if (mod->render(&s, mean.data(), progress ? &GpuProgress : nullptr, err, int(sizeof(err))) != 0) { why = err; return false; }
+    if (mod->render(&s, mean.data(), aovs ? albedo->data() : nullptr, aovs ? normal->data() : nullptr, progress ? &GpuProgress : nullptr, err, int(sizeof(err))) != 0) {
+        why = err;
+        return false;
+    }
     if (progress) std::cout << std::endl;
     return true;
 }
@@ -395,6 +434,14 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 #endif
         }
         else { missing.push_back("material \"" + name + "\": only diffuse, conductor, dielectric and emission materials"); continue; }
+        // The denoiser's features as the engine's material reports them (its texture-free color; whether paths look through it).
+        {
+            const auto it = engineMaterials.find(name);
+            if (it == engineMaterials.end() || !it->second) { missing.push_back("material \"" + name + "\": the engine's material is not available"); continue; }
+            const Vector3 a = it->second->aovAlbedo(SurfaceInteraction{});
+            km.aovAlbedo[0] = float(a.x); km.aovAlbedo[1] = float(a.y); km.aovAlbedo[2] = float(a.z);
+            km.aovSpecular = it->second->isSpecular() ? 1u : 0u;
+        }
         index[name] = uint32_t(out.materials.size());
         specs[name] = &m;
         out.materials.push_back(km);
@@ -504,7 +551,6 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
     }
 
     // ---- options the kernel renderer does not model ----
-    if (opt.aov || opt.denoise) missing.push_back("--aov / --denoise");
     if (opt.stokes) missing.push_back("--stokes");
     if (opt.spectralStep > 0) missing.push_back("--spectral-image");
     if (opt.toon) missing.push_back("--toon");
@@ -525,7 +571,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 }
 
 bool PackSceneFile(const std::string& path, const CliOptions& base, int width, int height, const std::function<void(SceneDescription&)>& edit,
-    KernelSceneHost& out, std::string& why) {
+    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&)>& engine) {
     std::vector<std::string> args;
     std::shared_ptr<const SceneDescription> loaded;
     if (!LoadSceneFile(path, args, loaded, why) || !loaded) { why = path + ": " + why; return false; }
@@ -553,7 +599,9 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
     }
     const CameraSpec& c = d->camera;
     const Camera camera(c.from, c.at, c.up, c.fovDeg, Real(width) / Real(height), Real(0), glm::length(c.at - c.from));
-    return PackKernelScene(*d, setup.namedMaterials, env.light.get(), camera, opt, width, height, out, why);
+    if (!PackKernelScene(*d, setup.namedMaterials, env.light.get(), camera, opt, width, height, out, why)) return false;
+    if (engine) engine(setup, env);
+    return true;
 }
 
 int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const EnvLight* envLight, const Camera& camera,
@@ -579,15 +627,18 @@ int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Mate
         << (kernel::hasEnvironment(s) ? ", an environment of " + std::to_string(s.envWidth) + " x " + std::to_string(s.envHeight) + " (" +
             std::to_string(int(std::lround(100.0 * s.envSelect))) + " % of the light samples)" : std::string()) << "; " << width << " x " << height << ", " << s.spp << " spp, depth " << s.maxDepth << ", float\n";
 
-    std::vector<float> mean;
+    std::vector<float> mean, albedo, normal;
+    // the denoiser's features, when --aov or --denoise asked for them (Film::enableAOVs)
+    std::vector<float>* albedoOut = film.hasAOVs() ? &albedo : nullptr;
+    std::vector<float>* normalOut = film.hasAOVs() ? &normal : nullptr;
     const auto t0 = std::chrono::steady_clock::now();
     if (opt.device == "cpu-kernel") {
         std::cout << tag << " on the CPU (" << omp_get_max_threads() << " threads, Embree in float)" << std::endl;
-        if (!RenderKernelCpu(s, mean, why, true)) { std::cerr << tag << " " << why << std::endl; return 1; }
+        if (!RenderKernelCpu(s, mean, why, true, albedoOut, normalOut)) { std::cerr << tag << " " << why << std::endl; return 1; }
     }
     else {
         std::string device;
-        if (!RenderKernelGpu(s, mean, why, true, nullptr, &device)) { std::cerr << std::endl << tag << " " << why << std::endl; return 1; }
+        if (!RenderKernelGpu(s, mean, why, true, nullptr, &device, albedoOut, normalOut)) { std::cerr << std::endl << tag << " " << why << std::endl; return 1; }
         std::cout << tag << " on " << device << std::endl;
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -601,6 +652,10 @@ int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Mate
             Vector3 c(p[0], p[1], p[2]);
             if (!std::isfinite(c.x) || !std::isfinite(c.y) || !std::isfinite(c.z)) { c = Vector3(0.0); ++nonFinite; }
             film.setPixel(x, height - 1 - y, c);
+            if (albedoOut) {
+                const size_t i = (size_t(y) * size_t(width) + size_t(x)) * 3;
+                film.setAOV(x, height - 1 - y, Vector3(albedo[i], albedo[i + 1], albedo[i + 2]), Vector3(normal[i], normal[i + 1], normal[i + 2]));
+            }
         }
     if (nonFinite) std::cout << tag << " " << nonFinite << " pixels were not finite and were set to 0\n";
     return 0;

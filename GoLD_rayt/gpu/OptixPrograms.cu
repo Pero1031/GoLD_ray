@@ -36,11 +36,18 @@ namespace {
 
 extern "C" __global__ void __raygen__render() {
     const uint3 idx = optixGetLaunchIndex();
-    const rayt::kernel::V3 L = rayt::kernel::tracePath(params.scene, OptixTracer{}, idx.x, idx.y, params.sample);
-    float* a = params.accum + 3 * (size_t(idx.y) * params.scene.width + idx.x);
+    const size_t i = 3 * (size_t(idx.y) * params.scene.width + idx.x);
+    rayt::kernel::KAov aov{};
+    const rayt::kernel::V3 L = rayt::kernel::tracePath(params.scene, OptixTracer{}, idx.x, idx.y, params.sample, params.accumAlbedo ? &aov : nullptr);
+    float* a = params.accum + i;
     a[0] += L.x;
     a[1] += L.y;
     a[2] += L.z;
+    if (aov.valid) {   // the denoiser's features, summed as the CPU sums them (a sample that recorded none adds nothing)
+        float* al = params.accumAlbedo + i;
+        float* n = params.accumNormal + i;
+        for (int c = 0; c < 3; ++c) { al[c] += aov.albedo[c]; n[c] += aov.normal[c]; }
+    }
 }
 
 /// The tracer check: the closest hit of one given ray (no shading), to compare OptiX's answers with Embree's.

@@ -57,7 +57,7 @@ void PrintHelp(std::ostream& out) {
         << "                    f/2); K is the luminance (cd/m^2) of a radiance whose Y is 1; mid grey 0.18 = the exposure 10 / S lux s (.png / .bmp / .jpg)\n"
         << "  --cam-velocity x,y,z   the camera moves with this velocity (m/s) during the exposure      --pan YAW[,PITCH]   it turns (degrees per second; right / up)\n"
         << "  --env FILE        environment map (.hdr)     --light d65|d65uv|tungsten|candle|led  light spectrum of some scenes\n"
-        << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images\n"
+        << "  --denoise  --aov  Intel OIDN denoised copy; albedo / normal images (.png, or as floats with --out .pfm / .hdr)\n"
         << "  --mask A[,B..]    <out>_mask.png: the share of each pixel that objects of these materials (names in the scene file) cover, as the camera\n"
         << "                    sees them first (edges anti-aliased, through the lens and shutter; linear gray, 16 bit with --bits 16; .pfm if --out is)\n"
         << "  --toon  --toon-line PX   experimental cel shading with outlines (PX: line width, 0 = none) instead of path tracing (RGB build)\n"
@@ -86,7 +86,8 @@ void PrintHelp(std::ostream& out) {
         << "                    --lvc-mask: 1 = NEE, 2 = connections, 4 = light tracing, 8 = merging, 16 / 32 = manifold NEE / connections through flat-faced glass (scene with a prism)\n"
         << "  --light-sampler uniform|power|spatial|all     --accel own|embree\n"
         << "  --device cpu|gpu|cpu-kernel   cpu: the engine (default); gpu: a scene file on the GPU (float, a subset: quads, spheres, meshes;\n"
-        << "                    diffuse, rough metals, glass; emitting quads and spheres, environment maps; GoLD_rayt_gpu.dll from tools\\build_gpu.ps1); cpu-kernel: that renderer on the CPU (docs/GPU.md)\n"
+        << "                    diffuse, rough metals, glass; emitting quads and spheres, environment maps; --aov, --denoise; GoLD_rayt_gpu.dll from\n"
+        << "                    tools\\build_gpu.ps1); cpu-kernel: that renderer on the CPU (docs/GPU.md)\n"
         << "\n"
         << "The options of single scenes (--sea-steep, --pmx-yaw, --caustics, ...) are listed in include/Cli/Options.hpp.\n"
         << "\n";

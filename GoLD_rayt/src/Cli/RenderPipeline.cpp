@@ -528,7 +528,7 @@ void SaveOutputs(const CliOptions& opt, Film& film, bool photonsAdded, const std
         raw.save(outStem + "_camraw.pfm");
     }
     if (opt.aov) {
-        const std::string aovExt = (outExt == ".hdr") ? ".hdr" : ".png";
+        const std::string aovExt = floatOut ? outExt : ".png";
         film.saveAlbedo(outStem + "_albedo" + aovExt);
         film.saveNormal(outStem + "_normal" + aovExt);
     }

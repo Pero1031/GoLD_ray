@@ -14,7 +14,7 @@
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/SelfTest.hpp"
 
-#define RAYT_GPU_API_VERSION 8
+#define RAYT_GPU_API_VERSION 9
 #define RAYT_GPU_MODULE_NAME "GoLD_rayt_gpu.dll"
 
 extern "C" {
@@ -45,7 +45,8 @@ extern "C" {
     /// Called after each sample per pixel of a render (done of total).
     typedef void (*RaytGpuProgressFn)(uint32_t done, uint32_t total);
     /// Renders a kernel scene (its pointers on CPU memory; the module copies the arrays) with OptiX: `out` receives width x height x 3
-    /// floats, the mean radiance of each pixel (row 0 = the bottom, as kernel::tracePath counts). Returns 0, else writes the reason.
-    typedef int (*RaytGpuRenderFn)(const rayt::kernel::KScene* scene, float* out, RaytGpuProgressFn progress, char* error, int errorSize);
+    /// floats, the mean radiance of each pixel (row 0 = the bottom, as kernel::tracePath counts); `albedo` and `normal` (both null, or
+    /// both width x height x 3 floats) the mean of the denoiser's features. Returns 0, else writes the reason.
+    typedef int (*RaytGpuRenderFn)(const rayt::kernel::KScene* scene, float* out, float* albedo, float* normal, RaytGpuProgressFn progress, char* error, int errorSize);
 
 }

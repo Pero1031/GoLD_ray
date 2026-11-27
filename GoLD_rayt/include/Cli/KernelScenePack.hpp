@@ -23,6 +23,9 @@ namespace rayt {
 
 namespace rayt::cli {
 
+struct SceneSetup;
+struct Environment;
+
 /// The arrays of a kernel scene, owned on the CPU, and the header (counts, camera, environment, render settings).
 struct KernelSceneHost {
     std::vector<kernel::KFloat3> positions, normals, faceNormals;
@@ -52,9 +55,10 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 bool PackEnvironment(const EnvLight* envLight, KernelSceneHost& out);
 
 /// A scene file as a kernel scene of width x height pixels, built as the CLI builds it (the engine's materials included) but without
-/// rendering; `edit` (optional) changes the scene's description first. For the checks (Checks/GpuChecks.cpp).
+/// rendering; `edit` (optional) changes the scene's description first; `engine` (optional) is called with the engine's build of the
+/// scene once the kernel scene is packed (for checks that compare the two). For the checks (Checks/GpuChecks.cpp).
 bool PackSceneFile(const std::string& path, const CliOptions& opt, int width, int height, const std::function<void(SceneDescription&)>& edit,
-    KernelSceneHost& out, std::string& why);
+    KernelSceneHost& out, std::string& why, const std::function<void(const SceneSetup&, const Environment&)>& engine = {});
 
 /// The kernel render of a scene file (--device cpu-kernel: the CPU, gpu: the GPU module) into `film`. Returns 0, or an exit code
 /// after printing why it cannot render.
@@ -62,13 +66,20 @@ int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Mate
     Film& film);
 
 /// Renders a kernel scene on the CPU (Embree in float, OpenMP over rows): `mean` receives width x height x 3 floats, the mean of
-/// each pixel (row 0 = the bottom). False with the reason in `why`.
-bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress);
+/// each pixel (row 0 = the bottom). `albedo`, `normal` (optional, both or neither): the denoiser's features, the mean over the
+/// samples of each pixel as the engine averages them (a sample that recorded none adds zero). False with the reason in `why`.
+bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress,
+    std::vector<float>* albedo = nullptr, std::vector<float>* normal = nullptr);
 
 /// The same on the GPU (the GPU module, OptiX). `unavailable` (optional) is set when there is no module or no usable GPU, as
 /// opposed to a failed render; `device` (optional) receives a description of the GPU.
 bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress, bool* unavailable = nullptr,
-    std::string* device = nullptr);
+    std::string* device = nullptr, std::vector<float>* albedo = nullptr, std::vector<float>* normal = nullptr);
+
+/// Follows the given camera rays through the kernel renderer on the CPU (ray i draws from the stream of pixel i, sample 0) and
+/// returns the denoiser's features of each, and the material of the first surface it hits (kernel::kNoHit: none). For the checks.
+bool KernelRayAovs(const kernel::KScene& s, const std::vector<kernel::KRay>& rays, std::vector<kernel::KAov>& aovs, std::vector<uint32_t>& firstMaterial,
+    std::string& why);
 
 /// Renders a kernel scene on the CPU, one thread, and writes down every ray it casts with Embree's answer: closest-hit queries
 /// (shadow 0) as they are, shadow queries (shadow 1) as prim 0 (blocked) or kNoHit. For comparing the GPU's tracer with Embree's.

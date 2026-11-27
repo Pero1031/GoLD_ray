@@ -62,6 +62,10 @@ namespace rayt::kernel {
         float emission[3];         ///< emission: radiance (linear RGB)
         ConductorParams<float> conductor;   ///< conductor
         DielectricParams<float> dielectric; ///< dielectric
+        // The denoiser's features (--aov, --denoise), as the engine's Material reports them: a camera path records them at its first
+        // vertex whose material is not specular (Render/Integrator.cpp).
+        float aovAlbedo[3];        ///< Material::aovAlbedo: the lighting-free color in [0, 1]
+        uint32_t aovSpecular;      ///< Material::isSpecular: 1 = the path looks through (smooth glass) and records the next vertex
     };
 
     enum : uint32_t { kLightQuad = 0, kLightSphere = 1 };
@@ -86,6 +90,10 @@ namespace rayt::kernel {
         uint32_t material;
         int32_t light;             ///< index of its light, -1 if none
     };
+
+    /// The denoiser's features of one camera path (the engine's PathAOV): albedo and shading normal (facing the ray) of its first
+    /// vertex that is not specular, or the environment's color clamped to [0, 1] (normal 0) if it escapes before one; zero if neither.
+    struct KAov { float albedo[3], normal[3]; uint32_t valid; };
 
     /// A pinhole: film point (s, t) in [0, 1)^2 looks from origin toward lowerLeft + s horizontal + t vertical (t = 0 at the bottom).
     struct KCamera { KFloat3 origin, lowerLeft, horizontal, vertical; };
