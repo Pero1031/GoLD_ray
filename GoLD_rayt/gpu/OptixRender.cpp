@@ -52,6 +52,7 @@ namespace {
         DeviceBuffer<rayt::kernel::KMaterial> materials;
         DeviceBuffer<rayt::kernel::KQuadLight> lights;
         DeviceBuffer<float> lightCdf;
+        DeviceBuffer<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
         DeviceBuffer<char> gas;
         DeviceBuffer<SbtRecord<NoData>> raygenRender, raygenTrace, miss, hit;
         rayt::kernel::KScene scene{};      ///< the scene with its pointers on the GPU
@@ -87,10 +88,20 @@ namespace {
             RAYT_CUDA(upload(materials, h.materials, h.numMaterials), "copying the materials");
             RAYT_CUDA(upload(lights, h.lights, h.numLights), "copying the lights");
             RAYT_CUDA(upload(lightCdf, h.lightCdf, size_t(h.numLights) + 1), "copying the light distribution");
+            const size_t ew = h.envWidth, eh = h.envHeight;
+            const bool env = ew > 0 && eh > 0;
+            RAYT_CUDA(upload(envPixels, h.envPixels, env ? ew * eh * 3 : 0), "copying the environment map");
+            RAYT_CUDA(upload(envMarginalFunc, h.envMarginalFunc, env ? eh : 0), "copying the environment's distribution");
+            RAYT_CUDA(upload(envMarginalCdf, h.envMarginalCdf, env ? eh + 1 : 0), "copying the environment's distribution");
+            RAYT_CUDA(upload(envCondFunc, h.envCondFunc, env ? ew * eh : 0), "copying the environment's distribution");
+            RAYT_CUDA(upload(envCondCdf, h.envCondCdf, env ? (ew + 1) * eh : 0), "copying the environment's distribution");
+            RAYT_CUDA(upload(envCondInt, h.envCondInt, env ? eh : 0), "copying the environment's distribution");
             scene = h;
             scene.positions = positions.ptr; scene.normals = normals.ptr; scene.indices = indices.ptr; scene.faceNormals = faceNormals.ptr;
             scene.triMaterial = triMaterial.ptr; scene.triLight = triLight.ptr; scene.triSmooth = triSmooth.ptr;
             scene.materials = materials.ptr; scene.lights = lights.ptr; scene.lightCdf = lightCdf.ptr;
+            scene.envPixels = envPixels.ptr; scene.envMarginalFunc = envMarginalFunc.ptr; scene.envMarginalCdf = envMarginalCdf.ptr;
+            scene.envCondFunc = envCondFunc.ptr; scene.envCondCdf = envCondCdf.ptr; scene.envCondInt = envCondInt.ptr;
 
             // ---- the geometry acceleration structure over the triangles ----
             OptixBuildInput input{};

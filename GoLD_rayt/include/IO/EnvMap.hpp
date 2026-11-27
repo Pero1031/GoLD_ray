@@ -123,6 +123,10 @@ namespace rayt {
             return pdfUV / (Real(2) * constants::PI * constants::PI * sinTheta);
         }
 
+        /// The map (row 0 = the +y pole) and its importance-sampling distribution, for the kernel renderer (docs/GPU.md).
+        const Image& image() const { return m_img; }
+        const Distribution2D* distribution() const { return m_dist.get(); }
+
         /// Luminance averaged over the sphere (solid-angle weighted), before any light scale.
         Real averageLuminance() const { return m_avgLuminance; }
 

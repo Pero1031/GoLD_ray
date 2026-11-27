@@ -89,7 +89,18 @@ namespace rayt::kernel {
         const KQuadLight* lights;
         const float* lightCdf;        ///< numLights + 1 entries: cdf[0] = 0, cdf[numLights] = 1 (lights chosen by emitted power)
         uint32_t numVertices, numTriangles, numMaterials, numLights;
-        float envRadiance[3];         ///< a uniform environment (0 = none)
+        // The environment: an equirectangular map as the engine's EnvMap holds it (IO/EnvMap.hpp; a uniform environment is a white
+        // map), times envScale, and its importance-sampling distribution (Core/Distribution2D.hpp: luminance x sin(theta) per texel).
+        const float* envPixels;       ///< envWidth x envHeight x 3, row 0 = the top (the +y pole)
+        const float* envMarginalFunc; ///< envHeight: the integral of each row
+        const float* envMarginalCdf;  ///< envHeight + 1
+        const float* envCondFunc;     ///< envHeight x envWidth: the weights of each row
+        const float* envCondCdf;      ///< envHeight x (envWidth + 1)
+        const float* envCondInt;      ///< envHeight: the integral of each row's weights
+        float envMarginalInt;
+        uint32_t envWidth, envHeight; ///< 0 x 0: no environment
+        float envScale;
+        float envSelect;              ///< the probability that a light sample picks the environment (the quads share the rest)
         KCamera camera;
         uint32_t width, height;       ///< pixels
         uint32_t spp, maxDepth;       ///< samples per pixel; path length as the engine counts it (surface vertices)

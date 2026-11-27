@@ -6,9 +6,11 @@
 #include "Core/Sampling.hpp"
 #include "Geometry/Frame.hpp"
 #include "Cli/KernelScenePack.hpp"
+#include "Cli/Scene.hpp"
 #include "Cli/SceneFile.hpp"
 #include "Gpu/GpuDevice.hpp"
 #include "Kernel/SelfTest.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/Camera.hpp"
@@ -70,7 +72,7 @@ namespace {
         frame::makeOrthonormalBasis(n, bs, bt);
         const double vals[] = { h.x, h.y, h.z, s.x, s.y, s.z, bs.x, bs.y, bs.z, bt.x, bt.y, bt.z,
             fresnel::fresnelDielectric(Real(c.cosTheta), Real(c.etaI), Real(c.etaT)) };
-        for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) v[k] = vals[k - kernel::kHemiX];
+        for (int k = kernel::kHemiX; k <= kernel::kFresnel; ++k) v[k] = vals[k - kernel::kHemiX];
     }
 
     // ---- image checks of the kernel renderer, on scenes/gpu_box.json ----
@@ -305,6 +307,40 @@ namespace {
     }
 #endif
 
+    /// The kernel's environment (double where the engine uses double) against the engine's EnvMap: eval, sample and pdf.
+    bool EnvEngineCheck(const std::string& label, const EnvLight* light) {
+        KernelSceneHost host;
+        if (!PackEnvironment(light, host)) return Report("environment " + label, false, "no environment");
+        const kernel::KScene s = host.view();
+        const EnvMap& map = *light->envMap();
+        kernel::Pcg32 rng;
+        rng.seed(4242, 5);
+        double worst = 0;
+        size_t identical = 0, values = 0, mismatch = 0;
+        const int n = 4096;
+        for (int i = 0; i < n; ++i) {
+            // a direction (a tenth of them within a degree of a pole, where the mapping is singular) and two sample numbers
+            Vector3 dir = RandomUnit(rng);
+            if (i % 10 == 0) dir = glm::normalize(Vector3(Real(0.01) * dir.x, dir.y < 0 ? Real(-1) : Real(1), Real(0.01) * dir.z));
+            const Point2f u(rng.nextFloat(), rng.nextFloat());
+            const Vector3 ee = map.eval(dir);
+            const Vector3 ek = kernel::envEval(s, dir);
+            const Real pe = map.pdf(dir), pk = kernel::envPdf(s, dir);
+            Vector3 wiE, wiK, leK;
+            Real pdfE = 0, pdfK = 0;
+            const Vector3 leE = map.sample(u, wiE, pdfE);
+            kernel::envSample(s, u.x, u.y, wiK, leK, pdfK);
+            if ((pdfE > 0) != (pdfK > 0)) { ++mismatch; continue; }
+            std::vector<std::array<double, 2>> v = { { ee.x, ek.x }, { ee.y, ek.y }, { ee.z, ek.z }, { pe, pk }, { pdfE, pdfK } };
+            if (pdfE > 0) for (int c = 0; c < 3; ++c) { v.push_back({ wiE[c], wiK[c] }); v.push_back({ leE[c], leK[c] }); }
+            for (const auto& p : v) { worst = std::max(worst, RelDiff(p[0], p[1])); identical += p[0] == p[1]; ++values; }
+        }
+        return Report("kernel environment = engine EnvMap, " + label + " (" + std::to_string(s.envWidth) + " x " + std::to_string(s.envHeight) + ")",
+            worst <= 1e-12 && mismatch == 0,
+            std::to_string(n) + " directions and samples: eval, pdf and sample " + Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " +
+            Fmt(worst) + " (tolerance 1e-12), " + std::to_string(mismatch) + " samples valid on one side only");
+    }
+
     /// A material's eval, pdf and sample in float on the CPU and on the GPU, on the same directions.
     bool MaterialGpuCheck(const gpu::Module& mod, bool fastMath, const std::string& label, const kernel::KMaterial& m) {
         const std::vector<DirCase> dirs = MakeDirCases(4096, 91);
@@ -390,7 +426,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
             double e[kernel::kMathValueCount];
             EngineValues(cases[i], e);
             bool same = true;
-            for (int k = kernel::kHemiX; k < kernel::kMathValueCount; ++k) {
+            for (int k = kernel::kHemiX; k <= kernel::kFresnel; ++k) {   // atan2 / acos have no engine counterpart (the engine calls the library)
                 const double d = std::abs(ref[i][k] - e[k]);
                 if (std::isnan(d)) ++nans; else maxDiff = std::max(maxDiff, d);
                 if (!(ref[i][k] == e[k])) same = false;
@@ -428,6 +464,18 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         ok &= DielectricEngineCheck("smooth glass", glass, gpuMaterials);
         ok &= DielectricEngineCheck("rough glass", frosted, gpuMaterials);
         ok &= DielectricEngineCheck("rough glass in water", underWater, gpuMaterials);
+    }
+    {
+        // the uniform environment is a white map in the engine too; the HDR map has a sun and a dark lower half
+        const Environment uniform = MakeEnvironment(CliOptions{}, EnvKind::Uniform);
+        ok &= EnvEngineCheck("the uniform environment", uniform.light.get());
+        CliOptions withMap;
+        withMap.env = "assets/env/bryanston_park_sunrise_2k.hdr";
+        std::ostringstream quiet;
+        std::streambuf* old = std::cout.rdbuf(quiet.rdbuf());
+        const Environment hdr = MakeEnvironment(withMap, EnvKind::Hdr);
+        std::cout.rdbuf(old);
+        ok &= EnvEngineCheck("bryanston_park_sunrise_2k.hdr", hdr.light.get());
     }
 #endif
 
@@ -475,7 +523,8 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     {
         struct Group { const char* name; int first, last; };
         const Group groups[] = { { "cosine hemisphere", kernel::kHemiX, kernel::kHemiZ }, { "uniform sphere", kernel::kSphereX, kernel::kSphereZ },
-            { "orthonormal basis", kernel::kBasisSX, kernel::kBasisTZ }, { "dielectric Fresnel", kernel::kFresnel, kernel::kFresnel } };
+            { "orthonormal basis", kernel::kBasisSX, kernel::kBasisTZ }, { "dielectric Fresnel", kernel::kFresnel, kernel::kFresnel },
+            { "atan2 and acos", kernel::kAtan2, kernel::kAcos } };
         for (const Group& g : groups) {
             double errCpu = 0, errGpu = 0, maxDiff = 0;
             size_t identical = 0, values = 0, nans = 0, worst = 0;
@@ -510,6 +559,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
 #if !defined(RAYT_SPECTRAL_MODE)
     ok &= PairedCheck("scenes/gpu_metals.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_glass.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_env.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -518,6 +568,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
 #if !defined(RAYT_SPECTRAL_MODE)
     ok &= TracerCheck(*mod, "scenes/gpu_metals.json");
     ok &= TracerCheck(*mod, "scenes/gpu_glass.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_env.json");
 #endif
     return ok ? 0 : 2;
 }

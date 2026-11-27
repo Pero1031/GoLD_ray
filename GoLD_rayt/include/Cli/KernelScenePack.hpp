@@ -18,6 +18,7 @@ namespace rayt {
     class Camera;
     class Film;
     class Material;
+    class EnvLight;
 }
 
 namespace rayt::cli {
@@ -31,6 +32,7 @@ struct KernelSceneHost {
     std::vector<kernel::KMaterial> materials;
     std::vector<kernel::KQuadLight> lights;
     std::vector<float> lightCdf;
+    std::vector<float> envPixels, envMarginalFunc, envMarginalCdf, envCondFunc, envCondCdf, envCondInt;
     kernel::KScene header{};   ///< the fields that are not pointers
 
     /// The scene with its pointers on these CPU arrays (valid while this object lives and is not changed).
@@ -39,10 +41,14 @@ struct KernelSceneHost {
 
 /// Builds the kernel scene of a scene file seen through `camera` (which must be a plain pinhole). `engineMaterials` are the engine's
 /// materials of the scene file by name (SceneSetup::namedMaterials): materials whose parameters the engine derives (a conductor's
-/// RGB index from its table) are read from them, so the kernel never derives them a second way. False: `why` lists every part of
+/// RGB index from its table) are read from them, so the kernel never derives them a second way; so is the environment (`envLight`,
+/// the engine's environment light: its map, its sampling distribution and its scale). False: `why` lists every part of
 /// the scene or of the options that the kernel renderer does not model.
-bool PackKernelScene(const SceneDescription& d, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, const CliOptions& opt,
-    int width, int height, KernelSceneHost& out, std::string& why);
+bool PackKernelScene(const SceneDescription& d, const std::map<std::string, const Material*>& engineMaterials, const EnvLight* envLight, const Camera& camera,
+    const CliOptions& opt, int width, int height, KernelSceneHost& out, std::string& why);
+
+/// The engine's environment light (its map, its sampling distribution, its scale) into the kernel scene; false if there is none.
+bool PackEnvironment(const EnvLight* envLight, KernelSceneHost& out);
 
 /// A scene file as a kernel scene of width x height pixels, built as the CLI builds it (the engine's materials included) but without
 /// rendering; `edit` (optional) changes the scene's description first. For the checks (Checks/GpuChecks.cpp).
@@ -51,7 +57,8 @@ bool PackSceneFile(const std::string& path, const CliOptions& opt, int width, in
 
 /// The kernel render of a scene file (--device cpu-kernel: the CPU, gpu: the GPU module) into `film`. Returns 0, or an exit code
 /// after printing why it cannot render.
-int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, Film& film);
+int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const EnvLight* envLight, const Camera& camera,
+    Film& film);
 
 /// Renders a kernel scene on the CPU (Embree in float, OpenMP over rows): `mean` receives width x height x 3 floats, the mean of
 /// each pixel (row 0 = the bottom). False with the reason in `why`.

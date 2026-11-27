@@ -1,0 +1,31 @@
+// The fourth test scene of the kernel renderer (docs/GPU.md): an environment map alone (a sunrise in a park, with the low sun in
+// the map) lights a rough gold vase, a frosted glass cube and a white box on a grey ground. Everything in it is what --device
+// gpu / cpu-kernel model, so the engine and the kernel renderer must converge to the same picture. The ground is 1 mm below the
+// objects (coincident surfaces would be settled differently by the two tracers).
+{
+ "options": { "width": 400, "height": 300, "spp": 64 },
+ "camera": { "from": [0, 0.8, 2.6], "at": [0, 0.33, 0], "fov": 40 },
+ "environment": { "type": "hdr", "file": "assets/env/bryanston_park_sunrise_2k.hdr", "scale": 1 },
+ "materials": {
+  "ground": { "type": "diffuse", "albedo": [0.4, 0.4, 0.38] },
+  "white": { "type": "diffuse", "albedo": [0.8, 0.8, 0.8] },
+  "gold": { "type": "conductor", "metal": "Au", "roughness": 0.2 },
+  "frosted": { "type": "dielectric", "ior": 1.5, "roughness": 0.25 }
+ },
+ "objects": [
+  { "shape": "quad", "corner": [-3, -0.001, 3], "edge1": [6, 0, 0], "edge2": [0, 0, -6], "material": "ground" },
+  { "shape": "lathe", "profile": [[0, 0], [0.2, 0], [0.26, 0.12], [0.24, 0.4], [0.14, 0.62], [0.12, 0.7], [0.15, 0.74], [0, 0.74]], "segments": 64, "material": "gold" },
+  { "shape": "quad", "corner": [0.35, 0.0, 0.0], "edge1": [0.35, 0, 0], "edge2": [0, 0, 0.35], "material": "frosted" },
+  { "shape": "quad", "corner": [0.35, 0.35, 0.0], "edge1": [0, 0, 0.35], "edge2": [0.35, 0, 0], "material": "frosted" },
+  { "shape": "quad", "corner": [0.35, 0.0, 0.35], "edge1": [0.35, 0, 0], "edge2": [0, 0.35, 0], "material": "frosted" },
+  { "shape": "quad", "corner": [0.35, 0.0, 0.0], "edge1": [0, 0.35, 0], "edge2": [0.35, 0, 0], "material": "frosted" },
+  { "shape": "quad", "corner": [0.35, 0.0, 0.0], "edge1": [0, 0, 0.35], "edge2": [0, 0.35, 0], "material": "frosted" },
+  { "shape": "quad", "corner": [0.7, 0.0, 0.0], "edge1": [0, 0.35, 0], "edge2": [0, 0, 0.35], "material": "frosted" },
+  { "shape": "quad", "corner": [-0.75, 0.0, -0.2], "edge1": [0.3, 0, 0], "edge2": [0, 0, 0.3], "material": "white" },
+  { "shape": "quad", "corner": [-0.75, 0.3, -0.2], "edge1": [0, 0, 0.3], "edge2": [0.3, 0, 0], "material": "white" },
+  { "shape": "quad", "corner": [-0.75, 0.0, 0.1], "edge1": [0.3, 0, 0], "edge2": [0, 0.3, 0], "material": "white" },
+  { "shape": "quad", "corner": [-0.75, 0.0, -0.2], "edge1": [0, 0.3, 0], "edge2": [0.3, 0, 0], "material": "white" },
+  { "shape": "quad", "corner": [-0.75, 0.0, -0.2], "edge1": [0, 0, 0.3], "edge2": [0, 0.3, 0], "material": "white" },
+  { "shape": "quad", "corner": [-0.45, 0.0, -0.2], "edge1": [0, 0.3, 0], "edge2": [0, 0, 0.3], "material": "white" }
+ ]
+}

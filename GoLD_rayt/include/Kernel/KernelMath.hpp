@@ -70,6 +70,48 @@ namespace rayt::kernel {
     RAYT_HD_INLINE float ksin(float x) { float s, c; ksincos(x, s, c); return s; }
     RAYT_HD_INLINE float kcos(float x) { float s, c; ksincos(x, s, c); return c; }
 
+    /**
+     * @brief atan2(y, x) in float, the same bits on every device: Dr.Jit's minimax fit of atan(sqrt(z)) / sqrt(z) on [0, 1]
+     *        (references/src/drjit/include/drjit/math.h; about 6e-7 absolute at most), evaluated with explicit FMAs. 0 when x = y = 0.
+     */
+    RAYT_HD_INLINE float katan2(float y, float x) {
+        const float ax = fabsf(x), ay = fabsf(y);
+        const float mn = ay < ax ? ay : ax, mx = ax < ay ? ay : ax;
+        if (!(mx > 0.0f)) return 0.0f;
+        const float s = mn / mx, z = s * s;
+        float t = 0.0078613793713198150252f;
+        t = kfma(t, z, -0.037006525670417265220f);
+        t = kfma(t, z, 0.083863120428809689910f);
+        t = kfma(t, z, -0.13486708938456973185f);
+        t = kfma(t, z, 0.19881342388439013552f);
+        t = kfma(t, z, -0.33326497518773606976f);
+        t = kfma(t, z, 0.99999934166683966009f);
+        t = t * s;
+        if (ay > ax) t = 1.57079632679489661923f - t;
+        if (x < 0.0f) t = 3.14159265358979323846f - t;
+        return y < 0.0f ? -t : t;
+    }
+
+    /// acos(x) in float, the same bits on every device: the CEPHES single-precision algorithm as Dr.Jit implements it (about 1 ulp).
+    RAYT_HD_INLINE float kacos(float x) {
+        const float xa = fabsf(x);
+        const bool big = xa > 0.5f;
+        const float x1 = 0.5f * (1.0f - xa);
+        const float x3 = big ? x1 : x * x;
+        const float x4 = big ? sqrtf(x1) : xa;
+        float z = 4.2163199048e-2f;
+        z = kfma(z, x3, 2.4181311049e-2f);
+        z = kfma(z, x3, 4.5470025998e-2f);
+        z = kfma(z, x3, 7.4953002686e-2f);
+        z = kfma(z, x3, 1.666675242e-1f);
+        z = kfma(z, x3 * x4, x4);
+        if (big) {
+            const float z2 = z + z;
+            return x < 0.0f ? 3.14159265358979323846f - z2 : z2;
+        }
+        return 1.57079632679489661923f - copysignf(z, x);
+    }
+
 #if !defined(RAYT_GPU_CODE)
     // CPU only: device code that calls one of these does not compile.
     inline double ksqrt(double x) { return sqrt(x); }
@@ -79,6 +121,8 @@ namespace rayt::kernel {
     inline double kcopysign(double x, double s) { return copysign(x, s); }
     inline double kabs(double x) { return fabs(x); }
     inline double kfloor(double x) { return floor(x); }
+    inline double katan2(double y, double x) { return atan2(y, x); }
+    inline double kacos(double x) { return acos(x); }
 #else
     // Device code: a double argument picks these deleted overloads (instead of converting to float) and fails to compile.
     RAYT_HD double ksqrt(double) = delete;
@@ -88,6 +132,8 @@ namespace rayt::kernel {
     RAYT_HD double kcopysign(double, double) = delete;
     RAYT_HD double kabs(double) = delete;
     RAYT_HD double kfloor(double) = delete;
+    RAYT_HD double katan2(double, double) = delete;
+    RAYT_HD double kacos(double) = delete;
 #endif
 
     /// std::max(a, b): b if a < b, else a.

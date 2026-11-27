@@ -4,11 +4,12 @@
  * @brief The kernel path tracer: one camera path of one pixel sample, in float, on the CPU or the GPU (docs/GPU.md).
  *
  * The rules are the engine's PathIntegrator restricted to what KScene holds (the materials of Kernel/Materials.hpp, emitting
- * quads, a uniform environment), so the two converge to the same picture: a path has at most maxDepth surface vertices; each
- * non-emitting vertex samples one light (chosen by power, a uniform point on the quad) with a shadow ray, weighted against the
- * BSDF's density by the power heuristic, and then samples the BSDF; an emitter found by a BSDF ray is weighted against that
- * light sample the same way; Russian roulette from the fourth vertex on with survival max(beta) clamped to [0.05, 0.95]. The
- * environment is only found by BSDF rays (the engine also samples it; both are unbiased).
+ * quads, an environment map), so the two converge to the same picture: a path has at most maxDepth surface vertices; each
+ * non-delta vertex samples one light with a shadow ray (the environment with probability envSelect, by its luminance; else a
+ * quad chosen by power, a uniform point on it), weighted against the BSDF's density by the power heuristic, and then samples
+ * the BSDF; an emitter or the environment found by a BSDF ray is weighted against that light sample the same way; Russian
+ * roulette from the fourth vertex on with survival max(beta) clamped to [0.05, 0.95]. (The engine chooses among its lights by
+ * another rule; any choice is unbiased.)
  *
  * Ray casting is the caller's: a Tracer has
  *     KHit closest(const V3& o, const V3& d, float tmin, float tmax) const;   // prim = kNoHit when nothing is hit
@@ -21,6 +22,7 @@
 
 #include <string.h>
 
+#include "Kernel/Environment.hpp"
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
@@ -121,7 +123,15 @@ namespace rayt::kernel {
         for (uint32_t depth = 0; depth < s.maxDepth; ++depth) {
             const KHit h = tracer.closest(o, d, 0.0f, kFloatMax);
             if (h.prim == kNoHit) {
-                L += beta * V3(s.envRadiance[0], s.envRadiance[1], s.envRadiance[2]);
+                // ---- the environment, weighted against the light sample of the previous vertex (PathIntegrator::addEscapedRadiance) ----
+                if (hasEnvironment(s)) {
+                    float w = 1.0f;
+                    if (!lastDelta && s.envSelect > 0.0f) {
+                        const float pdfL = s.envSelect * envPdf(s, d);
+                        w = lastPdf * lastPdf / (lastPdf * lastPdf + pdfL * pdfL);
+                    }
+                    L += beta * envEval(s, d) * s.envScale * w;
+                }
                 break;
             }
             const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
@@ -149,7 +159,7 @@ namespace rayt::kernel {
                         const KQuadLight& q = s.lights[li];
                         const V3 dp = p - o;
                         const float cosL = kabs(kdot(d, toV3(q.normal)));
-                        const float pdfL = (s.lightCdf[li + 1] - s.lightCdf[li]) * kdot(dp, dp) / (cosL * q.area);
+                        const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * kdot(dp, dp) / (cosL * q.area);
                         w = lastPdf * lastPdf / (lastPdf * lastPdf + pdfL * pdfL);
                     }
                     L += beta * V3(m.emission[0], m.emission[1], m.emission[2]) * w;
@@ -160,29 +170,48 @@ namespace rayt::kernel {
             // ---- a scattering surface: one light sample (PathIntegrator::estimateDirect; none at a delta material, whose eval is 0),
             //      then the BSDF sample ----
             const V3 wo = -d;
-            if (s.numLights > 0 && !bsdfIsDelta(m)) {
-                const uint32_t li = pickLight(s.lightCdf, s.numLights, rng.nextFloat());
-                const KQuadLight& q = s.lights[li];
+            if ((s.numLights > 0 || hasEnvironment(s)) && !bsdfIsDelta(m)) {
+                // The light: the environment with probability envSelect, else a quad chosen by power.
+                const float uSel = rng.nextFloat();
                 const float a = rng.nextFloat(), b = rng.nextFloat();
-                const V3 pl = toV3(q.corner) + a * toV3(q.edge1) + b * toV3(q.edge2);
-                const V3 toL = pl - p;
-                const float dist2 = kdot(toL, toL);
-                const float dist = ksqrt(dist2);
-                const V3 wi = toL / dist;
-                float cosL = -kdot(wi, toV3(q.normal));
-                if (q.twoSided) cosL = kabs(cosL);
-                if (cosL > 0.0f) {
-                    const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
-                    if (kmaxComponent(f) > 0.0f) {
-                        const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
-                        const V3 toL2 = pl - org;
-                        const float distB = klength(toL2);
-                        if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
-                            const float pdfL = (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
+                if (uSel < s.envSelect) {
+                    V3 wi, le;
+                    float pdfW;
+                    envSample(s, a, b, wi, le, pdfW);
+                    if (pdfW > 0.0f) {
+                        const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
+                        if (kmaxComponent(f) > 0.0f && !tracer.occluded(offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng), wi, 0.0f, kFloatMax)) {
+                            const float pdfL = s.envSelect * pdfW;
                             const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
                             const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
                             const float cosT = kabs(kdot(ns, wi));
-                            L += beta * f * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (cosT * w / pdfL);
+                            L += beta * f * le * s.envScale * (cosT * w / pdfL);
+                        }
+                    }
+                }
+                else {
+                    const uint32_t li = pickLight(s.lightCdf, s.numLights, (uSel - s.envSelect) / (1.0f - s.envSelect));
+                    const KQuadLight& q = s.lights[li];
+                    const V3 pl = toV3(q.corner) + a * toV3(q.edge1) + b * toV3(q.edge2);
+                    const V3 toL = pl - p;
+                    const float dist2 = kdot(toL, toL);
+                    const float dist = ksqrt(dist2);
+                    const V3 wi = toL / dist;
+                    float cosL = -kdot(wi, toV3(q.normal));
+                    if (q.twoSided) cosL = kabs(cosL);
+                    if (cosL > 0.0f) {
+                        const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
+                        if (kmaxComponent(f) > 0.0f) {
+                            const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
+                            const V3 toL2 = pl - org;
+                            const float distB = klength(toL2);
+                            if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
+                                const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
+                                const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
+                                const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
+                                const float cosT = kabs(kdot(ns, wi));
+                                L += beta * f * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (cosT * w / pdfL);
+                            }
                         }
                     }
                 }

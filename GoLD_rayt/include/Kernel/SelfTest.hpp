@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 
+#include "Kernel/Environment.hpp"
 #include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
@@ -34,6 +35,7 @@ namespace rayt::kernel {
         kBasisSX, kBasisSY, kBasisSZ,              ///< orthonormalBasis(n): s
         kBasisTX, kBasisTY, kBasisTZ,              ///< orthonormalBasis(n): t
         kFresnel,                                  ///< fresnelDielectric(cosTheta, etaI, etaT)
+        kAtan2, kAcos,                             ///< katan2(ny, nx), kacos(nz) (the float versions of Kernel/KernelMath.hpp)
         kMathValueCount
     };
 
@@ -58,6 +60,8 @@ namespace rayt::kernel {
         v[kBasisSX] = s.x; v[kBasisSY] = s.y; v[kBasisSZ] = s.z;
         v[kBasisTX] = t.x; v[kBasisTY] = t.y; v[kBasisTZ] = t.z;
         v[kFresnel] = fresnelDielectric(T(c.cosTheta), T(c.etaI), T(c.etaT));
+        v[kAtan2] = katan2(T(c.ny), T(c.nx));
+        v[kAcos] = kacos(T(c.nz));
     }
 
     /// The random numbers and the values in float: what the CPU and the GPU both run.

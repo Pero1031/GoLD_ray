@@ -12,6 +12,7 @@
 #include "Render/Film.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/SceneFile.hpp"
+#include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 
@@ -209,6 +210,35 @@ bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::str
     return true;
 }
 
+bool PackEnvironment(const EnvLight* envLight, KernelSceneHost& out) {
+    const EnvMap* map = envLight ? envLight->envMap() : nullptr;
+    const Distribution2D* dist = map ? map->distribution() : nullptr;
+    if (!map || !map->image().isValid() || !dist) return false;
+    const Image& img = map->image();
+    const int w = img.width(), h = img.height();
+    out.envPixels.resize(size_t(w) * size_t(h) * 3);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            const Vector3& c = img.at(x, y);   // floats from the file, held as doubles: converting back is exact
+            float* p = &out.envPixels[(size_t(y) * size_t(w) + size_t(x)) * 3];
+            p[0] = float(c.x); p[1] = float(c.y); p[2] = float(c.z);
+        }
+    out.envMarginalFunc = dist->pMarginal->func;
+    out.envMarginalCdf = dist->pMarginal->cdf;
+    out.header.envMarginalInt = dist->pMarginal->funcInt;
+    out.envCondFunc.clear(); out.envCondCdf.clear(); out.envCondInt.clear();
+    for (int y = 0; y < h; ++y) {
+        const Distribution1D& row = *dist->pConditionalV[size_t(y)];
+        out.envCondFunc.insert(out.envCondFunc.end(), row.func.begin(), row.func.end());
+        out.envCondCdf.insert(out.envCondCdf.end(), row.cdf.begin(), row.cdf.end());
+        out.envCondInt.push_back(row.funcInt);
+    }
+    out.header.envWidth = uint32_t(w);
+    out.header.envHeight = uint32_t(h);
+    out.header.envScale = float(envLight->scale());
+    return true;
+}
+
 kernel::KScene KernelSceneHost::view() const {
     kernel::KScene s = header;
     s.positions = positions.data();
@@ -221,6 +251,12 @@ kernel::KScene KernelSceneHost::view() const {
     s.materials = materials.data();
     s.lights = lights.data();
     s.lightCdf = lightCdf.data();
+    s.envPixels = envPixels.data();
+    s.envMarginalFunc = envMarginalFunc.data();
+    s.envMarginalCdf = envMarginalCdf.data();
+    s.envCondFunc = envCondFunc.data();
+    s.envCondCdf = envCondCdf.data();
+    s.envCondInt = envCondInt.data();
     s.numVertices = uint32_t(positions.size());
     s.numTriangles = uint32_t(triMaterial.size());
     s.numMaterials = uint32_t(materials.size());
@@ -228,7 +264,8 @@ kernel::KScene KernelSceneHost::view() const {
     return s;
 }
 
-bool PackKernelScene(const SceneDescription& d, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, const CliOptions& opt,
+bool PackKernelScene(const SceneDescription& d, const std::map<std::string, const Material*>& engineMaterials, const EnvLight* envLight, const Camera& camera,
+    const CliOptions& opt,
     int width, int height, KernelSceneHost& out, std::string& why) {
     std::vector<std::string> missing;
     out = KernelSceneHost{};
@@ -240,10 +277,8 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
         missing.push_back("the camera is not a plain pinhole (a lens, an aperture, distortion, vignetting, motion or an orthographic view)");
     out.header.camera = { F3(origin), F3(lowerLeft), F3(horizontal), F3(vertical) };
 
-    // ---- environment and point lights ----
-    if (d.environment.type == EnvironmentSpec::Type::Hdr) missing.push_back("an environment map (only a uniform environment)");
-    const float env = d.environment.type == EnvironmentSpec::Type::Uniform ? float(d.environment.scale) : 0.0f;
-    out.header.envRadiance[0] = out.header.envRadiance[1] = out.header.envRadiance[2] = env;
+    // ---- environment (the engine's EnvLight: its map, its sampling distribution, its scale) and point lights ----
+    if (d.environment.type != EnvironmentSpec::Type::None && !PackEnvironment(envLight, out)) missing.push_back("the engine's environment is not available");
     if (!d.lights.empty()) missing.push_back("point lights");
 
     // ---- materials ----
@@ -366,6 +401,22 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
         const float p = total > 0 ? power[i] / total : 1.0f / float(power.size());
         out.lightCdf.push_back(i + 1 == power.size() ? 1.0f : out.lightCdf.back() + p);
     }
+    // The environment's share of the light samples, by emitted power as pbrt's PowerLightSampler weighs an infinite light: the
+    // power that crosses the scene's bounding sphere, pi^2 r^2 L_avg, against pi A L of each quad (once more for two-sided ones).
+    // Each side keeps at least a tenth when both emit (any choice is unbiased; the engine's light sampler uses another rule).
+    out.header.envSelect = 0.0f;
+    if (out.header.envWidth > 0) {
+        Vector3 lo(1e30), hi(-1e30);
+        for (const kernel::KFloat3& p : out.positions) {
+            lo = glm::min(lo, Vector3(p.x, p.y, p.z));
+            hi = glm::max(hi, Vector3(p.x, p.y, p.z));
+        }
+        const double r2 = out.positions.empty() ? 1.0 : 0.25 * glm::dot(hi - lo, hi - lo);
+        const double envPower = constants::PI * constants::PI * r2 * double(out.header.envScale) * double(envLight->envMap()->averageLuminance());
+        const double quadPower = constants::PI * double(total);
+        if (power.empty() || quadPower <= 0) out.header.envSelect = envPower > 0 ? 1.0f : 0.0f;
+        else if (envPower > 0) out.header.envSelect = float(std::clamp(envPower / (envPower + quadPower), 0.1, 0.9));
+    }
 
     // ---- options the kernel renderer does not model ----
     if (opt.aov || opt.denoise) missing.push_back("--aov / --denoise");
@@ -402,6 +453,7 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
     const SceneDef* def = FindScene("file");
     if (!def) { why = "the scene \"file\" is not registered"; return false; }
     SceneSetup setup;
+    Environment env;
     {
         // The engine's scene build reports what it loads; a check has no use for that.
         struct Quiet {
@@ -409,17 +461,18 @@ bool PackSceneFile(const std::string& path, const CliOptions& base, int width, i
             std::streambuf* old = std::cout.rdbuf(sink.rdbuf());
             ~Quiet() { std::cout.rdbuf(old); }
         } quiet;
-        Environment env = MakeEnvironment(opt, def->envKind(opt));
+        env = MakeEnvironment(opt, def->envKind(opt));
         const StdMaterials mats = MakeStandardMaterials(opt);
         SceneContext ctx{ opt, mats, env };
         if (def->build(ctx, setup)) { why = path + ": the engine could not build the scene"; return false; }
     }
     const CameraSpec& c = d->camera;
     const Camera camera(c.from, c.at, c.up, c.fovDeg, Real(width) / Real(height), Real(0), glm::length(c.at - c.from));
-    return PackKernelScene(*d, setup.namedMaterials, camera, opt, width, height, out, why);
+    return PackKernelScene(*d, setup.namedMaterials, env.light.get(), camera, opt, width, height, out, why);
 }
 
-int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const Camera& camera, Film& film) {
+int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Material*>& engineMaterials, const EnvLight* envLight, const Camera& camera,
+    Film& film) {
     const char* tag = opt.device == "gpu" ? "[GPU]" : "[Kernel]";
 #if defined(RAYT_SPECTRAL_MODE)
     std::cerr << tag << " --device " << opt.device << " renders in RGB: use the RGB build (out\\cli or out\\cli-dev)\n";
@@ -432,13 +485,14 @@ int RenderOnKernel(const CliOptions& opt, const std::map<std::string, const Mate
     const int width = film.width(), height = film.height();
     KernelSceneHost host;
     std::string why;
-    if (!PackKernelScene(*opt.sceneDescription, engineMaterials, camera, opt, width, height, host, why)) {
+    if (!PackKernelScene(*opt.sceneDescription, engineMaterials, envLight, camera, opt, width, height, host, why)) {
         std::cerr << tag << " the kernel renderer (docs/GPU.md, stage 1) does not model:" << why << "\n" << tag << " render it with --device cpu\n";
         return 1;
     }
     const kernel::KScene s = host.view();
     std::cout << tag << " kernel scene: " << s.numTriangles << " triangles, " << s.numMaterials << " materials, " << s.numLights << " quad lights"
-        << (s.envRadiance[0] > 0 ? ", uniform environment" : "") << "; " << width << " x " << height << ", " << s.spp << " spp, depth " << s.maxDepth << ", float\n";
+        << (kernel::hasEnvironment(s) ? ", an environment of " + std::to_string(s.envWidth) + " x " + std::to_string(s.envHeight) + " (" +
+            std::to_string(int(std::lround(100.0 * s.envSelect))) + " % of the light samples)" : std::string()) << "; " << width << " x " << height << ", " << s.spp << " spp, depth " << s.maxDepth << ", float\n";
 
     std::vector<float> mean;
     const auto t0 = std::chrono::steady_clock::now();

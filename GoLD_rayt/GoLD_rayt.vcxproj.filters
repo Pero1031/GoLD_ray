@@ -494,6 +494,9 @@
     <ClInclude Include="include\Kernel\Microfacet.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
+    <ClInclude Include="include\Kernel\Environment.hpp">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="include\Kernel\Materials.hpp">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>

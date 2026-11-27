@@ -14,7 +14,7 @@
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/SelfTest.hpp"
 
-#define RAYT_GPU_API_VERSION 6
+#define RAYT_GPU_API_VERSION 7
 #define RAYT_GPU_MODULE_NAME "GoLD_rayt_gpu.dll"
 
 extern "C" {
