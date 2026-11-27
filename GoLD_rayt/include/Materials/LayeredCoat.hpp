@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "Core/Types.hpp"
 #include "Core/Constants.hpp"
@@ -37,6 +38,7 @@
 #include "Materials/Material.hpp"
 #include "Color/SpectralConversion.hpp"
 #include "Color/SpectralCurve.hpp"
+#include "Kernel/KernelScene.hpp"
 
 namespace rayt {
 
@@ -71,6 +73,13 @@ namespace rayt {
         bool isSpecular() const override { return false; }
 
         Vector3 aovAlbedo(const SurfaceInteraction& rec) const override;
+
+#if !defined(RAYT_SPECTRAL_MODE)
+        /// This coat as the kernel renderer models it (Kernel/Layered.hpp, docs/GPU.md): the coat, and the base's reflectance or the
+        /// base conductor's parameters (in the coat's medium). False, with the reason, for a base the kernel does not have (a
+        /// textured one, a conductor with anisotropic roughness or glints, another material).
+        bool kernelParams(kernel::LayeredParams<Real>& out, Vector3& baseAlbedo, kernel::ConductorParams<Real>& baseConductor, std::string& why) const;
+#endif
 
     private:
         Params m_p;

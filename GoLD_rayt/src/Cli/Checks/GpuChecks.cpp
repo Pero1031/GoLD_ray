@@ -16,6 +16,7 @@
 #include "Kernel/SelfTest.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
+#include "Materials/LayeredCoat.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/Camera.hpp"
 #include "Render/Integrator.hpp"
@@ -421,6 +422,88 @@ namespace {
             Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " +
             std::to_string(sampleMismatch) + " samples accepted by one side only");
     }
+
+    /// The engine's random number stream as Kernel/Layered.hpp's source: the kernel draws what LayeredCoat would draw next.
+    struct EngineRand {
+        Real next() { return sampling::Random(); }
+        kernel::Vec2<Real> next2() {
+            const Point2 p = sampling::Random2D();
+            return kernel::Vec2<Real>(p.x, p.y);
+        }
+    };
+
+    /// The kernel's layered material in double against the engine's LayeredCoat, for each layered material of a scene file (built
+    /// by the engine as a render builds it: the base metal in the coat's medium): eval, pdf and sample on the same directions. The
+    /// walks draw their random numbers inside LayeredCoat; the engine's stream is seeded before each call, and seeded again before
+    /// the kernel's call, which draws from it the same numbers in the same order.
+    bool LayeredEngineChecks(const std::string& path, std::vector<std::pair<std::string, kernel::KMaterial>>& gpuMaterials) {
+        bool ok = true;
+        KernelSceneHost host;
+        std::string why;
+        std::vector<std::pair<std::string, const LayeredCoat*>> coats;
+        std::vector<std::string> results;
+        const auto withEngine = [&](const SceneSetup& setup, const Environment&) {
+            for (const auto& [name, m] : setup.namedMaterials) {
+                const auto* lc = dynamic_cast<const LayeredCoat*>(m);
+                if (!lc) continue;
+                kernel::LayeredParams<Real> lp{};
+                Vector3 albedo(0.0);
+                kernel::ConductorParams<Real> c{};
+                std::string limit;
+                if (!lc->kernelParams(lp, albedo, c, limit)) { ok &= Report("layered " + name, false, limit); continue; }
+                const kernel::LayerBase<Real> base{ albedo, lp.conductorBase ? &c : nullptr };
+                const std::vector<DirCase> cases = MakeDirCases(2048, 79);
+                SampledWavelengths lambda;
+                double worst = 0;
+                size_t identical = 0, values = 0, sampleMismatch = 0, nonzero = 0, sampled = 0;
+                for (size_t i = 0; i < cases.size(); ++i) {
+                    const DirCase& dc = cases[i];
+                    SurfaceInteraction rec{};   // no tangent: the layers' frame is built from the normal alone, as the kernel's
+                    rec.p = Point3(0.0);
+                    rec.n = dc.ns;
+                    rec.gn = dc.ng;
+                    rec.frontFace = true;
+                    EngineRand rnd;
+                    sampling::SeedStream(911, i);
+                    const Spectrum fe = lc->eval(rec, dc.wo, dc.wi, lambda, TransportMode::Radiance);
+                    sampling::SeedStream(911, i);
+                    const Vector3 fk = kernel::layeredEval(lp, base, dc.wo, dc.wi, dc.ns, dc.ng, rnd);
+                    const Real pe = lc->pdf(rec, dc.wo, dc.wi, lambda);
+                    const Real pk = kernel::layeredPdf(lp, base, dc.wo, dc.wi, dc.ns, dc.ng);
+                    const double vals[][2] = { { fe.x, fk.x }, { fe.y, fk.y }, { fe.z, fk.z }, { pe, pk } };
+                    for (const auto& v : vals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; ++values; }
+                    nonzero += pe > 0;
+                    sampling::SeedStream(913, i);
+                    const std::optional<BSDFSample> se = lc->sample(rec, dc.wo, Point2(dc.u1, dc.u2), lambda, TransportMode::Radiance);
+                    sampling::SeedStream(913, i);
+                    kernel::BsdfSample<Real> sk{};
+                    const bool okK = kernel::layeredSample(lp, base, dc.wo, dc.ns, dc.ng, kernel::Vec2<Real>(dc.u1, dc.u2), rnd, sk);
+                    if (bool(se) != okK) { ++sampleMismatch; continue; }
+                    if (!okK) continue;
+                    ++sampled;
+                    const double svals[][2] = { { se->wi.x, sk.wi.x }, { se->wi.y, sk.wi.y }, { se->wi.z, sk.wi.z }, { se->f.x, sk.f.x }, { se->f.y, sk.f.y },
+                        { se->f.z, sk.f.z }, { se->pdf, sk.pdf } };
+                    for (const auto& v : svals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; ++values; }
+                }
+                ok &= Report("kernel layered (double) = engine LayeredCoat, " + path + " \"" + name + "\" (" + (lp.conductorBase ? "metal" : "diffuse") + " base, coat alpha " +
+                    Fmt(lp.alpha, 3) + (lp.absorbing ? ", tinted" : "") + ", " + std::to_string(lp.samples) + (lp.samples == 1 ? " walk)" : " walks)"),
+                    worst <= 1e-12 && sampleMismatch == 0,
+                    std::to_string(cases.size()) + " direction pairs (" + std::to_string(nonzero) + " with a nonzero pdf, " + std::to_string(sampled) + " samples): eval, pdf and sample " +
+                    Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " +
+                    std::to_string(sampleMismatch) + " samples accepted by one side only");
+                coats.emplace_back(name, lc);
+            }
+        };
+        CliOptions o;
+        o.spp = 1;
+        if (!PackSceneFile(path, o, 64, 48, {}, host, why, withEngine)) return Report("layered materials of " + path, false, why);
+        if (coats.empty()) return Report("layered materials of " + path, false, "none found");
+        // the packed materials are in the order of the scene file's names (a std::map), as setup.namedMaterials, which the hook went through
+        size_t k = 0;
+        for (const kernel::KMaterial& km : host.materials)
+            if (km.type == kernel::kMatLayered && k < coats.size()) gpuMaterials.emplace_back("layered " + coats[k++].first, km);
+        return ok;
+    }
 #endif
 
     /// The kernel's environment (double where the engine uses double) against the engine's EnvMap: eval, sample and pdf.
@@ -521,6 +604,7 @@ namespace {
             c.wo = f3(d.wo); c.wi = f3(d.wi); c.ng = f3(d.ng); c.ns = { ns.x, ns.y, ns.z };
             c.u1 = float(d.u1); c.u2 = float(d.u2); c.u3 = float(d.u3);
             c.front = d.front ? 1u : 0u;
+            c.stream = uint32_t(cases.size());
             if (c.u3 >= 1.0f) c.u3 = 0.99999994f;
             if (c.u1 >= 1.0f) c.u1 = 0.99999994f;
             if (c.u2 >= 1.0f) c.u2 = 0.99999994f;
@@ -648,8 +732,10 @@ int RunGpuTests(const CliOptions& /*opt*/) {
 #endif
     ok &= SphereLightEngineCheck();
 #if !defined(RAYT_SPECTRAL_MODE)
-    // 3b. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
-    for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json" })
+    // 3b. The layered materials of the coat scene, kernel in double = engine.
+    ok &= LayeredEngineChecks("scenes/gpu_coat.json", gpuMaterials);
+    // 3c. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
+    for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json", "scenes/gpu_coat.json" })
         ok &= AovEngineCheck(path);
 #endif
 
@@ -698,7 +784,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         struct Group { const char* name; int first, last; };
         const Group groups[] = { { "cosine hemisphere", kernel::kHemiX, kernel::kHemiZ }, { "uniform sphere", kernel::kSphereX, kernel::kSphereZ },
             { "orthonormal basis", kernel::kBasisSX, kernel::kBasisTZ }, { "dielectric Fresnel", kernel::kFresnel, kernel::kFresnel },
-            { "atan2 and acos", kernel::kAtan2, kernel::kAcos } };
+            { "atan2, acos and exp", kernel::kAtan2, kernel::kExp } };
         for (const Group& g : groups) {
             double errCpu = 0, errGpu = 0, maxDiff = 0;
             size_t identical = 0, values = 0, nans = 0, worst = 0;
@@ -735,6 +821,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_glass.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_env.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_spheres.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_coat.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -745,6 +832,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= TracerCheck(*mod, "scenes/gpu_glass.json");
     ok &= TracerCheck(*mod, "scenes/gpu_env.json");
     ok &= TracerCheck(*mod, "scenes/gpu_spheres.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_coat.json");
 #endif
     return ok ? 0 : 2;
 }

@@ -14,6 +14,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 #include <glm/glm.hpp>
 
 #include "Kernel/HostDevice.hpp"
@@ -31,6 +32,25 @@ namespace rayt::kernel {
     RAYT_HD_INLINE float kcopysign(float x, float s) { return copysignf(x, s); }
     RAYT_HD_INLINE float kabs(float x) { return fabsf(x); }
     RAYT_HD_INLINE float kfloor(float x) { return floorf(x); }
+
+    RAYT_HD_INLINE int32_t kFloatAsInt(float f) {
+#if defined(RAYT_GPU_CODE)
+        return __float_as_int(f);
+#else
+        int32_t i;
+        memcpy(&i, &f, sizeof(i));
+        return i;
+#endif
+    }
+    RAYT_HD_INLINE float kIntAsFloat(int32_t i) {
+#if defined(RAYT_GPU_CODE)
+        return __int_as_float(i);
+#else
+        float f;
+        memcpy(&f, &i, sizeof(f));
+        return f;
+#endif
+    }
 
     /**
      * @brief Sine and cosine in float, the same bits on every device.
@@ -112,6 +132,32 @@ namespace rayt::kernel {
         return 1.57079632679489661923f - copysignf(z, x);
     }
 
+    /**
+     * @brief exp(x) in float, the same bits on every device: the CEPHES single-precision algorithm as Dr.Jit implements it
+     *        (references/src/drjit/include/drjit/math.h): x = g + n log 2 with log 2 split into two floats, a degree-5 polynomial
+     *        for e^g on [-log(2)/2, log(2)/2], and 2^n put into the exponent bits. About 1 ulp; 0 below -87.3 (where the result
+     *        would leave the normal floats), infinity above 88.7, NaN for NaN.
+     */
+    RAYT_HD_INLINE float kexp(float x) {
+        if (x != x) return x;
+        if (x > 88.7228391f) return INFINITY;
+        if (x < -87.3365447f) return 0.0f;
+        const float n = floorf(kfma(1.44269504088896341f, x, 0.5f));
+        float y = kfma(n, -0.693359375f, x);
+        y = kfma(n, 2.12194440e-4f, y);
+        float p = 1.9875691500e-4f;
+        p = kfma(p, y, 1.3981999507e-3f);
+        p = kfma(p, y, 8.3334519073e-3f);
+        p = kfma(p, y, 4.1665795894e-2f);
+        p = kfma(p, y, 1.6666665459e-1f);
+        p = kfma(p, y, 5.0000001201e-1f);
+        float r = kfma(p, y * y, y + 1.0f);
+        int32_t k = int32_t(n);
+        if (k > 127) { r = r * 2.0f; k -= 1; }   // 2^128 is not a float: 2 x 2^127
+        if (k < -126) return 0.0f;
+        return r * kIntAsFloat((k + 127) << 23);
+    }
+
 #if !defined(RAYT_GPU_CODE)
     // CPU only: device code that calls one of these does not compile.
     inline double ksqrt(double x) { return sqrt(x); }
@@ -123,6 +169,7 @@ namespace rayt::kernel {
     inline double kfloor(double x) { return floor(x); }
     inline double katan2(double y, double x) { return atan2(y, x); }
     inline double kacos(double x) { return acos(x); }
+    inline double kexp(double x) { return exp(x); }
 #else
     // Device code: a double argument picks these deleted overloads (instead of converting to float) and fails to compile.
     RAYT_HD double ksqrt(double) = delete;
@@ -134,6 +181,7 @@ namespace rayt::kernel {
     RAYT_HD double kfloor(double) = delete;
     RAYT_HD double katan2(double, double) = delete;
     RAYT_HD double kacos(double) = delete;
+    RAYT_HD double kexp(double) = delete;
 #endif
 
     /// std::max(a, b): b if a < b, else a.
@@ -148,6 +196,8 @@ namespace rayt::kernel {
     template <class T> RAYT_HD_INLINE T kinfinity() { return T(INFINITY); }
     /// False for NaN and +-infinity (x - x is 0 only for finite x; IEEE arithmetic, no fast math, keeps it).
     template <class T> RAYT_HD_INLINE bool kisFinite(T x) { return x - x == T(0); }
+    /// std::isinf.
+    template <class T> RAYT_HD_INLINE bool kisInf(T x) { return kabs(x) == kinfinity<T>(); }
     /// 1 / x, with |x| raised to at least 1e-6 (sign kept), as math::safe_recip.
     template <class T> RAYT_HD_INLINE T ksafeRecip(T x) {
         const T eps = T(1e-6);

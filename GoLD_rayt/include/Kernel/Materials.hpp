@@ -286,40 +286,4 @@ namespace rayt::kernel {
         return true;
     }
 
-    // ---------------------------------------------------------------- by type (float, what the kernel renderer calls)
-
-    RAYT_HD_INLINE Vec3<float> materialAlbedo(const KMaterial& m) { return Vec3<float>(m.albedo[0], m.albedo[1], m.albedo[2]); }
-
-    /// The material scatters only in delta lobes (no light sampling at it, no density to weigh against).
-    RAYT_HD_INLINE bool bsdfIsDelta(const KMaterial& m) { return m.type == kMatDielectric && m.dielectric.smooth; }
-
-    RAYT_HD_INLINE Vec3<float> bsdfEval(const KMaterial& m, bool front, const Vec3<float>& wo, const Vec3<float>& wi, const Vec3<float>& ns, const Vec3<float>& ng) {
-        switch (m.type) {
-        case kMatDiffuse: return diffuseEval(materialAlbedo(m), wi, ng);
-        case kMatConductor: return conductorEval(m.conductor, wo, wi, ns, ng);
-        case kMatDielectric: return dielectricEval(m.dielectric, front, wo, wi, ns, ng);
-        default: return Vec3<float>(0.0f);
-        }
-    }
-
-    RAYT_HD_INLINE float bsdfPdf(const KMaterial& m, bool front, const Vec3<float>& wo, const Vec3<float>& wi, const Vec3<float>& ns, const Vec3<float>& ng) {
-        switch (m.type) {
-        case kMatDiffuse: return diffusePdf(wi, ns, ng);
-        case kMatConductor: return conductorPdf(m.conductor, wo, wi, ns, ng);
-        case kMatDielectric: return dielectricPdf(m.dielectric, front, wo, wi, ns);
-        default: return 0.0f;
-        }
-    }
-
-    RAYT_HD_INLINE bool bsdfSample(const KMaterial& m, bool front, const Vec3<float>& wo, const Vec3<float>& ns, const Vec3<float>& ng, float u1, float u2,
-        float u3, BsdfSample<float>& out) {
-        out.delta = false;
-        switch (m.type) {
-        case kMatDiffuse: return diffuseSample(materialAlbedo(m), ns, ng, u1, u2, out);
-        case kMatConductor: return conductorSample(m.conductor, wo, ns, ng, u1, u2, out);
-        case kMatDielectric: return dielectricSample(m.dielectric, front, wo, ns, ng, u1, u2, u3, out);
-        default: return false;
-        }
-    }
-
 } // namespace rayt::kernel

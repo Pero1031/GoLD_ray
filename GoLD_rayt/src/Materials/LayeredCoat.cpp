@@ -2,6 +2,7 @@
 #include "pch.h"
 
 #include "Materials/LayeredCoat.hpp"
+#include "Materials/RoughConductor.hpp"
 #include "Microfacet/Distribution.hpp"
 
 namespace rayt {
@@ -286,6 +287,34 @@ namespace rayt {
         m_alpha = MicrofacetDistribution::roughnessToAlpha(std::max(p.roughness, Real(0.02)));
     }
 
+#if !defined(RAYT_SPECTRAL_MODE)
+    bool LayeredCoat::kernelParams(kernel::LayeredParams<Real>& out, Vector3& baseAlbedo, kernel::ConductorParams<Real>& baseConductor, std::string& why) const {
+        const SampledWavelengths lambda;
+        out.ior = m_p.ior;
+        out.alpha = m_alpha;
+        const Spectrum sigma = coatDepth(m_p, lambda);
+        out.absorbing = 0;
+        for (int i = 0; i < 3; ++i) {
+            out.sigma[i] = sigma[i];
+            if (sigma[i] != Real(0)) out.absorbing = 1;
+        }
+        out.samples = static_cast<uint32_t>(std::max(m_p.samples, 1));
+        out.maxDepth = static_cast<uint32_t>(std::max(m_p.maxDepth, 0));
+        out.conductorBase = 0;
+        baseAlbedo = Vector3(0.0);
+        if (!m_base) {
+            const Spectrum R = m_albedo.reflectance(lambda);   // what eval() uses
+            baseAlbedo = Vector3(R[0], R[1], R[2]);
+            return true;
+        }
+        const auto* conductor = dynamic_cast<const RoughConductor*>(m_base.get());
+        if (!conductor) { why = "a base that is not a constant diffuse or a rough conductor"; return false; }
+        if (!conductor->kernelParams(baseConductor, why)) { why = "a base conductor with " + why; return false; }
+        out.conductorBase = 1;
+        return true;
+    }
+#endif
+
     Vector3 LayeredCoat::aovAlbedo(const SurfaceInteraction& rec) const {
         if (m_base) return m_base->aovAlbedo(rec);
         return glm::clamp(m_albedo.rgb(), Vector3(0.0), Vector3(1.0));
@@ -325,9 +354,15 @@ namespace rayt {
 
         for (int s = 0; s < N; ++s) {
             // In from outside along wo, and the "virtual light" that leaves along wi (reversed transport).
-            const auto wos = top.sample(o, sampling::Random(), sampling::Random2D(), radiance, false, true);
+            // Every random number is drawn on its own line, in a fixed order (the kernel renderer draws them in the same order:
+            // Kernel/Layered.hpp).
+            const Point2 uo = sampling::Random2D();
+            const Real co = sampling::Random();
+            const auto wos = top.sample(o, co, uo, radiance, false, true);
             if (!wos || wos->f == Real(0) || wos->pdf == Real(0) || wos->wi.z == Real(0)) continue;
-            const auto wis = top.sample(i, sampling::Random(), sampling::Random2D(), !radiance, false, true);
+            const Point2 ui = sampling::Random2D();
+            const Real ci = sampling::Random();
+            const auto wis = top.sample(i, ci, ui, !radiance, false, true);
             if (!wis || wis->f == Real(0) || wis->pdf == Real(0) || wis->wi.z == Real(0)) continue;
 
             Spectrum beta = Spectrum(wos->f * std::abs(wos->wi.z) / wos->pdf);
@@ -350,7 +385,8 @@ namespace rayt {
                 }
 
                 // Scatter at the base.
-                const auto bs = b.sample(-w, sampling::Random2D());
+                const Point2 ub = sampling::Random2D();
+                const auto bs = b.sample(-w, ub);
                 if (!bs || maxOf(bs->f) <= Real(0)) break;
                 beta = beta * bs->f * (std::abs(bs->wi.z) / bs->pdf);
                 w = bs->wi;                                          // travelling up
@@ -367,7 +403,9 @@ namespace rayt {
 
                 // Up to the coat and back down by internal reflection.
                 beta = beta * transmittance(sigma, w);
-                const auto rs = top.sample(-w, sampling::Random(), sampling::Random2D(), radiance, true, false);
+                const Point2 ur = sampling::Random2D();
+                const Real cr = sampling::Random();
+                const auto rs = top.sample(-w, cr, ur, radiance, true, false);
                 if (!rs || rs->f == Real(0) || rs->pdf == Real(0) || rs->wi.z == Real(0)) break;
                 beta = beta * (rs->f * std::abs(rs->wi.z) / rs->pdf);
                 w = rs->wi;
@@ -392,7 +430,8 @@ namespace rayt {
 
         Vector3 exitDir;
         Spectrum beta;
-        auto first = top.sample(o, sampling::Random(), u, radiance, true, true);
+        const Real c0 = sampling::Random();   // each random number on its own line, as in eval()
+        auto first = top.sample(o, c0, u, radiance, true, true);
         if (!first || first->f == Real(0) || first->pdf == Real(0)) return std::nullopt;
         beta = Spectrum(first->f * std::abs(first->wi.z) / first->pdf);
         if (first->reflection) {
@@ -410,12 +449,15 @@ namespace rayt {
                 }
                 if (w.z == Real(0)) return std::nullopt;
                 beta = beta * transmittance(sigma, w);              // down to the base
-                const auto bs = (depth == 0 ? base : baseLater).sample(-w, sampling::Random2D());
+                const Point2 ub = sampling::Random2D();
+                const auto bs = (depth == 0 ? base : baseLater).sample(-w, ub);
                 if (!bs || maxOf(bs->f) <= Real(0)) return std::nullopt;
                 beta = beta * bs->f * (std::abs(bs->wi.z) / bs->pdf);
                 w = bs->wi;                                         // travelling up
                 beta = beta * transmittance(sigma, w);              // up to the coat
-                const auto ts = top.sample(-w, sampling::Random(), sampling::Random2D(), radiance, true, true);
+                const Point2 ut = sampling::Random2D();
+                const Real ct = sampling::Random();
+                const auto ts = top.sample(-w, ct, ut, radiance, true, true);
                 if (!ts || ts->f == Real(0) || ts->pdf == Real(0)) return std::nullopt;
                 beta = beta * (ts->f * std::abs(ts->wi.z) / ts->pdf);
                 if (!ts->reflection) { exitDir = ts->wi; left = true; }

@@ -24,7 +24,7 @@ namespace rayt::kernel {
     /// A ray for the tracer checks (--scene gpu): origin, direction, interval.
     struct KRay { KFloat3 o, d; float tmin, tmax; };
 
-    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1, kMatConductor = 2, kMatDielectric = 3 };
+    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1, kMatConductor = 2, kMatDielectric = 3, kMatLayered = 4 };
 
     /// Rows of the GGX directional-albedo table (Microfacet/GGXAlbedo.hpp, GGXAlbedoTable::kMu).
     constexpr int kAlbedoMu = 32;
@@ -55,13 +55,28 @@ namespace rayt::kernel {
         uint32_t smooth;
     };
 
+    /**
+     * @brief A clear coat over a base as the engine's LayeredCoat holds it (RGB): the coat's index and GGX alpha (the perceptual
+     *        roughness clamped to 0.02, squared), its optical depth along the normal per channel (-log of the tint), the random
+     *        walks per evaluation and their length, and the kind of base (its parameters are KMaterial::albedo or ::conductor).
+     */
+    template <class T> struct LayeredParams {
+        T ior;
+        T alpha;
+        T sigma[3];
+        uint32_t samples, maxDepth;
+        uint32_t conductorBase;    ///< 0: a Lambertian base (KMaterial::albedo), 1: a rough conductor (KMaterial::conductor)
+        uint32_t absorbing;        ///< 1 if a sigma is not 0 (a tinted coat)
+    };
+
     struct KMaterial {
-        uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor | kMatDielectric
+        uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor | kMatDielectric | kMatLayered
         uint32_t twoSided;         ///< emission: emits from both faces
-        float albedo[3];           ///< diffuse: reflectance (linear RGB)
+        float albedo[3];           ///< diffuse, and the diffuse base of a layered material: reflectance (linear RGB)
         float emission[3];         ///< emission: radiance (linear RGB)
-        ConductorParams<float> conductor;   ///< conductor
+        ConductorParams<float> conductor;   ///< conductor, and the conductor base of a layered material (in the coat's medium)
         DielectricParams<float> dielectric; ///< dielectric
+        LayeredParams<float> layered;       ///< layered
         // The denoiser's features (--aov, --denoise), as the engine's Material reports them: a camera path records them at its first
         // vertex whose material is not specular (Render/Integrator.cpp).
         float aovAlbedo[3];        ///< Material::aovAlbedo: the lighting-free color in [0, 1]

@@ -14,6 +14,7 @@
 #include "Cli/SceneFile.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
+#include "Materials/LayeredCoat.hpp"
 #include "Materials/RoughConductor.hpp"
 
 #include <embree4/rtcore.h>
@@ -68,6 +69,15 @@ namespace {
             out.triLight.push_back(light);
             out.triSmooth.push_back(0);
         }
+    }
+
+    /// A conductor's parameters in float (the engine's are double).
+    void ToFloat(const kernel::ConductorParams<Real>& c, kernel::ConductorParams<float>& k) {
+        for (int i = 0; i < 3; ++i) { k.eta[i] = float(c.eta[i]); k.k[i] = float(c.k[i]); k.fms[i] = float(c.fms[i]); }
+        k.alpha = float(c.alpha);
+        k.multipleScattering = c.multipleScattering;
+        k.eAvg = float(c.eAvg);
+        for (int i = 0; i < kernel::kAlbedoMu; ++i) k.eRow[i] = float(c.eRow[i]);
     }
 
     /// Reasons a diffuse material cannot be modeled (empty: it can).
@@ -408,12 +418,34 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             std::string limit;
             if (!rc->kernelParams(c, limit)) { missing.push_back("material \"" + name + "\": a conductor with " + limit); continue; }
             km.type = kernel::kMatConductor;
-            kernel::ConductorParams<float>& k = km.conductor;
-            for (int i = 0; i < 3; ++i) { k.eta[i] = float(c.eta[i]); k.k[i] = float(c.k[i]); k.fms[i] = float(c.fms[i]); }
-            k.alpha = float(c.alpha);
-            k.multipleScattering = c.multipleScattering;
-            k.eAvg = float(c.eAvg);
-            for (int i = 0; i < kernel::kAlbedoMu; ++i) k.eRow[i] = float(c.eRow[i]);
+            ToFloat(c, km.conductor);
+#endif
+        }
+        else if (m.type == MaterialSpec::Type::Layered) {
+            // The coat and its base as the engine built them (the base conductor in the coat's medium).
+            const auto it = engineMaterials.find(name);
+            const LayeredCoat* lc = it == engineMaterials.end() ? nullptr : dynamic_cast<const LayeredCoat*>(it->second);
+            if (!lc) { missing.push_back("material \"" + name + "\": the engine's layered material is not available"); continue; }
+#if defined(RAYT_SPECTRAL_MODE)
+            missing.push_back("material \"" + name + "\": a layered material in the spectral build");
+            continue;
+#else
+            kernel::LayeredParams<Real> lp{};
+            Vector3 albedo(0.0);
+            kernel::ConductorParams<Real> c{};
+            std::string limit;
+            if (!lc->kernelParams(lp, albedo, c, limit)) { missing.push_back("material \"" + name + "\": a layered material with " + limit); continue; }
+            km.type = kernel::kMatLayered;
+            kernel::LayeredParams<float>& k = km.layered;
+            k.ior = float(lp.ior);
+            k.alpha = float(lp.alpha);
+            for (int i = 0; i < 3; ++i) k.sigma[i] = float(lp.sigma[i]);
+            k.samples = lp.samples;
+            k.maxDepth = lp.maxDepth;
+            k.conductorBase = lp.conductorBase;
+            k.absorbing = lp.absorbing;
+            km.albedo[0] = float(albedo.x); km.albedo[1] = float(albedo.y); km.albedo[2] = float(albedo.z);
+            if (lp.conductorBase) ToFloat(c, km.conductor);
 #endif
         }
         else if (m.type == MaterialSpec::Type::Dielectric) {
@@ -433,7 +465,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             km.dielectric.smooth = c.smooth;
 #endif
         }
-        else { missing.push_back("material \"" + name + "\": only diffuse, conductor, dielectric and emission materials"); continue; }
+        else { missing.push_back("material \"" + name + "\": only diffuse, conductor, dielectric, layered and emission materials"); continue; }
         // The denoiser's features as the engine's material reports them (its texture-free color; whether paths look through it).
         {
             const auto it = engineMaterials.find(name);
@@ -510,7 +542,10 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
                 const glm::dmat3 rotation(glm::rotate(glm::dmat4(1.0), glm::radians(Real(o.rotateDegrees)), Vector3(o.rotateAxis)));
                 mesh.transform(rotation * Real(o.scale), Vector3(o.translate));   // as Scenes/FileScene.cpp
             }
-            else mesh = MakeLatheMesh(o.profile, o.segments);
+            else {
+                mesh = MakeLatheMesh(o.profile, o.segments);
+                mesh.transform(glm::dmat3(1.0), Vector3(o.translate));   // as Scenes/FileScene.cpp
+            }
             AddMesh(mesh, mat->second, out);
             break;
         }

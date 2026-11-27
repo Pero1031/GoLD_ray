@@ -3,7 +3,7 @@
  * @file Kernel/PathTracer.hpp
  * @brief The kernel path tracer: one camera path of one pixel sample, in float, on the CPU or the GPU (docs/GPU.md).
  *
- * The rules are the engine's PathIntegrator restricted to what KScene holds (the materials of Kernel/Materials.hpp, emitting
+ * The rules are the engine's PathIntegrator restricted to what KScene holds (the materials of Kernel/Bsdf.hpp, emitting
  * quads, an environment map), so the two converge to the same picture: a path has at most maxDepth surface vertices; each
  * non-delta vertex samples one light with a shadow ray (the environment with probability envSelect, by its luminance; else a
  * light chosen by power: a uniform point on a quad, the cone of a sphere, Kernel/Lights.hpp), weighted against the BSDF's density by the power heuristic, and then samples
@@ -22,10 +22,10 @@
 
 #include <string.h>
 
+#include "Kernel/Bsdf.hpp"
 #include "Kernel/Environment.hpp"
 #include "Kernel/KernelScene.hpp"
 #include "Kernel/Lights.hpp"
-#include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
 
@@ -37,25 +37,6 @@ namespace rayt::kernel {
     constexpr float kInvPi = 0.318309886183790671538f;
 
     RAYT_HD_INLINE V3 toV3(const KFloat3& a) { return V3(a.x, a.y, a.z); }
-
-    RAYT_HD_INLINE int32_t kFloatAsInt(float f) {
-#if defined(RAYT_GPU_CODE)
-        return __float_as_int(f);
-#else
-        int32_t i;
-        memcpy(&i, &f, sizeof(i));
-        return i;
-#endif
-    }
-    RAYT_HD_INLINE float kIntAsFloat(int32_t i) {
-#if defined(RAYT_GPU_CODE)
-        return __int_as_float(i);
-#else
-        float f;
-        memcpy(&f, &i, sizeof(f));
-        return f;
-#endif
-    }
 
     /**
      * @brief The origin of a ray that leaves a surface at p on the side of the unit normal n.
@@ -203,21 +184,19 @@ namespace rayt::kernel {
             const V3 wo = -d;
             if ((s.numLights > 0 || hasEnvironment(s)) && !bsdfIsDelta(m)) {
                 // The light: the environment with probability envSelect, else a light of the scene (a quad or a sphere) chosen by power.
+                // The light is chosen first and the BSDF is evaluated in one place: a layered material's eval is a long random walk,
+                // and on the GPU every call site is a copy of it in the one program that runs a whole path.
                 const float uSel = rng.nextFloat();
                 const float a = rng.nextFloat(), b = rng.nextFloat();
+                V3 wi, le, lightP;
+                float pdfL = 0.0f, scale = 1.0f;
+                bool area = false;
                 if (uSel < s.envSelect) {
-                    V3 wi, le;
                     float pdfW;
                     envSample(s, a, b, wi, le, pdfW);
                     if (pdfW > 0.0f) {
-                        const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
-                        if (kmaxComponent(f) > 0.0f && !tracer.occluded(offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng), wi, 0.0f, kFloatMax)) {
-                            const float pdfL = s.envSelect * pdfW;
-                            const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
-                            const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
-                            const float cosT = kabs(kdot(ns, wi));
-                            L += beta * f * le * s.envScale * (cosT * w / pdfL);
-                        }
+                        pdfL = s.envSelect * pdfW;
+                        scale = s.envScale;
                     }
                 }
                 else {
@@ -225,19 +204,29 @@ namespace rayt::kernel {
                     const KLight& q = s.lights[li];
                     LightSample<float> ls;
                     if (sampleLight(q, p, a, b, ls) && ls.emits && ls.pdf > 0.0f) {
-                        const V3 wi = ls.wi;
-                        const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
-                        if (kmaxComponent(f) > 0.0f) {
-                            const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
-                            const V3 toL2 = ls.p - org;
+                        wi = ls.wi;
+                        le = V3(q.radiance[0], q.radiance[1], q.radiance[2]);
+                        lightP = ls.p;
+                        pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
+                        area = true;
+                    }
+                }
+                if (pdfL > 0.0f) {
+                    const V3 f = bsdfEval(m, front, wo, wi, ns, ng, rng);
+                    if (kmaxComponent(f) > 0.0f) {
+                        const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
+                        bool blocked;
+                        if (area) {
+                            const V3 toL2 = lightP - org;
                             const float distB = klength(toL2);
-                            if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
-                                const float pdfL = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
-                                const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
-                                const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
-                                const float cosT = kabs(kdot(ns, wi));
-                                L += beta * f * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (cosT * w / pdfL);
-                            }
+                            blocked = tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f);
+                        }
+                        else blocked = tracer.occluded(org, wi, 0.0f, kFloatMax);
+                        if (!blocked) {
+                            const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
+                            const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
+                            const float cosT = kabs(kdot(ns, wi));
+                            L += beta * f * le * scale * (cosT * w / pdfL);   // scale: the environment's (times 1 is exact for a light)
                         }
                     }
                 }
@@ -245,7 +234,7 @@ namespace rayt::kernel {
 
             const float u1 = rng.nextFloat(), u2 = rng.nextFloat(), u3 = rng.nextFloat();
             BsdfSample<float> bs;
-            if (!bsdfSample(m, front, wo, ns, ng, u1, u2, u3, bs)) break;   // no sample (below the geometric surface, total reflection, ...)
+            if (!bsdfSample(m, front, wo, ns, ng, u1, u2, u3, rng, bs)) break;   // no sample (below the geometric surface, total reflection, ...)
             if (bs.delta) beta *= bs.f;   // f is already the weight of the specular event (PathIntegrator::updateThroughput)
             else {
                 if (!(bs.pdf > 1e-8f)) break;

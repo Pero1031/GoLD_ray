@@ -591,7 +591,9 @@
     <ClInclude Include="include\Kernel\Microfacet.hpp" />
     <ClInclude Include="include\Kernel\Materials.hpp" />
     <ClInclude Include="include\Kernel\Environment.hpp" />
+    <ClInclude Include="include\Kernel\Bsdf.hpp" />
     <ClInclude Include="include\Kernel\Lights.hpp" />
+    <ClInclude Include="include\Kernel\Layered.hpp" />
     <ClInclude Include="include\Cli\KernelScenePack.hpp" />
     <ClInclude Include="include\Materials\DiffuseLight.hpp" />
     <ClInclude Include="include\Materials\FadingDye.hpp" />

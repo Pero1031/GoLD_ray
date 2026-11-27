@@ -1,8 +1,9 @@
 #pragma once
 // The kernel renderer's scene (Kernel/KernelScene.hpp) built from a scene file, and the --device cpu-kernel | gpu render
 // (docs/GPU.md). The kernel renderer models a subset of the engine (quads, spheres and triangle meshes; diffuse surfaces with a
-// constant albedo, isotropic rough conductors, glass, emitting quads and spheres; an environment map; a pinhole camera; the RGB
-// build); anything else is refused with a list of what is missing, instead of being rendered differently.
+// constant albedo, isotropic rough conductors, glass, clear coats over a diffuse or a metal base, emitting quads and spheres; an
+// environment map; a pinhole camera; the RGB build); anything else is refused with a list of what is missing, instead of being
+// rendered differently.
 
 #include <functional>
 #include <map>

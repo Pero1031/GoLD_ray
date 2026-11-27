@@ -11,8 +11,8 @@
 
 #include <stdint.h>
 
+#include "Kernel/Bsdf.hpp"
 #include "Kernel/Environment.hpp"
-#include "Kernel/Materials.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
 
@@ -36,6 +36,7 @@ namespace rayt::kernel {
         kBasisTX, kBasisTY, kBasisTZ,              ///< orthonormalBasis(n): t
         kFresnel,                                  ///< fresnelDielectric(cosTheta, etaI, etaT)
         kAtan2, kAcos,                             ///< katan2(ny, nx), kacos(nz) (the float versions of Kernel/KernelMath.hpp)
+        kExp,                                      ///< kexp(-12 u1)
         kMathValueCount
     };
 
@@ -62,6 +63,7 @@ namespace rayt::kernel {
         v[kFresnel] = fresnelDielectric(T(c.cosTheta), T(c.etaI), T(c.etaT));
         v[kAtan2] = katan2(T(c.ny), T(c.nx));
         v[kAcos] = kacos(T(c.nz));
+        v[kExp] = kexp(T(-12) * T(c.u1));
     }
 
     /// The random numbers and the values in float: what the CPU and the GPU both run.
@@ -86,6 +88,7 @@ namespace rayt::kernel {
         KFloat3 wo, wi, ns, ng;   ///< world space; ns and ng turned toward wo as at a hit
         float u1, u2, u3;         ///< the sample's random numbers
         uint32_t front;           ///< the ray came from the outside
+        uint32_t stream;          ///< the random number stream of a layered material's walks
     };
 
     struct MaterialOut {
@@ -97,11 +100,12 @@ namespace rayt::kernel {
     RAYT_HD_INLINE void evalMaterialCase(const KMaterial& m, const MaterialCase& c, MaterialOut& out) {
         const Vec3<float> wo(c.wo.x, c.wo.y, c.wo.z), wi(c.wi.x, c.wi.y, c.wi.z), ns(c.ns.x, c.ns.y, c.ns.z), ng(c.ng.x, c.ng.y, c.ng.z);
         const bool front = c.front != 0;
-        const Vec3<float> f = bsdfEval(m, front, wo, wi, ns, ng);
+        Pcg32 rng = Pcg32::forSample(0x1a7e5eedull, c.stream, 0);   // a layered material's walks
+        const Vec3<float> f = bsdfEval(m, front, wo, wi, ns, ng, rng);
         out.f[0] = f.x; out.f[1] = f.y; out.f[2] = f.z;
         out.pdf = bsdfPdf(m, front, wo, wi, ns, ng);
         BsdfSample<float> s{};
-        out.sampled = bsdfSample(m, front, wo, ns, ng, c.u1, c.u2, c.u3, s) ? 1u : 0u;
+        out.sampled = bsdfSample(m, front, wo, ns, ng, c.u1, c.u2, c.u3, rng, s) ? 1u : 0u;
         out.delta = s.delta ? 1u : 0u;
         out.wi[0] = s.wi.x; out.wi[1] = s.wi.y; out.wi[2] = s.wi.z;
         out.sf[0] = s.f.x; out.sf[1] = s.f.y; out.sf[2] = s.f.z;
