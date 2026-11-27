@@ -115,11 +115,11 @@ namespace rayt::kernel {
         const Vec3<float> wo(c.wo.x, c.wo.y, c.wo.z), wi(c.wi.x, c.wi.y, c.wi.z), ns(c.ns.x, c.ns.y, c.ns.z), ng(c.ng.x, c.ng.y, c.ng.z);
         const bool front = c.front != 0;
         Pcg32 rng = Pcg32::forSample(0x1a7e5eedull, c.stream, 0);   // a layered material's walks
-        const Vec3<float> f = bsdfEval(m, front, wo, wi, ns, ng, rng);
+        const Vec3<float> f = bsdfEval(m, materialAlbedo(m), front, wo, wi, ns, ng, rng);
         out.f[0] = f.x; out.f[1] = f.y; out.f[2] = f.z;
         out.pdf = bsdfPdf(m, front, wo, wi, ns, ng);
         BsdfSample<float> s{};
-        out.sampled = bsdfSample(m, front, wo, ns, ng, c.u1, c.u2, c.u3, rng, s) ? 1u : 0u;
+        out.sampled = bsdfSample(m, materialAlbedo(m), front, wo, ns, ng, c.u1, c.u2, c.u3, rng, s) ? 1u : 0u;
         out.delta = s.delta ? 1u : 0u;
         out.wi[0] = s.wi.x; out.wi[1] = s.wi.y; out.wi[2] = s.wi.z;
         out.sf[0] = s.f.x; out.sf[1] = s.f.y; out.sf[2] = s.f.z;

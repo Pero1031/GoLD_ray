@@ -126,6 +126,19 @@ namespace rayt {
         /// Albedo = constant color x texture (sampled at the hit point's uv).
         Lambertian(const RgbColor& a, std::shared_ptr<const Texture2D> tex) : albedo(a), m_tex(std::move(tex)) {}
 
+#if !defined(RAYT_SPECTRAL_MODE)
+        /// This surface as the kernel renderer models it (Kernel/Textures.hpp, docs/GPU.md): the RGB albedo (a measured curve's color under D65)
+        /// and the image or the spectral texture that multiplies it (null: none). False, with the reason, for fading or a translucent layer.
+        bool kernelParams(Vector3& albedoRgb, const Texture2D*& tex, const SpectralTexture*& stex, std::string& why) const {
+            if (m_dye || m_fading) { why = "fading"; return false; }
+            if (m_translucent) { why = "a translucent layer"; return false; }
+            albedoRgb = albedo.rgb();
+            tex = m_tex.get();
+            stex = m_stex.get();
+            return true;
+        }
+#endif
+
         /**
          * @brief Evaluates the Lambertian BRDF.
          * * Formula: f(wo, wi) = albedo / PI

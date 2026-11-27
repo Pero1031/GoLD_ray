@@ -60,7 +60,22 @@ namespace rayt::kernel {
         Vec3<T> wi;
         T pdf;
         bool emits;   ///< the point shows its emitting side to the reference point
+        T invDist2;   ///< a point light: 1 / its squared distance, the falloff of its intensity (other lights: unused)
     };
+
+    /// PointLight::sampleLi: the direction toward the light, a delta (pdf 1 by the engine's convention), and the falloff 1 / d^2.
+    template <class T> RAYT_HD_INLINE bool samplePointLight(const Vec3<T>& pos, const Vec3<T>& ref, LightSample<T>& out) {
+        const Vec3<T> d = pos - ref;
+        const T dist2 = kdot(d, d);
+        if (dist2 <= T(0)) return false;
+        const T invDist = ksafeRecip(ksafeSqrt(dist2));
+        out.wi = d * invDist;
+        out.p = pos;
+        out.pdf = T(1);
+        out.emits = true;
+        out.invDist2 = ksafeRecip(dist2);
+        return true;
+    }
 
     /// Sphere::sampleFrom (with the default Shape::sampleFrom inside the sphere) and AreaLight::sampleLi's direction.
     template <class T> RAYT_HD_INLINE bool sampleSphereLight(const Vec3<T>& c, T radius, bool twoSided, const Vec3<T>& ref, T u1, T u2, LightSample<T>& out) {
@@ -134,6 +149,7 @@ namespace rayt::kernel {
 
     /// A light sample of light q from ref (float, what the renderer calls).
     RAYT_HD_INLINE bool sampleLight(const KLight& q, const Vec3<float>& ref, float a, float b, LightSample<float>& out) {
+        if (q.type == kLightPoint) return samplePointLight(Vec3<float>(q.center.x, q.center.y, q.center.z), ref, out);
         if (q.type == kLightSphere)
             return sampleSphereLight(Vec3<float>(q.center.x, q.center.y, q.center.z), q.radius, q.twoSided != 0, ref, a, b, out);
         const Vec3<float> corner(q.corner.x, q.corner.y, q.corner.z), e1(q.edge1.x, q.edge1.y, q.edge1.z), e2(q.edge2.x, q.edge2.y, q.edge2.z);
@@ -151,6 +167,7 @@ namespace rayt::kernel {
 
     /// The density of sampleLight for light q in direction d from ref, where d meets the light at p (float).
     RAYT_HD_INLINE float lightPdf(const KLight& q, const Vec3<float>& ref, const Vec3<float>& d, const Vec3<float>& p) {
+        if (q.type == kLightPoint) return 0.0f;   // a delta: no path finds it
         if (q.type == kLightSphere) return sphereLightPdf(Vec3<float>(q.center.x, q.center.y, q.center.z), q.radius, ref, d, p);
         const Vec3<float> dp = p - ref;
         const float cosL = kabs(kdot(d, Vec3<float>(q.normal.x, q.normal.y, q.normal.z)));

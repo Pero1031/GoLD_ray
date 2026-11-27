@@ -93,7 +93,9 @@ namespace rayt {
                 rec.dpdu = len2 > Real(1e-12) ? around / std::sqrt(len2) : Vector3(0.0);
             }
 
-            // NOTE: rec.uv is not set on spheres (a texture on a sphere sees the default uv); use a mesh for textured round objects.
+            // Spheres have no texture coordinates: a texture on a sphere sees (0, 0) (use a mesh for textured round objects). Set it, as the
+            // scene BVH lets every closer candidate write the same record, and a farther quad or mesh hit tested before would leave its uv.
+            rec.uv = UV(0, 0);
 
             return true;
         }

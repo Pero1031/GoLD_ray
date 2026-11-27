@@ -30,6 +30,7 @@
 #include "Kernel/Media.hpp"
 #include "Kernel/Rng.hpp"
 #include "Kernel/Sampling.hpp"
+#include "Kernel/Textures.hpp"
 
 namespace rayt::kernel {
 
@@ -103,6 +104,8 @@ namespace rayt::kernel {
     struct SurfacePoint {
         V3 p, faceN, ns;
         float err;   ///< a bound of p's rounding beyond what offsetRayOrigin covers (a sphere's: its centre and radius set it)
+        uint32_t prim;
+        float b1, b2;   ///< a triangle's barycentrics of its second and third vertex (for its texture coordinates)
         uint32_t material;
         int32_t light;
         bool front, smooth;
@@ -111,6 +114,8 @@ namespace rayt::kernel {
     RAYT_HD_INLINE void surfacePoint(const KScene& s, const KHit& h, const V3& o, const V3& d, SurfacePoint& sp) {
         sp.smooth = false;
         sp.err = 0.0f;
+        sp.prim = h.prim;
+        sp.b1 = sp.b2 = 0.0f;
         if (h.prim < s.numTriangles) {
             const uint32_t i0 = s.indices[3 * h.prim], i1 = s.indices[3 * h.prim + 1], i2 = s.indices[3 * h.prim + 2];
             const V3 v0 = toV3(s.positions[i0]), v1 = toV3(s.positions[i1]), v2 = toV3(s.positions[i2]);
@@ -118,6 +123,8 @@ namespace rayt::kernel {
             triangleBarycentrics(o, d, v0, v1, v2, b1, b2);   // not the tracer's own (h.b1, h.b2): the same bits on every device
             const float w0 = 1.0f - b1 - b2;
             sp.p = w0 * v0 + b1 * v1 + b2 * v2;
+            sp.b1 = b1;
+            sp.b2 = b2;
             sp.faceN = toV3(s.faceNormals[h.prim]);
             sp.front = kdot(d, sp.faceN) < 0.0f;
             if (s.triSmooth[h.prim]) {
@@ -158,6 +165,22 @@ namespace rayt::kernel {
         return h.prim < s.numTriangles ? kdot(sp.p - o, d) : h.t;
     }
 
+    /// A diffuse material's reflectance at the surface point: its albedo, times its texture at the point's uv if it has one (Lambertian::albedoAt;
+    /// a triangle's uv interpolates its vertices' as TriangleMesh::uvAt, a sphere has none: (0, 0)).
+    RAYT_HD_INLINE V3 surfaceAlbedo(const KScene& s, const KMaterial& m, const SurfacePoint& sp) {
+        const V3 albedo = materialAlbedo(m);
+        if (m.texture < 0) return albedo;
+        float u = 0.0f, v = 0.0f;
+        if (sp.prim < s.numTriangles) {
+            const KFloat2 t0 = s.uvs[s.indices[3 * sp.prim]], t1 = s.uvs[s.indices[3 * sp.prim + 1]], t2 = s.uvs[s.indices[3 * sp.prim + 2]];
+            const float w = 1.0f - sp.b1 - sp.b2;
+            u = w * t0.u + sp.b1 * t1.u + sp.b2 * t2.u;
+            v = w * t0.v + sp.b1 * t1.v + sp.b2 * t2.v;
+        }
+        const TextureArrays<float> arrays{ s.texels8, s.texelsF, s.srgbLut };
+        return albedo * textureRgb(s.textures[m.texture], arrays, u, v);
+    }
+
     /// A smooth dielectric with the same index on both sides (Dielectric::isNullInterface): with --media-nee paths and shadow rays cross it.
     RAYT_HD_INLINE bool isNullInterface(const KMaterial& m) { return m.type == kMatDielectric && m.dielectric.nullInterface != 0; }
 
@@ -166,7 +189,8 @@ namespace rayt::kernel {
     struct LightChoice {
         V3 wi, le, p;
         float pdf, scale;
-        bool area;
+        bool area;    ///< a light at a point (a shadow ray stops short of it), not the environment
+        bool delta;   ///< a point light: no other strategy can find it, its MIS weight is 1
     };
 
     RAYT_HD_INLINE void chooseLight(const KScene& s, Pcg32& rng, const V3& p, LightChoice& c) {
@@ -175,6 +199,7 @@ namespace rayt::kernel {
         c.pdf = 0.0f;
         c.scale = 1.0f;
         c.area = false;
+        c.delta = false;
         if (uSel < s.envSelect) {
             float pdfW;
             envSample(s, a, b, c.wi, c.le, pdfW);
@@ -190,6 +215,10 @@ namespace rayt::kernel {
             if (sampleLight(q, p, a, b, ls) && ls.emits && ls.pdf > 0.0f) {
                 c.wi = ls.wi;
                 c.le = V3(q.radiance[0], q.radiance[1], q.radiance[2]);
+                if (q.type == kLightPoint) {   // PointLight::sampleLi: the intensity over the squared distance
+                    c.le = c.le * ls.invDist2;
+                    c.delta = true;
+                }
                 c.p = ls.p;
                 c.pdf = (1.0f - s.envSelect) * (s.lightCdf[li + 1] - s.lightCdf[li]) * ls.pdf;
                 c.area = true;
@@ -248,7 +277,7 @@ namespace rayt::kernel {
         }
         const V3 T = shadowTransmittance(s, tracer, rng, p, dirS, tMaxS, medium);   // p lies inside the medium: no offset
         if (!(kmaxComponent(T) > 0.0f)) return V3(0.0f);
-        const float w = c.pdf * c.pdf / (c.pdf * c.pdf + ph * ph);
+        const float w = c.delta ? 1.0f : c.pdf * c.pdf / (c.pdf * c.pdf + ph * ph);
         return c.le * c.scale * T * (ph * w / c.pdf);
     }
 
@@ -377,7 +406,12 @@ namespace rayt::kernel {
             }
 
             // the denoiser's features: the first vertex that is not specular, emitters included (recorded before their light, as the engine does)
-            if (aov && !aov->valid && !m.aovSpecular) setAov(aov, V3(m.aovAlbedo[0], m.aovAlbedo[1], m.aovAlbedo[2]), ns);
+            const V3 albedo = surfaceAlbedo(s, m, sp);
+            if (aov && !aov->valid && !m.aovSpecular) {
+                if (m.texture >= 0)   // Lambertian::aovAlbedo: the textured albedo, clamped to [0, 1]
+                    setAov(aov, V3(kmin(kmax(albedo.x, 0.0f), 1.0f), kmin(kmax(albedo.y, 0.0f), 1.0f), kmin(kmax(albedo.z, 0.0f), 1.0f)), ns);
+                else setAov(aov, V3(m.aovAlbedo[0], m.aovAlbedo[1], m.aovAlbedo[2]), ns);
+            }
 
             // ---- an emitter: its light, weighted against the light sample of the previous vertex; emitters do not reflect ----
             if (m.type == kMatEmission) {
@@ -403,7 +437,7 @@ namespace rayt::kernel {
                 chooseLight(s, rng, p, c);
                 if (c.pdf > 0.0f) {
                     const V3 wi = c.wi;
-                    const V3 f = bsdfEval(m, front, wo, wi, ns, ng, rng);
+                    const V3 f = bsdfEval(m, albedo, front, wo, wi, ns, ng, rng);
                     if (kmaxComponent(f) > 0.0f) {
                         const V3 org = leaveSurface(sp, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
                         V3 dirS = wi;
@@ -428,7 +462,7 @@ namespace rayt::kernel {
                         if (!blocked) {
                             const float pdfL = c.pdf;
                             const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
-                            const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
+                            const float w = (pdfB > 0.0f && !c.delta) ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
                             const float cosT = kabs(kdot(ns, wi));
                             if (s.mediaNee) L += beta * f * c.le * c.scale * T * (cosT * w / pdfL);
                             else L += beta * f * c.le * c.scale * (cosT * w / pdfL);   // scale: the environment's (times 1 is exact for a light)
@@ -439,7 +473,7 @@ namespace rayt::kernel {
 
             const float u1 = rng.nextFloat(), u2 = rng.nextFloat(), u3 = rng.nextFloat();
             BsdfSample<float> bs;
-            if (!bsdfSample(m, front, wo, ns, ng, u1, u2, u3, rng, bs)) break;   // no sample (below the geometric surface, total reflection, ...)
+            if (!bsdfSample(m, albedo, front, wo, ns, ng, u1, u2, u3, rng, bs)) break;   // no sample (below the geometric surface, total reflection, ...)
             if (bs.delta) beta *= bs.f;   // f is already the weight of the specular event (PathIntegrator::updateThroughput)
             else {
                 if (!(bs.pdf > 1e-8f)) break;

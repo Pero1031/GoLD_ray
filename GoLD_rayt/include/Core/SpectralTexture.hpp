@@ -89,6 +89,9 @@ namespace rayt {
             return std::clamp(r, Real(0), Real(1));
         }
 
+        /// The texels' D65 colors as rgb() blends them (3 floats per texel, row 0 = top; the kernel renderer copies them).
+        const std::vector<float>& rgbTexels() const { return m_rgb; }
+
         /// Linear sRGB of the texel spectrum under D65 (bilinear). What the RGB build uses.
         Vector3 rgb(Real u, Real v) const {
             Texel tx[4]; Real tw[4];

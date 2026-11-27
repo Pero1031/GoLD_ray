@@ -228,7 +228,7 @@ namespace rayt {
                     + u * m_mesh->n[static_cast<size_t>(m_i1)] + v * m_mesh->n[static_cast<size_t>(m_i2)]);
                 rec.n = rec.frontFace ? ns : -ns;
             }
-            if (m_mesh->uv.size() == m_mesh->p.size()) rec.uv = uvAt(u, v);
+            rec.uv = m_mesh->uv.size() == m_mesh->p.size() ? uvAt(u, v) : UV(0, 0);   // (0, 0) without uv, not a farther candidate's
             rec.dpdu = m_dpdu;
             rec.matPtr = m_material.get();
         }

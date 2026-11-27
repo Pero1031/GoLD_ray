@@ -5,6 +5,8 @@
 #include "Accelerators/BVH.hpp"
 #include "Core/Fresnel.hpp"
 #include "Core/Sampling.hpp"
+#include "Core/SpectralTexture.hpp"
+#include "Core/Texture.hpp"
 #include "Geometry/Frame.hpp"
 #include "Geometry/Sphere.hpp"
 #include "Cli/KernelScenePack.hpp"
@@ -14,7 +16,9 @@
 #include "Kernel/Lights.hpp"
 #include "Kernel/PathTracer.hpp"
 #include "Kernel/SelfTest.hpp"
+#include "Kernel/Textures.hpp"
 #include "Lights/EnvLight.hpp"
+#include "Lights/PointLight.hpp"
 #include "Materials/Dielectric.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/Medium.hpp"
@@ -151,7 +155,8 @@ namespace {
     /// tracers (the engine's BVH in double, Embree in float) send a ray along an edge or a silhouette to different primitives. The
     /// environment's color differs more: the kernel maps the direction to the map in float, the engine in double, and the bilinear
     /// lookup turns that difference (about 1e-7 rad, 3e-5 of a texel of a 2048 wide map) into one of the color, times the contrast
-    /// between neighbouring texels.
+    /// between neighbouring texels. A textured surface's albedo differs for the same reason: the kernel interpolates the texture
+    /// coordinates in float (a tile whose coordinates reach 2 rounds them by 1.2e-7, 1e-5 of a texel of a 64 wide image).
     bool AovEngineCheck(const std::string& path, int w = 64, int h = 48) {
         const int maxDepth = 16;
         KernelSceneHost host;
@@ -199,7 +204,8 @@ namespace {
         std::vector<uint32_t> firstMaterial;
         if (!KernelRayAovs(host.view(), rays, kernelAovs, firstMaterial, why)) return Report("features " + path, false, why);
         size_t compared = 0, skipped = 0, differ = 0, valid = 0, atEnvironment = 0;
-        double maxAlbedo = 0, maxNormal = 0, maxEnv = 0;
+        double maxAlbedo = 0, maxNormal = 0, maxEnv = 0, maxTextured = 0;
+        size_t textured = 0;
         std::ostringstream examples;
         for (size_t k = 0; k < rays.size(); ++k) {
             if (firstMaterial[k] != kernel::kNoHit && host.materials[firstMaterial[k]].aovSpecular) { ++skipped; continue; }
@@ -212,9 +218,12 @@ namespace {
                 dN = std::max(dN, std::abs(double(a.normal[c]) - e.normal[c]));
             }
             const bool env = e.valid && firstMaterial[k] == kernel::kNoHit;
-            const bool same = (a.valid != 0) == e.valid && dA <= (env ? 1e-3 : 1e-5) && dN <= 1e-4;
+            const bool tex = firstMaterial[k] != kernel::kNoHit && host.materials[firstMaterial[k]].texture >= 0;
+            const bool same = (a.valid != 0) == e.valid && dA <= (env || tex ? 1e-3 : 1e-5) && dN <= 1e-4;
             if (same) {
-                (env ? maxEnv : maxAlbedo) = std::max(env ? maxEnv : maxAlbedo, dA);
+                double& worst = env ? maxEnv : tex ? maxTextured : maxAlbedo;
+                worst = std::max(worst, dA);
+                textured += tex;
                 maxNormal = std::max(maxNormal, dN);
                 valid += e.valid;
                 atEnvironment += env;
@@ -228,8 +237,9 @@ namespace {
         return Report("the kernel renderer's albedo / normal features = the engine's on the same rays, " + path, differ <= compared / 500,
             std::to_string(compared) + " rays (" + std::to_string(skipped) + " left out: smooth glass first), " + std::to_string(differ) +
             " differ (allowed: 1 in 500, edges and silhouettes); the others agree within " + Fmt(maxAlbedo, 2) + " (albedo), " + Fmt(maxNormal, 2) +
-            " (normal) and " + Fmt(maxEnv, 2) + " (the environment's color, allowed 1e-3); " + std::to_string(valid) + " with features (" + std::to_string(atEnvironment) +
-            " the environment)" + examples.str());
+            " (normal), " + Fmt(maxEnv, 2) + " (the environment's color, allowed 1e-3)" +
+            (textured ? " and " + Fmt(maxTextured, 2) + " (the albedo of " + std::to_string(textured) + " textured surfaces, allowed 1e-3)" : std::string()) + "; " +
+            std::to_string(valid) + " with features (" + std::to_string(atEnvironment) + " the environment)" + examples.str());
     }
 
     /// The rays a CPU path trace of a test scene casts (w x h pixels, spp samples, run seed), traced again by the GPU's tracer
@@ -700,6 +710,81 @@ namespace {
             " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " + std::to_string(mismatch) + " samples valid or facing on one side only");
     }
 
+#if !defined(RAYT_SPECTRAL_MODE)
+    /// The kernel's image textures in double against Texture2D::rgb and SpectralTexture::rgb at the same coordinates: random ones inside
+    /// and outside [0, 1] (the repeat), texel centres and texel borders.
+    bool TextureEngineCheck(const std::string& image, const std::string& spectral) {
+        const auto tex = Texture2D::load(image);
+        std::string err;
+        const auto stex = SpectralTexture::load(spectral, &err);
+        if (!tex || !stex) return Report("kernel textures = engine", false, "cannot read " + (tex ? spectral + ": " + err : image));
+        // the kernel's arrays in double: the engine's tables are float, so the copies are exact
+        const auto& lut8 = Texture2D::srgbToLinear();
+        const std::vector<double> lut(lut8.begin(), lut8.end());
+        const std::vector<double> texelsF(stex->rgbTexels().begin(), stex->rgbTexels().end());
+        const kernel::TextureArrays<double> arrays{ tex->rgba8().data(), texelsF.data(), lut.data() };
+        const kernel::KTexture k8{ kernel::kTexSrgb8, uint32_t(tex->width()), uint32_t(tex->height()), 0 };
+        const kernel::KTexture kf{ kernel::kTexLinearRgb, uint32_t(stex->width()), uint32_t(stex->height()), 0 };
+        kernel::Pcg32 rng;
+        rng.seed(2718, 9);
+        size_t identical = 0, values = 0;
+        double worst = 0;
+        const int n = 8192;
+        for (int i = 0; i < n; ++i) {
+            const bool spectralTex = i % 2 == 1;
+            const int w = spectralTex ? stex->width() : tex->width(), h = spectralTex ? stex->height() : tex->height();
+            Real u = Real(-3) + Real(7) * rng.nextDouble(), v = Real(-3) + Real(7) * rng.nextDouble();
+            if (i % 8 < 2) { u = (Real(int(rng.nextDouble() * w)) + Real(0.5)) / Real(w); v = (Real(int(rng.nextDouble() * h)) + Real(0.5)) / Real(h); }
+            else if (i % 8 < 4) { u = Real(int(rng.nextDouble() * 3 * w) - w) / Real(w); v = Real(int(rng.nextDouble() * 3 * h) - h) / Real(h); }
+            const Vector3 e = spectralTex ? stex->rgb(u, v) : tex->rgb(u, v);
+            const kernel::Vec3<double> k = kernel::textureRgb<double>(spectralTex ? kf : k8, arrays, u, v);
+            for (int c = 0; c < 3; ++c) { worst = std::max(worst, RelDiff(e[c], k[c])); identical += e[c] == k[c]; ++values; }
+        }
+        return Report("kernel textures = engine Texture2D::rgb (8-bit sRGB) / SpectralTexture::rgb", identical == values,
+            std::to_string(n) + " lookups of " + image + " and " + spectral + " (inside and outside [0, 1], texel centres and borders): " +
+            Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " + Fmt(worst));
+    }
+
+    /// The kernel's point light in double against PointLight::sampleLi: direction, position, pdf and the radiance (the packer's intensity
+    /// over the squared distance), from reference points at 1e-4 to 10 from the light.
+    bool PointLightEngineCheck() {
+        kernel::Pcg32 rng;
+        rng.seed(4242, 3);
+        SampledWavelengths lambda;
+        double worst = 0;
+        size_t identical = 0, values = 0, mismatch = 0;
+        const int n = 4096;
+        for (int i = 0; i < n; ++i) {
+            const Point3 pos(Real(-2) + Real(4) * rng.nextDouble(), Real(3) * rng.nextDouble(), Real(-2) + Real(4) * rng.nextDouble());
+            const Vector3 color(rng.nextDouble(), rng.nextDouble(), rng.nextDouble());
+            const Real intensity = Real(0.1) + Real(5) * rng.nextDouble();
+            const PointLight engine(pos, RgbColor(color), intensity);
+            const Real dist = i % 7 == 0 ? Real(1e-4) * (Real(1) + rng.nextDouble()) : Real(10) * rng.nextDouble();
+            LightSampleContext ctx;
+            ctx.p = pos + RandomUnit(rng) * dist;
+            ctx.gn = RandomUnit(rng);
+            const auto es = engine.sampleLi(ctx, Point2(0.5, 0.5), lambda);
+            kernel::LightSample<Real> ks{};
+            const bool kok = kernel::samplePointLight<Real>(pos, ctx.p, ks);
+            if (bool(es) != kok) { ++mismatch; continue; }
+            if (!kok) continue;
+            const Vector3 I = EmissionSpectrum(RgbColor(color)).rgb() * intensity;   // KernelScenePack's KLight::radiance of a point light
+            std::vector<std::array<double, 2>> v;
+            for (int c = 0; c < 3; ++c) {
+                v.push_back({ es->wi[c], ks.wi[c] });
+                v.push_back({ es->pLight[c], ks.p[c] });
+                v.push_back({ es->Li[c], I[c] * ks.invDist2 });
+            }
+            v.push_back({ es->pdf, ks.pdf });
+            if (!es->isDelta) ++mismatch;
+            for (const auto& q : v) { worst = std::max(worst, RelDiff(q[0], q[1])); identical += q[0] == q[1]; ++values; }
+        }
+        return Report("kernel point light = engine PointLight::sampleLi", identical == values && mismatch == 0,
+            std::to_string(n) + " samples: " + Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " +
+            Fmt(worst) + ", " + std::to_string(mismatch) + " valid on one side only");
+    }
+#endif
+
     /// A material's eval, pdf and sample in float on the CPU and on the GPU, on the same directions.
     bool MaterialGpuCheck(const gpu::Module& mod, bool fastMath, const std::string& label, const kernel::KMaterial& m) {
         const std::vector<DirCase> dirs = MakeDirCases(4096, 91);
@@ -871,11 +956,14 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         ok &= NoiseEngineCheck("the cloud's (22 / m, 5 octaves, a spherical mask)", cloud, Real(0.12));
         ok &= NoiseEngineCheck("the marble's (55 / m, 4 octaves)", NoiseDensity(Real(55), 4, Real(0.30), Real(0.62), 5u), Real(2.0));
     }
+    // 3a''. Image textures and point lights, kernel in double = engine.
+    ok &= TextureEngineCheck("assets/Textures/gpu_pattern.png", "assets/Textures/gpu_cloth.sptex");
+    ok &= PointLightEngineCheck();
     // 3b. The layered materials of the coat scene, kernel in double = engine.
     ok &= LayeredEngineChecks("scenes/gpu_coat.json", gpuMaterials);
     // 3c. The denoiser's features on the same rays as the engine (the kernel renders in RGB only).
     for (const char* path : { "scenes/gpu_box.json", "scenes/gpu_metals.json", "scenes/gpu_glass.json", "scenes/gpu_env.json", "scenes/gpu_spheres.json", "scenes/gpu_coat.json",
-                              "scenes/gpu_media.json" })
+                              "scenes/gpu_media.json", "scenes/gpu_textures.json" })
         ok &= AovEngineCheck(path);
 #endif
 
@@ -967,6 +1055,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_lens.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_media.json", info.fastMath != 0);
     ok &= PairedCheck("scenes/gpu_cloud.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_textures.json", info.fastMath != 0);
 #endif
 
     // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
@@ -981,6 +1070,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= TracerCheck(*mod, "scenes/gpu_lens.json");
     ok &= TracerCheck(*mod, "scenes/gpu_media.json");
     ok &= TracerCheck(*mod, "scenes/gpu_cloud.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_textures.json");
 #endif
     return ok ? 0 : 2;
 }

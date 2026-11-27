@@ -15,6 +15,7 @@
 namespace rayt::kernel {
 
     struct KFloat3 { float x, y, z; };
+    struct KFloat2 { float u, v; };
 
     constexpr uint32_t kNoHit = 0xffffffffu;
 
@@ -72,6 +73,17 @@ namespace rayt::kernel {
 
     enum : uint32_t { kPhaseHG = 0, kPhaseTable = 1 };
 
+    enum : uint32_t { kTexSrgb8 = 0, kTexLinearRgb = 1 };
+
+    /// An image over a surface's uv, repeating, bilinear, texel centres at half-integer positions, (0, 0) the top-left corner:
+    /// kTexSrgb8 is Core/Texture.hpp's 8-bit sRGB RGBA (KScene::texels8, 4 bytes per texel, decoded by KScene::srgbLut), kTexLinearRgb
+    /// the linear RGB under D65 of Core/SpectralTexture.hpp (KScene::texelsF, 3 floats per texel), what the RGB build uses of it.
+    struct KTexture {
+        uint32_t kind;
+        uint32_t width, height;
+        uint32_t offset;           ///< the first texel's index into texels8 (bytes) or texelsF (floats)
+    };
+
     /**
      * @brief A scattering medium inside a dielectric (Materials/Medium.hpp: HomogeneousMedium or ChromaticMedium), RGB: the extinction
      *        per channel (1/m; for a density field the majorant, where q = 1), the scattering coefficient sigma_t albedo, the phase
@@ -104,16 +116,18 @@ namespace rayt::kernel {
         DielectricParams<float> dielectric; ///< dielectric
         LayeredParams<float> layered;       ///< layered
         int32_t medium;            ///< dielectric: the medium inside it (index into KScene::media), -1 if none
+        int32_t texture;           ///< diffuse: the image that multiplies the albedo at the hit's uv (index into KScene::textures), -1 if none
         // The denoiser's features (--aov, --denoise), as the engine's Material reports them: a camera path records them at its first
         // vertex whose material is not specular (Render/Integrator.cpp).
         float aovAlbedo[3];        ///< Material::aovAlbedo: the lighting-free color in [0, 1]
         uint32_t aovSpecular;      ///< Material::isSpecular: 1 = the path looks through (smooth glass) and records the next vertex
     };
 
-    enum : uint32_t { kLightQuad = 0, kLightSphere = 1 };
+    enum : uint32_t { kLightQuad = 0, kLightSphere = 1, kLightPoint = 2 };
 
-    /// A light that next-event estimation samples: an emitting parallelogram (corner + a edge1 + b edge2, a uniform point on it)
-    /// or an emitting sphere (the cone it subtends, as the engine's Sphere::sampleFrom).
+    /// A light that next-event estimation samples: an emitting parallelogram (corner + a edge1 + b edge2, a uniform point on it),
+    /// an emitting sphere (the cone it subtends, as the engine's Sphere::sampleFrom), or a point light (Lights/PointLight.hpp: at
+    /// `center`, radiance holding its intensity, which falls off with the squared distance; no path can hit it).
     struct KLight {
         uint32_t type;             ///< kLightQuad | kLightSphere
         KFloat3 corner, edge1, edge2;
@@ -174,6 +188,7 @@ namespace rayt::kernel {
     /// Everything a render reads. The pointers are valid on the device that runs the render.
     struct KScene {
         const KFloat3* positions;     ///< vertices, world space
+        const KFloat2* uvs;           ///< per vertex: texture coordinates (0, 0 where the mesh has none)
         const KFloat3* normals;       ///< per vertex (read for triangles with triSmooth = 1)
         const uint32_t* indices;      ///< 3 per triangle
         const KFloat3* faceNormals;   ///< per triangle: unit geometric normal, turned toward the vertex normals as the engine does
@@ -205,6 +220,11 @@ namespace rayt::kernel {
         const float* phaseF;          ///< the phase functions' tables (KMedium::tableOffset, tableCount): density in theta at the nodes ...
         const float* phaseCdf;        ///< ... and the cumulative distribution there
         uint32_t numMedia, numPhaseNodes;
+        const KTexture* textures;
+        const uint8_t* texels8;
+        const float* texelsF;
+        const float* srgbLut;         ///< 256 entries: the linear value of an 8-bit sRGB code (Core/Texture.hpp's table)
+        uint32_t numTextures, numTexels8, numTexelsF;
         uint32_t mediaNee;            ///< --media-nee: lights are sampled at every scattering event in a medium, and an index-matched smooth
                                       ///  boundary (relative index 1) is crossed without counting as a bounce, by paths and by shadow rays
         uint32_t volumeCap;           ///< collisions in media per path (--volume-cap)

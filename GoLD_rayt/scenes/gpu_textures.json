@@ -1,0 +1,36 @@
+// A test scene of the kernel renderer (docs/GPU.md): textures and point lights. The back wall shows an image (assets/Textures/gpu_pattern.png,
+// a coloured grid over a ramp) times its albedo; a wavy tile on the floor (assets/Meshes/gpu_uv_tile.obj) repeats it twice through its
+// texture coordinates; a turned vase wears a spectral texture (assets/Textures/gpu_cloth.sptex: stripes of two dyes, its colours under
+// D65 in the RGB build); a ball has the image too, but a sphere has no texture coordinates, so it is one texel's colour. A warm and a
+// cool point light join the lamp under the ceiling. tools/test/make_gpu_texture_assets.py makes the three assets. Everything in it is
+// what --device gpu / cpu-kernel model, so the engine and the kernel renderer must converge to the same picture.
+{
+ "options": { "width": 400, "height": 300, "spp": 64 },
+ "camera": { "from": [0, 1, 3.6], "at": [0, 0.8, 0], "fov": 40 },
+ "environment": { "type": "uniform", "scale": 0.1 },
+ "materials": {
+  "white": { "type": "diffuse", "albedo": [0.75, 0.75, 0.72] },
+  "red": { "type": "diffuse", "albedo": [0.63, 0.065, 0.05] },
+  "green": { "type": "diffuse", "albedo": [0.14, 0.45, 0.09] },
+  "poster": { "type": "diffuse", "albedo": [0.9, 0.9, 0.9], "texture": "assets/Textures/gpu_pattern.png" },
+  "tiles": { "type": "diffuse", "albedo": [0.8, 0.8, 0.8], "texture": "assets/Textures/gpu_pattern.png" },
+  "cloth": { "type": "diffuse", "reflectanceTexture": "assets/Textures/gpu_cloth.sptex" },
+  "lamp": { "type": "emission", "spectrum": { "rgb": [1, 0.9, 0.75] }, "radiance": 10 }
+ },
+ "lights": [
+  { "type": "point", "position": [-0.6, 1.35, 0.45], "color": [1.0, 0.75, 0.5], "intensity": 0.9 },
+  { "type": "point", "position": [0.65, 1.1, 0.55], "color": [0.55, 0.7, 1.0], "intensity": 0.6 }
+ ],
+ "objects": [
+  { "shape": "quad", "corner": [-1, 0, 1], "edge1": [2, 0, 0], "edge2": [0, 0, -2], "material": "white" },
+  { "shape": "quad", "corner": [-1, 2, 1], "edge1": [0, 0, -2], "edge2": [2, 0, 0], "material": "white" },
+  { "shape": "quad", "corner": [-1, 0, -1], "edge1": [2, 0, 0], "edge2": [0, 2, 0], "material": "poster" },
+  { "shape": "quad", "corner": [-1, 0, 1], "edge1": [0, 0, -2], "edge2": [0, 2, 0], "material": "red" },
+  { "shape": "quad", "corner": [1, 0, -1], "edge1": [0, 0, 2], "edge2": [0, 2, 0], "material": "green" },
+  { "shape": "quad", "corner": [-0.3, 1.98, 0.3], "edge1": [0, 0, -0.6], "edge2": [0.6, 0, 0], "material": "lamp", "light": true },
+  { "shape": "mesh", "file": "assets/Meshes/gpu_uv_tile.obj", "scale": 1.1, "translate": [0, 0.04, 0.25], "material": "tiles" },
+  { "shape": "lathe", "profile": [[0, 0], [0.2, 0], [0.26, 0.12], [0.24, 0.4], [0.14, 0.62], [0.12, 0.7], [0.15, 0.74], [0, 0.74]], "segments": 64,
+    "translate": [-0.45, 0.001, -0.6], "material": "cloth" },
+  { "shape": "sphere", "center": [0.55, 0.24, -0.6], "radius": 0.23, "material": "poster" }
+ ]
+}

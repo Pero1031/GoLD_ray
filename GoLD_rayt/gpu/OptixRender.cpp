@@ -59,6 +59,10 @@ namespace {
         DeviceBuffer<float> lensPupil, lensBladeNormals;
         DeviceBuffer<rayt::kernel::KMedium> media;
         DeviceBuffer<float> phaseF, phaseCdf;
+        DeviceBuffer<rayt::kernel::KFloat2> uvs;
+        DeviceBuffer<rayt::kernel::KTexture> textures;
+        DeviceBuffer<uint8_t> texels8;
+        DeviceBuffer<float> texelsF, srgbLut;
         DeviceBuffer<char> triangleGas, sphereGas, ias;
         DeviceBuffer<OptixAabb> sphereBoxes;
         DeviceBuffer<OptixInstance> instances;
@@ -112,6 +116,11 @@ namespace {
             RAYT_CUDA(upload(media, h.media, h.numMedia), "copying the media");
             RAYT_CUDA(upload(phaseF, h.phaseF, h.numPhaseNodes), "copying the phase functions");
             RAYT_CUDA(upload(phaseCdf, h.phaseCdf, h.numPhaseNodes), "copying the phase functions");
+            RAYT_CUDA(upload(uvs, h.uvs, h.numVertices), "copying the texture coordinates");
+            RAYT_CUDA(upload(textures, h.textures, h.numTextures), "copying the textures");
+            RAYT_CUDA(upload(texels8, h.texels8, h.numTexels8), "copying the textures' texels");
+            RAYT_CUDA(upload(texelsF, h.texelsF, h.numTexelsF), "copying the textures' texels");
+            RAYT_CUDA(upload(srgbLut, h.srgbLut, h.srgbLut ? 256 : 0), "copying the sRGB table");
             scene = h;
             scene.positions = positions.ptr; scene.normals = normals.ptr; scene.indices = indices.ptr; scene.faceNormals = faceNormals.ptr;
             scene.triMaterial = triMaterial.ptr; scene.triLight = triLight.ptr; scene.triSmooth = triSmooth.ptr;
@@ -120,6 +129,7 @@ namespace {
             scene.envCondFunc = envCondFunc.ptr; scene.envCondCdf = envCondCdf.ptr; scene.envCondInt = envCondInt.ptr;
             scene.lensSurfaces = lensSurfaces.ptr; scene.lensPupil = lensPupil.ptr; scene.lensBladeNormals = lensBladeNormals.ptr;
             scene.media = media.ptr; scene.phaseF = phaseF.ptr; scene.phaseCdf = phaseCdf.ptr;
+            scene.uvs = uvs.ptr; scene.textures = textures.ptr; scene.texels8 = texels8.ptr; scene.texelsF = texelsF.ptr; scene.srgbLut = srgbLut.ptr;
 
             // ---- the acceleration structures: a GAS over the triangles, a GAS over the spheres' boxes (custom primitives), and,
             //      when the scene has spheres, an instance AS over both (identity transforms; instance k uses hit group k) ----

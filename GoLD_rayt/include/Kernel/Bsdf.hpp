@@ -34,10 +34,11 @@ namespace rayt::kernel {
     /// The material scatters only in delta lobes (no light sampling at it, no density to weigh against).
     RAYT_HD_INLINE bool bsdfIsDelta(const KMaterial& m) { return m.type == kMatDielectric && m.dielectric.smooth; }
 
-    RAYT_HD_INLINE Vec3<float> bsdfEval(const KMaterial& m, bool front, const Vec3<float>& wo, const Vec3<float>& wi, const Vec3<float>& ns, const Vec3<float>& ng,
-        Pcg32& rng) {
+    /// albedo: a diffuse material's reflectance at the hit (its albedo times its texture there, if it has one).
+    RAYT_HD_INLINE Vec3<float> bsdfEval(const KMaterial& m, const Vec3<float>& albedo, bool front, const Vec3<float>& wo, const Vec3<float>& wi, const Vec3<float>& ns,
+        const Vec3<float>& ng, Pcg32& rng) {
         switch (m.type) {
-        case kMatDiffuse: return diffuseEval(materialAlbedo(m), wi, ng);
+        case kMatDiffuse: return diffuseEval(albedo, wi, ng);
         case kMatConductor: return conductorEval(m.conductor, wo, wi, ns, ng);
         case kMatDielectric: return dielectricEval(m.dielectric, front, wo, wi, ns, ng);
         case kMatLayered: {
@@ -59,11 +60,11 @@ namespace rayt::kernel {
     }
 
     /// u1, u2 (and u3 for a rough dielectric's choice) are the sample's numbers; a layered material draws the rest of its walk from rng.
-    RAYT_HD_INLINE bool bsdfSample(const KMaterial& m, bool front, const Vec3<float>& wo, const Vec3<float>& ns, const Vec3<float>& ng, float u1, float u2,
-        float u3, Pcg32& rng, BsdfSample<float>& out) {
+    RAYT_HD_INLINE bool bsdfSample(const KMaterial& m, const Vec3<float>& albedo, bool front, const Vec3<float>& wo, const Vec3<float>& ns, const Vec3<float>& ng,
+        float u1, float u2, float u3, Pcg32& rng, BsdfSample<float>& out) {
         out.delta = false;
         switch (m.type) {
-        case kMatDiffuse: return diffuseSample(materialAlbedo(m), ns, ng, u1, u2, out);
+        case kMatDiffuse: return diffuseSample(albedo, ns, ng, u1, u2, out);
         case kMatConductor: return conductorSample(m.conductor, wo, ns, ng, u1, u2, out);
         case kMatDielectric: return dielectricSample(m.dielectric, front, wo, ns, ng, u1, u2, u3, out);
         case kMatLayered: {

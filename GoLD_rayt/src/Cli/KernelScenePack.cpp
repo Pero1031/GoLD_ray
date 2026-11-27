@@ -15,6 +15,10 @@
 #include "Cli/SceneFile.hpp"
 #include "Lights/EnvLight.hpp"
 #include "Materials/Dielectric.hpp"
+#include "Core/SpectralTexture.hpp"
+#include "Core/Texture.hpp"
+#include "Lights/PointLight.hpp"
+#include "Materials/Lambertian.hpp"
 #include "Materials/LayeredCoat.hpp"
 #include "Materials/Medium.hpp"
 #include "Materials/RoughConductor.hpp"
@@ -36,9 +40,11 @@ namespace {
     void AddMesh(const TriangleMesh& mesh, uint32_t material, KernelSceneHost& out) {
         const uint32_t base = uint32_t(out.positions.size());
         const bool smooth = mesh.hasNormals();
+        const bool hasUv = mesh.uv.size() == mesh.p.size();   // else the engine's default uv (0, 0)
         for (size_t i = 0; i < mesh.p.size(); ++i) {
             out.positions.push_back(F3(mesh.p[i]));
             out.normals.push_back(smooth ? F3(mesh.n[i]) : kernel::KFloat3{ 0, 0, 0 });
+            out.uvs.push_back(hasUv ? kernel::KFloat2{ float(mesh.uv[i].x), float(mesh.uv[i].y) } : kernel::KFloat2{ 0, 0 });
         }
         for (size_t t = 0; t < mesh.numTriangles(); ++t) {
             const int i0 = mesh.indices[3 * t], i1 = mesh.indices[3 * t + 1], i2 = mesh.indices[3 * t + 2];
@@ -58,9 +64,13 @@ namespace {
     /// Appends a quad (two triangles that face cross(edge1, edge2), as the engine's Quad); light >= 0: the quad light they belong to.
     void AddQuad(const Point3& c, const Vector3& e1, const Vector3& e2, uint32_t material, int32_t light, KernelSceneHost& out) {
         const uint32_t base = uint32_t(out.positions.size());
+        // the quad's uv: a along edge1, b along edge2 (Geometry/Quad.hpp), linear over each of the two triangles
+        const kernel::KFloat2 uv[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+        int k = 0;
         for (const Point3& p : { c, c + e1, c + e1 + e2, c + e2 }) {
             out.positions.push_back(F3(p));
             out.normals.push_back({ 0, 0, 0 });
+            out.uvs.push_back(uv[k++]);
         }
         const kernel::KFloat3 n = F3(glm::normalize(glm::cross(e1, e2)));
         const uint32_t tris[2][3] = { { 0, 1, 2 }, { 0, 2, 3 } };
@@ -82,11 +92,36 @@ namespace {
         for (int i = 0; i < kernel::kAlbedoMu; ++i) k.eRow[i] = float(c.eRow[i]);
     }
 
+    /// The kernel's texture of an engine texture (an image or a spectral texture's colors), added once per texture. A spectral texture
+    /// comes first, as in Lambertian::albedoAt.
+    int32_t AddTexture(const Texture2D* tex, const SpectralTexture* stex, KernelSceneHost& out, std::map<const void*, int32_t>& known) {
+        const void* key = stex ? static_cast<const void*>(stex) : static_cast<const void*>(tex);
+        if (!key) return -1;
+        const auto it = known.find(key);
+        if (it != known.end()) return it->second;
+        kernel::KTexture k{};
+        if (stex) {
+            k.kind = kernel::kTexLinearRgb;
+            k.width = uint32_t(stex->width());
+            k.height = uint32_t(stex->height());
+            k.offset = uint32_t(out.texelsF.size());
+            out.texelsF.insert(out.texelsF.end(), stex->rgbTexels().begin(), stex->rgbTexels().end());
+        }
+        else {
+            k.kind = kernel::kTexSrgb8;
+            k.width = uint32_t(tex->width());
+            k.height = uint32_t(tex->height());
+            k.offset = uint32_t(out.texels8.size());
+            out.texels8.insert(out.texels8.end(), tex->rgba8().begin(), tex->rgba8().end());
+        }
+        const int32_t index = int32_t(out.textures.size());
+        out.textures.push_back(k);
+        known[key] = index;
+        return index;
+    }
+
     /// Reasons a diffuse material cannot be modeled (empty: it can).
     std::string DiffuseLimits(const MaterialSpec& m) {
-        if (!m.texture.empty()) return "an albedo texture";
-        if (!m.reflectanceTexture.empty()) return "a reflectance texture";
-        if (!m.reflectance.empty()) return "a measured reflectance";
         if (m.fadingDye || !m.fadingSeries.empty()) return "fading";
         return "";
     }
@@ -361,6 +396,14 @@ kernel::KScene KernelSceneHost::view() const {
     s.lensPupil = lensPupil.data();
     s.lensBladeNormals = lensBladeNormals.data();
     s.media = media.data();
+    s.uvs = uvs.data();
+    s.textures = textures.data();
+    s.texels8 = texels8.data();
+    s.texelsF = texelsF.data();
+    s.srgbLut = srgbLut.data();
+    s.numTextures = uint32_t(textures.size());
+    s.numTexels8 = uint32_t(texels8.size());
+    s.numTexelsF = uint32_t(texelsF.size());
     s.phaseF = phaseF.data();
     s.phaseCdf = phaseCdf.data();
     s.numMedia = uint32_t(media.size());
@@ -384,6 +427,7 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
     int width, int height, KernelSceneHost& out, std::string& why) {
     std::vector<std::string> missing;
     out = KernelSceneHost{};
+    out.srgbLut.assign(Texture2D::srgbToLinear().begin(), Texture2D::srgbToLinear().end());
 
     // ---- camera: a pinhole, a thin lens or a real lens, as the engine's Camera holds it ----
     {
@@ -418,19 +462,40 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
 
     // ---- environment (the engine's EnvLight: its map, its sampling distribution, its scale) and point lights ----
     if (d.environment.type != EnvironmentSpec::Type::None && !PackEnvironment(envLight, out)) missing.push_back("the engine's environment is not available");
-    if (!d.lights.empty()) missing.push_back("point lights");
 
     // ---- materials ----
     std::map<std::string, uint32_t> index;
+    std::map<const void*, int32_t> textureIndex;   // an engine texture's index among the kernel's
     std::map<std::string, const MaterialSpec*> specs;
     for (const auto& [name, m] : d.materials) {
         kernel::KMaterial km{};
         km.medium = -1;
+        km.texture = -1;
         if (m.type == MaterialSpec::Type::Diffuse) {
             const std::string limit = DiffuseLimits(m);
             if (!limit.empty()) { missing.push_back("material \"" + name + "\": " + limit); continue; }
+            // the albedo (a measured curve's color under D65) and the texture as the engine's Lambertian holds them
+            const auto it = engineMaterials.find(name);
+            const Lambertian* lam = it == engineMaterials.end() ? nullptr : dynamic_cast<const Lambertian*>(it->second);
+            if (!lam) { missing.push_back("material \"" + name + "\": the engine's diffuse material is not available"); continue; }
+#if defined(RAYT_SPECTRAL_MODE)
+            // the spectral build: a constant albedo only (the kernel renders in RGB; it has no spectra of textures or measured curves)
+            if (!m.texture.empty() || !m.reflectanceTexture.empty() || !m.reflectance.empty()) {
+                missing.push_back("material \"" + name + "\": a texture or a measured reflectance in the spectral build");
+                continue;
+            }
             km.type = kernel::kMatDiffuse;
             km.albedo[0] = float(m.albedo.x); km.albedo[1] = float(m.albedo.y); km.albedo[2] = float(m.albedo.z);
+#else
+            Vector3 albedo(0.0);
+            const Texture2D* tex = nullptr;
+            const SpectralTexture* stex = nullptr;
+            std::string why2;
+            if (!lam->kernelParams(albedo, tex, stex, why2)) { missing.push_back("material \"" + name + "\": " + why2); continue; }
+            km.type = kernel::kMatDiffuse;
+            km.albedo[0] = float(albedo.x); km.albedo[1] = float(albedo.y); km.albedo[2] = float(albedo.z);
+            km.texture = AddTexture(tex, stex, out, textureIndex);
+#endif
         }
         else if (m.type == MaterialSpec::Type::Emission) {
             EmissionSpectrum spectrum;
@@ -614,6 +679,17 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
         }
     }
     if (out.triMaterial.empty() && out.spheres.empty() && missing.empty()) missing.push_back("no geometry");
+
+    // ---- point lights (Lights/PointLight.hpp, as Scenes/FileScene.cpp makes them): the intensity color x intensity, chosen by power 4 pi I ----
+    for (const PointLightSpec& l : d.lights) {
+        kernel::KLight q{};
+        q.type = kernel::kLightPoint;
+        q.center = F3(l.position);
+        const Vector3 I = EmissionSpectrum(RgbColor(l.color)).rgb() * Real(l.intensity);   // what the RGB build's PointLight::sampleLi scales
+        for (int c = 0; c < 3; ++c) q.radiance[c] = float(I[c]);
+        out.lights.push_back(q);
+        power.push_back(4.0f * (0.2126f * q.radiance[0] + 0.7152f * q.radiance[1] + 0.0722f * q.radiance[2]));   // times pi below: 4 pi I
+    }
 
     // ---- lights chosen by emitted power ----
     float total = 0;

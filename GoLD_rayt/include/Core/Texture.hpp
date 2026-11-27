@@ -69,6 +69,9 @@ namespace rayt {
         int width() const { return m_w; }
         int height() const { return m_h; }
         bool hasAlpha() const { return m_hasAlpha; }
+        /// The linear value of every 8-bit sRGB code, as rgb() decodes the texels (the kernel renderer copies it).
+        static const std::array<float, 256>& srgbToLinear() { return srgbTable(); }
+
         /// The texels as stored: 8-bit sRGB RGBA, row 0 = top (e.g. for uploading to OpenGL).
         const std::vector<unsigned char>& rgba8() const { return m_rgba; }
 

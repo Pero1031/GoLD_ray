@@ -42,6 +42,10 @@ struct KernelSceneHost {
     std::vector<float> lensPupil, lensBladeNormals;
     std::vector<kernel::KMedium> media;
     std::vector<float> phaseF, phaseCdf;
+    std::vector<kernel::KFloat2> uvs;
+    std::vector<kernel::KTexture> textures;
+    std::vector<uint8_t> texels8;
+    std::vector<float> texelsF, srgbLut;
     kernel::KScene header{};   ///< the fields that are not pointers
 
     /// The scene with its pointers on these CPU arrays (valid while this object lives and is not changed).
