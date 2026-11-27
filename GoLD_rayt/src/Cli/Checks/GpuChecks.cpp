@@ -9,6 +9,7 @@
 #include "Cli/SceneFile.hpp"
 #include "Gpu/GpuDevice.hpp"
 #include "Kernel/SelfTest.hpp"
+#include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 #include "Render/Camera.hpp"
 
@@ -119,6 +120,54 @@ namespace {
             Fmt(std::chrono::duration<double>(t1 - t0).count(), 2) + " s, GPU " + Fmt(std::chrono::duration<double>(t2 - t1).count(), 2) + " s (with the GPU's setup)");
     }
 
+    /// The rays a CPU path trace of a test scene casts, traced again by the GPU's tracer (OptiX): where do OptiX and Embree answer
+    /// differently? The kernel takes only the triangle from them (and whether a shadow ray is blocked), so these are the only places
+    /// where the CPU's and the GPU's paths can part.
+    bool TracerCheck(const gpu::Module& mod, const std::string& path) {
+        KernelSceneHost host;
+        std::string why;
+        if (!KernelTestScene(path, 64, 48, 4, 16, 11, false, host, why)) return Report(path, false, why);
+        const kernel::KScene s = host.view();
+        std::vector<kernel::KRay> rays;
+        std::vector<kernel::KHit> cpu;
+        std::vector<uint8_t> shadow;
+        if (!RecordPathRays(s, rays, cpu, shadow, why)) return Report(path, false, why);
+        std::vector<kernel::KHit> gpu(rays.size());
+        char err[512] = {};
+        if (mod.traceTest(&s, rays.data(), gpu.data(), int(rays.size()), err, int(sizeof(err))) != 0) return Report("tracing " + path + " on the GPU", false, err);
+        size_t closest = 0, shadows = 0, hitMiss = 0, otherTriangle = 0, shadowDiffer = 0;
+        std::ostringstream examples;
+        int shown = 0;
+        for (size_t i = 0; i < rays.size(); ++i) {
+            const kernel::KHit& a = cpu[i];
+            const kernel::KHit& b = gpu[i];
+            if (shadow[i]) {
+                ++shadows;
+                const bool blockedCpu = a.prim != kernel::kNoHit, blockedGpu = b.prim != kernel::kNoHit;
+                shadowDiffer += blockedCpu != blockedGpu;
+                continue;
+            }
+            ++closest;
+            if (a.prim == b.prim) continue;
+            const bool hm = (a.prim == kernel::kNoHit) != (b.prim == kernel::kNoHit);
+            (hm ? hitMiss : otherTriangle) += 1;
+            if (shown < 4) {
+                const kernel::KRay& r = rays[i];
+                const uint32_t p = a.prim != kernel::kNoHit ? a.prim : b.prim;
+                const kernel::KFloat3 n = s.faceNormals[p];
+                examples << "\n               ray " << i << ": Embree " << (a.prim == kernel::kNoHit ? std::string("miss") : "triangle " + std::to_string(a.prim) + " at t " + Fmt(a.t, 6))
+                         << ", OptiX " << (b.prim == kernel::kNoHit ? std::string("miss") : "triangle " + std::to_string(b.prim) + " at t " + Fmt(b.t, 6))
+                         << "; cos(ray, face) " << Fmt(r.d.x * n.x + r.d.y * n.y + r.d.z * n.z, 3) << ", barycentrics " << Fmt(a.b1, 3) << " " << Fmt(a.b2, 3);
+                ++shown;
+            }
+        }
+        const double share = double(hitMiss + otherTriangle + shadowDiffer) / double(rays.size());
+        return Report("tracers on the rays of " + path + ": OptiX = Embree (at most 1e-4 of the rays answered differently)", share <= 1e-4,
+            std::to_string(rays.size()) + " rays (" + std::to_string(closest) + " closest-hit, " + std::to_string(shadows) + " shadow): " + std::to_string(otherTriangle) +
+            " other triangle, " + std::to_string(hitMiss) + " hit against miss, " + std::to_string(shadowDiffer) + " shadow rays blocked on one side only (" +
+            Fmt(100.0 * share, 3) + " %)" + examples.str());
+    }
+
     // ---- materials: the kernel's against the engine's (double), the GPU's against the CPU's (float) ----
 
     Vector3 RandomUnit(kernel::Pcg32& rng) {
@@ -126,10 +175,11 @@ namespace {
         return Vector3(r * std::cos(phi), r * std::sin(phi), z);
     }
 
-    /// Directions at a surface: a geometric normal, a shading normal tilted from it, wo mostly above, wi half of the time near the mirror
-    /// direction of wo (where a glossy lobe has its values) and otherwise anywhere.
-    struct DirCase { Vector3 wo, wi, ns, ng; Real u1, u2; };
-    std::vector<DirCase> MakeDirCases(int n, uint64_t seed) {
+    /// Directions at a surface: a geometric normal, a shading normal tilted from it, wo mostly above, wi a third of the time near the
+    /// mirror direction of wo, a third near its refraction through an interface of relative index `ior` (where glossy lobes have their
+    /// values), and otherwise anywhere; the ray comes from the outside 70 % of the time.
+    struct DirCase { Vector3 wo, wi, ns, ng; Real u1, u2, u3; bool front; };
+    std::vector<DirCase> MakeDirCases(int n, uint64_t seed, Real ior = Real(1.5)) {
         kernel::Pcg32 rng;
         rng.seed(seed, 3);
         std::vector<DirCase> cases;
@@ -140,10 +190,16 @@ namespace {
             if (glm::dot(c.ns, c.ng) <= Real(0)) c.ns = c.ng;
             c.wo = RandomUnit(rng);
             if (glm::dot(c.wo, c.ng) < Real(0) && rng.nextDouble() < 0.9) c.wo = -c.wo;
-            if (rng.nextDouble() < 0.5) c.wi = glm::normalize(2 * glm::dot(c.wo, c.ns) * c.ns - c.wo + Real(0.3) * RandomUnit(rng));
+            c.front = rng.nextDouble() < 0.7;
+            const double pick = rng.nextDouble();
+            Vector3 refracted;
+            if (pick < 1.0 / 3) c.wi = glm::normalize(2 * glm::dot(c.wo, c.ns) * c.ns - c.wo + Real(0.3) * RandomUnit(rng));
+            else if (pick < 2.0 / 3 && math::refractOutward(c.wo, c.ns, c.front ? Real(1) / ior : ior, refracted))
+                c.wi = glm::normalize(refracted + Real(0.3) * RandomUnit(rng));
             else c.wi = RandomUnit(rng);
             c.u1 = rng.nextDouble();
             c.u2 = rng.nextDouble();
+            c.u3 = rng.nextDouble();
             cases.push_back(c);
         }
         return cases;
@@ -196,6 +252,57 @@ namespace {
             std::to_string(cases.size()) + " direction pairs (" + std::to_string(nonzero) + " with a nonzero pdf): eval, pdf and sample " + Fmt(100.0 * double(identical) / double(values), 5) +
             " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " + std::to_string(sampleMismatch) + " samples accepted by one side only");
     }
+
+    /// The kernel's dielectric in double against the engine's Dielectric on the same directions: eval, pdf and sample (entering and leaving).
+    bool DielectricEngineCheck(const std::string& label, const Dielectric& engine, std::vector<std::pair<std::string, kernel::KMaterial>>& gpuMaterials) {
+        kernel::DielectricParams<Real> c{};
+        std::string why;
+        if (!engine.kernelParams(c, why)) return Report("dielectric " + label, false, why);
+        const std::vector<DirCase> cases = MakeDirCases(4096, 78, c.ior);
+        SampledWavelengths lambda;
+        double worst = 0;
+        size_t identical = 0, values = 0, sampleMismatch = 0, nonzero = 0, sampled = 0;
+        for (size_t i = 0; i < cases.size(); ++i) {
+            const DirCase& dc = cases[i];
+            SurfaceInteraction rec{};
+            rec.p = Point3(0.0);
+            rec.n = dc.ns;
+            rec.gn = dc.ng;
+            rec.frontFace = dc.front;
+            const Spectrum fe = engine.eval(rec, dc.wo, dc.wi, lambda, TransportMode::Radiance);
+            const Real pe = engine.pdf(rec, dc.wo, dc.wi, lambda);
+            const Vector3 fk = kernel::dielectricEval(c, dc.front, dc.wo, dc.wi, dc.ns, dc.ng);
+            const Real pk = kernel::dielectricPdf(c, dc.front, dc.wo, dc.wi, dc.ns);
+            const double vals[][2] = { { fe.x, fk.x }, { fe.y, fk.y }, { fe.z, fk.z }, { pe, pk } };
+            for (const auto& v : vals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; ++values; }
+            nonzero += pe > 0;
+            // A rough surface chooses between reflection and refraction with a number from the engine's own stream: seed the stream,
+            // read the number the engine will draw, seed it again, and hand the same number to the kernel.
+            sampling::SeedStream(907, i);
+            const Real u3 = sampling::Random();
+            sampling::SeedStream(907, i);
+            const std::optional<BSDFSample> se = engine.sample(rec, dc.wo, Point2(dc.u1, dc.u2), lambda, TransportMode::Radiance);
+            kernel::BsdfSample<Real> sk{};
+            const bool okK = kernel::dielectricSample(c, dc.front, dc.wo, dc.ns, dc.ng, dc.u1, dc.u2, u3, sk);
+            if (bool(se) != okK || (okK && se->isSpecular() != sk.delta)) { ++sampleMismatch; continue; }
+            if (!okK) continue;
+            ++sampled;
+            const double svals[][2] = { { se->wi.x, sk.wi.x }, { se->wi.y, sk.wi.y }, { se->wi.z, sk.wi.z }, { se->f.x, sk.f.x }, { se->f.y, sk.f.y }, { se->f.z, sk.f.z },
+                { se->pdf, sk.pdf } };
+            for (const auto& v : svals) { worst = std::max(worst, RelDiff(v[0], v[1])); identical += v[0] == v[1]; ++values; }
+        }
+        kernel::KMaterial km{};
+        km.type = kernel::kMatDielectric;
+        km.dielectric.ior = float(c.ior);
+        km.dielectric.alpha = float(c.alpha);
+        km.dielectric.smooth = c.smooth;
+        gpuMaterials.emplace_back("dielectric " + label, km);
+        return Report("kernel dielectric (double) = engine Dielectric, " + label + " (relative index " + Fmt(c.ior, 4) + (c.smooth ? ", smooth" : ", alpha " + Fmt(c.alpha, 3)) + ")",
+            worst <= 1e-12 && sampleMismatch == 0,
+            std::to_string(cases.size()) + " direction pairs (" + std::to_string(nonzero) + " with a nonzero pdf, " + std::to_string(sampled) + " samples): eval, pdf and sample " +
+            Fmt(100.0 * double(identical) / double(values), 5) + " % bit-identical, largest relative difference " + Fmt(worst) + " (tolerance 1e-12), " +
+            std::to_string(sampleMismatch) + " samples accepted by one side only");
+    }
 #endif
 
     /// A material's eval, pdf and sample in float on the CPU and on the GPU, on the same directions.
@@ -208,7 +315,9 @@ namespace {
             // the float directions are renormalized on the CPU, so both devices start from the same float inputs
             const kernel::Vec3<float> ns = kernel::knormalize(kernel::Vec3<float>(float(d.ns.x), float(d.ns.y), float(d.ns.z)));
             c.wo = f3(d.wo); c.wi = f3(d.wi); c.ng = f3(d.ng); c.ns = { ns.x, ns.y, ns.z };
-            c.u1 = float(d.u1); c.u2 = float(d.u2);
+            c.u1 = float(d.u1); c.u2 = float(d.u2); c.u3 = float(d.u3);
+            c.front = d.front ? 1u : 0u;
+            if (c.u3 >= 1.0f) c.u3 = 0.99999994f;
             if (c.u1 >= 1.0f) c.u1 = 0.99999994f;
             if (c.u2 >= 1.0f) c.u2 = 0.99999994f;
             cases.push_back(c);
@@ -305,7 +414,7 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         gpuMaterials.emplace_back("diffuse", diffuse);
     }
 #if defined(RAYT_SPECTRAL_MODE)
-    std::cout << "[GPU]    SKIP the conductor checks: the kernel's conductor is RGB (use the RGB build)" << std::endl;
+    std::cout << "[GPU]    SKIP the conductor and dielectric checks: the kernel models them in RGB (use the RGB build)" << std::endl;
 #else
     {
         const Spectrum goldEta(0.143, 0.374, 1.442), goldK(3.983, 2.385, 1.603);   // gold, roughly (RGB)
@@ -314,6 +423,11 @@ int RunGpuTests(const CliOptions& /*opt*/) {
         ok &= ConductorEngineCheck("rough gold", rough, gpuMaterials);
         ok &= ConductorEngineCheck("smooth gold", smooth, gpuMaterials);
         ok &= ConductorEngineCheck("rough gold without the lobe", plain, gpuMaterials);
+        Dielectric glass(Real(1.5), Real(0)), frosted(Real(1.5), Real(0.3)), underWater(Real(1.5), Real(0.2));
+        underWater.setExteriorIor(Real(1.333));
+        ok &= DielectricEngineCheck("smooth glass", glass, gpuMaterials);
+        ok &= DielectricEngineCheck("rough glass", frosted, gpuMaterials);
+        ok &= DielectricEngineCheck("rough glass in water", underWater, gpuMaterials);
     }
 #endif
 
@@ -395,6 +509,15 @@ int RunGpuTests(const CliOptions& /*opt*/) {
     ok &= PairedCheck("scenes/gpu_box.json", info.fastMath != 0);
 #if !defined(RAYT_SPECTRAL_MODE)
     ok &= PairedCheck("scenes/gpu_metals.json", info.fastMath != 0);
+    ok &= PairedCheck("scenes/gpu_glass.json", info.fastMath != 0);
+#endif
+
+    // 8. The tracers on the rays the CPU's paths cast: the only place left where the two devices' paths could part (coincident surfaces,
+    //    hits exactly on an edge).
+    ok &= TracerCheck(*mod, "scenes/gpu_box.json");
+#if !defined(RAYT_SPECTRAL_MODE)
+    ok &= TracerCheck(*mod, "scenes/gpu_metals.json");
+    ok &= TracerCheck(*mod, "scenes/gpu_glass.json");
 #endif
     return ok ? 0 : 2;
 }

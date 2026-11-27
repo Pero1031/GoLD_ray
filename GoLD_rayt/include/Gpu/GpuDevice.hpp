@@ -20,6 +20,7 @@ namespace rayt::gpu {
         RaytGpuMathTestFn mathTest = nullptr;
         RaytGpuMaterialTestFn materialTest = nullptr;
         RaytGpuRenderFn render = nullptr;
+        RaytGpuTraceTestFn traceTest = nullptr;
         std::string path;   ///< the file that was loaded
     };
 

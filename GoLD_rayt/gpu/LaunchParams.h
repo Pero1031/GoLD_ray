@@ -14,6 +14,8 @@ namespace rayt::gpu {
         OptixTraversableHandle handle;     ///< the triangles (one geometry acceleration structure)
         float* accum;                      ///< width x height x 3: the sum of the samples so far
         uint32_t sample;                   ///< the sample index every pixel renders in this launch
+        const kernel::KRay* rays;          ///< the tracer check: rays to trace (one per launch index) ...
+        kernel::KHit* hits;                ///< ... and their closest hits
     };
 
 } // namespace rayt::gpu

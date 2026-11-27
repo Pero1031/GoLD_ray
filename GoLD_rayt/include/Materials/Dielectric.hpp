@@ -22,6 +22,7 @@
 #include "Materials/Material.hpp"
 #include "Materials/Medium.hpp"
 #include "Microfacet/GGX.hpp"
+#include "Kernel/KernelScene.hpp"
 
 namespace rayt {
 
@@ -87,6 +88,20 @@ namespace rayt {
          * The specular manifold NEE (Render/SpecularNee.hpp) still assumes air outside its bodies.
          */
         void setExteriorIor(Real n) { m_exteriorIor = std::max(n, Real(1e-3)); }
+
+#if !defined(RAYT_SPECTRAL_MODE)
+        /// This interface as the kernel renderer models it (Kernel/Materials.hpp, docs/GPU.md): false, with the reason, when it uses what
+        /// the kernel does not have (a medium inside, a roughness that grows with the distance, anisotropic roughness).
+        bool kernelParams(kernel::DielectricParams<Real>& out, std::string& why) const {
+            if (m_hasFar) { why = "a roughness that grows with the distance"; return false; }
+            if (isMediumBoundary()) { why = "a medium inside"; return false; }
+            if (!isSmooth() && alpha_x != alpha_y) { why = "anisotropic roughness"; return false; }
+            out.ior = iorRef / m_exteriorIor;                          // as iorAt: the relative index
+            out.alpha = std::max(constants::ALPHA_EPSILON, alpha_x);   // as GGXDistribution clamps it
+            out.smooth = isSmooth() ? 1u : 0u;
+            return true;
+        }
+#endif
         Real exteriorIor() const { return m_exteriorIor; }
 
         /// Fills the inside of this closed surface with a participating medium (volumetric random walk).

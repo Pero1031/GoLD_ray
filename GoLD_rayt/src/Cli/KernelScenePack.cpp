@@ -12,6 +12,7 @@
 #include "Render/Film.hpp"
 #include "Cli/Scene.hpp"
 #include "Cli/SceneFile.hpp"
+#include "Materials/Dielectric.hpp"
 #include "Materials/RoughConductor.hpp"
 
 #include <embree4/rtcore.h>
@@ -108,26 +109,69 @@ namespace {
         if (done % 8 == 0 || done == total) std::cout << "\rProgress: " << done << "/" << total << " samples per pixel" << std::flush;
     }
 
+    /// The triangles of a kernel scene in an Embree scene (robust, high-quality build), released with this object.
+    struct EmbreeScene {
+        RTCScene scene = nullptr;
+        bool build(const kernel::KScene& s, std::string& why) {
+            RTCDevice device = detail::embreeDevice();
+            if (!device) { why = "Embree: rtcNewDevice failed"; return false; }
+            scene = rtcNewScene(device);
+            rtcSetSceneFlags(scene, RTC_SCENE_FLAG_ROBUST);
+            rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_HIGH);
+            RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
+            // Copied into buffers Embree allocates (it reads vertices 16 bytes at a time and pads its own buffers for that).
+            float* vb = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float), s.numVertices));
+            memcpy(vb, s.positions, size_t(s.numVertices) * sizeof(kernel::KFloat3));
+            unsigned* ib = static_cast<unsigned*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), s.numTriangles));
+            memcpy(ib, s.indices, size_t(s.numTriangles) * 3 * sizeof(unsigned));
+            rtcCommitGeometry(geom);
+            rtcAttachGeometry(scene, geom);
+            rtcReleaseGeometry(geom);
+            rtcCommitScene(scene);
+            return true;
+        }
+        ~EmbreeScene() { if (scene) rtcReleaseScene(scene); }
+    };
+
+    /// An Embree tracer that also writes down every query: closest hits as they are, shadow queries as a hit (prim 0) or none.
+    struct RecordingTracer {
+        EmbreeTracer base;
+        std::vector<kernel::KRay>* rays;
+        std::vector<kernel::KHit>* hits;
+        std::vector<uint8_t>* shadow;
+        kernel::KHit closest(const kernel::V3& o, const kernel::V3& d, float tmin, float tmax) const {
+            const kernel::KHit h = base.closest(o, d, tmin, tmax);
+            rays->push_back({ { o.x, o.y, o.z }, { d.x, d.y, d.z }, tmin, tmax });
+            hits->push_back(h);
+            shadow->push_back(0);
+            return h;
+        }
+        bool occluded(const kernel::V3& o, const kernel::V3& d, float tmin, float tmax) const {
+            const bool blocked = base.occluded(o, d, tmin, tmax);
+            rays->push_back({ { o.x, o.y, o.z }, { d.x, d.y, d.z }, tmin, tmax });
+            hits->push_back({ 0.0f, 0.0f, 0.0f, blocked ? 0u : kernel::kNoHit });
+            shadow->push_back(1);
+            return blocked;
+        }
+    };
+
 } // namespace
 
-bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress) {
-    RTCDevice device = detail::embreeDevice();
-    if (!device) { why = "Embree: rtcNewDevice failed"; return false; }
-    RTCScene scene = rtcNewScene(device);
-    rtcSetSceneFlags(scene, RTC_SCENE_FLAG_ROBUST);
-    rtcSetSceneBuildQuality(scene, RTC_BUILD_QUALITY_HIGH);
-    RTCGeometry geom = rtcNewGeometry(device, RTC_GEOMETRY_TYPE_TRIANGLE);
-    // Copied into buffers Embree allocates (it reads vertices 16 bytes at a time and pads its own buffers for that).
-    float* vb = static_cast<float*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, 3 * sizeof(float), s.numVertices));
-    memcpy(vb, s.positions, size_t(s.numVertices) * sizeof(kernel::KFloat3));
-    unsigned* ib = static_cast<unsigned*>(rtcSetNewGeometryBuffer(geom, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), s.numTriangles));
-    memcpy(ib, s.indices, size_t(s.numTriangles) * 3 * sizeof(unsigned));
-    rtcCommitGeometry(geom);
-    rtcAttachGeometry(scene, geom);
-    rtcReleaseGeometry(geom);
-    rtcCommitScene(scene);
+bool RecordPathRays(const kernel::KScene& s, std::vector<kernel::KRay>& rays, std::vector<kernel::KHit>& hits, std::vector<uint8_t>& shadow, std::string& why) {
+    EmbreeScene es;
+    if (!es.build(s, why)) return false;
+    rays.clear(); hits.clear(); shadow.clear();
+    const RecordingTracer tracer{ EmbreeTracer{ es.scene }, &rays, &hits, &shadow };
+    for (uint32_t y = 0; y < s.height; ++y)
+        for (uint32_t x = 0; x < s.width; ++x)
+            for (uint32_t k = 0; k < s.spp; ++k) kernel::tracePath(s, tracer, x, y, k);
+    return true;
+}
 
-    const EmbreeTracer tracer{ scene };
+bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress) {
+    EmbreeScene es;
+    if (!es.build(s, why)) return false;
+    const EmbreeTracer tracer{ es.scene };
     mean.assign(size_t(s.width) * s.height * 3, 0.0f);
     std::atomic<int> rows{ 0 };
 #pragma omp parallel for schedule(dynamic, 1)
@@ -147,7 +191,6 @@ bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::str
         }
     }
     if (progress) std::cout << std::endl;
-    rtcReleaseScene(scene);
     return true;
 }
 
@@ -243,7 +286,24 @@ bool PackKernelScene(const SceneDescription& d, const std::map<std::string, cons
             for (int i = 0; i < kernel::kAlbedoMu; ++i) k.eRow[i] = float(c.eRow[i]);
 #endif
         }
-        else { missing.push_back("material \"" + name + "\": only diffuse, conductor and emission materials"); continue; }
+        else if (m.type == MaterialSpec::Type::Dielectric) {
+            const auto it = engineMaterials.find(name);
+            const Dielectric* de = it == engineMaterials.end() ? nullptr : dynamic_cast<const Dielectric*>(it->second);
+            if (!de) { missing.push_back("material \"" + name + "\": the engine's dielectric is not available"); continue; }
+#if defined(RAYT_SPECTRAL_MODE)
+            missing.push_back("material \"" + name + "\": a dielectric in the spectral build");
+            continue;
+#else
+            kernel::DielectricParams<Real> c{};
+            std::string limit;
+            if (!de->kernelParams(c, limit)) { missing.push_back("material \"" + name + "\": a dielectric with " + limit); continue; }
+            km.type = kernel::kMatDielectric;
+            km.dielectric.ior = float(c.ior);
+            km.dielectric.alpha = float(c.alpha);
+            km.dielectric.smooth = c.smooth;
+#endif
+        }
+        else { missing.push_back("material \"" + name + "\": only diffuse, conductor, dielectric and emission materials"); continue; }
         index[name] = uint32_t(out.materials.size());
         specs[name] = &m;
         out.materials.push_back(km);

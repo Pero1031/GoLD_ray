@@ -1,5 +1,6 @@
 // The OptiX renderer of the GPU module (docs/GPU.md): uploads a kernel scene, builds the acceleration structure and the pipeline
-// from the embedded PTX of OptixPrograms.cu, and launches it once per sample. Host code only (compiled by MSVC through nvcc).
+// from the embedded PTX of OptixPrograms.cu, and launches it once per sample; the tracer check traces given rays in the same
+// setup. Host code only (compiled by MSVC through nvcc).
 
 #include <cuda_runtime.h>
 #include <optix.h>
@@ -33,149 +34,161 @@ namespace {
     };
     struct NoData { int unused; };
 
-    /// The OptiX objects of one render, destroyed in reverse order when the function returns.
-    struct OptixObjects {
+    enum Group { kRaygenRender, kRaygenTrace, kMissRadiance, kMissShadow, kHitGroup, kGroupCount };
+
+#define RAYT_OPTIX(call, what) do { const OptixResult r_ = (call); if (r_ != OPTIX_SUCCESS) { writeOptixError(error, errorSize, what, r_, log); return 1; } } while (0)
+
+    /// Everything one render or tracer check needs on the GPU: the scene's arrays, the acceleration structure, the pipeline with both
+    /// ray-generation programs, and the shader binding table. Destroyed in reverse order when it goes out of scope.
+    struct OptixSetup {
         OptixDeviceContext context = nullptr;
         OptixModule module = nullptr;
-        OptixProgramGroup groups[4] = {};   // ray generation, radiance miss, shadow miss, hit group
+        OptixProgramGroup groups[kGroupCount] = {};
         OptixPipeline pipeline = nullptr;
-        ~OptixObjects() {
+        DeviceBuffer<rayt::kernel::KFloat3> positions, normals, faceNormals;
+        DeviceBuffer<uint32_t> indices, triMaterial;
+        DeviceBuffer<int32_t> triLight;
+        DeviceBuffer<uint8_t> triSmooth;
+        DeviceBuffer<rayt::kernel::KMaterial> materials;
+        DeviceBuffer<rayt::kernel::KQuadLight> lights;
+        DeviceBuffer<float> lightCdf;
+        DeviceBuffer<char> gas;
+        DeviceBuffer<SbtRecord<NoData>> raygenRender, raygenTrace, miss, hit;
+        rayt::kernel::KScene scene{};      ///< the scene with its pointers on the GPU
+        OptixTraversableHandle handle = 0;
+        OptixShaderBindingTable sbt{};      ///< raygenRecord is set per launch kind
+
+        ~OptixSetup() {
             if (pipeline) optixPipelineDestroy(pipeline);
             for (OptixProgramGroup g : groups) if (g) optixProgramGroupDestroy(g);
             if (module) optixModuleDestroy(module);
             if (context) optixDeviceContextDestroy(context);
         }
+
+        int build(const rayt::kernel::KScene& h, char* error, int errorSize) {
+            using namespace rayt::kernel;
+            char log[4096] = {};
+            size_t logSize = sizeof(log);
+            RAYT_CUDA(cudaFree(nullptr), "initializing CUDA");
+            RAYT_OPTIX(optixInit(), "optixInit (the OptiX of the NVIDIA driver)");
+            OptixDeviceContextOptions contextOptions{};
+            contextOptions.logCallbackFunction = &optixLog;
+            contextOptions.logCallbackLevel = 2;   // errors and warnings
+            RAYT_OPTIX(optixDeviceContextCreate(nullptr, &contextOptions, &context), "optixDeviceContextCreate");
+
+            // ---- the scene's arrays on the GPU, and the scene pointing at them ----
+            RAYT_CUDA(upload(positions, h.positions, h.numVertices), "copying the vertices");
+            RAYT_CUDA(upload(normals, h.normals, h.numVertices), "copying the normals");
+            RAYT_CUDA(upload(indices, h.indices, size_t(h.numTriangles) * 3), "copying the triangles");
+            RAYT_CUDA(upload(faceNormals, h.faceNormals, h.numTriangles), "copying the face normals");
+            RAYT_CUDA(upload(triMaterial, h.triMaterial, h.numTriangles), "copying the materials of the triangles");
+            RAYT_CUDA(upload(triLight, h.triLight, h.numTriangles), "copying the lights of the triangles");
+            RAYT_CUDA(upload(triSmooth, h.triSmooth, h.numTriangles), "copying the shading flags");
+            RAYT_CUDA(upload(materials, h.materials, h.numMaterials), "copying the materials");
+            RAYT_CUDA(upload(lights, h.lights, h.numLights), "copying the lights");
+            RAYT_CUDA(upload(lightCdf, h.lightCdf, size_t(h.numLights) + 1), "copying the light distribution");
+            scene = h;
+            scene.positions = positions.ptr; scene.normals = normals.ptr; scene.indices = indices.ptr; scene.faceNormals = faceNormals.ptr;
+            scene.triMaterial = triMaterial.ptr; scene.triLight = triLight.ptr; scene.triSmooth = triSmooth.ptr;
+            scene.materials = materials.ptr; scene.lights = lights.ptr; scene.lightCdf = lightCdf.ptr;
+
+            // ---- the geometry acceleration structure over the triangles ----
+            OptixBuildInput input{};
+            const CUdeviceptr vertexBuffer = positions.device();
+            const unsigned int geometryFlags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
+            input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
+            input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
+            input.triangleArray.vertexStrideInBytes = sizeof(KFloat3);
+            input.triangleArray.numVertices = h.numVertices;
+            input.triangleArray.vertexBuffers = &vertexBuffer;
+            input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+            input.triangleArray.indexStrideInBytes = 3 * sizeof(uint32_t);
+            input.triangleArray.numIndexTriplets = h.numTriangles;
+            input.triangleArray.indexBuffer = indices.device();
+            input.triangleArray.flags = &geometryFlags;
+            input.triangleArray.numSbtRecords = 1;
+            OptixAccelBuildOptions accelOptions{};
+            accelOptions.buildFlags = OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
+            accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
+            OptixAccelBufferSizes sizes{};
+            RAYT_OPTIX(optixAccelComputeMemoryUsage(context, &accelOptions, &input, 1, &sizes), "optixAccelComputeMemoryUsage");
+            DeviceBuffer<char> temp;
+            RAYT_CUDA(temp.allocate(sizes.tempSizeInBytes), "allocating the build memory");
+            RAYT_CUDA(gas.allocate(sizes.outputSizeInBytes), "allocating the acceleration structure");
+            RAYT_OPTIX(optixAccelBuild(context, nullptr, &accelOptions, &input, 1, temp.device(), sizes.tempSizeInBytes, gas.device(), sizes.outputSizeInBytes,
+                &handle, nullptr, 0), "optixAccelBuild");
+            RAYT_CUDA(cudaDeviceSynchronize(), "building the acceleration structure");
+
+            // ---- module, program groups, pipeline ----
+            OptixModuleCompileOptions moduleOptions{};
+            moduleOptions.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_3;
+            moduleOptions.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
+            OptixPipelineCompileOptions pipelineOptions{};
+            pipelineOptions.usesMotionBlur = 0;
+            pipelineOptions.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS;
+            pipelineOptions.numPayloadValues = 4;
+            pipelineOptions.numAttributeValues = 2;
+            pipelineOptions.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
+            pipelineOptions.pipelineLaunchParamsVariableName = "params";
+            pipelineOptions.usesPrimitiveTypeFlags = static_cast<unsigned int>(OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE);
+            RAYT_OPTIX(optixModuleCreate(context, &moduleOptions, &pipelineOptions, kOptixProgramsPtx, kOptixProgramsPtxSize, log, &logSize, &module),
+                "compiling the OptiX programs");
+
+            OptixProgramGroupDesc descs[kGroupCount] = {};
+            descs[kRaygenRender].kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
+            descs[kRaygenRender].raygen.module = module;
+            descs[kRaygenRender].raygen.entryFunctionName = "__raygen__render";
+            descs[kRaygenTrace].kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
+            descs[kRaygenTrace].raygen.module = module;
+            descs[kRaygenTrace].raygen.entryFunctionName = "__raygen__trace";
+            descs[kMissRadiance].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+            descs[kMissRadiance].miss.module = module;
+            descs[kMissRadiance].miss.entryFunctionName = "__miss__radiance";
+            descs[kMissShadow].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+            descs[kMissShadow].miss.module = module;
+            descs[kMissShadow].miss.entryFunctionName = "__miss__shadow";
+            descs[kHitGroup].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+            descs[kHitGroup].hitgroup.moduleCH = module;
+            descs[kHitGroup].hitgroup.entryFunctionNameCH = "__closesthit__radiance";
+            OptixProgramGroupOptions groupOptions{};
+            logSize = sizeof(log);
+            RAYT_OPTIX(optixProgramGroupCreate(context, descs, kGroupCount, &groupOptions, log, &logSize, groups), "optixProgramGroupCreate");
+
+            OptixPipelineLinkOptions linkOptions{};
+            linkOptions.maxTraceDepth = 1;
+            logSize = sizeof(log);
+            RAYT_OPTIX(optixPipelineCreate(context, &pipelineOptions, &linkOptions, groups, kGroupCount, log, &logSize, &pipeline), "optixPipelineCreate");
+            OptixStackSizes stack{};
+            for (OptixProgramGroup g : groups) RAYT_OPTIX(optixUtilAccumulateStackSizes(g, &stack, pipeline), "optixUtilAccumulateStackSizes");
+            unsigned int dcFromTraversal = 0, dcFromState = 0, continuation = 0;
+            RAYT_OPTIX(optixUtilComputeStackSizes(&stack, 1, 0, 0, &dcFromTraversal, &dcFromState, &continuation), "optixUtilComputeStackSizes");
+            RAYT_OPTIX(optixPipelineSetStackSize(pipeline, dcFromTraversal, dcFromState, continuation, 1), "optixPipelineSetStackSize");
+
+            // ---- shader binding table: one record per program, no per-record data ----
+            SbtRecord<NoData> rec[kGroupCount]{};
+            for (int g = 0; g < kGroupCount; ++g) RAYT_OPTIX(optixSbtRecordPackHeader(groups[g], &rec[g]), "optixSbtRecordPackHeader");
+            RAYT_CUDA(upload(raygenRender, &rec[kRaygenRender], 1), "copying the shader binding table");
+            RAYT_CUDA(upload(raygenTrace, &rec[kRaygenTrace], 1), "copying the shader binding table");
+            RAYT_CUDA(upload(miss, &rec[kMissRadiance], 2), "copying the shader binding table");   // radiance, shadow: consecutive
+            RAYT_CUDA(upload(hit, &rec[kHitGroup], 1), "copying the shader binding table");
+            sbt.missRecordBase = miss.device();
+            sbt.missRecordStrideInBytes = sizeof(SbtRecord<NoData>);
+            sbt.missRecordCount = 2;
+            sbt.hitgroupRecordBase = hit.device();
+            sbt.hitgroupRecordStrideInBytes = sizeof(SbtRecord<NoData>);
+            sbt.hitgroupRecordCount = 1;
+            return 0;
+        }
     };
 
 } // namespace
 
-#define RAYT_OPTIX(call, what) do { const OptixResult r_ = (call); if (r_ != OPTIX_SUCCESS) { writeOptixError(error, errorSize, what, r_, log); return 1; } } while (0)
-
 RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* out, RaytGpuProgressFn progress, char* error, int errorSize) {
-    using namespace rayt::kernel;
-    const KScene& h = *hostScene;
-    char log[4096] = {};
-    size_t logSize = sizeof(log);
-
-    RAYT_CUDA(cudaFree(nullptr), "initializing CUDA");
-    RAYT_OPTIX(optixInit(), "optixInit (the OptiX of the NVIDIA driver)");
-    OptixObjects ox;
-    OptixDeviceContextOptions contextOptions{};
-    contextOptions.logCallbackFunction = &optixLog;
-    contextOptions.logCallbackLevel = 2;   // errors and warnings
-    RAYT_OPTIX(optixDeviceContextCreate(nullptr, &contextOptions, &ox.context), "optixDeviceContextCreate");
-
-    // ---- the scene's arrays on the GPU, and the scene pointing at them ----
-    DeviceBuffer<KFloat3> positions, normals, faceNormals;
-    DeviceBuffer<uint32_t> indices, triMaterial;
-    DeviceBuffer<int32_t> triLight;
-    DeviceBuffer<uint8_t> triSmooth;
-    DeviceBuffer<KMaterial> materials;
-    DeviceBuffer<KQuadLight> lights;
-    DeviceBuffer<float> lightCdf;
-    RAYT_CUDA(upload(positions, h.positions, h.numVertices), "copying the vertices");
-    RAYT_CUDA(upload(normals, h.normals, h.numVertices), "copying the normals");
-    RAYT_CUDA(upload(indices, h.indices, size_t(h.numTriangles) * 3), "copying the triangles");
-    RAYT_CUDA(upload(faceNormals, h.faceNormals, h.numTriangles), "copying the face normals");
-    RAYT_CUDA(upload(triMaterial, h.triMaterial, h.numTriangles), "copying the materials of the triangles");
-    RAYT_CUDA(upload(triLight, h.triLight, h.numTriangles), "copying the lights of the triangles");
-    RAYT_CUDA(upload(triSmooth, h.triSmooth, h.numTriangles), "copying the shading flags");
-    RAYT_CUDA(upload(materials, h.materials, h.numMaterials), "copying the materials");
-    RAYT_CUDA(upload(lights, h.lights, h.numLights), "copying the lights");
-    RAYT_CUDA(upload(lightCdf, h.lightCdf, size_t(h.numLights) + 1), "copying the light distribution");
-    KScene d = h;
-    d.positions = positions.ptr; d.normals = normals.ptr; d.indices = indices.ptr; d.faceNormals = faceNormals.ptr;
-    d.triMaterial = triMaterial.ptr; d.triLight = triLight.ptr; d.triSmooth = triSmooth.ptr;
-    d.materials = materials.ptr; d.lights = lights.ptr; d.lightCdf = lightCdf.ptr;
-
-    // ---- the geometry acceleration structure over the triangles ----
-    OptixBuildInput input{};
-    const CUdeviceptr vertexBuffer = positions.device();
-    const unsigned int geometryFlags = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
-    input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
-    input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-    input.triangleArray.vertexStrideInBytes = sizeof(KFloat3);
-    input.triangleArray.numVertices = h.numVertices;
-    input.triangleArray.vertexBuffers = &vertexBuffer;
-    input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-    input.triangleArray.indexStrideInBytes = 3 * sizeof(uint32_t);
-    input.triangleArray.numIndexTriplets = h.numTriangles;
-    input.triangleArray.indexBuffer = indices.device();
-    input.triangleArray.flags = &geometryFlags;
-    input.triangleArray.numSbtRecords = 1;
-    OptixAccelBuildOptions accelOptions{};
-    accelOptions.buildFlags = OPTIX_BUILD_FLAG_PREFER_FAST_TRACE;
-    accelOptions.operation = OPTIX_BUILD_OPERATION_BUILD;
-    OptixAccelBufferSizes sizes{};
-    RAYT_OPTIX(optixAccelComputeMemoryUsage(ox.context, &accelOptions, &input, 1, &sizes), "optixAccelComputeMemoryUsage");
-    DeviceBuffer<char> temp, gas;
-    RAYT_CUDA(temp.allocate(sizes.tempSizeInBytes), "allocating the build memory");
-    RAYT_CUDA(gas.allocate(sizes.outputSizeInBytes), "allocating the acceleration structure");
-    OptixTraversableHandle handle = 0;
-    RAYT_OPTIX(optixAccelBuild(ox.context, nullptr, &accelOptions, &input, 1, temp.device(), sizes.tempSizeInBytes, gas.device(), sizes.outputSizeInBytes,
-        &handle, nullptr, 0), "optixAccelBuild");
-    RAYT_CUDA(cudaDeviceSynchronize(), "building the acceleration structure");
-
-    // ---- module, program groups, pipeline ----
-    OptixModuleCompileOptions moduleOptions{};
-    moduleOptions.optLevel = OPTIX_COMPILE_OPTIMIZATION_LEVEL_3;
-    moduleOptions.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_NONE;
-    OptixPipelineCompileOptions pipelineOptions{};
-    pipelineOptions.usesMotionBlur = 0;
-    pipelineOptions.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_GAS;
-    pipelineOptions.numPayloadValues = 4;
-    pipelineOptions.numAttributeValues = 2;
-    pipelineOptions.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
-    pipelineOptions.pipelineLaunchParamsVariableName = "params";
-    pipelineOptions.usesPrimitiveTypeFlags = OPTIX_PRIMITIVE_TYPE_FLAGS_TRIANGLE;
-    RAYT_OPTIX(optixModuleCreate(ox.context, &moduleOptions, &pipelineOptions, kOptixProgramsPtx, kOptixProgramsPtxSize, log, &logSize, &ox.module),
-        "compiling the OptiX programs");
-
-    OptixProgramGroupDesc descs[4] = {};
-    descs[0].kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
-    descs[0].raygen.module = ox.module;
-    descs[0].raygen.entryFunctionName = "__raygen__render";
-    descs[1].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    descs[1].miss.module = ox.module;
-    descs[1].miss.entryFunctionName = "__miss__radiance";
-    descs[2].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    descs[2].miss.module = ox.module;
-    descs[2].miss.entryFunctionName = "__miss__shadow";
-    descs[3].kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-    descs[3].hitgroup.moduleCH = ox.module;
-    descs[3].hitgroup.entryFunctionNameCH = "__closesthit__radiance";
-    OptixProgramGroupOptions groupOptions{};
-    logSize = sizeof(log);
-    RAYT_OPTIX(optixProgramGroupCreate(ox.context, descs, 4, &groupOptions, log, &logSize, ox.groups), "optixProgramGroupCreate");
-
-    OptixPipelineLinkOptions linkOptions{};
-    linkOptions.maxTraceDepth = 1;
-    logSize = sizeof(log);
-    RAYT_OPTIX(optixPipelineCreate(ox.context, &pipelineOptions, &linkOptions, ox.groups, 4, log, &logSize, &ox.pipeline), "optixPipelineCreate");
-    OptixStackSizes stack{};
-    for (OptixProgramGroup g : ox.groups) RAYT_OPTIX(optixUtilAccumulateStackSizes(g, &stack, ox.pipeline), "optixUtilAccumulateStackSizes");
-    unsigned int dcFromTraversal = 0, dcFromState = 0, continuation = 0;
-    RAYT_OPTIX(optixUtilComputeStackSizes(&stack, 1, 0, 0, &dcFromTraversal, &dcFromState, &continuation), "optixUtilComputeStackSizes");
-    RAYT_OPTIX(optixPipelineSetStackSize(ox.pipeline, dcFromTraversal, dcFromState, continuation, 1), "optixPipelineSetStackSize");
-
-    // ---- shader binding table: one record per program, no per-record data ----
-    SbtRecord<NoData> rg{}, ms[2]{}, hg{};
-    RAYT_OPTIX(optixSbtRecordPackHeader(ox.groups[0], &rg), "optixSbtRecordPackHeader");
-    RAYT_OPTIX(optixSbtRecordPackHeader(ox.groups[1], &ms[0]), "optixSbtRecordPackHeader");
-    RAYT_OPTIX(optixSbtRecordPackHeader(ox.groups[2], &ms[1]), "optixSbtRecordPackHeader");
-    RAYT_OPTIX(optixSbtRecordPackHeader(ox.groups[3], &hg), "optixSbtRecordPackHeader");
-    DeviceBuffer<SbtRecord<NoData>> dRg, dMs, dHg;
-    RAYT_CUDA(upload(dRg, &rg, 1), "copying the shader binding table");
-    RAYT_CUDA(upload(dMs, ms, 2), "copying the shader binding table");
-    RAYT_CUDA(upload(dHg, &hg, 1), "copying the shader binding table");
-    OptixShaderBindingTable sbt{};
-    sbt.raygenRecord = dRg.device();
-    sbt.missRecordBase = dMs.device();
-    sbt.missRecordStrideInBytes = sizeof(SbtRecord<NoData>);
-    sbt.missRecordCount = 2;
-    sbt.hitgroupRecordBase = dHg.device();
-    sbt.hitgroupRecordStrideInBytes = sizeof(SbtRecord<NoData>);
-    sbt.hitgroupRecordCount = 1;
+    const rayt::kernel::KScene& h = *hostScene;
+    char log[1] = {};
+    OptixSetup setup;
+    if (setup.build(h, error, errorSize) != 0) return 1;
+    setup.sbt.raygenRecord = setup.raygenRender.device();
 
     // ---- one launch per sample: every pixel adds its sample of that index to the sum ----
     const size_t floats = size_t(h.width) * h.height * 3;
@@ -183,15 +196,15 @@ RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* 
     RAYT_CUDA(accum.allocate(floats), "allocating the image");
     RAYT_CUDA(cudaMemset(accum.ptr, 0, floats * sizeof(float)), "clearing the image");
     rayt::gpu::LaunchParams launch{};
-    launch.scene = d;
-    launch.handle = handle;
+    launch.scene = setup.scene;
+    launch.handle = setup.handle;
     launch.accum = accum.ptr;
     DeviceBuffer<rayt::gpu::LaunchParams> dLaunch;
     RAYT_CUDA(dLaunch.allocate(1), "allocating the launch parameters");
     for (uint32_t k = 0; k < h.spp; ++k) {
         launch.sample = k;
         RAYT_CUDA(cudaMemcpy(dLaunch.ptr, &launch, sizeof(launch), cudaMemcpyHostToDevice), "copying the launch parameters");
-        RAYT_OPTIX(optixLaunch(ox.pipeline, nullptr, dLaunch.device(), sizeof(launch), &sbt, h.width, h.height, 1), "optixLaunch");
+        RAYT_OPTIX(optixLaunch(setup.pipeline, nullptr, dLaunch.device(), sizeof(launch), &setup.sbt, h.width, h.height, 1), "optixLaunch");
         RAYT_CUDA(cudaDeviceSynchronize(), "rendering");
         if (progress) progress(k + 1, h.spp);
     }
@@ -199,5 +212,28 @@ RAYT_GPU_EXPORT int raytGpuRender(const rayt::kernel::KScene* hostScene, float* 
     // The mean, divided in float as the CPU kernel renderer divides its sums.
     const float n = float(h.spp);
     for (size_t i = 0; i < floats; ++i) out[i] = out[i] / n;
+    return 0;
+}
+
+RAYT_GPU_EXPORT int raytGpuTraceTest(const rayt::kernel::KScene* hostScene, const rayt::kernel::KRay* rays, rayt::kernel::KHit* hits, int n, char* error, int errorSize) {
+    if (n <= 0) return 0;
+    char log[1] = {};
+    OptixSetup setup;
+    if (setup.build(*hostScene, error, errorSize) != 0) return 1;
+    setup.sbt.raygenRecord = setup.raygenTrace.device();
+    DeviceBuffer<rayt::kernel::KRay> dRays;
+    DeviceBuffer<rayt::kernel::KHit> dHits;
+    RAYT_CUDA(upload(dRays, rays, size_t(n)), "copying the rays");
+    RAYT_CUDA(dHits.allocate(size_t(n)), "allocating the hits");
+    rayt::gpu::LaunchParams launch{};
+    launch.scene = setup.scene;
+    launch.handle = setup.handle;
+    launch.rays = dRays.ptr;
+    launch.hits = dHits.ptr;
+    DeviceBuffer<rayt::gpu::LaunchParams> dLaunch;
+    RAYT_CUDA(upload(dLaunch, &launch, 1), "copying the launch parameters");
+    RAYT_OPTIX(optixLaunch(setup.pipeline, nullptr, dLaunch.device(), sizeof(launch), &setup.sbt, unsigned(n), 1, 1), "optixLaunch");
+    RAYT_CUDA(cudaDeviceSynchronize(), "tracing");
+    RAYT_CUDA(cudaMemcpy(hits, dHits.ptr, size_t(n) * sizeof(*hits), cudaMemcpyDeviceToHost), "copying the hits to the host");
     return 0;
 }

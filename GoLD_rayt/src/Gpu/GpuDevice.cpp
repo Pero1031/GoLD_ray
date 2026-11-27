@@ -50,7 +50,8 @@ namespace rayt::gpu {
                 return;
             }
             if (!Resolve(h, "raytGpuApiVersion", module.apiVersion, failure) || !Resolve(h, "raytGpuQuery", module.query, failure) ||
-                !Resolve(h, "raytGpuMathTest", module.mathTest, failure) || !Resolve(h, "raytGpuMaterialTest", module.materialTest, failure) || !Resolve(h, "raytGpuRender", module.render, failure))
+                !Resolve(h, "raytGpuMathTest", module.mathTest, failure) || !Resolve(h, "raytGpuMaterialTest", module.materialTest, failure) || !Resolve(h, "raytGpuRender", module.render, failure) ||
+                !Resolve(h, "raytGpuTraceTest", module.traceTest, failure))
                 return;
             const int v = module.apiVersion();
             if (v != RAYT_GPU_API_VERSION) {

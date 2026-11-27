@@ -42,6 +42,13 @@ extern "C" __global__ void __raygen__render() {
     a[2] += L.z;
 }
 
+/// The tracer check: the closest hit of one given ray (no shading), to compare OptiX's answers with Embree's.
+extern "C" __global__ void __raygen__trace() {
+    const uint32_t i = optixGetLaunchIndex().x;
+    const rayt::kernel::KRay r = params.rays[i];
+    params.hits[i] = OptixTracer{}.closest(rayt::kernel::V3(r.o.x, r.o.y, r.o.z), rayt::kernel::V3(r.d.x, r.d.y, r.d.z), r.tmin, r.tmax);
+}
+
 extern "C" __global__ void __miss__radiance() { optixSetPayload_3(rayt::kernel::kNoHit); }
 
 extern "C" __global__ void __miss__shadow() { optixSetPayload_0(0); }

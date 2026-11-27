@@ -62,6 +62,10 @@ bool RenderKernelCpu(const kernel::KScene& s, std::vector<float>& mean, std::str
 bool RenderKernelGpu(const kernel::KScene& s, std::vector<float>& mean, std::string& why, bool progress, bool* unavailable = nullptr,
     std::string* device = nullptr);
 
+/// Renders a kernel scene on the CPU, one thread, and writes down every ray it casts with Embree's answer: closest-hit queries
+/// (shadow 0) as they are, shadow queries (shadow 1) as prim 0 (blocked) or kNoHit. For comparing the GPU's tracer with Embree's.
+bool RecordPathRays(const kernel::KScene& s, std::vector<kernel::KRay>& rays, std::vector<kernel::KHit>& hits, std::vector<uint8_t>& shadow, std::string& why);
+
 /// The spectrum of an emission material (Scenes/FileScene.cpp).
 bool MakeEmissionSpectrum(const SpectrumSpec& s, EmissionSpectrum& out);
 

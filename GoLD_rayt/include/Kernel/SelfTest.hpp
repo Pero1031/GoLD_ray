@@ -80,22 +80,25 @@ namespace rayt::kernel {
 
     struct MaterialCase {
         KFloat3 wo, wi, ns, ng;   ///< world space; ns and ng turned toward wo as at a hit
-        float u1, u2;             ///< the sample's random numbers
+        float u1, u2, u3;         ///< the sample's random numbers
+        uint32_t front;           ///< the ray came from the outside
     };
 
     struct MaterialOut {
         float f[3], pdf;          ///< bsdfEval, bsdfPdf at (wo, wi)
-        uint32_t sampled;         ///< bsdfSample succeeded
+        uint32_t sampled, delta;  ///< bsdfSample succeeded; its event is specular
         float wi[3], sf[3], spdf; ///< its direction, value and density
     };
 
     RAYT_HD_INLINE void evalMaterialCase(const KMaterial& m, const MaterialCase& c, MaterialOut& out) {
         const Vec3<float> wo(c.wo.x, c.wo.y, c.wo.z), wi(c.wi.x, c.wi.y, c.wi.z), ns(c.ns.x, c.ns.y, c.ns.z), ng(c.ng.x, c.ng.y, c.ng.z);
-        const Vec3<float> f = bsdfEval(m, wo, wi, ns, ng);
+        const bool front = c.front != 0;
+        const Vec3<float> f = bsdfEval(m, front, wo, wi, ns, ng);
         out.f[0] = f.x; out.f[1] = f.y; out.f[2] = f.z;
-        out.pdf = bsdfPdf(m, wo, wi, ns, ng);
+        out.pdf = bsdfPdf(m, front, wo, wi, ns, ng);
         BsdfSample<float> s{};
-        out.sampled = bsdfSample(m, wo, ns, ng, c.u1, c.u2, s) ? 1u : 0u;
+        out.sampled = bsdfSample(m, front, wo, ns, ng, c.u1, c.u2, c.u3, s) ? 1u : 0u;
+        out.delta = s.delta ? 1u : 0u;
         out.wi[0] = s.wi.x; out.wi[1] = s.wi.y; out.wi[2] = s.wi.z;
         out.sf[0] = s.f.x; out.sf[1] = s.f.y; out.sf[2] = s.f.z;
         out.spdf = s.pdf;

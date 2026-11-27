@@ -16,7 +16,15 @@ namespace rayt::kernel {
 
     struct KFloat3 { float x, y, z; };
 
-    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1, kMatConductor = 2 };
+    constexpr uint32_t kNoHit = 0xffffffffu;
+
+    /// A ray's closest hit as a tracer reports it: distance, barycentrics of vertices 1 and 2, triangle index (kNoHit: none).
+    struct KHit { float t, b1, b2; uint32_t prim; };
+
+    /// A ray for the tracer checks (--scene gpu): origin, direction, interval.
+    struct KRay { KFloat3 o, d; float tmin, tmax; };
+
+    enum : uint32_t { kMatDiffuse = 0, kMatEmission = 1, kMatConductor = 2, kMatDielectric = 3 };
 
     /// Rows of the GGX directional-albedo table (Microfacet/GGXAlbedo.hpp, GGXAlbedoTable::kMu).
     constexpr int kAlbedoMu = 32;
@@ -36,12 +44,24 @@ namespace rayt::kernel {
         T eRow[kAlbedoMu];             ///< E(mu) at mu = i / (kAlbedoMu - 1) for this alpha
     };
 
+    /**
+     * @brief A dielectric interface as the engine's Dielectric holds it (isotropic, no dispersion, nothing inside): the relative index
+     *        (inside / outside), whether it is smooth (a delta lobe: alpha below 0.001), and the GGX alpha of a rough one (clamped as
+     *        GGXDistribution clamps it).
+     */
+    template <class T> struct DielectricParams {
+        T ior;
+        T alpha;
+        uint32_t smooth;
+    };
+
     struct KMaterial {
-        uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor
+        uint32_t type;             ///< kMatDiffuse | kMatEmission | kMatConductor | kMatDielectric
         uint32_t twoSided;         ///< emission: emits from both faces
         float albedo[3];           ///< diffuse: reflectance (linear RGB)
         float emission[3];         ///< emission: radiance (linear RGB)
         ConductorParams<float> conductor;   ///< conductor
+        DielectricParams<float> dielectric; ///< dielectric
     };
 
     /// An emitting parallelogram that next-event estimation samples: corner + a edge1 + b edge2, a, b in [0, 1).

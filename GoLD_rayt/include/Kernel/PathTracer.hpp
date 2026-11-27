@@ -30,12 +30,8 @@ namespace rayt::kernel {
 
     using V3 = Vec3<float>;
 
-    constexpr uint32_t kNoHit = 0xffffffffu;
     constexpr float kFloatMax = 3.402823466e38f;
     constexpr float kInvPi = 0.318309886183790671538f;
-
-    /// A ray's closest hit: distance, barycentrics of vertices 1 and 2, triangle index (kNoHit: none).
-    struct KHit { float t, b1, b2; uint32_t prim; };
 
     RAYT_HD_INLINE V3 toV3(const KFloat3& a) { return V3(a.x, a.y, a.z); }
 
@@ -161,9 +157,10 @@ namespace rayt::kernel {
                 break;
             }
 
-            // ---- a reflecting surface: one light sample (PathIntegrator::estimateDirect), then the BSDF sample ----
+            // ---- a scattering surface: one light sample (PathIntegrator::estimateDirect; none at a delta material, whose eval is 0),
+            //      then the BSDF sample ----
             const V3 wo = -d;
-            if (s.numLights > 0) {
+            if (s.numLights > 0 && !bsdfIsDelta(m)) {
                 const uint32_t li = pickLight(s.lightCdf, s.numLights, rng.nextFloat());
                 const KQuadLight& q = s.lights[li];
                 const float a = rng.nextFloat(), b = rng.nextFloat();
@@ -174,15 +171,15 @@ namespace rayt::kernel {
                 const V3 wi = toL / dist;
                 float cosL = -kdot(wi, toV3(q.normal));
                 if (q.twoSided) cosL = kabs(cosL);
-                if (cosL > 0.0f && kdot(wi, ng) > 0.0f) {   // the materials so far only reflect: light from below ng gives nothing
-                    const V3 f = bsdfEval(m, wo, wi, ns, ng);
+                if (cosL > 0.0f) {
+                    const V3 f = bsdfEval(m, front, wo, wi, ns, ng);
                     if (kmaxComponent(f) > 0.0f) {
-                        const V3 org = offsetRayOrigin(p, ng);
+                        const V3 org = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // on the side the light is on (rough glass transmits)
                         const V3 toL2 = pl - org;
                         const float distB = klength(toL2);
                         if (!tracer.occluded(org, toL2 / distB, 0.0f, distB * 0.9999f)) {
                             const float pdfL = (s.lightCdf[li + 1] - s.lightCdf[li]) * dist2 / (cosL * q.area);
-                            const float pdfB = bsdfPdf(m, wo, wi, ns, ng);
+                            const float pdfB = bsdfPdf(m, front, wo, wi, ns, ng);
                             const float w = pdfB > 0.0f ? pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB) : 1.0f;
                             const float cosT = kabs(kdot(ns, wi));
                             L += beta * f * V3(q.radiance[0], q.radiance[1], q.radiance[2]) * (cosT * w / pdfL);
@@ -191,11 +188,14 @@ namespace rayt::kernel {
                 }
             }
 
-            const float u1 = rng.nextFloat(), u2 = rng.nextFloat();
+            const float u1 = rng.nextFloat(), u2 = rng.nextFloat(), u3 = rng.nextFloat();
             BsdfSample<float> bs;
-            if (!bsdfSample(m, wo, ns, ng, u1, u2, bs)) break;   // no sample (below the geometric surface, ...): the path ends
-            if (!(bs.pdf > 1e-8f)) break;
-            beta *= bs.f * kabs(kdot(ns, bs.wi)) / bs.pdf;
+            if (!bsdfSample(m, front, wo, ns, ng, u1, u2, u3, bs)) break;   // no sample (below the geometric surface, total reflection, ...)
+            if (bs.delta) beta *= bs.f;   // f is already the weight of the specular event (PathIntegrator::updateThroughput)
+            else {
+                if (!(bs.pdf > 1e-8f)) break;
+                beta *= bs.f * kabs(kdot(ns, bs.wi)) / bs.pdf;
+            }
             if (kmaxComponent(beta) <= 0.0f) break;
             if (depth >= 3) {
                 const float q = kmin(kmax(kmaxComponent(beta), 0.05f), 0.95f);
@@ -203,9 +203,9 @@ namespace rayt::kernel {
                 beta /= q;
             }
             lastPdf = bs.pdf;
-            lastDelta = false;
+            lastDelta = bs.delta;
             const V3 wi = bs.wi;
-            o = offsetRayOrigin(p, ng);
+            o = offsetRayOrigin(p, kdot(wi, ng) > 0.0f ? ng : -ng);   // a refracted ray leaves from the other side
             d = wi;
         }
         return L;
